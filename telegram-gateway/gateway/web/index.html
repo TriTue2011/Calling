@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head><meta charset="utf-8"><title>Telegram Gateway — Quản lý nội bộ</title></head>
+<body>
+<h1>Telegram Gateway</h1>
+<p>Trang quản lý nội bộ, chỉ dùng trong LAN. Đăng nhập tài khoản phụ
+Telegram (OTP/2FA/QR) chỉ thực hiện ở đây — không qua API của Home
+Assistant.</p>
+<p><strong>Trạng thái P1+P2:</strong> đăng nhập thật qua TDLib (OTP →
+2FA nếu server yêu cầu → QR tùy chọn), gửi tin/media/voice thật qua
+MTProto, state machine gọi + glue TDLib→NTgCalls + TTS vào cuộc gọi +
+mic HA theo khối đã có. Định dạng PCM gọi riêng tư vẫn chờ T1 xác minh
+(tiền lệ group call s16le 48 kHz, chưa phải kết luận cho gọi riêng tư).
+Cuộc gọi thật với tài khoản phụ là bước T1, chưa chạy ở đây.</p>
+<h2>Đăng nhập tài khoản phụ</h2>
+<ol>
+  <li>Nhập số điện thoại → nhận <code>login_id</code> (gọi
+    <code>POST /ui/api/accounts</code> kèm Bearer token).</li>
+  <li>Nhập mã OTP (5–6 chữ số) → <code>POST
+    /ui/api/accounts/{login_id}/code</code>. Nếu server yêu cầu 2FA thì
+    nhập tiếp mật khẩu → <code>POST
+    /ui/api/accounts/{login_id}/password</code>.</li>
+  <li>Hoặc đăng nhập bằng QR: <code>POST /ui/api/accounts/qr</code> →
+    quét mã → <code>POST
+    /ui/api/accounts/{login_id}/qr-confirm</code>.</li>
+  <li>Sau 3 mã sai, login_id bị khóa 15 phút (chống flood). FLOOD_WAIT
+    của Telegram được tôn trọng đúng số giây server trả.</li>
+</ol>
+<p>Token gateway, mã OTP và mật khẩu 2FA không bao giờ hiện trong log
+hay phản hồi của gateway.</p>
+<h2>Cảnh báo kiến trúc</h2>
+<p>Một tài khoản MTProto <strong>không</strong> chạy cùng lúc cả module
+web2api <code>telegram-user</code> lẫn gateway Docker này (tranh
+session/updates). Lúc triển khai: dùng 2 tài khoản phụ riêng (mỗi đường
+một tài khoản), hoặc chỉ chạy một đường tại một thời điểm.</p>
+</body>
+</html>
