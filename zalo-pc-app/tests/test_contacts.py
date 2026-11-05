@@ -51,6 +51,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
 from mock_server import MockZalo, TEST_PARAM_KEY, TEST_SESSION_KEY  # noqa: E402
+from test_addon_client import FakeAddonClient  # noqa: E402
+from zalo_pc_app import addon_client as addon_client_mod  # noqa: E402
 from zalo_pc_app import contacts as contacts_mod  # noqa: E402
 from zalo_pc_app import protocol  # noqa: E402
 from zalo_pc_app import server as app_server  # noqa: E402
@@ -565,9 +567,11 @@ def test_raw_slash_in_params_rejected():
         mock.stop()
 
 
-def _start_app_server(mock, tmp):
+def _start_app_server(mock, tmp, addon=None):
     app_server.PARAM_CIPHER_KEY = TEST_PARAM_KEY
     state = app_server.AppState(tmp)
+    if addon is not None:
+        state.addon = addon
     app_server.STATE = state
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), app_server.Handler)
     port = httpd.server_address[1]
@@ -634,6 +638,76 @@ def test_contacts_error_attribution():
         fqs = [qs for p, qs, _ in mock.seen
                if p == "/api/social/friend/getfriends"]
         assert [q.get("init") for q in fqs] == ["1", "1", None], fqs
+    finally:
+        if httpd:
+            httpd.shutdown()
+        mock.stop()
+
+
+def test_contacts_via_addon():
+    """Uy quyen qua sidecar (FakeAddonClient): source "addon", hang
+    ban/nhom tu shape User[] + gridInfoMap (API-MAP §3)."""
+    tmp = tempfile.mkdtemp(prefix="zalo-pc-addon-contacts-")
+    mock = MockZalo().start()
+    httpd = None
+    try:
+        patch_domains(mock)
+        httpd, base = _start_app_server(mock, tmp,
+                                        addon=FakeAddonClient())
+        _login_via_qr(base)
+        status, body = _api(base, "GET", "/api/contacts")
+        assert status == 200, body
+        assert body["source"] == "addon", body
+        names = [r["name"] for r in body["friends"]["rows"]]
+        assert names == ["Ban A", "Ban B"], names
+        gnames = [r["name"] for r in body["groups"]["rows"]]
+        assert gnames == ["Nhom Test", "Nhom Hai"], gnames
+        assert body["groups"]["rows"][0]["member_count"] == 3, body
+    finally:
+        if httpd:
+            httpd.shutdown()
+        mock.stop()
+
+
+def test_contacts_addon_failure_falls_back_to_pc():
+    """Sidecar chet: /api/contacts roi ve duong PC truc tiep, source
+    "pc-fallback", hang van day du (khong 502)."""
+    tmp = tempfile.mkdtemp(prefix="zalo-pc-addon-fallback-")
+    mock = MockZalo().start()
+    httpd = None
+    try:
+        patch_domains(mock)
+        httpd, base = _start_app_server(
+            mock, tmp,
+            addon=FakeAddonClient(
+                fail_with=addon_client_mod.AddonUnreachable("down")))
+        _login_via_qr(base)
+        status, body = _api(base, "GET", "/api/contacts")
+        assert status == 200, body
+        assert body["source"] == "pc-fallback", body
+        assert body["friends"]["rows"], body
+        assert body["groups"]["rows"], body
+    finally:
+        if httpd:
+            httpd.shutdown()
+        mock.stop()
+
+
+def test_contacts_status_addon_field():
+    """GET /api/status bao addon.logged_in tu sidecar (fake)."""
+    tmp = tempfile.mkdtemp(prefix="zalo-pc-addon-status-")
+    mock = MockZalo().start()
+    httpd = None
+    try:
+        patch_domains(mock)
+        httpd, base = _start_app_server(mock, tmp,
+                                        addon=FakeAddonClient())
+        _login_via_qr(base)
+        status, body = _api(base, "GET", "/api/status")
+        assert status == 200, body
+        assert body["addon"]["logged_in"] is True, body
+        assert body["addon"]["ok"] is True, body
+        assert body["addon"]["accounts"][0]["ownId"] == "own-1", body
     finally:
         if httpd:
             httpd.shutdown()

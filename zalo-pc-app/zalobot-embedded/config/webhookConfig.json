@@ -1,0 +1,4 @@
+{
+  "default": { "messageWebhookUrl": "", "groupEventWebhookUrl": "", "reactionWebhookUrl": "" },
+  "accounts": {}
+}

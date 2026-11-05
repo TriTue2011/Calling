@@ -33,6 +33,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
 from mock_server import MockZalo, TEST_PARAM_KEY, TEST_SESSION_KEY  # noqa: E402
+from test_addon_client import FakeAddonClient  # noqa: E402
+from zalo_pc_app import addon_client as addon_client_mod  # noqa: E402
 from zalo_pc_app import protocol  # noqa: E402
 from zalo_pc_app import server as app_server  # noqa: E402
 from zalo_pc_app import services as svc_mod  # noqa: E402
@@ -93,35 +95,49 @@ def test_catalog_covers_all_96():
             by_no[e["addon_no"]] = e
     assert sorted(by_no) == list(range(1, 97)), sorted(by_no)
     assert cat["counts"]["total_96"] == 96, cat["counts"]
-    # Honest split: 48 supported + 2 already viewable + 11 chat +
-    # 10 zalobot-only + 25 with no PC path = 96.
+    # PIVOT addon-embedded (2026-11-05): trong 96 co 79 supported
+    # (48 PC + 25 no-PC-path + 6 zalobot-web-only) + 2 view + 11 chat
+    # + 4 zalobot-only (proxies x3 + get_login_qr) = 96; khong con
+    # "unsupported" nao. counts["supported"]=84 cong them 5 extra
+    # (addon_no None, deu supported) ngoai bang 96.
     supported_96 = [e for e in by_no.values()
                     if e["status"] == "supported"]
-    assert len(supported_96) == 48, len(supported_96)
+    assert len(supported_96) == 79, len(supported_96)
+    assert cat["counts"]["supported"] == 84, cat["counts"]
     assert cat["counts"]["view"] == 2, cat["counts"]
     assert cat["counts"]["chat"] == 11, cat["counts"]
-    assert cat["counts"]["zalobot"] == 10, cat["counts"]
-    assert cat["counts"]["unsupported"] == 25, cat["counts"]
+    assert cat["counts"]["zalobot"] == 4, cat["counts"]
+    assert cat["counts"].get("unsupported", 0) == 0, cat["counts"]
     # The 5 ops outside the 96 (quote, seen, fetchImportant, group
     # link detail, label update) carry addon_no None and are all
     # supported — they must not inflate the 96 count.
     extras = [e for e in cat["services"] if e["addon_no"] is None]
     assert len(extras) == 5, extras
     assert all(e["status"] == "supported" for e in extras), extras
-    # Every OPS action appears in the catalog exactly once.
+    # Every OPS action appears in the catalog exactly once; the
+    # catalog also carries addon-only actions (in ADDON_OPS) that the
+    # PC dispatch table never had — those are the newly-supported
+    # ops from the pivot.
     actions = [e["action"] for e in cat["services"] if e["action"]]
-    assert sorted(actions) == sorted(svc_mod.OPS), actions
+    assert len(actions) == len(set(actions)), "duplicate action"
+    assert set(svc_mod.OPS) <= set(actions), set(svc_mod.OPS) - set(actions)
+    assert set(actions) <= set(svc_mod.OPS) | set(svc_mod.ADDON_OPS), \
+        set(actions) - set(svc_mod.OPS) - set(svc_mod.ADDON_OPS)
     # Unsupported entries carry a reason and no action (no button).
     for e in cat["services"]:
         if e["status"] in ("unsupported", "zalobot", "chat"):
             assert e["action"] is None, e
             assert e["reason"], e
-    # Spot-check the headline "no PC path" cases name their reason.
+    # Spot-check: cac op tung "no PC path" nay chay qua addon.
     by_addon = {e["addon"]: e for e in cat["services"]}
-    assert "reaction" in by_addon["add_reaction"]["reason"].lower()
-    assert "ghim" in by_addon["set_pinned_conversation"]["reason"]
-    assert "poll" in by_addon["create_poll"]["reason"].lower()
-    assert "webhook" in by_addon["set_account_webhook"]["reason"].lower()
+    for addon in ("add_reaction", "set_pinned_conversation",
+                  "create_poll", "set_account_webhook"):
+        assert by_addon[addon]["status"] == "supported", by_addon[addon]
+        assert by_addon[addon]["action"] == addon, by_addon[addon]
+    # 4 op zalobot con lai: proxies x3 + get_login_qr.
+    assert sorted(e["addon"] for e in cat["services"]
+                  if e["status"] == "zalobot") == \
+        ["add_proxy", "get_login_qr", "get_proxies", "remove_proxy"]
     assert "khung chat" in by_addon["send_message"]["reason"]
 
 
@@ -389,16 +405,20 @@ def test_dispatch_refusals_and_validation():
     try:
         patch_domains(mock)
         svc = make_svc()
+        # PIVOT: cac op tung "unsupported"/"zalobot" nay gio la
+        # "supported" (chi qua addon) — PC dispatch van tu choi
+        # (khong co duong PC), nhung status phan anh dung catalog.
+        # Chi get_proxies (khong co route JSON) con "zalobot".
         cases = [
-            ("add_reaction", "unsupported"),
-            ("set_pinned_conversation", "unsupported"),
-            ("create_poll", "unsupported"),
-            ("add_quick_message", "unsupported"),
-            ("send_friend_request", "unsupported"),
-            ("block_user", "unsupported"),
-            ("set_account_webhook", "zalobot"),
+            ("add_reaction", "supported"),
+            ("set_pinned_conversation", "supported"),
+            ("create_poll", "supported"),
+            ("add_quick_message", "supported"),
+            ("send_friend_request", "supported"),
+            ("block_user", "supported"),
+            ("set_account_webhook", "supported"),
             ("get_proxies", "zalobot"),
-            ("get_logged_accounts", "zalobot"),
+            ("get_logged_accounts", "supported"),
             ("send_message", "chat"),
             ("send_file", "chat"),
             ("send_video", "chat"),
@@ -437,9 +457,11 @@ def test_dispatch_refusals_and_validation():
 
 
 # ---------------------------------------------------------------- HTTP API
-def _start_app_server(mock, tmp):
+def _start_app_server(mock, tmp, addon=None):
     app_server.PARAM_CIPHER_KEY = TEST_PARAM_KEY
     state = app_server.AppState(tmp)
+    if addon is not None:
+        state.addon = addon
     app_server.STATE = state
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), app_server.Handler)
     port = httpd.server_address[1]
@@ -512,16 +534,19 @@ def test_svc_http_api():
         assert status == 200, body
         assert body["data"]["path"] == "/api/group/updateinfo", body
 
-        # An unsupported service answers 409 with its status + a
-        # clear reason — never a fake success.
+        # Op chi chay qua addon, ma khong co sidecar: 502
+        # addon_unavailable (khong phai 409 "khong ho tro").
         status, body = _api(base, "POST", "/api/svc/add_reaction",
                             {"thread_id": "20001", "type": "user",
                              "msg_id": "m1", "icon": "like"})
-        assert status == 409, body
-        assert body["status"] == "unsupported", body
-        assert "reaction" in body["error"].lower(), body
+        assert status == 502, body
+        assert "addon_unavailable" in body["error"], body
         status, body = _api(base, "POST", "/api/svc/set_account_webhook",
                             {"own_id": "10001"})
+        assert status == 502, body
+        assert "addon_unavailable" in body["error"], body
+        # Op khong co route JSON nao (proxies): van 409 zalobot.
+        status, body = _api(base, "POST", "/api/svc/get_proxies", {})
         assert status == 409 and body["status"] == "zalobot", body
         status, body = _api(base, "POST", "/api/svc/send_message",
                             {"thread_id": "20001", "type": "user",
@@ -552,6 +577,117 @@ def test_svc_http_api():
             except Exception:
                 pass
         mock.stop()
+
+
+def test_svc_http_api_via_addon():
+    """Uy quyen /api/svc/* qua sidecar (FakeAddonClient): cac op tung
+    "Chua ho tro" nay tra 200; op khong co -> 404; sidecar chet ->
+    502; catalog qua HTTP bao 84 supported / 4 zalobot."""
+    tmp = tempfile.mkdtemp(prefix="zalo-pc-svc-addon-")
+    mock = MockZalo().start()
+    httpd = None
+    try:
+        patch_domains(mock)
+        fake = FakeAddonClient()
+        httpd, base = _start_app_server(mock, tmp, addon=fake)
+        status, body = _api(base, "GET", "/api/svc/catalog")
+        assert status == 200, body
+        assert body["counts"]["supported"] == 84, body["counts"]
+        assert body["counts"]["zalobot"] == 4, body["counts"]
+
+        _login_via_qr(base)
+
+        # add_reaction: truoc day 409 "unsupported", nay qua addon.
+        status, body = _api(base, "POST", "/api/svc/add_reaction",
+                            {"thread_id": "20001", "type": "user",
+                             "msg_id": "m1", "icon": "like"})
+        assert status == 200 and body["ok"] is True, body
+        svc_calls = [c for c in fake.calls if c[0] == "svc"]
+        assert len(svc_calls) == 1, svc_calls
+        assert svc_calls[0][1][0] == "addReaction", svc_calls
+        params = svc_calls[0][1][1]
+        assert params["icon"] == "like", params
+        assert params["dest"]["threadId"] == "20001", params
+        assert params["dest"]["type"] == 0, params
+
+        # block_user (op chi co tren addon) + get_logged_accounts.
+        status, body = _api(base, "POST", "/api/svc/block_user",
+                            {"thread_id": "20001", "type": "user"})
+        assert status == 200 and body["ok"] is True, body
+        status, body = _api(base, "POST",
+                            "/api/svc/get_logged_accounts", {})
+        assert status == 200 and body["ok"] is True, body
+
+        # Webhook account qua addon (special, khong phai svc generic).
+        status, body = _api(base, "POST", "/api/svc/set_account_webhook",
+                            {"own_id": "own-1",
+                             "message_webhook_url":
+                             "http://127.0.0.1:9/hook"})
+        assert status == 200 and body["ok"] is True, body
+        assert fake.webhook_config["own-1"]["messageWebhookUrl"] == \
+            "http://127.0.0.1:9/hook", fake.webhook_config
+
+        # Unknown action -> 404 (khong doi khi co addon).
+        status, body = _api(base, "POST", "/api/svc/khong_co",
+                            {"thread_id": "20001"})
+        assert status == 404, body
+
+        # Chat-frame op van 409 (khong qua addon).
+        status, body = _api(base, "POST", "/api/svc/send_message",
+                            {"thread_id": "20001", "type": "user",
+                             "message": "xin chao"})
+        assert status == 409 and body["status"] == "chat", body
+
+        # Sidecar chet: op addon tra 502, khong roi ve PC.
+        app_server.STATE.addon = FakeAddonClient(
+            fail_with=addon_client_mod.AddonUnreachable("down"))
+        status, body = _api(base, "POST", "/api/svc/add_reaction",
+                            {"thread_id": "20001", "type": "user",
+                             "msg_id": "m1", "icon": "like"})
+        assert status == 502, body
+        assert str(body.get("error", "")).startswith(
+            "addon_unavailable"), body
+        httpd.shutdown()
+    finally:
+        if httpd:
+            try:
+                httpd.shutdown()
+            except Exception:
+                pass
+        mock.stop()
+
+
+def test_dispatch_via_addon_unit():
+    """dispatch_via_addon (unit, khong HTTP): body map dung cho undo/
+    delete/reaction + thread type so; op ngoai ADDON_OPS -> 409."""
+    fake = FakeAddonClient()
+    data = svc_mod.dispatch_via_addon(
+        fake, "undo_message",
+        {"thread_id": "20001", "type": "user", "msg_id": "m1",
+         "cli_msg_id": "c1"})
+    assert data == {"echo_op": "undo"}, data
+    op, params = fake.calls[-1][1]
+    assert op == "undo", fake.calls
+    assert params["payload"] == {"msgId": "m1", "cliMsgId": "c1"}, params
+    assert params["threadId"] == "20001" and params["type"] == 0, params
+    data = svc_mod.dispatch_via_addon(
+        fake, "add_reaction",
+        {"thread_id": "30001", "type": "group", "msg_id": "m2",
+         "cli_msg_id": "c2", "icon": "like"})
+    assert data == {"echo_op": "addReaction"}, data
+    op, params = fake.calls[-1][1]
+    assert op == "addReaction", fake.calls
+    assert params["dest"]["type"] == 1, params
+    assert params["icon"] == "like", params
+    # Op khong co trong ADDON_OPS (forward can body tin) -> khong
+    # co thao tac addon (UnknownAction o tang dispatch; HTTP tra 404).
+    try:
+        svc_mod.dispatch_via_addon(
+            fake, "forward_message",
+            {"thread_id": "20001", "type": "user"})
+        raise AssertionError("expected UnknownAction")
+    except svc_mod.UnknownAction:
+        pass
 
 
 if __name__ == "__main__":

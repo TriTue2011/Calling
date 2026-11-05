@@ -1,9 +1,12 @@
-"""Chat theo thread (module chat.py + route /api/thread/*) doi voi
-mock server.
+"""Chat theo thread (route /api/thread/* qua sidecar addon) doi voi
+mock server + FakeAddonClient.
 
-Mock kiem chung doc lap (openssl + hashlib): duong dan, body AES,
-query type=2/11, multipart fileContent. Khong dang nhap that,
-khong gui tin that.
+PIVOT 2026-11-05: duong PC truc tiep (chat.Chat.send_text/send_file/
+send_photo/send_voice/send_typing/send_seen/history_group) DA XOA —
+gui tin di qua zca-js sendMessage qua sidecar (send-114). Test o day
+kiem chung uy quyen qua FakeAddonClient (tests/test_addon_client.py)
+va route HTTP that cua server app. Khong dang nhap that, khong gui
+tin that.
 """
 
 import json
@@ -20,6 +23,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
 from mock_server import MockZalo, TEST_SESSION_KEY  # noqa: E402
+from test_addon_client import FakeAddonClient  # noqa: E402
+from zalo_pc_app import addon_client as addon_client_mod  # noqa: E402
 from zalo_pc_app import chat as chat_mod  # noqa: E402
 from zalo_pc_app import protocol  # noqa: E402
 from zalo_pc_app import server as app_server  # noqa: E402
@@ -37,119 +42,67 @@ def patch_domains(mock):
     chat_mod.GROUP_DOMAIN = mock.base
 
 
-def make_chat(mock):
-    t = app_server.make_transport("sek-test")
-    return chat_mod.Chat(t, "dev-1", TEST_SESSION_KEY)
+def test_send_text_via_addon():
+    """Gui text qua FakeAddonClient: type so (0/1), khong co clientId
+    tu sinh — zca-js tu sinh tu Date.now() (API-MAP §4.2)."""
+    fake = FakeAddonClient()
+    data = fake.send_message("20001", 0, "Xin chao")
+    assert data["message"]["msgId"] == 9001, data
+    data = fake.send_message("30001", 1, "Chao ca nhom")
+    assert data["message"]["msgId"] == 9001, data
+    name, args, kwargs = fake.calls[0]
+    assert name == "send_message" and args[1] == 0, fake.calls
+    assert fake.calls[1][1][1] == 1, fake.calls
+    # msgId tra ve dung lam id tin local (khong co cliMsgId — API-MAP §4.2).
+    assert app_server.Handler._addon_msg_id(
+        {"message": {"msgId": 123}}) == "123"
+    assert app_server.Handler._addon_msg_id(
+        {"attachment": [{"msgId": 7}]}) == "7"
+    assert app_server.Handler._addon_msg_id({}) == ""
 
 
-def test_send_text_user_and_group():
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        chat = make_chat(mock)
-        res = chat.send_text("user", "20001", "Xin chao")
-        assert res["data"]["msgId"] == "msg-1", res
-        assert res["client_id"], res
-        paths = [p for p, _, _ in mock.seen
-                 if p == "/api/message/sms"]
-        assert len(paths) == 1, mock.seen
-        res = chat.send_text("group", "30001", "Chao ca nhom")
-        assert res["data"]["msgId"] == "msg-1", res
-        gpaths = [p for p, _, _ in mock.seen
-                  if p == "/api/group/sendmsg"]
-        assert len(gpaths) == 1, mock.seen
-        try:
-            chat.send_text("user", "20001", "   ")
-            raise AssertionError("expected ValueError on empty message")
-        except ValueError:
-            pass
-    finally:
-        mock.stop()
-
-
-def test_group_history():
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        chat = make_chat(mock)
-        hist = chat.history_group("30001", 50)
-        assert hist["has_more"] is False, hist
-        assert [m["text"] for m in hist["messages"]] == \
-            ["Chao ca nhom", "Chao Ban A"], hist
-        assert [m["sender_id"] for m in hist["messages"]] == \
-            ["20001", "20002"], hist
-        assert hist["messages"][0]["time"] == 1762345600, hist
-        paths = [p for p, _, _ in mock.seen
-                 if p == "/api/group/history"]
-        assert len(paths) == 1, mock.seen
-    finally:
-        mock.stop()
+def test_group_history_via_addon():
+    fake = FakeAddonClient()
+    env = fake.group_history_full("30001", 50)
+    assert env["source"] == "zca-js-2.1.2", env
+    assert env["groupName"] == "Nhom Test", env
+    items = env["data"]["groupMsgs"]
+    msgs = [chat_mod.normalize_addon_group_message(it) for it in items]
+    assert [m["text"] for m in msgs] == ["Chao ca nhom", "Chao Ban A"], msgs
+    assert [m["sender_id"] for m in msgs] == ["20001", "20002"], msgs
+    assert [m["sender_name"] for m in msgs] == ["Ban A", "Ban B"], msgs
+    assert msgs[0]["time"] == 1762345600, msgs
 
 
 def test_user_history_has_no_endpoint():
-    """Lich su 1-1: KHONG co endpoint HTTPS — history_user_
-    unavailable() khong goi gi ca, chi tra thong bao gioi han."""
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        chat = make_chat(mock)
-        res = chat.history_user_unavailable()
-        assert res["unavailable"] is True, res
-        assert "chua lay duoc qua HTTPS" in res["notice"], res
-        bad = [p for p, _, _ in mock.seen if "history" in p]
-        assert bad == [], mock.seen
-    finally:
-        mock.stop()
+    result = chat_mod.history_user_unavailable()
+    assert result["unavailable"] is True
+    assert result["messages"] == []
+    assert result["notice"]
 
 
-def test_send_file_photo_voice():
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        chat = make_chat(mock)
-        res = chat.send_file("user", "20001", "hello.txt",
-                             b"hello file", "text/plain")
-        assert res["data"]["msgId"] == "msg-file-1", res
-        res = chat.send_file("group", "30001", "bao-cao.pdf",
-                             b"%PDF-fake", "application/pdf")
-        assert res["data"]["msgId"] == "msg-file-1", res
-        res = chat.send_photo("user", "20001", "anh.jpg",
-                              b"FAKEJPEGDATA", "image/jpeg", 800, 600)
-        assert res["data"]["msgId"] == "msg-file-1", res
-        res = chat.send_photo("group", "30001", "anh.png",
-                              b"FAKEPNGDATA", "image/png", 640, 480)
-        assert res["data"]["msgId"] == "msg-file-1", res
-        res = chat.send_voice("user", "20001", "voice.mp3",
-                              b"FAKEMP3DATA", "audio/mpeg")
-        assert res["data"]["msgId"] == "msg-file-1", res
-        res = chat.send_voice("group", "30001", "voice.mp3",
-                              b"FAKEMP3DATA", "audio/mpeg")
-        assert res["data"]["msgId"] == "msg-file-1", res
-        seen = [p for p, _, _ in mock.seen]
-        for want in ("/api/message/sharefile_full",
-                     "/api/group/sharefile_full",
-                     "/api/message/photo", "/api/group/sendpt",
-                     "/api/message/voicemp3", "/api/group/sendmp3"):
-            assert seen.count(want) == 1, (want, seen)
-    finally:
-        mock.stop()
+def test_send_file_photo_voice_via_addon():
+    """sendfile/sendphoto/sendvoice qua FakeAddonClient: URL vong lap
+    duoc truyen thay vi duong dan (sidecar chi download http/https)."""
+    fake = FakeAddonClient()
+    data = fake.send_image("20001", 0,
+                           "http://127.0.0.1:9/tmp/a.jpg", message="cap")
+    assert data["message"]["msgId"] == 9002, data
+    data = fake.send_file("30001", 1, "http://127.0.0.1:9/tmp/f.pdf")
+    assert data["message"]["msgId"] == 9004, data
+    data = fake.send_voice("20001", 0, "http://127.0.0.1:9/tmp/v.aac")
+    assert data["message"]["msgId"] == 9006, data
+    kinds = [c[0] for c in fake.calls]
+    assert kinds == ["send_image", "send_file", "send_voice"], kinds
 
 
-def test_typing_and_seen():
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        chat = make_chat(mock)
-        assert chat.send_typing("user", "20001")["ok"] is True
-        assert chat.send_typing("group", "30001")["ok"] is True
-        assert chat.send_seen("user", "20001", ["m1"])["ok"] is True
-        assert chat.send_seen("group", "30001", ["m1", "m2"])["ok"] is True
-        seen = [p for p, _, _ in mock.seen]
-        for want in ("/api/message/typing", "/api/group/typing",
-                     "/api/message/seen", "/api/group/seen"):
-            assert seen.count(want) == 1, (want, seen)
-    finally:
-        mock.stop()
+def test_typing_and_seen_via_addon():
+    fake = FakeAddonClient()
+    assert fake.typing("20001") == {"status": 0}
+    assert fake.seen("20001", 0, ["m1", "m2"]) == {"status": 0}
+    assert fake.delivered("20001", 0, ["m1"]) == {"status": 0}
+    assert [c[0] for c in fake.calls] == ["typing", "seen",
+                                          "delivered"], fake.calls
 
 
 def test_multipart_roundtrip():
@@ -218,6 +171,8 @@ def test_server_thread_routes():
         patch_domains(mock)
         state = app_server.AppState(tmp)
         app_server.STATE = state
+        fake_addon = FakeAddonClient()
+        state.addon = fake_addon  # uy quyen sidecar (fake) cho test nay
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), app_server.Handler)
         port = httpd.server_address[1]
         BASE = "http://127.0.0.1:%d" % port
@@ -231,6 +186,13 @@ def test_server_thread_routes():
         assert status == 401, body
 
         login_via_mock()
+
+        # /api/status: truong addon tu sidecar (fake) — khong bao gio
+        # lam hong status call.
+        status, body = api("GET", "/api/status")
+        assert status == 200, body
+        assert body.get("addon", {}).get("logged_in") is True, body
+        assert body.get("addon", {}).get("ok") is True, body
 
         # Lich su nhom: tin mock + chua co tin gui trong phien.
         status, body = api("GET",
@@ -281,6 +243,9 @@ def test_server_thread_routes():
         assert status == 200 and body["ok"] is True, body
         assert body["message"]["kind"] == "file", body
         assert body["message"]["file_name"] == "hello.txt", body
+        # File stage da bi xoa sau khi gui (khong de lai trong /tmp).
+        staged = os.path.join(tmp, "tmp")
+        assert os.listdir(staged) == [], os.listdir(staged)
         mbody, mctype = chat_mod.build_multipart(
             {"type": "group", "kind": "photo", "width": "800",
              "height": "600"},
@@ -306,13 +271,43 @@ def test_server_thread_routes():
                            mbody, {"Content-Type": mctype})
         assert status == 400, body
 
-        # Typing + seen: goi that xuong mock, tra ok.
+        # Typing + seen: goi that xuong fake sidecar, tra ok.
         status, body = api_json("POST", "/api/thread/20001/typing",
                                 {"type": "user"})
         assert status == 200 and body["ok"] is True, body
         status, body = api_json("POST", "/api/thread/30001/seen",
                                 {"type": "group", "msg_ids": ["m1"]})
         assert status == 200 and body["ok"] is True, body
+        assert [c[0] for c in fake_addon.calls if c[0] in
+                ("typing", "seen")] == ["typing", "seen"], fake_addon.calls
+
+        # /api/addon/events (loopback): tin den duoc luu vao store +
+        # hien trong lich su; family sai -> 400.
+        status, body = api_json(
+            "POST", "/api/addon/events?family=message",
+            {"type": 1, "threadId": "30001",
+             "data": {"msgId": "m9", "uidFrom": "20001",
+                      "content": "Tin den", "ts": 1762345700,
+                      "dName": "Ban A"}})
+        assert status == 200 and body["ok"] is True, body
+        assert body["family"] == "message", body
+        status, body = api("GET", "/api/thread/30001/history?type=group")
+        assert [m["text"] for m in body["messages"]] == \
+            ["Chao ca nhom", "Chao Ban A", "Toi vua gui", "anh.jpg",
+             "voice.mp3", "Tin den"], body
+        status, body = api_json("POST", "/api/addon/events?family=bogus",
+                                {})
+        assert status == 400, body
+
+        # Sidecar chet: gui tin tra 502 addon_unavailable (khong roi
+        # ve duong PC cu — duong do da xoa).
+        state.addon = FakeAddonClient(
+            fail_with=addon_client_mod.AddonUnreachable("down"))
+        status, body = api_json("POST", "/api/thread/20001/send",
+                                {"type": "user", "message": "x"})
+        assert status == 502 and str(body.get("error", "")).startswith(
+            "addon_unavailable"), body
+        state.addon = fake_addon
 
         # Dang xuat: route chat lai 401.
         status, body = api_json("POST", "/api/logout", {})
