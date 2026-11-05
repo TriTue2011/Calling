@@ -1499,7 +1499,10 @@ class Handler(BaseHTTPRequestHandler):
                 # Phase 2 (stage 2): the endpoints come from the
                 # real relay allocation (`media_endpoints`, backed
                 # by `Udp4200Transport`) — the 11300 response's
-                # `zrtc_config.servers` / `sessId` / `srtpKey`
+                # `servers` (real shape: list of dicts with
+                # `rtcpaddr`/`rtpIPv6`, seen live 2026-11-05;
+                # legacy `zrtc_config.servers` string as fallback)
+                # / `sessId` / `srtpKey`
                 # (see `allocation_from_requestcall_data`). When
                 # that allocation is missing, `for_call` raises
                 # `MissingTransportParam` NAMING the missing
@@ -1568,10 +1571,19 @@ class Handler(BaseHTTPRequestHandler):
                 webhooks_mod.dispatch_call_event(
                     STATE.webhook_dispatcher, sent_entry,
                     sess.get("uid", ""))
-                return self._send_json({"ok": True, "data": data,
-                                        "call_id": call_id,
-                                        "request_sent": request_sent,
-                                        "request_error": request_error})
+                # The raw 11300 response is NOT returned: it may
+                # carry the SRTP key / token / session, which must
+                # never reach the browser (or a log). Only its
+                # SHAPE (key names + counts) is returned, so the UI
+                # can still show what the response carried.
+                return self._send_json(
+                    {"ok": True,
+                     "data_shape":
+                         media_endpoints.describe_requestcall_shape(
+                             data),
+                     "call_id": call_id,
+                     "request_sent": request_sent,
+                     "request_error": request_error})
             except Exception as e:  # noqa: BLE001
                 err_entry = STATE.calls.record_error(call_id, peer, thread_id,
                                          call_type, str(e))

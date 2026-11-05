@@ -61,6 +61,7 @@ CALL_ID_GROUP = 1762345679
 # suot process test) — dung lai CALL_ID o test sau se bi day len
 # mot id khac, mock se khong thay buoc nao cho CALL_ID cu.
 CALL_ID_FAIL = 1762545678
+CALL_ID_REAL_SHAPE = 1762645678  # test hinh 11300 that (§7n)
 
 
 def _sig(mock):
@@ -387,6 +388,60 @@ def test_request_114_with_allocation_e2e():
         entry = by_id[str(eff_id)]
         assert entry["request_sent"] is False, body
         assert "114" in entry["request_detail"], body
+        httpd.shutdown()
+    finally:
+        endpoints.stop_all()
+        media_endpoints.ENDPOINTS = old_endpoints
+        if httpd is not None:
+            try:
+                httpd.server_close()
+            except Exception:  # noqa: BLE001
+                pass
+        mock.stop()
+
+
+def test_real_11300_shape_delivered_e2e():
+    """Hinh 11300 THAT (live 2026-11-05 22:58 +07, ban 72b91b8):
+    servers la LIST cac dict co rtcpaddr/rtpIPv6 (khong phai
+    chuoi zrtc_config.servers). Mock tra dung hinh do + sessId /
+    srtpKey / token -> qua API that, buoc 11301 NHAN DUOC relay
+    (khong con "relays: empty"), mock thay du 2 buoc dung thu tu
+    va danh dau delivered; response tra request_sent=true va chi
+    tra data_shape (ten key + so luong), KHONG tra raw data
+    (co the chua srtpKey/token).
+    GIOI HAN HONEST cua test nay: local_session van lay tu
+    default cua provider gia (nhu test_allocated_flow) vi
+    nguon that cua no (SSRC hang muc thiet bi) chua biet —
+    test nay chung minh PHAN TICH RELAY qua duong that, khong
+    chung minh cuoc goi that chay tron ven tren production."""
+    from test_media_provider import REAL_SHAPE_SERVERS  # noqa: E402
+    mock = MockZalo().start()
+    mock.requestcall_data = {
+        "servers": REAL_SHAPE_SERVERS, "sessId": "sess-real-e2e",
+        "srtpKey": "k-test", "token": FAKE_TOKEN}
+    httpd = None
+    old_endpoints = media_endpoints.ENDPOINTS
+    endpoints = _fake_endpoints()
+    media_endpoints.ENDPOINTS = endpoints
+    try:
+        httpd, base = _start_app(mock)
+        _login(base)
+        status, body = _api(base, "POST", "/api/call/request",
+                            {"callee_id": "20001",
+                             "call_id": CALL_ID_REAL_SHAPE})
+        assert body["ok"] is True, body
+        assert body["request_sent"] is True, body
+        assert body["request_error"] == "", body
+        assert "data" not in body, body
+        assert "rtcpaddr" in body["data_shape"], body
+        assert "127.0.0.1" not in body["data_shape"], body
+        eff_id = body["call_id"]
+        state = mock.voice_call_state(eff_id)
+        assert state["steps"] == ["requestcall", "request"], state
+        assert state["delivered"] is True, state
+        status, body = _api(base, "GET", "/api/calls")
+        by_id = {c["call_id"]: c for c in body["calls"]}
+        assert by_id[str(eff_id)]["request_sent"] is True, body
         httpd.shutdown()
     finally:
         endpoints.stop_all()

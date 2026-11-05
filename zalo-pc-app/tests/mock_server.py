@@ -118,6 +118,15 @@ class MockZalo:
         # inner 114, so tests can prove the app treats that step as
         # best-effort (the call itself still succeeds).
         self.request_mode = "ok"
+        # 11300 response material (§7n): when set (a dict), it is
+        # merged into the decoded requestcall response data, so a
+        # test can drive the app with a REAL-shaped 11300 reply —
+        # e.g. servers as a list of dicts keyed rtcpaddr/rtpIPv6
+        # (seen live 2026-11-05 22:58 +07), sessId, srtpKey,
+        # token. Default None keeps the old behaviour (no
+        # allocation material: the no-allocation tests). Values
+        # here are test-only fixtures, never real credentials.
+        self.requestcall_data = None
         # Call-delivery tracking (§7l): call_id -> {"steps": [...],
         # "delivered": bool}. A call is "requested" once its
         # requestcall (11300/12433) arrives and "delivered" only
@@ -806,8 +815,10 @@ class MockZalo:
                 return self._postlogin_envelope_error(
                     114, "Tham số không hợp lệ")
             self._record_voice_step(call_id, sub)
-            return self._postlogin_envelope(
-                {"ok": True, "path": path, "body": body})
+            data = {"ok": True, "path": path, "body": body}
+            if self.requestcall_data:
+                data.update(self.requestcall_data)
+            return self._postlogin_envelope(data)
         if sub in ("endcall", "group/endcall"):
             # End a call (bundle wZ sendEndCall / sendEndCallGroup):
             # 1-1 {uidTo, callId, status:3, imei} (code 11306);

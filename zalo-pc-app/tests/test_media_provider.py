@@ -369,6 +369,135 @@ def test_pc_media_engine_loopback():
         codec.close()
 
 
+# ------------------------------------------------------------------ real 11300
+# Hinh dang servers THAT (live test 2026-11-05 22:58 +07, ban
+# 72b91b8, cuoc goi toi "Dai ca"): response 11300 TRA VE relay
+# nhung KHONG phai chuoi zrtc_config.servers — no la LIST cac
+# dict co key rtcpaddr / rtpIPv6 (phan sau bi cat tren man hinh,
+# co the con key khac). Code cu chi biet dict dang
+# {rtp_ip, rtp_port, rtcp_ip, rtcp_port} nen bo qua het -> []
+# -> "relays: empty" o buoc 11301 du relay co san. Cac test nay
+# dung dung hinh dang do (chi ten key + cau truc, KHONG gia tri
+# IP that nao) va chung minh buoc 11301 nhan duoc relay.
+
+# Gia tri tong hop cho test (127.0.0.1 / dia chi TEST-NET, khong
+# phai dia chi that tu anh chup).
+REAL_SHAPE_SERVERS = [
+    {"rtcpaddr": "127.0.0.1:4201", "rtpaddr": "127.0.0.1:4200",
+     "rtpIPv6": "[2001:db8::1]:4200",
+     "rtcpIPv6": "[2001:db8::1]:4201",
+     "unknown_future_key": "ignored"},
+    {"rtcpaddr": "127.0.0.2:4211", "rtpaddr": "127.0.0.2:4210"},
+]
+
+
+def test_real_11300_dict_shape_delivered():
+    """List dict rtcpaddr/rtpIPv6 (hinh that) -> for_call tra dia
+    chi cua relay IPv4 dau tien; key la duoc bo qua, khong loi."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(
+        relays=REAL_SHAPE_SERVERS, call_id=CALL_ID + 10))
+    assert out["rtp_address"] == "127.0.0.1:4200", out
+    assert out["rtcp_address"] == "127.0.0.1:4201", out
+    assert out["transport"].started is True, out
+    provider.stop_all()
+
+
+def test_real_11300_ipv6_only_dict():
+    """Chi co dia chi IPv6 (dang bracketed) van thanh mot relay —
+    khong ep phai co IPv4."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(
+        relays=[{"rtpIPv6": "[2001:db8::9]:4200",
+                 "rtcpIPv6": "[2001:db8::9]:4201"}],
+        call_id=CALL_ID + 11))
+    assert out["rtp_address"] == "[2001:db8::9]:4200", out
+    assert out["rtcp_address"] == "[2001:db8::9]:4201", out
+    provider.stop_all()
+
+
+def test_real_11300_mixed_families():
+    """RTP chi co IPv6 + RTCP chi co IPv4 -> mot relay hon hop
+    (moi phia gui doc lap), khong doi ca hai cung family."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(
+        relays=[{"rtpIPv6": "[2001:db8::5]:4200",
+                 "rtcpaddr": "127.0.0.1:4201"}],
+        call_id=CALL_ID + 12))
+    assert out["rtp_address"] == "[2001:db8::5]:4200", out
+    assert out["rtcp_address"] == "127.0.0.1:4201", out
+    provider.stop_all()
+
+
+def test_real_11300_separate_ip_port_keys():
+    """Dia chi dang ip rieng + port rieng (rtpIP/rtpPort) cung
+    ghep duoc mot relay."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(
+        relays=[{"rtpIP": "127.0.0.1", "rtpPort": 4200,
+                 "rtcpIP": "127.0.0.1", "rtcpPort": 4201}],
+        call_id=CALL_ID + 13))
+    assert out["rtp_address"] == "127.0.0.1:4200", out
+    assert out["rtcp_address"] == "127.0.0.1:4201", out
+    provider.stop_all()
+
+
+def test_real_11300_incomplete_dict_still_missing():
+    """Dict thieu mot phia (chi co rtcpaddr, khong co RTP) khong
+    thanh relay: loi neu ro `relays`, khong tra dia chi nua voi."""
+    _assert_missing(lambda: _provider().for_call(**_good_kwargs(
+        relays=[{"rtcpaddr": "127.0.0.1:4201"}],
+        call_id=CALL_ID + 14)), "relays")
+
+
+def test_real_11300_error_names_shape_not_values():
+    """Loi relays: empty khong bao gio in GIA TRI (IP/port) —
+    chi in ten key + so luong, de chup man hinh loi van an toan."""
+    try:
+        _provider().for_call(**_good_kwargs(
+            relays=[{"rtcpaddr": "127.0.0.1:4201"}],
+            call_id=CALL_ID + 15))
+    except MissingTransportParam as exc:
+        msg = str(exc)
+        assert "rtcpaddr" in msg, msg
+        assert "127.0.0.1" not in msg, msg
+        assert "4201" not in msg, msg
+        return
+    raise AssertionError("expected MissingTransportParam")
+
+
+def test_allocation_real_11300_list_shape():
+    """allocation_from_requestcall_data giu nguyen list dict
+    servers (khong ep thanh chuoi), va for_call qua
+    requestcall_data do giao dich duoc relay that."""
+    data = {"servers": REAL_SHAPE_SERVERS, "sessId": "sess-real",
+            "srtpKey": "k1", "srtpMode": 2, "token": FAKE_TOKEN}
+    alloc = media_endpoints.allocation_from_requestcall_data(data)
+    assert alloc["servers"] == REAL_SHAPE_SERVERS, alloc
+    assert alloc["session"] == "sess-real", alloc
+    provider = _provider()
+    out = provider.for_call(
+        call_id=CALL_ID + 16, callee_id="20001",
+        local_session=FAKE_LOCAL_SESSION, requestcall_data=data,
+        protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
+    assert out["rtp_address"] == "127.0.0.1:4200", out
+    assert out["rtcp_address"] == "127.0.0.1:4201", out
+    assert out["session"] == "sess-real", out
+    provider.stop_all()
+
+
+def test_describe_requestcall_shape_names_only():
+    """Shape summary chi ghi ten key + so luong, khong ghi gia
+    tri nao (IP, khoa, token)."""
+    shape = media_endpoints.describe_requestcall_shape(
+        {"servers": REAL_SHAPE_SERVERS,
+         "zrtc_config": {"srtpKey": "SECRET", "sessId": "sess-x"}})
+    assert "servers" in shape and "srtpKey" in shape, shape
+    assert "rtcpaddr" in shape and "rtpIPv6" in shape, shape
+    assert "SECRET" not in shape and "sess-x" not in shape, shape
+    assert "127.0.0.1" not in shape, shape
+
+
 def test_srtp_key_wrong_length():
     """Khoa SRTP khong dung do dai suite -> ValueError neu ro do
     dai can (khong cat/xen, khong doan dinh dang)."""

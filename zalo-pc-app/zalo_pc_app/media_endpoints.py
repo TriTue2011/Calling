@@ -24,7 +24,9 @@ about delay after the user pressed call), and the client carries a
 Phase 2 provider (this file): the placeholder is GONE. `for_call`
 now drives the real `Udp4200Transport` (see `udp_transport.py`,
 agent A — stdlib-only, no SRTP/Opus imports there either):
-parse the relay list from response 11300 (`zrtc_config.servers`),
+parse the relay list from response 11300 (`servers` — REAL shape:
+a list of dicts keyed `rtcpaddr`/`rtpIPv6`, seen live 2026-11-05;
+legacy `zrtc_config.servers` string kept as fallback),
 start the transport (probe -> setup init), WAIT for the relay to
 be selected (first type-02 52B, the disassembly's
 smallest-`initSuccessTime` rule), and return the selected relay's
@@ -41,10 +43,26 @@ the 11301 as not sent instead of sending an empty invitation.
 
 Parameter sources (all UNCONFIRMED where noted — see
 `zalo-pc-reverse/disasm-*.md` and `zalo-pcap-pc/bao-cao.md`):
-  relays       response 11300 `zrtc_config.servers` (raw JSON string
-               of `"IP:port"` entries, paired RTP/RTCP — see
+  relays       response 11300 `servers` — REAL SHAPE, observed live
+               2026-11-05 (call to a peer, build 72b91b8): a LIST of
+               dicts whose keys include `rtcpaddr` and `rtpIPv6`
+               (the screenshot was truncated, so more keys may
+               exist). Each dict carries the relay's RTP/RTCP
+               addresses as "IP:port" strings (IPv4 and/or IPv6).
+               Parsed defensively by `_relay_servers_from_dict`
+               (accepts rtcpaddr/rtpaddr/rtpIPv6/rtcpIPv6 and
+               sibling spellings, separate ip/port keys, bracketed
+               "[IPv6]:port", and unknown extra keys — which are
+               ignored, never trusted). LEGACY fallback, kept:
+               `zrtc_config.servers` as a raw string of `"IP:port"`
+               entries, paired RTP/RTCP (see
                `udp_transport.parse_servers_string`); or an explicit
-               list of `RelayServer` / `"IP:port"` / dicts.
+               list of `RelayServer` / `"IP:port"` / dicts in the
+               old `{rtp_ip, rtp_port, rtcp_ip, rtcp_port}` shape.
+               Before this fix the dict branch only knew the old
+               shape, so the real list parsed to [] and step 2
+               failed with "relays: empty" even though the
+               response DID carry relays.
   token        115 raw bytes or the 154-char base64url string.
                Ultimate source UNCONFIRMED (most likely 11300);
                the provider takes it from `zrtc_config["token"]`
@@ -93,7 +111,9 @@ Parameter sources (all UNCONFIRMED where noted — see
                (the transport raises `MissingTransportParam` then).
 """
 
+import ipaddress
 import json
+import re
 import time
 
 from .udp_transport import (
@@ -106,7 +126,8 @@ from .udp_transport import (
 )
 
 __all__ = ["MediaEndpoints", "MissingTransportParam",
-           "allocation_from_requestcall_data", "ENDPOINTS"]
+           "allocation_from_requestcall_data", "ENDPOINTS",
+           "describe_requestcall_shape"]
 
 
 # ------------------------------------------------------------------ helpers
@@ -125,11 +146,212 @@ def _as_int(value):
     return None
 
 
+def _norm_relay_key(key):
+    """Normalize a relay-dict key for matching: lowercase, no
+    `_`/`-` (so `rtcpAddr`, `rtcp_addr` and `RTCPADDR` all match
+    as `rtcpaddr`)."""
+    return str(key).lower().replace("_", "").replace("-", "")
+
+
+def _parse_addr_value(value):
+    """Parse one relay address value to (ip, port) or None.
+
+    Accepted (values only — never key names — are inspected):
+      * "IP:port" (IPv4), "[IPv6]:port" (bracketed IPv6);
+      * a bare IP with no port -> (ip, None) — the caller pairs
+        it with a sibling `*port` key when one exists;
+      * an unbracketed IPv6 with a trailing port
+        ("2001:db8::1:4200") — accepted ONLY when the whole
+        string is not itself a valid IPv6 address and the prefix
+        before the last ":" parses as IPv6;
+      * a dict {"ip"/"addr"/"address": ..., "port": ...}.
+    A bare int, an empty string, or anything unparseable returns
+    None (never a guessed address). No value is ever logged.
+    """
+    if isinstance(value, dict):
+        ip_raw = None
+        for k in ("ip", "addr", "address"):
+            if value.get(k) is not None:
+                ip_raw = value[k]
+                break
+        port_raw = value.get("port")
+        if ip_raw is None:
+            return None
+        try:
+            ip = str(ipaddress.ip_address(str(ip_raw).strip()))
+        except ValueError:
+            return None
+        port = _as_int(port_raw)
+        if port is not None and not 1 <= port <= 65535:
+            return None
+        return (ip, port)
+    if isinstance(value, bool) or not isinstance(value, str):
+        return None
+    token = value.strip()
+    if not token:
+        return None
+    if token.startswith("["):
+        m = re.match(r"^\[([^\]]+)\]:(\d+)$", token)
+        if not m:
+            return None
+        try:
+            ip = str(ipaddress.ip_address(m.group(1)))
+        except ValueError:
+            return None
+        port = int(m.group(2))
+        return (ip, port) if 1 <= port <= 65535 else None
+    if token.count(":") == 1:
+        ip_s, port_s = token.split(":")
+        try:
+            ip = str(ipaddress.ip_address(ip_s))
+            port = int(port_s)
+        except ValueError:
+            return None
+        return (ip, port) if 1 <= port <= 65535 else None
+    if token.count(":") == 0:
+        try:
+            return (str(ipaddress.ip_address(token)), None)
+        except ValueError:
+            return None
+    # Multi-colon: a bare IPv6 address first (no port), else a
+    # trailing ":port" after a valid IPv6 prefix.
+    try:
+        return (str(ipaddress.ip_address(token)), None)
+    except ValueError:
+        pass
+    head, _, tail = token.rpartition(":")
+    try:
+        ip = str(ipaddress.ip_address(head))
+        port = int(tail)
+    except ValueError:
+        return None
+    return (ip, port) if 1 <= port <= 65535 else None
+
+
+def _relay_servers_from_dict(entry):
+    """One real-11300 relay dict -> list[RelayServer] (0..2).
+
+    The real 11300 `servers` list (seen live 2026-11-05) holds
+    dicts keyed e.g. `rtcpaddr` / `rtpIPv6` — the screenshot was
+    truncated, so the parser matches by key SHAPE, not by one
+    hardcoded key: after normalizing (`_norm_relay_key`), a key
+    starting with `rtcp` is the RTCP side, one starting with
+    `rtp` the RTP side; a key ending in `port` is a port, a key
+    containing `addr`/`ip`/`address` (or ending in `v6`/`v4`)
+    is an address. Unknown keys (id, type, priority, ...) are
+    ignored. An address without a port pairs with a sibling
+    `*port` key when present. IPv4 and IPv6 form separate
+    servers (RTP-v4 with RTCP-v4, RTP-v6 with RTCP-v6); when
+    only a mixed pair is complete (e.g. RTP-v6 + RTCP-v4) one
+    mixed server is emitted — the transport addresses each
+    side independently. A dict with no complete RTP+RTCP pair
+    yields [] (the caller raises naming `relays`).
+    """
+    rtp, rtcp = {}, {}   # family ("v4"/"v6") -> (ip, port|None)
+    ports = {}           # side ("rtp"/"rtcp") -> int port
+    for key, value in entry.items():
+        norm = _norm_relay_key(key)
+        if norm.startswith("rtcp"):
+            side = "rtcp"
+        elif norm.startswith("rtp"):
+            side = "rtp"
+        else:
+            continue
+        if norm.endswith("port"):
+            port = _as_int(value)
+            if port is not None and 1 <= port <= 65535:
+                ports[side] = port
+            continue
+        if ("addr" in norm or "ip" in norm or "address" in norm
+                or norm.endswith("v6") or norm.endswith("v4")):
+            parsed = _parse_addr_value(value)
+            if parsed is None:
+                continue
+            ip, port = parsed
+            family = ("v6" if isinstance(
+                ipaddress.ip_address(ip), ipaddress.IPv6Address)
+                else "v4")
+            target = rtp if side == "rtp" else rtcp
+            # First complete candidate per family wins; a later
+            # duplicate key spelling must not overwrite it.
+            if family not in target:
+                target[family] = (ip, port)
+    for side_map, side in ((rtp, "rtp"), (rtcp, "rtcp")):
+        for family, (ip, port) in list(side_map.items()):
+            if port is None and side in ports:
+                side_map[family] = (ip, ports[side])
+
+    def _complete(side_map):
+        return {f: v for f, v in side_map.items()
+                if v[1] is not None and 1 <= v[1] <= 65535}
+
+    rtp_ok, rtcp_ok = _complete(rtp), _complete(rtcp)
+    out = []
+    for family in ("v4", "v6"):  # IPv4 first (most likely routed)
+        if family in rtp_ok and family in rtcp_ok:
+            r_ip, r_port = rtp_ok[family]
+            c_ip, c_port = rtcp_ok[family]
+            out.append(RelayServer(r_ip, r_port, c_ip, c_port))
+    if not out and rtp_ok and rtcp_ok:
+        # Mixed families only (e.g. RTP-v6 + RTCP-v4): one server
+        # from the first complete candidate on each side.
+        r_ip, r_port = next(iter(rtp_ok.values()))
+        c_ip, c_port = next(iter(rtcp_ok.values()))
+        out.append(RelayServer(r_ip, r_port, c_ip, c_port))
+    return out
+
+
+def _describe_servers_value(value):
+    """Describe a `servers` value by SHAPE ONLY — key names,
+    types and counts, never values (no IPs, no ports, no
+    tokens). Used in error messages so the next live test can
+    be diagnosed from the message alone."""
+    if value is None:
+        return "none"
+    if isinstance(value, str):
+        return "str[%d chars]" % len(value)
+    if isinstance(value, (list, tuple)):
+        kinds = []
+        dict_keys = set()
+        for entry in value:
+            kinds.append(type(entry).__name__)
+            if isinstance(entry, dict):
+                dict_keys.update(str(k) for k in entry.keys())
+        summary = "list[%d] of %s" % (
+            len(value), ",".join(sorted(set(kinds))) or "?")
+        if dict_keys:
+            summary += " dict keys: [%s]" % ", ".join(sorted(dict_keys))
+        return summary
+    if isinstance(value, dict):
+        return "dict keys: [%s]" % ", ".join(
+            sorted(str(k) for k in value.keys()))
+    return type(value).__name__
+
+
+def describe_requestcall_shape(data):
+    """One-line shape summary of a decoded 11300 response: key
+    names and counts ONLY, never values. Safe for the UI, the
+    call log and the /api/call/request response."""
+    if not isinstance(data, dict):
+        return "11300 data: not a dict (%s)" % type(data).__name__
+    parts = ["11300 keys: [%s]" % ", ".join(sorted(map(str, data)))]
+    cfg = _zrtc_config_of(data)
+    if cfg:
+        parts.append("zrtc_config keys: [%s]" % ", ".join(
+            sorted(map(str, cfg))))
+    servers = _find_in_requestcall_data(data, "servers")
+    if servers is not None:
+        parts.append("servers: %s" % _describe_servers_value(servers))
+    return "; ".join(parts)
+
+
 def _normalize_relays(relays, servers=None):
     """Normalize every accepted relay shape to list[RelayServer].
 
-    Accepted: list[RelayServer], list["IP:port"], list[dict with
-    rtp_ip/rtp_port/rtcp_ip/rtcp_port], a raw `servers` string
+    Accepted: list[RelayServer], list["IP:port"], list[dict] —
+    the old `{rtp_ip, rtp_port, rtcp_ip, rtcp_port}` shape AND
+    the real-11300 shape (dicts keyed `rtcpaddr`/`rtpIPv6`/...
+    — see `_relay_servers_from_dict`), a raw `servers` string
     (parsed by `udp_transport.parse_servers_string` — alternating
     RTP/RTCP pairs or 4-part entries). Returns [] when nothing
     usable was given (the caller raises, naming `relays`).
@@ -152,12 +374,16 @@ def _normalize_relays(relays, servers=None):
         if isinstance(entry, RelayServer):
             out.append(entry)
         elif isinstance(entry, dict):
-            try:
-                out.append(RelayServer(
-                    str(entry["rtp_ip"]), int(entry["rtp_port"]),
-                    str(entry["rtcp_ip"]), int(entry["rtcp_port"])))
-            except (KeyError, TypeError, ValueError):
-                continue
+            if {"rtp_ip", "rtp_port", "rtcp_ip", "rtcp_port"} <= set(
+                    entry.keys()):
+                try:
+                    out.append(RelayServer(
+                        str(entry["rtp_ip"]), int(entry["rtp_port"]),
+                        str(entry["rtcp_ip"]), int(entry["rtcp_port"])))
+                except (KeyError, TypeError, ValueError):
+                    continue
+            else:
+                out.extend(_relay_servers_from_dict(entry))
         elif isinstance(entry, str):
             singles.append(entry)
         # Anything else is skipped: a half-built relay must never
@@ -165,6 +391,15 @@ def _normalize_relays(relays, servers=None):
     if singles:
         out.extend(parse_servers_string(",".join(singles)))
     return out
+
+
+def _format_ip_port(ip, port):
+    """One relay address as an "IP:port" string for 11301: IPv6
+    is bracketed ("[2001:db8::1]:4200") — the unbracketed form
+    ("2001:db8::1:4200") is ambiguous and unparseable."""
+    if ":" in str(ip):
+        return "[%s]:%d" % (ip, port)
+    return "%s:%d" % (ip, port)
 
 
 def _find_in_requestcall_data(data, key):
@@ -209,7 +444,10 @@ def allocation_from_requestcall_data(data):
     returns (inner `data` after AES unwrap).
 
     Returns a dict with only the keys actually present (never
-    invented values): `servers` (raw string/list as received),
+    invented values): `servers` (raw string/list as received —
+    the REAL shape is a list of dicts keyed rtcpaddr/rtpIPv6,
+    seen live 2026-11-05; the legacy `zrtc_config.servers`
+    string is kept as a fallback),
     `token`, `session` (from `sessId` — UNCONFIRMED candidate),
     `srtp_key` (from `zrtc_config.srtpKey`), `srtp_mode`,
     `codec` (from `zrtc_config.g711`), `extend_data` (from a
@@ -233,12 +471,22 @@ def allocation_from_requestcall_data(data):
     if sess is not None:
         out["session"] = str(sess)
     srtp_key = cfg.get("srtpKey")
+    if srtp_key is None:
+        # Fallback: the real 11300 layout is only partly known
+        # (servers was top-level, not under zrtc_config, in the
+        # live 2026-11-05 reply) — accept a top-level srtpKey
+        # too. zrtc_config still wins when both carry it.
+        srtp_key = _find_in_requestcall_data(data, "srtpKey")
     if srtp_key is not None:
         out["srtp_key"] = srtp_key
     srtp_mode = cfg.get("srtpMode")
+    if srtp_mode is None:
+        srtp_mode = _find_in_requestcall_data(data, "srtpMode")
     if isinstance(srtp_mode, int) and not isinstance(srtp_mode, bool):
         out["srtp_mode"] = srtp_mode
     g711 = cfg.get("g711")
+    if g711 is None:
+        g711 = _find_in_requestcall_data(data, "g711")
     if isinstance(g711, int) and not isinstance(g711, bool):
         out["codec"] = ("pcmu" if g711 == 1 else
                         "pcma" if g711 == 2 else "opus")
@@ -365,6 +613,16 @@ class MediaEndpoints:
         if isinstance(zrtc_config, dict):
             alloc.update(allocation_from_requestcall_data(
                 {"zrtc_config": zrtc_config}))
+        # Shape note (key names + counts ONLY, never values): every
+        # missing-param error below carries it, so one live-test
+        # screenshot tells the next round exactly which keys the
+        # real 11300 response does/does not carry.
+        _note_data = (dict(requestcall_data)
+                      if isinstance(requestcall_data, dict) else {})
+        if isinstance(zrtc_config, dict):
+            _note_data.setdefault("zrtc_config", zrtc_config)
+        shape_note = (describe_requestcall_shape(_note_data)
+                      if _note_data else "")
         if servers is None and alloc.get("servers") is not None:
             servers = alloc["servers"]
         if relays is None:
@@ -409,26 +667,35 @@ class MediaEndpoints:
         if not relay_list:
             raise MissingTransportParam(
                 "relays: empty (need at least one relay from response "
-                "11300 zrtc_config.servers; got %r)"
-                % (servers if servers is not None else relays,))
+                "11300: servers as a list of dicts with rtcpaddr/"
+                "rtpIPv6 (real shape, seen live 2026-11-05) or a "
+                "legacy zrtc_config.servers string; got %s%s)"
+                % (_describe_servers_value(
+                    servers if servers is not None else relays),
+                    ("; " + shape_note) if shape_note else ""))
 
         # 4. Token / session / local session / SRTP key.
         if token is None or token == b"" or token == "":
             raise MissingTransportParam(
                 "token: missing (need 115 raw bytes or a 154-char "
-                "base64url string, most likely from response 11300)")
+                "base64url string, most likely from response 11300%s)"
+                % (("; " + shape_note) if shape_note else ""))
         if session is None or (isinstance(session, str)
                                and not session):
             raise MissingTransportParam(
                 "session: missing (need the 416 session string; "
                 "candidate source is response 11300 sessId, "
-                "UNCONFIRMED)")
+                "UNCONFIRMED%s)"
+                % (("; " + shape_note) if shape_note else ""))
         session = str(session)
         if local_session is None:
             raise MissingTransportParam(
                 "local_session: missing (need a u32 — the same value "
-                "as the RTP SSRC; per-device value, source unknown; "
-                "never defaulted to the captured 0x15cbea3f)")
+                "as the RTP SSRC; the captures show it CONSTANT per "
+                "device, so it is NOT generated fresh per call and "
+                "never defaulted to the captured 0x15cbea3f — its "
+                "source is still unknown, it must be supplied%s)"
+                % (("; " + shape_note) if shape_note else ""))
         local_session = _as_int(local_session)
         if local_session is None or not 0 <= local_session <= 2 ** 32 - 1:
             raise MissingTransportParam(
@@ -438,7 +705,8 @@ class MediaEndpoints:
             raise MissingTransportParam(
                 "srtp_key: missing (need zrtc_config.srtpKey from "
                 "response 11300; without it the call can never carry "
-                "voice)")
+                "voice%s)"
+                % (("; " + shape_note) if shape_note else ""))
 
         # 5. Codec + extendData.
         if codec is None:
@@ -486,8 +754,10 @@ class MediaEndpoints:
             except Exception:  # noqa: BLE001 - stop is best-effort
                 pass
             raise
-        rtp_address = "%s:%d" % (selected.rtp_ip, selected.rtp_port)
-        rtcp_address = "%s:%d" % (selected.rtcp_ip, selected.rtcp_port)
+        rtp_address = _format_ip_port(selected.rtp_ip,
+                                      selected.rtp_port)
+        rtcp_address = _format_ip_port(selected.rtcp_ip,
+                                       selected.rtcp_port)
         if not selected.rtp_ip or selected.rtp_port <= 0 \
                 or not selected.rtcp_ip or selected.rtcp_port <= 0:
             try:

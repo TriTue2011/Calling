@@ -1208,9 +1208,19 @@ async function startCall(peer) {
   // can show it even before the first /api/calls poll returns it.
   currentCall.requestSent = r.request_sent;
   currentCall.requestError = r.request_error || "";
+  // The state line must NOT claim "the other side is ringing"
+  // when step 2 (11301) was not sent: the 22:58 live test showed
+  // exactly that lie — requestcall (11300) accepted, request
+  // (11301) failed on "relays: empty", and the state line still
+  // said the far end was ringing. The detail view (renderCallDetail)
+  // already shows the step-2 outcome; this line now agrees with it.
   $("call-state").textContent = r.error
     ? ("Lỗi gọi: " + r.error)
-    : "Đã gửi yêu cầu gọi. Bên kia đang đổ chuông — tiếng sẽ có khi engine giai đoạn 2 gắn vào.";
+    : (r.request_sent === false
+      ? ("Đã gửi yêu cầu gọi (bước 1), nhưng bước 2 (11301) KHÔNG gửi được"
+         + (r.request_error ? (": " + r.request_error) : "")
+         + ". Bên kia có thể chưa đổ chuông.")
+      : "Đã gửi yêu cầu gọi. Bên kia đang đổ chuông — tiếng sẽ có khi engine giai đoạn 2 gắn vào.");
   await loadCalls();
   renderCallDetail();
 }

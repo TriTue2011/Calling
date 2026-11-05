@@ -362,7 +362,9 @@ class TransportConfig:
         if not self.relays:
             raise MissingTransportParam(
                 "relays: empty (need at least one RelayServer from "
-                "response 11300 zrtc_config.servers)")
+                "response 11300 servers — list of dicts with "
+                "rtcpaddr/rtpIPv6, or a legacy zrtc_config.servers "
+                "string)")
         for r in self.relays:
             if not isinstance(r, RelayServer):
                 raise MissingTransportParam(
