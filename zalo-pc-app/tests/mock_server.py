@@ -156,7 +156,19 @@ class MockZalo:
         # "Ban chi co the tai tap tin co dinh dang sau : MP3",
         # gap tren may chu 2026-11-05 23:03), de test chung minh
         # app tra loi ro ve UI thay vi gia vo gui duoc.
+        # "error112" / "error112_once": loi that 2026-11-06 06:35
+        # +07 tren 9d87501 — inner error_code=112 "Loi khong xac
+        # dinh" sau khi 133 da het (transcode MP3 da dung).
+        # "error112" tra 112 moi lan; "error112_once" chi tra 112
+        # o lan upload voice dau tien roi ok — de pin co che thu
+        # lai cua client that (bundle coi 112 la tam thoi, thu lai
+        # sau 1-5 giay). voice_upload_calls dem so lan goi
+        # voicemp3/sendmp3; upload_bodies luu moi params AES da
+        # giai ma cua moi lan upload (de test khang dinh clientId
+        # giong nhau giua cac lan thu lai).
         self.voice_upload_mode = "ok"
+        self.voice_upload_calls = 0
+        self.upload_bodies = []
         self.seen = []  # (path, query, headers) log
         self.seen_post = []  # (path, query) log — chi cac POST
         self.seen_post_raw = []  # (path, raw bytes) — de test doc
@@ -445,7 +457,15 @@ class MockZalo:
         """Gui file/anh/voice (11146/11191/11148/11169/11152/11164):
         POST multipart, fileContent + query params=<AES {toid|grid,
         clientId}> & type=2 (1-1) / 11 (nhom). raw_body o day la
-        str (mock do_POST decode latin-1 — anh that la binary)."""
+        str (mock do_POST decode latin-1 — anh that la binary).
+        Kieu clientId theo bundle (xem chat.py): voice/file la
+        STRING (sendVoice/sendFile ghep chuoi JSON bang tay, co
+        dau ngoac kep: '"clientId":"<id>"'), anh la NUMBER
+        (JSON.stringify). Mock mo hinh hoa loi that 2026-11-06:
+        voice/file gui clientId dang NUMBER bi server tu choi
+        bang inner 112 chung chung — day la GIA THUYET co bang
+        chung bundle (khong phai bang chung truc tiep tu server);
+        kiem chung that van can retest live cua user."""
         assert headers.get("Cookie"), "chat upload needs Cookie"
         assert qs.get("zpw_ver") == "695", qs
         assert qs.get("zpw_type") == "30", qs
@@ -458,6 +478,7 @@ class MockZalo:
                              decrypt=True)
         body = json.loads(plain.decode("utf-8"))
         assert body.get("clientId"), body
+        self.upload_bodies.append({"path": path, "body": body})
         is_group = path.startswith("/api/group/")
         if is_group:
             assert body.get("grid"), body
@@ -469,14 +490,40 @@ class MockZalo:
             assert body.get("desc"), body
             assert isinstance(body.get("width"), int), body
             assert isinstance(body.get("height"), int), body
-        if path in ("/api/message/voicemp3", "/api/group/sendmp3") \
-                and self.voice_upload_mode == "error133":
-            # Loi that khi file gui len khong phai MP3 (2026-11-05
-            # 23:03): inner 133, khong phai outer error.
+            assert isinstance(body.get("clientId"), int) and not \
+                isinstance(body.get("clientId"), bool), body
+        if path in ("/api/message/voicemp3", "/api/group/sendmp3"):
+            self.voice_upload_calls += 1
+            if self.voice_upload_mode == "error133":
+                # Loi that khi file gui len khong phai MP3 (2026-11-05
+                # 23:03): inner 133, khong phai outer error.
+                return self._postlogin_envelope_error(
+                    133,
+                    "Bạn chỉ có thể tải tập tin có định dạng sau : MP3")
+            if self.voice_upload_mode == "error112":
+                # Loi that 2026-11-06 06:35 +07 tren 9d87501.
+                return self._postlogin_envelope_error(
+                    112, "Lỗi không xác định")
+            if self.voice_upload_mode == "error112_once" \
+                    and self.voice_upload_calls == 1:
+                return self._postlogin_envelope_error(
+                    112, "Lỗi không xác định")
+            if not isinstance(body.get("clientId"), str):
+                # clientId NUMBER tren duong voice: sai so voi
+                # bundle (STRING) — server that tra 112 chung
+                # chung. Xem ghi chu o docstring ham nay.
+                return self._postlogin_envelope_error(
+                    112, "Lỗi không xác định")
+        if path in ("/api/message/sharefile_full",
+                    "/api/group/sharefile_full") \
+                and not isinstance(body.get("clientId"), str):
+            # Cung mau thuan wire nhu voice (bundle sendFile ghep
+            # '"clientId":"<id>"'); mo hinh hoa bang 112 nhu tren.
             return self._postlogin_envelope_error(
-                133, "Bạn chỉ có thể tải tập tin có định dạng sau : MP3")
+                112, "Lỗi không xác định")
         return self._postlogin_envelope(
-            {"msgId": "msg-file-1", "clientId": body["clientId"]})
+            {"msgId": "msg-file-1", "clientId": body["clientId"],
+             "body": body})
 
     def route_post(self, path, qs, headers, raw_body="", raw_qs=""):
         if path == "/api/group/getmg-v2" and self.slow_seconds:

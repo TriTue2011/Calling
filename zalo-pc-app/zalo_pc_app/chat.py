@@ -34,9 +34,16 @@ Endpoint da dung (ma lenh trong ngoac):
                  params {clientId, desc, width, height, visibility,
                  grid}, & type=11
   Gui file ghi am 1-1: POST multipart {files-wpa}/api/message/
-                 voicemp3 (11148), params {toid, clientId}, & type=2
+                 voicemp3 (11148), params {toid, clientId STRING},
+                 & type=2
   Gui file ghi am nhom: POST multipart {files-wpa}/api/group/
-                 sendmp3 (11169), params {grid, clientId}, & type=11
+                 sendmp3 (11169), params {grid, clientId STRING},
+                 & type=11
+  clientId tren duong voice/file la STRING (bundle ghep chuoi
+  JSON bang tay: '{"toid":"<id>", "clientId":"<id>"}'), khac voi
+  text/anh/link (NUMBER qua JSON.stringify) — xem send_voice /
+  send_file. Params voice CHI co toid|grid + clientId: khong ttl,
+  khong duration, khong imei, khong desc.
   Dang go 1-1:   GET {chat-wpa}/api/message/typing (11144)
                  body {toid, destType, imei}
   Dang go nhom:  GET {group-wpa}/api/group/typing (11196)
@@ -81,6 +88,7 @@ MP3 thi gui thang, khong doi.
 """
 
 import json
+import re
 import time
 import urllib.parse
 import uuid
@@ -96,6 +104,32 @@ GROUP_DOMAIN = protocol.GROUP_DOMAIN
 # file — loai dich, KHONG phai thread type 0/1 cua addon.
 TYPE_FILE_USER = 2
 TYPE_FILE_GROUP = 11
+
+# -- loi 112 + thu lai (voice/file) --------------------------------------
+# error_code=112 tren duong voice (gap that tren may chu 2026-11-06
+# 06:35 +07, "Loi khong xac dinh", sau khi 133 da het nho transcode
+# MP3): bundle khong dinh nghia rieng cho 112 — bang loi anh xa 112
+# -> "STR_ERROR_CODE_UNKNOWN", va moi bo xu ly loi trong bundle deu
+# coi 112 la TAM THOI va thu lai sau 1-5 giay (fetch/mark-unread/
+# clear-unread/reaction/...). Nen app thu lai gioi han khi gap 112,
+# dung cung clientId/body (clientId de server dedup, tranh gui
+# trung). 112 la loi CHUNG, khong phai ma rieng cho mot truong nao —
+# nguyen nhan kha di nhat o day la clientId sai kieu JSON (NUMBER
+# thay vi STRING, xem send_voice), vi do la diem lech wire duy nhat
+# con lai so voi bundle sau khi file da dung MP3.
+VOICE_112_MAX_RETRIES = 2
+VOICE_112_RETRY_DELAY_SECONDS = 2.0
+
+
+class ZaloChatError(RuntimeError):
+    """Loi Zalo tra ve qua envelope (error_code != 0), mang theo ma
+    loi de caller quyet dinh co thu lai khong (vd. 112). Subclass
+    cua RuntimeError nen moi `except RuntimeError` cu van bat duoc;
+    message giu nguyen dinh dang cu ("chat: <where> error_code=...")."""
+
+    def __init__(self, message, error_code=None):
+        super().__init__(message)
+        self.error_code = error_code
 
 # -- dinh kem: gioi han + phan loai theo Node.js (zalobot / zca-js) ---
 # Nguon chinh (lay tu lich su git 34ed43b, zalo-pc-app/zalobot-embedded):
@@ -463,7 +497,7 @@ class Chat:
     .http_post (url, form, timeout) cho POST form (send_link)."""
 
     def __init__(self, http_get, device_id, zpw_enk,
-                 http_post_multipart=None, http_post=None):
+                 http_post_multipart=None, http_post=None, sleep=None):
         self.http_get = http_get
         self.device_id = device_id
         self.zpw_enk = zpw_enk
@@ -474,17 +508,30 @@ class Chat:
         if http_post is None:
             http_post = getattr(http_get, "http_post", None)
         self.http_post = http_post
+        # sleep cho khoang cho giua cac lan thu lai 112 (mac dinh
+        # time.sleep; test inject ham ghi lai de khong cho that).
+        self._sleep = sleep or time.sleep
 
     # -- co so -----------------------------------------------------------
     def _unwrap(self, status, payload, where):
         if status != 200 or not isinstance(payload, dict):
-            raise RuntimeError("chat: %s network status=%s"
-                               % (where, status))
+            raise ZaloChatError("chat: %s network status=%s"
+                                % (where, status))
         if payload.get("error_code") != 0:
-            raise RuntimeError("chat: %s error_code=%s %s" % (
+            raise ZaloChatError("chat: %s error_code=%s %s" % (
                 where, payload.get("error_code"),
-                payload.get("error_message", "")))
-        return decode_postlogin_data(payload, self.zpw_enk)
+                payload.get("error_message", "")),
+                error_code=payload.get("error_code"))
+        try:
+            return decode_postlogin_data(payload, self.zpw_enk)
+        except RuntimeError as e:
+            # Loi inner nam trong envelope da giai ma (vd.
+            # "response inner error_code=112 ..."): doi sang
+            # ZaloChatError mang theo ma loi (giu nguyen message)
+            # de caller quyet dinh co thu lai khong.
+            match = re.search(r"error_code=(-?\d+)", str(e))
+            code = int(match.group(1)) if match else None
+            raise ZaloChatError(str(e), error_code=code) from e
 
     def _get(self, url, where):
         status, payload = self.http_get(url, timeout=30)
@@ -497,6 +544,25 @@ class Chat:
         status, payload = self.http_post_multipart(
             url, body_bytes, content_type, timeout=60)
         return self._unwrap(status, payload, where)
+
+    def _post_multipart_retry(self, url, body_bytes, content_type,
+                              where,
+                              retries=VOICE_112_MAX_RETRIES,
+                              delay_s=VOICE_112_RETRY_DELAY_SECONDS):
+        """POST multipart, thu lai gioi han khi Zalo tra 112
+        (tam thoi theo bundle: thu lai sau 1-5 giay). Moi lan thu
+        dung NGUYEN url/body (cung clientId) de server dedup, khong
+        gui trung. Loi khac 112, hoac het luot, thi nem thang."""
+        attempts = 0
+        while True:
+            try:
+                return self._post_multipart(url, body_bytes,
+                                            content_type, where)
+            except ZaloChatError as e:
+                attempts += 1
+                if e.error_code != 112 or attempts > retries:
+                    raise
+                self._sleep(delay_s)
 
     def _post_form(self, domain, path, body, where):
         """POST form params=<AES JSON> (send_link): common params
@@ -608,28 +674,34 @@ class Chat:
         """11146 (1-1) / 11191 (nhom): multipart fileContent.
         Kiem tra truoc (validate_attachment): ten thieu / file rong
         / file qua lon -> ValueError voi loi ro rang, khong goi Zalo.
-        clientId la NUMBER epoch-ms (xem _new_client_id): exe bundle
-        dung number; zca-js (handleAttachment) dung STRING cho anh va
-        clientFileId cho file — mau thuan wire, giu theo exe vi day
-        la phien PC (ghi ro de kiem that lan sau neu attach van loi).
+        clientId la STRING tren duong nay (bundle sendFile ghep
+        chuoi JSON bang tay: '{"toid":"<id>", "clientId":"<id>"}'
+        — co dau ngoac kep; gia tri van la epoch-ms cua
+        protocol.new_client_id, chi khac kieu JSON). Ghi chu cu noi
+        "exe dung number" la SAI doi voi file/voice — number chi
+        dung cho text/anh/link (JSON.stringify). Gui NUMBER o day
+        bi server tu choi bang 112 chung chung (live 2026-11-06
+        tren duong voice; cung mau thuan wire). Thu lai gioi han
+        khi gap 112 (xem _post_multipart_retry).
         """
         validate_attachment("file", filename, mime, data)
         client_id = _new_client_id()
         if thread_type == "group":
             url = _multipart_url(
                 FILES_DOMAIN, "/api/group/sharefile_full",
-                {"grid": str(thread_id), "clientId": client_id},
+                {"grid": str(thread_id), "clientId": str(client_id)},
                 self.zpw_enk, TYPE_FILE_GROUP)
             where = "POST /api/group/sharefile_full"
         else:
             url = _multipart_url(
                 FILES_DOMAIN, "/api/message/sharefile_full",
-                {"toid": str(thread_id), "clientId": client_id},
+                {"toid": str(thread_id), "clientId": str(client_id)},
                 self.zpw_enk, TYPE_FILE_USER)
             where = "POST /api/message/sharefile_full"
         body, ctype = build_multipart(
             {}, [("fileContent", filename, mime, data)])
-        return {"data": self._post_multipart(url, body, ctype, where),
+        return {"data": self._post_multipart_retry(url, body, ctype,
+                                                   where),
                 "client_id": client_id}
 
     def send_photo(self, thread_type, thread_id, filename, data,
@@ -667,23 +739,44 @@ class Chat:
                    mime="audio/mpeg"):
         """11148 (1-1) / 11169 (nhom): multipart fileContent = file
         mp3 DA GHI XONG. Ghi am la viec cua trinh duyet
-        (MediaRecorder) — ham nay chi gui file."""
+        (MediaRecorder) — ham nay chi gui file.
+        Params theo bundle sendVoice (compact-app-pc...js, ham
+        static sendVoice(e,t,n,a) + bao-cao-doi-chieu-addon.md
+        Bang 3 #12): params AES la chuoi JSON ghep tay
+        '{"toid":"<id>", "clientId":"<id>"}' (nhom: grid) — chi
+        2 truong, clientId la STRING (co ngoac kep), KHONG co ttl /
+        duration / imei / desc. Gia tri clientId van la epoch-ms
+        cua protocol.new_client_id (generator next() cua bundle),
+        chi khac kieu JSON. Code cu gui clientId NUMBER — sai wire,
+        la nghi pham so 1 cua loi that 112 ngay 2026-11-06 06:35
+        +07 (sau khi file da dung MP3, het 133). Thu lai gioi han
+        khi gap 112 (tam thoi theo bundle, xem
+        _post_multipart_retry). Duong upload-then-sendVoice bang
+        URL 12060/12063 KHONG dung o day: do la upload chunked cua
+        upload-manager chung (getInfoUploadVoiceFromData), thu tu
+        dung cho tin thoai chua lan duoc; duong truc tiep nay moi
+        la duong sendVoice cua client that. File rong bi tu choi
+        ngay truoc khi goi mang."""
+        if not data:
+            raise ValueError("chat: file ghi am rong (0 byte) — Zalo "
+                             "khong nhan tin thoai rong, hay ghi am lai")
         client_id = _new_client_id()
         if thread_type == "group":
             url = _multipart_url(
                 FILES_DOMAIN, "/api/group/sendmp3",
-                {"grid": str(thread_id), "clientId": client_id},
+                {"grid": str(thread_id), "clientId": str(client_id)},
                 self.zpw_enk, TYPE_FILE_GROUP)
             where = "POST /api/group/sendmp3"
         else:
             url = _multipart_url(
                 FILES_DOMAIN, "/api/message/voicemp3",
-                {"toid": str(thread_id), "clientId": client_id},
+                {"toid": str(thread_id), "clientId": str(client_id)},
                 self.zpw_enk, TYPE_FILE_USER)
             where = "POST /api/message/voicemp3"
         body, ctype = build_multipart(
             {}, [("fileContent", filename, mime, data)])
-        return {"data": self._post_multipart(url, body, ctype, where),
+        return {"data": self._post_multipart_retry(url, body, ctype,
+                                                   where),
                 "client_id": client_id}
 
     # -- typing / seen ----------------------------------------------------

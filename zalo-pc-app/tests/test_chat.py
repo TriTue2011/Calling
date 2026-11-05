@@ -175,29 +175,36 @@ def test_send_file_photo_voice():
                              b"hello file", "text/plain")
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
-        assert res["data"]["clientId"] == res["client_id"], res
+        # clientId tren day la STRING (bundle sendFile ghep chuoi
+        # JSON bang tay) — xem test_voice_112.py.
+        assert res["data"]["clientId"] == str(res["client_id"]), res
         res = chat.send_file("group", "30001", "bao-cao.pdf",
                              b"%PDF-fake", "application/pdf")
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
+        assert res["data"]["clientId"] == str(res["client_id"]), res
         res = chat.send_photo("user", "20001", "anh.jpg",
                               b"\xff\xd8\xff\xe0FAKEJPEGDATA", "image/jpeg",
                               800, 600)
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
+        assert res["data"]["clientId"] == res["client_id"], res
         res = chat.send_photo("group", "30001", "anh.png",
                               b"\x89PNG\r\n\x1a\nFAKEPNGDATA", "image/png",
                               640, 480)
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
+        assert res["data"]["clientId"] == res["client_id"], res
         res = chat.send_voice("user", "20001", "voice.mp3",
                               b"FAKEMP3DATA", "audio/mpeg")
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
+        assert res["data"]["clientId"] == str(res["client_id"]), res
         res = chat.send_voice("group", "30001", "voice.mp3",
                               b"FAKEMP3DATA", "audio/mpeg")
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
+        assert res["data"]["clientId"] == str(res["client_id"]), res
         seen = [p for p, _, _ in mock.seen]
         for want in ("/api/message/sharefile_full",
                      "/api/group/sharefile_full",
