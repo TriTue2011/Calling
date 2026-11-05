@@ -24,6 +24,7 @@ addon path only — v3 is not kept as a fallback.
 """
 
 import json
+import threading
 import time
 import urllib.parse
 
@@ -33,6 +34,16 @@ VOICECALL_DOMAIN = "https://voicecall-wpa.zalo.me"
 CONVERS_DOMAIN = "https://convers-wpa.api.zalo.me"
 PROFILE_DOMAIN = "https://profile-wpa.zalo.me"
 GROUP_DOMAIN = "https://group-wpa.zalo.me"
+# Cac domain con lai trong bang lenh (SERVICE-MAP.md §1): chi
+# hard-code trong bundle — REACTION va QUICK_MESSAGE KHONG co o
+# day, chung chi co trong services map server tra ve luc login
+# (xem services._domain_for — khong hard-code).
+FRIEND_DOMAIN = "https://friend-wpa.zalo.me"
+ALIAS_DOMAIN = "https://alias-wpa.api.zalo.me"
+LABEL_DOMAIN = "https://label-wpa.api.zalo.me"
+BOARD_DOMAIN = "https://groupboard-wpa.api.zalo.me"
+STICKER_DOMAIN = "https://sticker-wpa.zalo.me"
+FILE_DOMAIN = "https://files-wpa.zalo.me"
 
 API_VERSION = 695
 # apiType is a NUMBER. Bundle evidence (compact-app-pc bundle,
@@ -144,6 +155,30 @@ def build_url(base, path, params):
 
 def unix_now():
     return int(time.time())
+
+
+# ---------------------------------------------------------------- clientId
+# clientId cua moi tin gui: JSON NUMBER, epoch-ms tang don dieu
+# (SERVICE-MAP.md §3.1, module NMlV trong bundle: next() tra ve
+# Date.now(), neu trung thi +1). Code cu gui string ("ms-hex6" o
+# chat.py, str(ms) o services.py) — sai kieu JSON, la nghi pham
+# so 1 cua loi 114 (cung ho voi lesson callId 114). Generator
+# dung chung cho moi lan gui trong phien (text/file/anh/voice/
+# sticker/quote/reaction), giong client that; thread-safe vi
+# server chay ThreadingHTTPServer.
+_CLIENT_ID_LOCK = threading.Lock()
+_LAST_CLIENT_ID = 0
+
+
+def new_client_id():
+    """So nguyen epoch-ms tang don dieu, dung lam clientId."""
+    global _LAST_CLIENT_ID
+    with _CLIENT_ID_LOCK:
+        now = int(time.time() * 1000)
+        if now <= _LAST_CLIENT_ID:
+            now = _LAST_CLIENT_ID + 1
+        _LAST_CLIENT_ID = now
+        return now
 
 
 # ---------------------------------------------------------------- QR login

@@ -132,7 +132,12 @@ class MockZalo:
         # thay vì chờ Zalo chậm; chỉ load chưa có cache mới chờ.
         self.slow_seconds = 0
         self._friends_first = True  # first friends call must send init=1
+        # Pin list simulation: "ok" | "error212" (server chua co
+        # danh sach ghim — PinDataManager dat version 0 + day cache
+        # client len; xem services._set_pinned).
+        self.pin_list_mode = "ok"
         self.seen = []  # (path, query, headers) log
+        self.seen_post = []  # (path, query) log — chi cac POST
         self._plaintext_forced = False
         self.server = None
         self.port = 0
@@ -196,9 +201,11 @@ class MockZalo:
                 raw = self.rfile.read(length).decode("utf-8") if length \
                     else ""
                 mock.seen.append((parsed.path, qs, dict(self.headers)))
+                mock.seen_post.append((parsed.path, qs))
                 try:
                     status, obj = mock.route_post(
-                        parsed.path, qs, self.headers, raw)
+                        parsed.path, qs, self.headers, raw,
+                        parsed.query)
                 except Exception as e:  # noqa: BLE001 - mock must answer
                     status, obj = 500, {"error_code": -1,
                                         "error_message": "mock: %s" % e}
@@ -258,22 +265,32 @@ class MockZalo:
         if path.startswith(("/api/message/", "/api/group/",
                             "/api/social/", "/api/conv/",
                             "/api/convlabel/", "/api/board/",
-                            "/api/setting/",
-                            "/api/update/")):
+                            "/api/setting/", "/api/update/",
+                            "/api/friend/", "/api/alias/",
+                            "/api/quickmessage/", "/api/poll/",
+                            "/api/archivedchat/", "/api/hiddenconvers/",
+                            "/api/pinconvers/", "/api/label/",
+                            "/api/profile/")):
             return 200, self._svc_get(path, qs, headers, raw_qs)
         return 404, {"error_code": 404, "error_message": "mock no route"}
 
     def _chat_send_text(self, path, qs, headers, raw_qs=""):
         """Gui text 1-1 (11151) / nhom (11163): GET, params AES.
-        1-1 body {message, clientId, imei, toid}; nhom {message,
-        clientId, imei, visibility, grid}."""
+        1-1 body {message, clientId NUMBER, imei, toid, ttl};
+        nhom {message, clientId NUMBER, imei, visibility, grid,
+        ttl} (SERVICE-MAP.md §3.1 — clientId string + thieu ttl la
+        nghi pham so 1 cua loi 114, mock phai bat)."""
         self._check_postlogin(qs, headers, raw_qs, "chat send")
         key = base64.b64decode(TEST_SESSION_KEY)
         plain = _openssl_aes(key, base64.b64decode(qs["params"]),
                              decrypt=True)
         body = json.loads(plain.decode("utf-8"))
         assert body.get("message"), body
-        assert body.get("clientId"), body
+        # clientId phai la JSON NUMBER epoch-ms (khong phai string).
+        assert isinstance(body.get("clientId"), int) and not \
+            isinstance(body.get("clientId"), bool), body
+        assert body.get("clientId") > 10 ** 12, body
+        assert isinstance(body.get("ttl"), int), body
         assert body.get("imei"), body
         if path == "/api/message/sms":
             assert body.get("toid"), body
@@ -281,7 +298,45 @@ class MockZalo:
             assert body.get("grid"), body
             assert isinstance(body.get("visibility"), int), body
         return self._postlogin_envelope(
-            {"msgId": "msg-1", "clientId": body["clientId"]})
+            {"msgId": "msg-1", "clientId": body["clientId"],
+             "body": body})
+
+    def _chat_send_link(self, path, qs, headers, raw_body="",
+                        raw_qs=""):
+        """Gui link 1-1 (11286) / nhom (11193): POST form
+        params=<AES>. 1-1 body {msg, href, title, desc, language,
+        clientId NUMBER, toId, mentionInfo:"", ttl}; nhom them
+        {grid, mentionInfo:"[]", visibility, imei}
+        (SERVICE-MAP.md §3.2, #72)."""
+        self._check_common(qs, headers, "chat send link")
+        m = re.search(r"(?:^|&)params=([^&]*)", raw_body or "")
+        assert m, "link POST %s needs params form body" % path
+        assert "/" not in m.group(1) and "+" not in m.group(1), \
+            "link POST %s params not fully percent-encoded" % path
+        enc = urllib.parse.unquote(m.group(1))
+        assert enc, "link POST %s needs params" % path
+        key = base64.b64decode(TEST_SESSION_KEY)
+        plain = _openssl_aes(key, base64.b64decode(enc),
+                             decrypt=True)
+        body = json.loads(plain.decode("utf-8"))
+        assert body.get("href"), body
+        # clientId phai la JSON NUMBER epoch-ms (khong phai string).
+        assert isinstance(body.get("clientId"), int) and not \
+            isinstance(body.get("clientId"), bool), body
+        assert body.get("clientId") > 10 ** 12, body
+        assert isinstance(body.get("ttl"), int), body
+        assert body.get("language") == "vi", body
+        if path == "/api/message/link":
+            assert body.get("toId"), body
+            assert body.get("mentionInfo") == "", body
+        else:
+            assert body.get("grid"), body
+            assert body.get("mentionInfo") == "[]", body
+            assert isinstance(body.get("visibility"), int), body
+            assert body.get("imei"), body
+        return self._postlogin_envelope(
+            {"msgId": "msg-1", "clientId": body["clientId"],
+             "body": body})
 
     def _group_history(self, qs, headers, raw_qs=""):
         """Lich su nhom (11240): GET, params AES {grid, count}."""
@@ -349,7 +404,7 @@ class MockZalo:
         return self._postlogin_envelope(
             {"msgId": "msg-file-1", "clientId": body["clientId"]})
 
-    def route_post(self, path, qs, headers, raw_body=""):
+    def route_post(self, path, qs, headers, raw_body="", raw_qs=""):
         if path == "/api/group/getmg-v2" and self.slow_seconds:
             time.sleep(self.slow_seconds)
         if path == "/api/group/getmg-v2":
@@ -363,13 +418,52 @@ class MockZalo:
                     "/api/message/voicemp3", "/api/group/sendmp3",
                     "/api/message/photo", "/api/group/sendpt"):
             return 200, self._chat_upload(path, qs, headers, raw_body)
+        if path in ("/api/message/link", "/api/group/sendlink"):
+            return 200, self._chat_send_link(path, qs, headers,
+                                             raw_body, raw_qs)
+        if path in ("/api/group/upavatar", "/api/profile/upavatar"):
+            return 200, self._avatar_upload(path, qs, headers,
+                                            raw_body)
         if path.startswith(("/api/message/", "/api/group/",
                             "/api/social/", "/api/conv/",
                             "/api/convlabel/", "/api/board/",
-                            "/api/setting/",
-                            "/api/update/")):
-            return 200, self._svc_post(path, qs, headers, raw_body)
+                            "/api/setting/", "/api/update/",
+                            "/api/friend/", "/api/alias/",
+                            "/api/quickmessage/", "/api/poll/",
+                            "/api/archivedchat/", "/api/hiddenconvers/",
+                            "/api/pinconvers/", "/api/label/",
+                            "/api/profile/")):
+            return 200, self._svc_post(path, qs, headers, raw_body,
+                                       raw_qs)
         return 404, {"error_code": 404, "error_message": "mock no route"}
+
+    def _avatar_upload(self, path, qs, headers, raw_body=""):
+        """Doi avatar nhom (11195) / tai khoan (11819): POST
+        multipart fileContent + query params=<AES {grid|-, clientId
+        NUMBER, originWidth, originHeight, imei} / {clientId,
+        language}. avatarSize chua biet gia tri — mock khong doi."""
+        assert headers.get("Cookie"), "avatar upload needs Cookie"
+        assert qs.get("zpw_ver") == "695", qs
+        assert qs.get("zpw_type") == "30", qs
+        ctype = headers.get("Content-Type") or ""
+        assert "multipart/form-data" in ctype, ctype
+        assert 'name="fileContent"' in raw_body, "needs fileContent"
+        assert "filename=" in raw_body, "needs filename"
+        key = base64.b64decode(TEST_SESSION_KEY)
+        plain = _openssl_aes(key, base64.b64decode(qs["params"]),
+                             decrypt=True)
+        body = json.loads(plain.decode("utf-8"))
+        assert isinstance(body.get("clientId"), int) and not \
+            isinstance(body.get("clientId"), bool), body
+        if path == "/api/group/upavatar":
+            assert body.get("grid"), body
+            assert isinstance(body.get("originWidth"), int), body
+            assert isinstance(body.get("originHeight"), int), body
+            assert body.get("imei"), body
+        else:
+            assert body.get("language"), body
+        return self._postlogin_envelope(
+            {"ok": True, "path": path, "body": body})
 
     def _svc_get(self, path, qs, headers, raw_qs=""):
         """Generic post-login GET for the services module: strict
@@ -377,31 +471,61 @@ class MockZalo:
         body, echo it back inside the two-layer envelope. The mock
         does NOT validate per-endpoint body shapes (those are the
         audit's 'body chưa lần hết' — the test pins the wire
-        contract, not an invented body)."""
+        contract, not an invented body).
+        Dac biet:
+        - /api/pinconvers/list tra shape that theo bundle
+          (PinDataManager): {version, conversations:[id 'u'/'g']}.
+        - /api/hiddenconvers/reset KHONG co params (chi common
+          params — bundle resetPIN goi _get(e, null, 10051)).
+        - params giai ma ra chuoi rong "" (get_stickers 11155:
+          params AES cua chuoi rong) thi body = ""."""
+        if path == "/api/hiddenconvers/reset":
+            self._check_common(qs, headers, "svc GET %s" % path)
+            assert "params" not in qs, \
+                "reset pin takes no params: %s" % qs
+            return self._postlogin_envelope(
+                {"ok": True, "path": path, "body": {}})
         self._check_postlogin(qs, headers, raw_qs, "svc GET %s" % path)
         key = base64.b64decode(TEST_SESSION_KEY)
         plain = _openssl_aes(key, base64.b64decode(qs["params"]),
                              decrypt=True)
-        body = json.loads(plain.decode("utf-8"))
+        text = plain.decode("utf-8")
+        body = json.loads(text) if text else ""
+        if path == "/api/pinconvers/list":
+            if self.pin_list_mode == "error212":
+                return self._postlogin_envelope_error(
+                    212, "hasn't pinned conversation")
+            return self._postlogin_envelope(
+                {"version": 3, "conversations": ["u20001"]})
         return self._postlogin_envelope(
             {"ok": True, "path": path, "body": body})
 
-    def _svc_post(self, path, qs, headers, raw_body=""):
+    def _svc_post(self, path, qs, headers, raw_body="", raw_qs=""):
         """Generic post-login POST (form params=<AES JSON>) for the
         services module: same contract as getmg-v2 (common params +
         fully percent-encoded form value), echo in two-layer
-        envelope."""
+        envelope. POST_QUERY (update_auto_delete_chat 12023) de
+        params trong QUERY URL thay vi form body — chap nhan ca
+        hai. params giai ma ra chuoi rong thi body = ""."""
         self._check_common(qs, headers, "svc POST %s" % path)
-        m = re.search(r"(?:^|&)params=([^&]*)", raw_body or "")
-        assert m, "svc POST %s needs params form body" % path
-        assert "/" not in m.group(1) and "+" not in m.group(1), \
-            "svc POST %s params not fully percent-encoded" % path
-        form = dict(urllib.parse.parse_qsl(raw_body or ""))
-        assert "params" in form, "svc POST %s needs params" % path
+        enc = qs.get("params")
+        if enc is None:
+            m = re.search(r"(?:^|&)params=([^&]*)", raw_body or "")
+            assert m, "svc POST %s needs params form body" % path
+            assert "/" not in m.group(1) and "+" not in m.group(1), \
+                "svc POST %s params not fully percent-encoded" % path
+            enc = urllib.parse.unquote(m.group(1))
+        else:
+            m = re.search(r"(?:^|&)params=([^&]*)", raw_qs or "")
+            assert m, "svc POST %s needs raw params value" % path
+            assert "/" not in m.group(1) and "+" not in m.group(1), \
+                "svc POST %s params not fully percent-encoded" % path
+        assert enc, "svc POST %s needs params" % path
         key = base64.b64decode(TEST_SESSION_KEY)
-        plain = _openssl_aes(key, base64.b64decode(form["params"]),
+        plain = _openssl_aes(key, base64.b64decode(enc),
                              decrypt=True)
-        body = json.loads(plain.decode("utf-8"))
+        text = plain.decode("utf-8")
+        body = json.loads(text) if text else ""
         return self._postlogin_envelope(
             {"ok": True, "path": path, "body": body})
 
@@ -521,7 +645,13 @@ class MockZalo:
         data = {
             "dkey": "dkey-test",
             "zpw_enk": TEST_SESSION_KEY,
-            "config": {"zpw_service_map_new": {},
+            # Services map (v2 shape: string values) — REACTION /
+            # QUICK_MESSAGE chi co trong map nay, khong hard-code
+            # trong bundle (SERVICE-MAP.md §1). Mock tra ve chinh
+            # mock base de test HTTP end-to-end di qua resolve.
+            "config": {"zpw_service_map_new": {
+                           "reaction": self.base,
+                           "quick_message": self.base},
                        "zpw_ws": "wss://mock.invalid/ws"}}
         if "zcid" in qs:
             assert qs.get("type") == "30", qs

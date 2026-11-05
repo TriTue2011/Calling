@@ -49,18 +49,82 @@ def test_send_text_user_and_group():
         chat = make_chat(mock)
         res = chat.send_text("user", "20001", "Xin chao")
         assert res["data"]["msgId"] == "msg-1", res
-        assert res["client_id"], res
+        # clientId la JSON NUMBER epoch-ms, tang don dieu — loi 114
+        # xuat phat tu clientId string (SERVICE-MAP.md §3.1).
+        assert isinstance(res["client_id"], int), res
+        assert res["client_id"] > 10 ** 12, res
+        assert res["data"]["body"]["clientId"] == res["client_id"], res
+        assert res["data"]["body"]["ttl"] == 0, res
+        assert res["data"]["body"]["toid"] == "20001", res
         paths = [p for p, _, _ in mock.seen
                  if p == "/api/message/sms"]
         assert len(paths) == 1, mock.seen
-        res = chat.send_text("group", "30001", "Chao ca nhom")
-        assert res["data"]["msgId"] == "msg-1", res
+        res2 = chat.send_text("group", "30001", "Chao ca nhom")
+        assert res2["data"]["msgId"] == "msg-1", res2
+        assert isinstance(res2["client_id"], int), res2
+        assert res2["client_id"] > res["client_id"], res
+        assert res2["data"]["body"]["ttl"] == 0, res2
+        assert res2["data"]["body"]["grid"] == "30001", res2
+        assert res2["data"]["body"]["visibility"] == 0, res2
         gpaths = [p for p, _, _ in mock.seen
                   if p == "/api/group/sendmsg"]
         assert len(gpaths) == 1, mock.seen
+        # ttl tu xoa duoc gui nguyen (ms).
+        res3 = chat.send_text("user", "20001", "Tu xoa sau 1h",
+                              ttl=3600)
+        assert res3["data"]["body"]["ttl"] == 3600, res3
+        assert res3["client_id"] > res2["client_id"], res3
         try:
             chat.send_text("user", "20001", "   ")
             raise AssertionError("expected ValueError on empty message")
+        except ValueError:
+            pass
+    finally:
+        mock.stop()
+
+
+def test_send_link():
+    """Gui link 1-1 (11286) / nhom (11193): POST form params AES;
+    clientId NUMBER, mentionInfo "" (1-1) / "[]" (nhom), ttl.
+    (SERVICE-MAP.md §3.2, #72.)"""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        chat = make_chat(mock)
+        res = chat.send_link("user", "20001",
+                             "https://example.invalid/a",
+                             message="Xem nay", title="Tieu de",
+                             desc="Mo ta")
+        assert res["data"]["msgId"] == "msg-1", res
+        assert isinstance(res["client_id"], int), res
+        body = res["data"]["body"]
+        assert body["href"] == "https://example.invalid/a", body
+        assert body["msg"] == "Xem nay", body
+        assert body["title"] == "Tieu de", body
+        assert body["desc"] == "Mo ta", body
+        assert body["toId"] == "20001", body
+        assert body["mentionInfo"] == "", body
+        assert body["clientId"] == res["client_id"], body
+        assert body["ttl"] == 0, body
+        assert "imei" not in body, body
+        paths = [p for p, _, _ in mock.seen
+                 if p == "/api/message/link"]
+        assert len(paths) == 1, mock.seen
+        res2 = chat.send_link("group", "30001",
+                              "https://example.invalid/b", ttl=3600)
+        body2 = res2["data"]["body"]
+        assert res2["client_id"] > res["client_id"], res2
+        assert body2["grid"] == "30001", body2
+        assert body2["mentionInfo"] == "[]", body2
+        assert body2["visibility"] == 0, body2
+        assert body2["imei"] == "dev-1", body2
+        assert body2["ttl"] == 3600, body2
+        gpaths = [p for p, _, _ in mock.seen
+                  if p == "/api/group/sendlink"]
+        assert len(gpaths) == 1, mock.seen
+        try:
+            chat.send_link("user", "20001", "   ")
+            raise AssertionError("expected ValueError on empty href")
         except ValueError:
             pass
     finally:
@@ -110,21 +174,28 @@ def test_send_file_photo_voice():
         res = chat.send_file("user", "20001", "hello.txt",
                              b"hello file", "text/plain")
         assert res["data"]["msgId"] == "msg-file-1", res
+        assert isinstance(res["client_id"], int), res
+        assert res["data"]["clientId"] == res["client_id"], res
         res = chat.send_file("group", "30001", "bao-cao.pdf",
                              b"%PDF-fake", "application/pdf")
         assert res["data"]["msgId"] == "msg-file-1", res
+        assert isinstance(res["client_id"], int), res
         res = chat.send_photo("user", "20001", "anh.jpg",
                               b"FAKEJPEGDATA", "image/jpeg", 800, 600)
         assert res["data"]["msgId"] == "msg-file-1", res
+        assert isinstance(res["client_id"], int), res
         res = chat.send_photo("group", "30001", "anh.png",
                               b"FAKEPNGDATA", "image/png", 640, 480)
         assert res["data"]["msgId"] == "msg-file-1", res
+        assert isinstance(res["client_id"], int), res
         res = chat.send_voice("user", "20001", "voice.mp3",
                               b"FAKEMP3DATA", "audio/mpeg")
         assert res["data"]["msgId"] == "msg-file-1", res
+        assert isinstance(res["client_id"], int), res
         res = chat.send_voice("group", "30001", "voice.mp3",
                               b"FAKEMP3DATA", "audio/mpeg")
         assert res["data"]["msgId"] == "msg-file-1", res
+        assert isinstance(res["client_id"], int), res
         seen = [p for p, _, _ in mock.seen]
         for want in ("/api/message/sharefile_full",
                      "/api/group/sharefile_full",
@@ -270,6 +341,25 @@ def test_server_thread_routes():
         # Gui rong -> 400, khong goi Zalo.
         status, body = api_json("POST", "/api/thread/20001/send",
                                 {"type": "user", "message": "   "})
+        assert status == 400, body
+
+        # Gui link 1-1 + nhom (11286/11193): thanh cong, luu local.
+        status, body = api_json("POST", "/api/thread/20001/sendlink",
+                                {"type": "user",
+                                 "link": "https://example.invalid/a",
+                                 "message": "Xem nay"})
+        assert status == 200 and body["ok"] is True, body
+        assert body["message"]["text"] == "Xem nay", body
+        assert body["message"]["direction"] == "out", body
+        status, body = api_json("POST", "/api/thread/30001/sendlink",
+                                {"type": "group",
+                                 "link": "https://example.invalid/b",
+                                 "ttl": 3600})
+        assert status == 200 and body["ok"] is True, body
+        assert body["message"]["text"] == "https://example.invalid/b", body
+        # Link rong -> 400, khong goi Zalo.
+        status, body = api_json("POST", "/api/thread/20001/sendlink",
+                                {"type": "user", "link": "   "})
         assert status == 400, body
 
         # Dinh kem file (multipart) 1-1 + anh nhom (kind=photo).

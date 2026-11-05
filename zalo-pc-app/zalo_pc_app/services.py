@@ -1,57 +1,58 @@
-"""Phủ service addon (96 services) lên app Zalo kiểu PC.
+"""Phu service addon (96 services) len app Zalo kieu PC.
 
-Nguồn duy nhất cho endpoint PC: bao-cao-doi-chieu-addon.md Bảng 1 +
-Bảng 3 (bundle client PC thật Zalo PC 26.11.10, bảng lệnh 231 mục).
-Quy tắc trung thực của module này:
+Nguon duy nhat cho endpoint PC: SERVICE-MAP.md (audit bundle
+client PC that Zalo PC 26.11.10, 416 ma lenh) — thay the bao cao
+doi chieu cu (bang lenh 231 muc). Quy tac trung thuc cua module
+nay:
 
-* Mọi thao tác đều đi qua cùng một đường dây post-login như
+* Moi thao tac deu di qua cung mot duong day post-login nhu
   contacts/signaling: common params zpw_ver=695 & zpw_type=30 +
-  params=<AES-JSON bằng khóa phiên zpw_enk, AES-CBC IV 0, base64>,
-  response envelope HAI LỚP (decode_postlogin_data). Không có
-  endpoint nào ở đây được bịa: path + mã lệnh lấy từ bảng lệnh;
-  chỗ nào audit ghi "chưa lần hết body" thì body dùng các tham số
-  của chính service addon đó (msg_id, thread_id, ...) và entry
-  trong CATALOG đánh dấu body_unverified=True — integrator / đợt
-  lần tiếp theo phải xác minh body thật trước khi coi là xong.
-* Service nào KHÔNG có đường PC trong bảng lệnh (reaction, ghim,
-  ẩn hội thoại + PIN, lưu trữ, kết bạn/chặn/biệt danh, poll, tin
-  nhắn nhanh) thì KHÔNG có nút bấm: CATALOG ghi status
-  "unsupported" + lý do, server trả 409, UI chỉ hiện trạng thái.
-* Service chỉ thuộc máy chủ zalobot (webhook, proxy, đa tài khoản)
-  ghi status "zalobot" — phiên web, không phải của app PC.
-* Gửi tin (text/file/ảnh/video/link/card/voice) có đường PC nhưng
-  thuộc KHUNG CHAT — agent chat làm song song; ở đây chỉ ghi
-  status "chat" trỏ tới đó, không viết lại đường gửi.
+  params=<AES-JSON bang khoa phien zpw_enk, AES-CBC IV 0, base64>,
+  response envelope HAI LOP (decode_postlogin_data). Khong co
+  endpoint nao o day duoc bia: path + ma lenh + body lay tu
+  SERVICE-MAP.md (trich truc tiep tu ham static trong bundle).
+* Service nao body chua lan het thi CATALOG danh dau
+  body_unverified=True — UI canh bao, integrator / dot lan tiep
+  theo phai xac minh body that truoc khi coi la xong. Truong nao
+  chua biet gia tri thi KHONG gui (khong doan gia tri).
+* Service chi thuoc may chu zalobot (webhook, proxy, da tai
+  khoan, QR web) ghi status "zalobot" — phien web, khong phai
+  cua app PC; server tra 409, UI chi hien trang thai.
+* Gui tin (text/file/anh/voice/link) co duong PC nhung thuoc
+  KHUNG CHAT — chat.py lam; o day chi ghi status "chat" tro toi
+  do, khong viet lai duong gui. Ngoai le: sticker, typing, seen,
+  quote, forward, undo, delete — la op trong OPS vi chung la
+  tac dong len tin da co, khong phai khung gui.
+* REACTION va QUICK_MESSAGE: domain KHONG hard-code — chi co
+  trong services map server tra ve luc login (config
+  zpw_service_map_new, luu o session["service_map"]). Services
+  resolve qua map, log domain resolve duoc (xem _domain_for);
+  neu map chua co thi tu choi ro rang, khong doan domain.
 
-Route server (móc duy nhất, xem server.py): 
-  GET  /api/svc/catalog      -> CATALOG (không cần đăng nhập)
-  POST /api/svc/<action>     -> dispatch(); yêu cầu phiên Zalo
-    (server._require_login). ĐĂNG NHẬP APP (user/mật khẩu) do
-    agent đăng nhập làm song song — chưa có trong bản này; khi
-    có, integrator bọc thêm auth app quanh /api/svc/* (xem
-    AUTH_NOTE dưới); hiện tại route chỉ được bảo vệ bằng phiên
-    Zalo, giống /api/contacts và /api/call/*.
+Route server (moc duy nhat, xem server.py):
+  GET  /api/svc/catalog      -> CATALOG (khong can dang nhap)
+  POST /api/svc/<action>     -> dispatch(); yeu cau phien Zalo
+    (server._require_login). Upload file (doi avatar nhom/tai
+    khoan) gui multipart field "file" — xem handle_svc.
 
 Thread = (threadId, type): type "user" (1-1, threadId = userId),
-type "group" (threadId = groupId thô). Các op 1-1 dùng toid, các
-op nhóm dùng grid — đúng như bundle (sendZText, sendSticker...).
+type "group" (threadId = groupId tho). Cac op 1-1 dung toid, cac
+op nhom dung grid — dung nhu bundle (sendZText, sendSticker...).
 """
 
 import json
+import logging
 import time
 import urllib.parse
+from datetime import datetime, timezone
 
 from . import protocol
+from .chat import build_multipart
 from .crypto import decode_postlogin_data, session_aes_encrypt
 
-AUTH_NOTE = (
-    "Route /api/svc/* hiện chỉ kiểm tra phiên Zalo "
-    "(server._require_login). Đăng nhập app (user/mật khẩu) chưa "
-    "có trong bản này — integrator phải bọc thêm auth app khi "
-    "agent đăng nhập xong, giống các route /api/* khác."
-)
+log = logging.getLogger(__name__)
 
-# Nhóm hiển thị trên UI (theo cách gộp Bảng 1 của báo cáo đối chiếu).
+# Nhom hien thi tren UI (theo cach gop Bang 1 cua bao cao doi chieu).
 GROUPS = [
     ("tin_nhan", "Tác động tin nhắn"),
     ("nhom", "Quản lý nhóm"),
@@ -62,6 +63,39 @@ GROUPS = [
     ("nhan", "Nhãn / đang gõ"),
     ("khac", "Tài khoản / hệ thống"),
 ]
+
+# --- Hang so lay tu bundle (SERVICE-MAP.md + lan them 2026-11-05) ---
+LANGUAGE = protocol.LANGUAGE  # "vi" — clientLang trong cac body.
+AVATAR_SIZE = protocol.AVATAR_SIZE  # 160.
+
+# Loai topic tren board (module "1pet" trong bundle: TEXT_TOPIC=0,
+# LINK_TOPIC=1, MSG_TOPIC=2, POLL_TOPIC=3, REMINDER_TOPIC=4).
+TOPIC_TEXT = 0
+# Mau mac dinh cua topic moi (bundle: color:-16777216).
+TOPIC_COLOR_DEFAULT = -16777216
+# Emoji mac dinh: nhac hen dung dong ho; ghi chu thuong de trong.
+TOPIC_EMOJI_REMINDER = "⏰"
+TOPIC_EMOJI_NOTE = ""
+
+# Tat thong bao (module "1pet": SET_MUTE=1, UNSET_MUTE=3).
+MUTE_ACTION_SET = 1
+MUTE_ACTION_UNSET = 3
+
+# Reaction: chi co "like" la map chac chan tu bundle —
+# default_reaction:{rType:3, rIcon:"/-strong"} + thumb
+# iconlike_*.png. Cac icon khac (heart/haha/wow/cry/angry) chi
+# co cap (rType, rIcon) trong config server (reactionMsgInfo) ma
+# khong co ten HA di kem — KHONG doan map; caller phai truyen
+# r_icon/r_type truc tiep (xem _b_reaction). Cac cap da thay trong
+# bundle (de dot lan sau doi chieu voi config server):
+#   2:":-(( " 3:"/-strong" 4:"/-weak" 5:"/-heart" 7:":') "
+#   8:":-* " 20:":-h" 32:":o" 65:"/-break" 66:"/-shit" 120:"/-rose"
+REACTION_ICONS = {
+    "like": (3, "/-strong"),
+}
+# Loai tin mac dinh khi react (module "1pet": MSG_TEXT=1) — gia
+# dinh tin duoc react la tin text; truyen msg_type neu khac.
+REACTION_MSG_TYPE_TEXT = 1
 
 
 class UnsupportedService(Exception):
@@ -78,6 +112,21 @@ class UnknownAction(Exception):
     pass
 
 
+class ServiceError(RuntimeError):
+    """Loi server Zalo tra ve trong envelope (inner error_code).
+
+    Subclass cua RuntimeError nen code cu bat RuntimeError van
+    dung; .code de caller phan biet ma loi (vd. 212 = chua co
+    danh sach ghim tren server — set_pinned xu ly rieng)."""
+
+    def __init__(self, where, code, message=""):
+        super().__init__("svc %s: error_code=%s %s"
+                         % (where, code, message))
+        self.where = where
+        self.code = code
+        self.message = message
+
+
 def _csv(value):
     if value is None:
         return []
@@ -87,7 +136,9 @@ def _csv(value):
 
 
 def _client_id():
-    return str(int(time.time() * 1000))
+    """clientId dang JSON NUMBER epoch-ms tang don dieu (NMlV.next()
+    — xem protocol.new_client_id)."""
+    return protocol.new_client_id()
 
 
 def _need(params, key, service):
@@ -95,6 +146,71 @@ def _need(params, key, service):
     if v is None or (isinstance(v, str) and not v.strip()):
         raise ValueError("%s: thiếu tham số bắt buộc %s" % (service, key))
     return v
+
+
+def _bool_param(params, key, default=False):
+    v = params.get(key)
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return v
+    return str(v).lower() in ("1", "true", "yes", "on")
+
+
+def _int_param(params, key, default=None, service=""):
+    v = params.get(key)
+    if v is None:
+        return default
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        raise ValueError("%s: %s phải là số nguyên" % (service, key))
+
+
+def _cli_int(value, service=""):
+    """cliMsgId ve so nguyen (clientId la JSON number). Chuoi so
+    -> int; so -> nguyen; khac -> ValueError (khong doan)."""
+    if isinstance(value, bool):
+        raise ValueError("%s: cli_msg_id không hợp lệ" % service)
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    if s.lstrip("-").isdigit():
+        return int(s)
+    raise ValueError("%s: cli_msg_id phải là số (%r)" % (service, value))
+
+
+def _parse_remind_ms(value, service):
+    """remind_time -> epoch MILLISECONDS (startTime cua topic).
+    Nhan: so ms (>=1e12), so giay (epoch s), chuoi so tuong tu,
+    chuoi ISO-8601 (vd. 2026-11-06T10:00:00+07:00, date-only
+    2026-11-06 = 00:00 dia phuong). Khac -> ValueError."""
+    if isinstance(value, bool):
+        raise ValueError("%s: remind_time không hợp lệ" % service)
+    if isinstance(value, (int, float)):
+        n = int(value)
+    else:
+        s = str(value).strip()
+        if not s:
+            raise ValueError("%s: remind_time rỗng" % service)
+        if s.lstrip("-").isdigit():
+            n = int(s)
+        else:
+            try:
+                dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            except ValueError:
+                raise ValueError(
+                    "%s: remind_time không parse được (%r) — dùng "
+                    "ISO-8601 hoặc epoch" % (service, value))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp() * 1000)
+    if n >= 10 ** 12:
+        return n
+    if n >= 10 ** 9:
+        return n * 1000
+    raise ValueError("%s: remind_time epoch quá nhỏ (%r)"
+                     % (service, value))
 
 
 def _thread(params, service):
@@ -114,65 +230,108 @@ def _toid_or_grid(tid, ttype, extra=None):
         body["toid"] = tid
     return body
 
-
 # ------------------------------------------------------------------ body
 # Mỗi builder nhận (params UI, thread_id, thread_type) -> body JSON
-# gửi trong params AES. Body nào audit chưa lần hết thì ghi rõ trong
-# CATALOG (body_unverified=True) — dùng tham số addon, chưa xác
-# minh thật, KHÔNG được coi là "đã đúng với client PC thật".
+# gửi trong params AES. Body nào SERVICE-MAP.md chưa lần hết thì
+# CATALOG đánh dấu body_unverified=True — dùng tham số addon, chưa
+# xác minh thật, KHÔNG được coi là "đã đúng với client PC thật".
+# Trường nào chưa biết giá trị thì KHÔNG gửi (không đoán).
 
 def _b_undo(p, tid, tt):
-    return _toid_or_grid(tid, tt, {
-        "msgId": _need(p, "msg_id", "undo_message"),
-        "cliMsgId": p.get("cli_msg_id", ""),
-        "imei": p["_imei"]})
+    # 1-1: {msgId, toid, clientId:number, cliMsgIdUndo} (KHONG imei);
+    # nhom: {msgId, grid, clientId, visibility:0, cliMsgIdUndo, imei}.
+    body = {"msgId": _need(p, "msg_id", "undo_message"),
+            "clientId": _client_id()}
+    if p.get("cli_msg_id") not in (None, ""):
+        body["cliMsgIdUndo"] = _cli_int(p["cli_msg_id"],
+                                       "undo_message")
+    if tt == "group":
+        body.update({"grid": tid, "visibility": 0,
+                     "imei": p["_imei"]})
+    else:
+        body["toid"] = tid
+    return body
 
 
 def _b_delete_msg(p, tid, tt):
-    return _toid_or_grid(tid, tt, {
-        "msgId": _need(p, "msg_id", "delete_message"),
-        "cliMsgId": p.get("cli_msg_id", ""),
-        "uidFrom": p.get("uid_from", ""),
+    # {toid|grid, cliMsgId?, msgs:[msgId], onlyMe:0|1, imei}.
+    body = _toid_or_grid(tid, tt, {
+        "msgs": [_need(p, "msg_id", "delete_message")],
+        "onlyMe": 1 if _bool_param(p, "only_me", True) else 0,
         "imei": p["_imei"]})
+    if p.get("cli_msg_id") not in (None, ""):
+        body["cliMsgId"] = _cli_int(p["cli_msg_id"], "delete_message")
+    return body
 
 
 def _b_forward(p, tid, tt):
-    dest = _csv(_need(p, "dest_thread_ids", "forward_message"))
-    return _toid_or_grid(tid, tt, {
-        "msgId": _need(p, "msg_id", "forward_message"),
-        "threadIds": dest, "imei": p["_imei"]})
+    # Khung da xac minh: {toId|grid, imei}. Phan transform theo
+    # loai tin (msgType, msgs/totalIds, file/photo) CHUA lan —
+    # dispatch goi _forward_message (lap theo tung dich) thay vi
+    # dung builder nay truc tiep; chi giu de mo ta body 1 dich.
+    dest = _csv(_need(p, "dest_thread_ids", "forward_message"))[0]
+    dtype = (p.get("type") or "user").lower()
+    if dtype == "group":
+        return {"grid": dest, "imei": p["_imei"]}
+    return {"toId": dest, "imei": p["_imei"]}
 
 
 def _b_quote(p, tid, tt):
-    return _toid_or_grid(tid, tt, {
-        "msgId": _need(p, "msg_id", "quote_message"),
+    # 1-1 POST /api/message/quote 11771; nhom POST /api/group/quote
+    # 11197 (SERVICE-MAP.md §3.1).
+    body = {
         "message": _need(p, "text", "quote_message"),
-        "clientId": _client_id(), "imei": p["_imei"]})
+        "clientId": _client_id(),
+        "qmsgOwner": _need(p, "qmsg_owner", "quote_message"),
+        "qmsgId": _need(p, "msg_id", "quote_message"),
+        "qmsgCliId": _cli_int(p.get("qmsg_cli_id") or 0,
+                              "quote_message"),
+        "qmsgType": _int_param(p, "qmsg_type", 1, "quote_message"),
+        "qmsgTs": _int_param(p, "qmsg_ts", 0, "quote_message"),
+        "qmsg": p.get("qmsg", ""),
+    }
+    if tt == "group":
+        body.update({"grid": tid, "language": LANGUAGE,
+                     "visibility": 0})
+    else:
+        body.update({"toid": tid, "imei": p["_imei"]})
+        if p.get("ttl") not in (None, ""):
+            body["qmsgTTL"] = int(p["ttl"])
+    return body
 
 
 def _b_seen(p, tid, tt):
-    # Body đã biết (Bảng 3 dòng 14): {msg_ids:[...], seen:bool}.
+    # Body 1-1 CHUA trich truc tiep (SERVICE-MAP.md §6: chi co
+    # delivered 1-1 {msg_ids, seen}); giu body cua audit cu, danh
+    # dau body_unverified=True.
     return _toid_or_grid(tid, tt, {
         "msg_ids": _csv(_need(p, "msg_ids", "mark_seen")),
         "seen": True, "imei": p["_imei"]})
 
 
 def _b_parse_link(p, tid, tt):
-    return {"link": _need(p, "link", "parse_link"), "imei": p["_imei"]}
+    # {link, version:1, imei}; domain FILE (files-wpa).
+    return {"link": _need(p, "link", "parse_link"), "version": 1,
+            "imei": p["_imei"]}
 
 
 def _b_important(p, tid, tt):
-    # Body đã biết (Bảng 3 dòng 19): {limit, uid}.
+    # {limit:50, uid, newestId|lastId} (SERVICE-MAP.md §6).
     if tt != "user":
         raise UnsupportedService(
             "fetch_important", "unsupported",
             "Tin nhắn quan trọng chỉ lần được cho hội thoại 1-1 "
             "(fetchImportant lấy theo uid); nhóm chưa có đường PC.")
-    return {"limit": 50, "uid": tid, "imei": p["_imei"]}
+    body = {"limit": 50, "uid": tid}
+    if p.get("newest_id"):
+        body["newestId"] = p["newest_id"]
+    if p.get("last_id"):
+        body["lastId"] = p["last_id"]
+    return body
 
 
 def _b_history_group(p, tid, tt):
-    # Body đã biết (Bảng 3 dòng 2): {grid, count}.
+    # {grid, count} (11240).
     if tt != "group":
         raise UnsupportedService(
             "get_group_chat_history", "unsupported",
@@ -187,59 +346,138 @@ def _b_history_group(p, tid, tt):
 
 
 def _b_typing(p, tid, tt):
-    # Body đã biết (Bảng 3 dòng 13).
+    # 1-1: {toid, destType:"USER", imei}; nhom: {grid, imei}.
     if tt == "group":
         return {"grid": tid, "imei": p["_imei"]}
     return {"toid": tid, "destType": "USER", "imei": p["_imei"]}
 
 
 def _b_sticker(p, tid, tt):
-    # Body đã biết (Bảng 3 dòng 7).
+    # {stickerId, cateId, type, clientId:number, imei, toid|grid}
+    # + buildParams (ttl).
     return _toid_or_grid(tid, tt, {
         "stickerId": _need(p, "sticker_id", "send_sticker"),
         "cateId": p.get("cate_id", ""),
         "type": p.get("type_") or p.get("sticker_type") or "",
-        "clientId": _client_id(), "imei": p["_imei"]})
+        "clientId": _client_id(), "imei": p["_imei"], "ttl": 0})
 
 
-def _b_create_group(p, tid, tt):
-    return {"name": _need(p, "name", "create_group"),
-            "members": _csv(p.get("member_ids")),
+# --- Ban be (SERVICE-MAP.md §2.1) ---
+def _b_friend_request(p, tid, tt):
+    return {"toid": _need(p, "user_id", "send_friend_request"),
+            "msg": p.get("message", ""), "reqsrc": -1,
+            "imei": p["_imei"], "language": LANGUAGE}
+
+
+def _b_friend_accept(p, tid, tt):
+    return {"fid": _need(p, "user_id", "accept_friend_request"),
+            "language": LANGUAGE}
+
+
+def _b_friend_block(p, tid, tt):
+    return {"fid": _need(p, "user_id", "block_user"),
             "imei": p["_imei"]}
 
 
+def _b_friend_unblock(p, tid, tt):
+    return {"fid": _need(p, "user_id", "unblock_user"),
+            "imei": p["_imei"]}
+
+
+def _b_sent_requests(p, tid, tt):
+    return {"imei": p["_imei"]}
+
+
+def _b_undo_request(p, tid, tt):
+    return {"fid": _need(p, "friend_id", "undo_friend_request")}
+
+
+def _b_remove_friend(p, tid, tt):
+    return {"fid": _need(p, "friend_id", "remove_friend"),
+            "imei": p["_imei"]}
+
+
+def _b_alias_update(p, tid, tt):
+    return {"friendId": _need(p, "friend_id", "change_friend_alias"),
+            "alias": _need(p, "alias", "change_friend_alias"),
+            "imei": p["_imei"]}
+
+
+def _b_alias_remove(p, tid, tt):
+    return {"friendId": _need(p, "friend_id", "remove_friend_alias")}
+
+
+def _b_block_feed(p, tid, tt):
+    return {"fid": _need(p, "user_id", "block_view_feed"),
+            "isBlockFeed": 1 if _bool_param(p, "is_block_feed") else 0,
+            "imei": p["_imei"]}
+
+
+# --- Nhom ---
+def _b_create_group(p, tid, tt):
+    # v1 GET /api/group/create 11185: {clientId, gname, members,
+    # nameChanged} (suggestionId chua biet gia tri — khong gui).
+    return {"clientId": _client_id(),
+            "gname": _need(p, "name", "create_group"),
+            "members": _csv(p.get("member_ids")),
+            "nameChanged": 1}
+
+
 def _b_group_info(p, tid, tt):
-    # /api/group/getgi/v2 (11162): thông tin + thành viên một nhóm.
-    return {"grid": tid, "imei": p["_imei"]}
+    # POST /api/group/getmg 12604 (da lan het — static getGroupInfos
+    # mac dinh mpage=1, mcount=50; avatar_size=160).
+    return {"grids": [tid], "avatar_size": AVATAR_SIZE,
+            "member_avatar_size": AVATAR_SIZE, "mpage": 1,
+            "mcount": 50, "imei": p["_imei"]}
 
 
 def _b_add_member(p, tid, tt):
+    # v1 POST /api/group/invite 11186: {grid, members} (KHONG imei).
     return {"grid": tid, "members": _csv(
-        _need(p, "member_id", "add_user_to_group")), "imei": p["_imei"]}
+        _need(p, "member_id", "add_user_to_group"))}
 
 
 def _b_remove_member(p, tid, tt):
-    return {"grid": tid, "memberIds": _csv(
+    return {"grid": tid, "members": _csv(
         _need(p, "member_id", "remove_user_from_group")),
         "imei": p["_imei"]}
 
 
 def _b_group_name(p, tid, tt):
-    return {"grid": tid, "name": _need(p, "name", "change_group_name"),
+    return {"grid": tid, "gname": _need(p, "name", "change_group_name"),
             "imei": p["_imei"]}
 
 
 def _b_group_avatar(p, tid, tt):
-    # upavatar (11195) ở client thật là upload file; ở đây nhận
-    # avatar_url, body chưa xác minh — xem CATALOG.
-    return {"grid": tid, "avatarUrl": _need(
-        p, "avatar_url", "change_group_avatar"), "imei": p["_imei"]}
+    # POST files-wpa /api/group/upavatar 11195: UPLOAD FILE
+    # (multipart fileContent), khong phai URL. params: {grid,
+    # clientId, originWidth, originHeight, imei} (avatarSize chua
+    # biet gia tri — khong gui). File lay tu params["_file"].
+    if not p.get("_file"):
+        raise ValueError("change_group_avatar: thiếu file ảnh "
+                         "(multipart field 'file')")
+    try:
+        width = int(p.get("width") or 0)
+        height = int(p.get("height") or 0)
+    except ValueError:
+        width, height = 0, 0
+    return {"grid": tid, "clientId": _client_id(),
+            "originWidth": width, "originHeight": height,
+            "imei": p["_imei"]}
 
 
 def _b_deputy(p, tid, tt, service):
+    # GET /api/group/admins/add|remove: {grid, members:[], imei}.
     return {"grid": tid,
-            "memberId": _need(p, "member_id", service),
+            "members": [_need(p, "member_id", service)],
             "imei": p["_imei"]}
+
+
+def _b_change_owner(p, tid, tt):
+    # POST /api/group/change-owner 10063.
+    return {"grid": tid,
+            "newAdminId": _need(p, "member_id", "change_group_owner"),
+            "imei": p["_imei"], "language": LANGUAGE}
 
 
 def _b_group_only(p, tid, tt, service):
@@ -249,72 +487,225 @@ def _b_group_only(p, tid, tt, service):
     return {"grid": tid, "imei": p["_imei"]}
 
 
-def _b_group_link(p, tid, tt):
-    return _b_group_only(p, tid, tt, "get_group_link")
-
-
 def _b_join_group(p, tid, tt):
-    return {"link": _need(p, "link", "join_group"), "imei": p["_imei"]}
+    # GET /api/group/link/join 11825: {link, clientLang}.
+    return {"link": _need(p, "link", "join_group"),
+            "clientLang": LANGUAGE}
 
 
 def _b_leave_group(p, tid, tt):
-    silent = str(p.get("silent", "")).lower() in ("1", "true", "yes")
-    return {"grid": tid, "silent": silent, "imei": p["_imei"]}
+    # POST /api/group/leave 11189: {grids:[], imei, silent:0|1,
+    # language}.
+    return {"grids": [tid], "imei": p["_imei"],
+            "silent": 1 if _bool_param(p, "silent") else 0,
+            "language": LANGUAGE}
 
 
-def _b_note_create(p, tid, tt):
-    return {"grid": tid, "title": _need(p, "title", "create_note_group"),
-            "pinAct": True, "imei": p["_imei"]}
+# --- Ghim / an / luu tru (SERVICE-MAP.md §2.2) ---
+def _b_pin_list(p, tid, tt):
+    return {"imei": p["_imei"]}
 
 
-def _b_note_edit(p, tid, tt):
-    return {"grid": tid,
-            "topicId": _need(p, "topic_id", "edit_note_group"),
-            "title": _need(p, "title", "edit_note_group"),
+def _b_archived_list(p, tid, tt):
+    # GET /api/archivedchat/list 12076: {version, imei}; version la
+    # so version dong bo, lan dau = 0 (quy uoc nhu cac version
+    # dong bo khac: pinconvers, quickmessage).
+    return {"version": 0, "imei": p["_imei"]}
+
+
+def _b_hidden_list(p, tid, tt):
+    return {"imei": p["_imei"]}
+
+
+def _b_hidden_set(p, tid, tt):
+    # POST /api/hiddenconvers/add-remove 10049: {del_threads,
+    # add_threads (JSON-string), imei}.
+    hidden = _bool_param(p, "hidden", True)
+    return {"del_threads": json.dumps([] if hidden else [tid]),
+            "add_threads": json.dumps([tid] if hidden else []),
             "imei": p["_imei"]}
 
 
-def _b_board_list(p, tid, tt):
-    return {"grid": tid, "imei": p["_imei"]}
-
-
-def _b_unread(p, tid, tt, service):
-    return {"threadId": tid, "type": 1 if tt == "group" else 0,
+def _b_hidden_pin(p, tid, tt):
+    return {"new_pin": _need(p, "pin", "update_hidden_convers_pin"),
             "imei": p["_imei"]}
+
+
+# --- Poll (SERVICE-MAP.md §2.4) ---
+def _b_poll_create(p, tid, tt):
+    # POST /api/poll/create 12080 (src chua biet gia tri — khong
+    # gui; allow_add_new_option/is_anonymous theo UI mac dinh).
+    return {"group_id": tid,
+            "question": _need(p, "question", "create_poll"),
+            "options": _csv(_need(p, "options", "create_poll")),
+            "allow_multi_choices": _bool_param(
+                p, "allow_multi_choices"),
+            "allow_add_new_option": True,
+            "is_anonymous": False,
+            "poll_type": 0, "expired_time": 0, "pinAct": 0,
+            "imei": p["_imei"]}
+
+
+def _b_poll_detail(p, tid, tt):
+    return {"poll_id": _need(p, "poll_id", "get_poll_detail"),
+            "imei": p["_imei"]}
+
+
+def _b_poll_lock(p, tid, tt):
+    return {"poll_id": _need(p, "poll_id", "lock_poll"),
+            "imei": p["_imei"]}
+
+
+# --- Tin nhan nhanh (SERVICE-MAP.md §2.5) ---
+def _b_qm_add(p, tid, tt):
+    # GET /api/quickmessage/create 12029 (media/type chua biet
+    # kieu/gia tri — khong gui).
+    return {"keyword": _need(p, "keyword", "add_quick_message"),
+            "message": _need(p, "title", "add_quick_message"),
+            "imei": p["_imei"]}
+
+
+def _b_qm_list(p, tid, tt):
+    return {"version": 0, "lang": 0, "imei": p["_imei"]}
+
+
+def _b_qm_delete(p, tid, tt):
+    return {"itemIds": _csv(_need(p, "item_ids",
+                                  "remove_quick_message"))}
+
+
+def _b_qm_update(p, tid, tt):
+    # GET /api/quickmessage/update 12026 (KHONG imei; media/type
+    # chua biet — khong gui).
+    return {"itemId": _need(p, "item_id", "update_quick_message"),
+            "keyword": p.get("keyword", ""),
+            "message": p.get("title", "")}
+
+
+# --- Reaction (SERVICE-MAP.md §2.3) ---
+def _b_reaction(p, tid, tt):
+    # POST REACTION /api/message/reaction 12410 /
+    # /api/group/reaction 12411. react_list item: {message:
+    # JSON-str({rMsg:[{gMsgID, cMsgID, msgType}], rIcon, rType,
+    # source:6}), clientId: number (cliMsgId cua tin duoc react)}.
+    icon = (p.get("icon") or "").strip()
+    if icon in REACTION_ICONS:
+        r_type, r_icon = REACTION_ICONS[icon]
+    else:
+        r_icon = p.get("r_icon")
+        r_type = p.get("r_type")
+        if not r_icon or r_type in (None, ""):
+            raise ValueError(
+                "add_reaction: icon %r chưa có map (rIcon, rType) "
+                "đã xác minh — chỉ có 'like' (rType 3, "
+                "rIcon '/-strong'); các icon khác cần truyền "
+                "r_icon/r_type trực tiếp (bảng icon nằm trong "
+                "config server reactionMsgInfo, chưa lần được)"
+                % icon)
+        try:
+            r_type = int(r_type)
+        except (TypeError, ValueError):
+            raise ValueError("add_reaction: r_type phải là số")
+    cli_id = _cli_int(_need(p, "cli_msg_id", "add_reaction"),
+                      "add_reaction")
+    msg_type = _int_param(p, "msg_type", REACTION_MSG_TYPE_TEXT,
+                          "add_reaction")
+    item_msg = {"rMsg": [{"gMsgID": _need(p, "msg_id", "add_reaction"),
+                          "cMsgID": cli_id, "msgType": msg_type}],
+                "rIcon": r_icon, "rType": r_type, "source": 6}
+    react = {"message": json.dumps(item_msg, separators=(",", ":"),
+                                   ensure_ascii=False),
+             "clientId": cli_id}
+    if tt == "group":
+        return {"grid": tid, "react_list": [react],
+                "imei": p["_imei"]}
+    return {"toid": tid, "react_list": [react]}
+
+
+# --- Hoi thoai / trang thai ---
+def _b_unread_add(p, tid, tt):
+    # POST /api/conv/addUnreadMark 12013: {param: JSON-str(
+    # {convsGroup:[], convsUser:[], imei})}.
+    inner = {"convsGroup": [tid] if tt == "group" else [],
+             "convsUser": [] if tt == "group" else [tid],
+             "imei": p["_imei"]}
+    return {"param": json.dumps(inner, separators=(",", ":"),
+                                ensure_ascii=False)}
+
+
+def _b_unread_remove(p, tid, tt):
+    # POST /api/conv/removeUnreadMark 12014: {param: JSON-str(
+    # {convsGroup, convsUser})} (convsGroupData/convsUserData chua
+    # biet — khong gui).
+    inner = {"convsGroup": [tid] if tt == "group" else [],
+             "convsUser": [] if tt == "group" else [tid]}
+    return {"param": json.dumps(inner, separators=(",", ":"),
+                                ensure_ascii=False)}
 
 
 def _b_delete_chat(p, tid, tt):
-    return _toid_or_grid(tid, tt, {"imei": p["_imei"]})
+    # POST deleteconver 11778/11835: {toid|grid, cliMsgId?,
+    # conver?, onlyMe:1, imei}. cliMsgId/conver lay tu tin cuoi
+    # hoi thoai — neu caller biet thi truyen (cli_msg_id, conver),
+    # khong thi bo qua (khong doan).
+    body = _toid_or_grid(tid, tt, {"onlyMe": 1, "imei": p["_imei"]})
+    if p.get("cli_msg_id") not in (None, ""):
+        body["cliMsgId"] = _cli_int(p["cli_msg_id"], "delete_chat")
+    if p.get("conver"):
+        body["conver"] = p["conver"]
+    return body
 
 
 def _b_auto_delete(p, tid, tt):
+    # POST /api/conv/autodelete/updateConvers 12023: {threadId,
+    # isGroup:bool, ttl, clientLang} — params trong QUERY URL,
+    # KHONG co form body (method POST_QUERY).
     ttl = _need(p, "ttl", "update_auto_delete_chat")
-    return {"threadId": tid, "type": 1 if tt == "group" else 0,
-            "ttl": int(ttl), "imei": p["_imei"]}
+    return {"threadId": tid, "isGroup": tt == "group",
+            "ttl": int(ttl), "clientLang": LANGUAGE}
 
 
 def _b_mute(p, tid, tt):
-    # Mức PROFILE (audit Bảng 1 nhóm D): chưa rõ có mức thread
-    # không — body chỉ mang duration, xem CATALOG.
-    dur = _need(p, "duration", "set_mute")
-    return {"duration": int(dur), "imei": p["_imei"]}
+    # POST /api/social/profile/setmute 11288 (da lan het tu bundle:
+    # setMuteConversation): {toid, duration, action, startTime,
+    # muteType, imei}. action: SET_MUTE=1 / UNSET_MUTE=3;
+    # muteType: 1 = 1-1, 2 = nhom; startTime = unix hien tai;
+    # duration mac dinh -1 (tat vinh vien), 0 = bat lai.
+    dur = _int_param(p, "duration", -1, "set_mute")
+    if dur is None:
+        dur = -1
+    return {"toid": tid, "duration": dur,
+            "action": MUTE_ACTION_UNSET if dur == 0
+            else MUTE_ACTION_SET,
+            "startTime": int(time.time()),
+            "muteType": 2 if tt == "group" else 1,
+            "imei": p["_imei"]}
 
 
 def _b_user_info(p, tid, tt):
+    # GET /api/social/friend/getprofiles/v2 11140: body chua trich
+    # duoc caller — giu body cua audit cu, danh dau unverified.
     return {"userId": _need(p, "user_id", "get_user_info"),
             "imei": p["_imei"]}
 
 
 def _b_find_user(p, tid, tt):
-    return {"phone": _need(p, "phone", "find_user"), "imei": p["_imei"]}
+    # GET friend-wpa /api/friend/profile/get 11420.
+    return {"phone": _need(p, "phone", "find_user"),
+            "avatar_size": 240, "language": LANGUAGE,
+            "imei": p["_imei"]}
 
 
 def _b_last_online(p, tid, tt):
-    return {"userId": _need(p, "user_id", "last_online"),
+    # GET /api/social/profile/lastOnline 12090 (conv_type chua
+    # biet gia tri — khong gui).
+    return {"uid": _need(p, "user_id", "last_online"),
             "imei": p["_imei"]}
 
 
 def _b_update_profile(p, tid, tt):
+    # POST /api/social/profile/update 12075: fields cu the chua
+    # lan — giu body cua audit cu, danh dau unverified.
     body = {"imei": p["_imei"]}
     if p.get("name"):
         body["name"] = p["name"]
@@ -329,18 +720,27 @@ def _b_update_profile(p, tid, tt):
 
 
 def _b_update_settings(p, tid, tt):
+    # GET wpa.zalo.me /api/setting/update 12033: object truyen
+    # thang, key that chua lan — giu body cua audit cu, danh dau
+    # unverified.
     return {"settingType": _need(p, "setting_type", "update_settings"),
             "status": int(_need(p, "status", "update_settings")),
             "imei": p["_imei"]}
 
 
 def _b_change_avatar(p, tid, tt):
-    # /api/social/profile/avatar-url (audit §G): nhận URL ảnh.
-    return {"avatarUrl": _need(p, "avatar_url", "change_account_avatar"),
-            "imei": p["_imei"]}
+    # POST files-wpa /api/profile/upavatar 11819: UPLOAD FILE
+    # (multipart fileContent). params: {clientId, language}
+    # (avatarSize/metaData chua biet gia tri — khong gui).
+    if not p.get("_file"):
+        raise ValueError("change_account_avatar: thiếu file ảnh "
+                         "(multipart field 'file')")
+    return {"clientId": _client_id(), "language": LANGUAGE}
 
 
 def _b_avatar_list(p, tid, tt):
+    # GET /api/social/avatar-list 12451: body chua lan — giu body
+    # cua audit cu, danh dau unverified.
     try:
         count = int(p.get("count") or 20)
     except ValueError:
@@ -353,72 +753,192 @@ def _b_avatar_list(p, tid, tt):
 
 
 def _b_sticker_list(p, tid, tt):
-    return {"imei": p["_imei"]}
+    # GET sticker-wpa /api/message/sticker/category/list 11155:
+    # params AES cua chuoi rong "" (khong body). Tra ve str rong —
+    # _url/_post gui raw, khong json.dumps.
+    return ""
 
 
 def _b_sticker_detail(p, tid, tt):
-    return {"cateId": _need(p, "sticker_album", "get_stickers_detail"),
-            "imei": p["_imei"]}
+    # GET sticker-wpa /api/message/sticker/category/detail 11156:
+    # {cid} (album = cate id).
+    return {"cid": _need(p, "sticker_album", "get_stickers_detail")}
+
+
+# --- Nhac hen / bang tin (board) ---
+def _topic_params(p):
+    """params (topicInfo) cua topic: {title, content?}."""
+    params = {"title": p.get("title", "")}
+    if p.get("content"):
+        params["content"] = p["content"]
+    return params
+
+
+def _reminder_objectdata_1_1(p, tid, for_update=False):
+    """objectData cho nhac hen 1-1 (createOneOneGroupTopic /
+    updateOneOneGroupTopic): {toUid, type:TEXT_TOPIC, color, emoji,
+    startTime, duration:-1, params, needPin, repeat, creatorUid}
+    (+ reminderId khi update). src chua biet gia tri — khong gui.
+    startTime: ms; mac dinh -1 (update khi khong truyen
+    remind_time — giu nguyen gio cu la viec cua UI, khong doan)."""
+    if p.get("remind_time") not in (None, ""):
+        start = _parse_remind_ms(p["remind_time"], "edit_reminder"
+                                 if for_update else "create_reminder")
+    elif for_update:
+        start = -1
+    else:
+        start = _parse_remind_ms(
+            _need(p, "remind_time", "create_reminder"),
+            "create_reminder")
+    obj = {"toUid": tid, "type": TOPIC_TEXT,
+           "color": TOPIC_COLOR_DEFAULT,
+           "emoji": TOPIC_EMOJI_REMINDER, "startTime": start,
+           "duration": -1, "params": _topic_params(p),
+           "needPin": False, "repeat": 0,
+           "creatorUid": p.get("_uid", "")}
+    if for_update:
+        obj["reminderId"] = _need(p, "topic_id", "edit_reminder")
+    return obj
 
 
 def _b_reminder_create(p, tid, tt):
-    # 1-1: /api/board/oneone/create (audit §F đã nêu tên). Nhóm:
-    # không thấy endpoint tạo nhắc hẹn nhóm trong bảng lệnh —
-    # không bịa path, trả "chưa hỗ trợ" cho nhóm.
-    if tt != "user":
-        raise UnsupportedService(
-            "create_reminder", "unsupported",
-            "Tạo nhắc hẹn nhóm chưa có endpoint trong bảng lệnh "
-            "231 mục (chỉ có đường 1-1 /api/board/oneone/create); "
-            "cần lần thêm, không bịa path.")
-    return {"toid": tid,
-            "title": _need(p, "title", "create_reminder"),
-            "content": p.get("content", ""),
-            "remindTime": _need(p, "remind_time", "create_reminder"),
-            "imei": p["_imei"]}
+    if tt == "user":
+        # POST board /api/board/oneone/create 12429:
+        # {objectData: JSON-str, imei}.
+        return {"objectData": json.dumps(
+            _reminder_objectdata_1_1(p, tid), separators=(",", ":"),
+            ensure_ascii=False), "imei": p["_imei"]}
+    # Nhom: cung qua /api/board/topic/create 12141 (da lan:
+    # createGroupTopicv2) — {grid, type, color, emoji, startTime,
+    # duration, params: JSON-str, needPin, repeat, imei}.
+    start = _parse_remind_ms(
+        _need(p, "remind_time", "create_reminder"), "create_reminder")
+    return {"grid": tid, "type": TOPIC_TEXT,
+            "color": TOPIC_COLOR_DEFAULT,
+            "emoji": TOPIC_EMOJI_REMINDER, "startTime": start,
+            "duration": -1,
+            "params": json.dumps(_topic_params(p),
+                                 separators=(",", ":"),
+                                 ensure_ascii=False),
+            "needPin": False, "repeat": 0, "imei": p["_imei"]}
 
 
 def _b_reminder_remove(p, tid, tt):
-    if tt != "user":
-        raise UnsupportedService(
-            "remove_reminder", "unsupported",
-            "Xóa nhắc hẹn nhóm chưa có endpoint trong bảng lệnh "
-            "(chỉ có đường 1-1 /api/board/oneone/remove).")
-    return {"toid": tid,
-            "reminderId": _need(p, "reminder_id", "remove_reminder"),
+    if tt == "user":
+        # POST board /api/board/oneone/remove 12431: {uid,
+        # reminderId} (KHONG imei).
+        return {"uid": tid,
+                "reminderId": _need(p, "reminder_id",
+                                    "remove_reminder")}
+    # Nhom: POST board /api/board/topic/remove 12143 (da lan:
+    # removeGroupTopicv2): {grid, topicId, imei}.
+    return {"grid": tid,
+            "topicId": _need(p, "reminder_id", "remove_reminder"),
             "imei": p["_imei"]}
 
 
 def _b_reminder_edit(p, tid, tt):
     if tt == "user":
-        return {"toid": tid,
-                "topicId": _need(p, "topic_id", "edit_reminder"),
-                "title": _need(p, "title", "edit_reminder"),
-                "imei": p["_imei"]}
+        # POST board /api/board/oneone/update 12430:
+        # {objectData: JSON-str} (KHONG imei).
+        return {"objectData": json.dumps(
+            _reminder_objectdata_1_1(p, tid, for_update=True),
+            separators=(",", ":"), ensure_ascii=False)}
+    # Nhom: POST board /api/board/topic/updateEventResponse 12087:
+    # {grid, eventId, imei} (type chua biet gia tri — khong gui).
     return {"grid": tid,
-            "topicId": _need(p, "topic_id", "edit_reminder"),
-            "title": _need(p, "title", "edit_reminder"),
+            "eventId": _need(p, "topic_id", "edit_reminder"),
             "imei": p["_imei"]}
 
 
 def _b_reminder_get(p, tid, tt):
-    # /api/board/topic/getReminder (audit §F, đường nhóm đã nêu).
-    return {"grid": tid,
-            "reminderId": _need(p, "reminder_id", "get_reminder"),
+    # GET board /api/board/topic/getReminder 12088:
+    # {eventId, imei}.
+    return {"eventId": _need(p, "reminder_id", "get_reminder"),
             "imei": p["_imei"]}
+
+
+def _board_list_objectdata(p, tid, tt):
+    """objectData cho list board: chi gui key nao da biet gia tri
+    (uid/group_id + phan trang neu caller truyen); cac key khac
+    client that gui undefined thi JSON.stringify bo qua."""
+    inner = {"group_id": tid} if tt == "group" else {"uid": tid}
+    for key in ("board_type", "page", "count", "last_id",
+                "last_type"):
+        if p.get(key) not in (None, ""):
+            try:
+                inner[key] = int(p[key])
+            except (TypeError, ValueError):
+                inner[key] = p[key]
+    return json.dumps(inner, separators=(",", ":"),
+                      ensure_ascii=False)
 
 
 def _b_reminder_list(p, tid, tt):
     if tt == "user":
-        return {"toid": tid, "imei": p["_imei"]}
-    return {"grid": tid, "imei": p["_imei"]}
+        # GET board /api/board/oneone/list 12432:
+        # {objectData} (KHONG imei).
+        return {"objectData": _board_list_objectdata(p, tid, tt)}
+    # GET board /api/board/listReminder 12425:
+    # {objectData, imei}.
+    return {"objectData": _board_list_objectdata(p, tid, tt),
+            "imei": p["_imei"]}
 
 
 def _b_reminder_responses(p, tid, tt):
-    return {"grid": tid,
-            "reminderId": _need(p, "reminder_id",
-                                "get_reminder_responses"),
-            "imei": p["_imei"]}
+    # GET board /api/board/topic/listResponseEvent 12086:
+    # {eventId} (KHONG imei).
+    return {"eventId": _need(p, "reminder_id",
+                             "get_reminder_responses")}
+
+
+def _b_note_create(p, tid, tt):
+    # POST board /api/board/topic/create 12141 (da lan:
+    # createGroupTopicv2): {grid, type:TEXT_TOPIC, color, emoji:"",
+    # startTime:-1, duration:-1, params: JSON-str({title}),
+    # needPin, repeat:0, imei} (src chua biet — khong gui).
+    return {"grid": tid, "type": TOPIC_TEXT,
+            "color": TOPIC_COLOR_DEFAULT,
+            "emoji": TOPIC_EMOJI_NOTE, "startTime": -1,
+            "duration": -1,
+            "params": json.dumps(
+                {"title": _need(p, "title", "create_note_group")},
+                separators=(",", ":"), ensure_ascii=False),
+            "needPin": _bool_param(p, "pin_act"),
+            "repeat": 0, "imei": p["_imei"]}
+
+
+def _b_note_edit(p, tid, tt):
+    # POST board /api/board/topic/update 12142 (da lan:
+    # updateGroupTopicv2): nhu create + topicId; needPin chi gui
+    # khi caller truyen pin_act (khong doan trang thai ghim cu).
+    body = {"grid": tid, "type": TOPIC_TEXT,
+            "color": TOPIC_COLOR_DEFAULT,
+            "emoji": TOPIC_EMOJI_NOTE, "startTime": -1,
+            "duration": -1,
+            "params": json.dumps(
+                {"title": _need(p, "title", "edit_note_group")},
+                separators=(",", ":"), ensure_ascii=False),
+            "topicId": _need(p, "topic_id", "edit_note_group"),
+            "repeat": 0, "imei": p["_imei"]}
+    if p.get("pin_act") not in (None, ""):
+        body["needPin"] = _bool_param(p, "pin_act")
+    return body
+
+
+def _b_board_list(p, tid, tt):
+    # GET board /api/board/list 12140: {group_id, imei} (+ phan
+    # trang neu caller truyen; board_type/last_* chua biet — chi
+    # gui khi co).
+    body = {"group_id": tid, "imei": p["_imei"]}
+    for key in ("board_type", "page", "count", "last_id",
+                "last_type"):
+        if p.get(key) not in (None, ""):
+            try:
+                body[key] = int(p[key])
+            except (TypeError, ValueError):
+                body[key] = p[key]
+    return body
 
 
 def _b_labels(p, tid, tt):
@@ -426,27 +946,43 @@ def _b_labels(p, tid, tt):
 
 
 def _b_label_update(p, tid, tt):
+    # POST /api/convlabel/update 12160: {labelData, version, imei}
+    # chua lan — giu body cua audit cu, danh dau unverified.
     return {"threadId": tid, "type": 1 if tt == "group" else 0,
             "labelIds": _csv(_need(p, "label_ids", "update_label")),
             "imei": p["_imei"]}
 
-
 # ------------------------------------------------------------------ OPS
-# action -> spec. domain: "chat" | "group" | "profile" | "convers".
-# method: GET (params trong query) hay POST (params trong form body).
+# action -> spec. domain: "chat" | "group" | "profile" | "convers"
+#   | "friend" | "alias" | "label" | "board" | "sticker" | "file"
+#   | "auth" | "reaction" | "quick_message" (2 cai cuoi resolve
+#   qua services map — xem _domain_for, KHONG hard-code).
+# method: GET (params trong query) | POST (params trong form body)
+#   | POST_QUERY (POST, params trong query URL — #60)
+#   | POST_MULTIPART (POST multipart fileContent — avatar).
 # thread: "both" | "user" | "group" | "none" (không cần thread).
-# body_unverified: True = path + mã có trong bundle nhưng body chưa
-#   được lần hết trong audit — dùng tham số addon, cần xác minh thật.
+# body_unverified: True = path + mã có trong bundle nhưng body
+#   chưa được lần hết trong audit — dùng tham số addon, cần xác
+#   minh thật. no_params: True = GET không gửi params (chi co
+#   common params — reset PIN).
 
 def _op(addon_no, addon, group, label, desc, domain, path, code,
         method, thread, fields, body_fn, body_unverified=True,
-        danger=False):
+        danger=False, no_params=False):
     return {"addon_no": addon_no, "addon": addon, "group": group,
             "label": label, "desc": desc, "domain": domain,
             "path": path, "code": code, "method": method,
             "thread": thread, "fields": fields,
             "body_fn": body_fn, "body_unverified": body_unverified,
-            "danger": danger, "status": "supported"}
+            "danger": danger, "status": "supported",
+            "no_params": no_params}
+
+
+def _b_pin_set(p, tid, tt):
+    # Body cho POST /api/pinconvers/update — version + danh sach
+    # da tinh san o dispatch (GET list truoc), xem _set_pinned.
+    return {"version": p["_pin_version"],
+            "conversations": p["_pin_conversations"]}
 
 
 F_MSG = [{"key": "msg_id", "label": "ID tin nhắn", "required": True}]
@@ -457,21 +993,29 @@ OPS = {
     "undo_message": _op(
         28, "undo_message", "tin_nhan", "Thu hồi tin nhắn",
         "Thu hồi tin đã gửi (1-1: /api/message/undo 11281; "
-        "nhóm: /api/group/undomsg 11192).",
-        None, None, None, "POST", "both", F_MSG_CLI, _b_undo),
+        "nhóm: /api/group/undomsg 11192). clientId NUMBER, "
+        "cliMsgIdUndo; nhóm thêm visibility=0, imei.",
+        None, None, None, "POST", "both", F_MSG_CLI, _b_undo,
+        body_unverified=False),
     "delete_message": _op(
         68, "delete_message", "tin_nhan", "Xóa tin nhắn",
-        "Xóa tin chỉ ở phía mình (1-1: 11779; nhóm: 11834).",
+        "Xóa tin chỉ ở phía mình (1-1: 11779; nhóm: 11834). "
+        "Body {toid|grid, msgs:[msgId], onlyMe, imei}.",
         None, None, None, "POST", "both",
-        F_MSG_CLI + [{"key": "uid_from", "label": "UID người gửi"}],
-        _b_delete_msg),
+        F_MSG_CLI + [{"key": "only_me",
+                      "label": "Chỉ xóa phía mình (true/false)"}],
+        _b_delete_msg, body_unverified=False),
     "forward_message": _op(
         69, "forward_message", "tin_nhan", "Chuyển tiếp tin nhắn",
-        "Chuyển tiếp tới nhiều thread (1-1: 11199; nhóm: 11818).",
-        None, None, None, "POST", "both",
-        F_MSG + [{"key": "dest_thread_ids",
-                  "label": "Thread đích (cách nhau bằng dấu phẩy)",
-                  "required": True}],
+        "Chuyển tiếp tới nhiều thread (1-1: 11199; nhóm: 11818). "
+        "Khung {toId|grid, imei} đã xác minh; transform theo loại "
+        "tin (msgType, msgs/totalIds) CHƯA lần — chỉ gửi khung.",
+        None, None, None, "POST", "none",
+        [{"key": "message", "label": "Nội dung tin"},
+         {"key": "dest_thread_ids",
+          "label": "Thread đích (cách nhau bằng dấu phẩy)",
+          "required": True},
+         {"key": "type", "label": "Loại thread đích (user/group)"}],
         _b_forward),
     "quote_message": _op(
         None, "(quote — trong send_message)", "tin_nhan",
@@ -481,29 +1025,37 @@ OPS = {
         "/api/group/quote 11197).",
         None, None, None, "POST", "both",
         F_MSG + [{"key": "text", "label": "Nội dung trích dẫn",
-                  "required": True}],
-        _b_quote),
+                  "required": True},
+                 {"key": "qmsg_owner", "label": "UID người gửi tin "
+                  "gốc", "required": True},
+                 {"key": "qmsg_cli_id", "label": "Client ID tin gốc"},
+                 {"key": "qmsg_type", "label": "Loại tin gốc"},
+                 {"key": "qmsg_ts", "label": "Timestamp tin gốc"},
+                 {"key": "qmsg", "label": "Nội dung tin gốc"},
+                 {"key": "ttl", "label": "TTL (1-1)"}],
+        _b_quote, body_unverified=False),
     "mark_seen": _op(
         None, "(seen/delivered — ngoài 96)", "tin_nhan",
         "Đánh dấu đã xem / đã nhận",
         "1-1: /api/message/seen 11150, delivered 11153; nhóm: "
-        "/api/group/seen 11167, delivered 11166. Body đã biết "
-        "{msg_ids, seen}.",
+        "/api/group/seen 11167, delivered 11166. Body 1-1 CHƯA "
+        "trích trực tiếp (chỉ có delivered) — xem SERVICE-MAP §6.",
         None, None, None, "POST", "both",
         [{"key": "msg_ids", "label": "ID tin nhắn (cách nhau bằng "
           "dấu phẩy)", "required": True}],
-        _b_seen, body_unverified=False),
+        _b_seen),
     "parse_link": _op(
         70, "parse_link", "tin_nhan", "Phân tích link lấy preview",
-        "/api/message/parselink (11285).",
-        "chat", "/api/message/parselink", 11285, "POST", "none",
+        "GET files-wpa /api/message/parselink (11285) "
+        "{link, version:1, imei}.",
+        "file", "/api/message/parselink", 11285, "POST", "none",
         [{"key": "link", "label": "Link", "required": True}],
-        _b_parse_link),
+        _b_parse_link, body_unverified=False),
     "fetch_important": _op(
         None, "(tin quan trọng — ngoài 96)", "tin_nhan",
         "Xem tin nhắn quan trọng",
-        "/api/message/fetchImportant (12114), body đã biết "
-        "{limit, uid}. Chỉ hội thoại 1-1.",
+        "/api/message/fetchImportant (12114), body {limit, uid}. "
+        "Chỉ hội thoại 1-1.",
         "chat", "/api/message/fetchImportant", 12114, "GET", "user",
         [], _b_important, body_unverified=False),
     "send_typing_event": _op(
@@ -519,211 +1071,401 @@ OPS = {
         "group", "/api/group/history", 11240, "GET", "group",
         [{"key": "count", "label": "Số tin (tối đa 1000)"}],
         _b_history_group, body_unverified=False),
+    "add_reaction": _op(
+        67, "add_reaction", "tin_nhan", "Thả reaction",
+        "POST REACTION /api/message/reaction (12410) / "
+        "/api/group/reaction (12411). Domain lay tu services map "
+        "luc login (khong hard-code). Chi map 'like' da xac minh "
+        "(rType 3, rIcon '/-strong'); icon khac truyen r_icon + "
+        "r_type truc tiep.",
+        None, None, None, "POST", "both",
+        [{"key": "icon", "label": "Icon (like/heart/haha/...)",
+          "required": True},
+         {"key": "msg_id", "label": "ID tin nhắn", "required": True},
+         {"key": "cli_msg_id", "label": "Client ID tin nhắn",
+          "required": True},
+         {"key": "r_icon", "label": "rIcon (khi icon chưa map)"},
+         {"key": "r_type", "label": "rType (khi icon chưa map)"},
+         {"key": "msg_type", "label": "Loại tin (mặc định 1=text)"}],
+        _b_reaction),
+    # --- Bạn bè (nhóm B, SERVICE-MAP §2.1) ---
+    "send_friend_request": _op(
+        8, "send_friend_request", "ho_so", "Gửi lời mời kết bạn",
+        "POST friend-wpa /api/friend/sendreq (11424) {toid, msg, "
+        "reqsrc:-1, imei, language}.",
+        "friend", "/api/friend/sendreq", 11424, "POST", "none",
+        [{"key": "user_id", "label": "UserId", "required": True},
+         {"key": "message", "label": "Lời nhắn"}],
+        _b_friend_request, body_unverified=False),
+    "accept_friend_request": _op(
+        24, "accept_friend_request", "ho_so", "Chấp nhận kết bạn",
+        "POST friend-wpa /api/friend/accept (11427) {fid, "
+        "language} (KHÔNG imei).",
+        "friend", "/api/friend/accept", 11427, "POST", "none",
+        [{"key": "user_id", "label": "UserId", "required": True}],
+        _b_friend_accept, body_unverified=False),
+    "block_user": _op(
+        25, "block_user", "ho_so", "Chặn người dùng",
+        "POST friend-wpa /api/friend/block (11422) {fid, imei}.",
+        "friend", "/api/friend/block", 11422, "POST", "none",
+        [{"key": "user_id", "label": "UserId", "required": True}],
+        _b_friend_block, body_unverified=False),
+    "unblock_user": _op(
+        26, "unblock_user", "ho_so", "Bỏ chặn người dùng",
+        "POST friend-wpa /api/friend/unblock (11433) {fid, imei}.",
+        "friend", "/api/friend/unblock", 11433, "POST", "none",
+        [{"key": "user_id", "label": "UserId", "required": True}],
+        _b_friend_unblock, body_unverified=False),
+    "get_sent_friend_requests": _op(
+        35, "get_sent_friend_requests", "ho_so",
+        "Xem lời mời kết bạn đã gửi",
+        "GET friend-wpa /api/friend/requested/list (12203) {imei}.",
+        "friend", "/api/friend/requested/list", 12203, "GET", "none",
+        [], _b_sent_requests, body_unverified=False),
+    "undo_friend_request": _op(
+        36, "undo_friend_request", "ho_so", "Thu hồi lời mời kết bạn",
+        "POST friend-wpa /api/friend/undo (11441) {fid} "
+        "(KHÔNG imei).",
+        "friend", "/api/friend/undo", 11441, "POST", "none",
+        [{"key": "friend_id", "label": "UserId", "required": True}],
+        _b_undo_request, body_unverified=False),
+    "remove_friend": _op(
+        37, "remove_friend", "ho_so", "Hủy kết bạn",
+        "POST friend-wpa /api/friend/remove (11423) {fid, imei}.",
+        "friend", "/api/friend/remove", 11423, "POST", "none",
+        [{"key": "friend_id", "label": "UserId", "required": True}],
+        _b_remove_friend, body_unverified=False, danger=True),
+    "change_friend_alias": _op(
+        38, "change_friend_alias", "ho_so", "Đổi biệt danh",
+        "GET alias-wpa /api/alias/update (12201) {friendId, "
+        "alias, imei}.",
+        "alias", "/api/alias/update", 12201, "GET", "none",
+        [{"key": "friend_id", "label": "UserId", "required": True},
+         {"key": "alias", "label": "Biệt danh mới",
+          "required": True}],
+        _b_alias_update, body_unverified=False),
+    "remove_friend_alias": _op(
+        39, "remove_friend_alias", "ho_so", "Xóa biệt danh",
+        "GET alias-wpa /api/alias/remove (12202) {friendId} "
+        "(KHÔNG imei).",
+        "alias", "/api/alias/remove", 12202, "GET", "none",
+        [{"key": "friend_id", "label": "UserId", "required": True}],
+        _b_alias_remove, body_unverified=False),
+    "block_view_feed": _op(
+        91, "block_view_feed", "ho_so", "Chặn xem nhật ký",
+        "POST friend-wpa /api/friend/feed/block (12204) {fid, "
+        "isBlockFeed:1|0, imei}.",
+        "friend", "/api/friend/feed/block", 12204, "POST", "none",
+        [{"key": "user_id", "label": "UserId", "required": True},
+         {"key": "is_block_feed", "label": "Chặn (true/false)",
+          "required": True}],
+        _b_block_feed, body_unverified=False),
     # --- Quản lý nhóm (nhóm C) ---
     "create_group": _op(
         9, "create_group", "nhom", "Tạo nhóm mới",
-        "/api/group/create (11185) / create/v2 (12443).",
-        "group", "/api/group/create", 11185, "POST", "none",
+        "GET group-wpa /api/group/create (11185) {clientId, gname, "
+        "members, nameChanged} (suggestionId chưa biết — không gửi).",
+        "group", "/api/group/create", 11185, "GET", "none",
         [{"key": "name", "label": "Tên nhóm", "required": True},
          {"key": "member_ids",
           "label": "Thành viên (userId, cách nhau bằng dấu phẩy)"}],
         _b_create_group),
     "get_group_info": _op(
         10, "get_group_info", "nhom", "Xem thông tin nhóm",
-        "/api/group/getgi/v2 (11162) — thông tin + thành viên "
-        "một nhóm (đường getmg-v2 đã dùng cho danh bạ).",
-        "group", "/api/group/getgi/v2", 11162, "GET", "group", [],
-        _b_group_info),
+        "POST group-wpa /api/group/getmg (12604) {grids, "
+        "avatar_size:160, member_avatar_size:160, mpage:1, "
+        "mcount:50, imei}.",
+        "group", "/api/group/getmg", 12604, "POST", "group", [],
+        _b_group_info, body_unverified=False),
     "add_user_to_group": _op(
         11, "add_user_to_group", "nhom", "Mời thành viên vào nhóm",
-        "/api/group/invite (11186) / invite/v2 (12444).",
+        "POST /api/group/invite (11186) {grid, members} "
+        "(KHÔNG imei).",
         "group", "/api/group/invite", 11186, "POST", "group",
         [{"key": "member_id", "label": "UserId (cách nhau bằng dấu "
           "phẩy)", "required": True}],
-        _b_add_member),
+        _b_add_member, body_unverified=False),
     "remove_user_from_group": _op(
         12, "remove_user_from_group", "nhom", "Đuổi thành viên",
-        "/api/group/kickout (11187) / kickout/multi (12606).",
+        "POST /api/group/kickout (11187) {grid, members, imei}.",
         "group", "/api/group/kickout", 11187, "POST", "group",
         [{"key": "member_id", "label": "UserId (cách nhau bằng dấu "
           "phẩy)", "required": True}],
-        _b_remove_member, danger=True),
+        _b_remove_member, body_unverified=False, danger=True),
     "change_group_name": _op(
         31, "change_group_name", "nhom", "Đổi tên nhóm",
-        "/api/group/updateinfo (11188).",
+        "POST /api/group/updateinfo (11188) {grid, gname, imei}.",
         "group", "/api/group/updateinfo", 11188, "POST", "group",
         [{"key": "name", "label": "Tên mới", "required": True}],
-        _b_group_name),
+        _b_group_name, body_unverified=False),
     "change_group_avatar": _op(
         32, "change_group_avatar", "nhom", "Đổi ảnh đại diện nhóm",
-        "/api/group/upavatar (11195). Client thật upload file; "
-        "ở đây nhận URL ảnh, body chưa xác minh.",
-        "group", "/api/group/upavatar", 11195, "POST", "group",
-        [{"key": "avatar_url", "label": "URL ảnh đại diện",
-          "required": True}],
+        "POST files-wpa /api/group/upavatar (11195). Client thật "
+        "UPLOAD FILE (multipart field 'file'); params {grid, "
+        "clientId, originWidth, originHeight, imei} (avatarSize "
+        "chưa biết — không gửi).",
+        "file", "/api/group/upavatar", 11195, "POST_MULTIPART",
+        "group",
+        [{"key": "file", "label": "Ảnh đại diện (upload file)",
+          "required": True},
+         {"key": "width", "label": "Chiều rộng ảnh"},
+         {"key": "height", "label": "Chiều cao ảnh"}],
         _b_group_avatar),
     "add_group_deputy": _op(
         42, "add_group_deputy", "nhom", "Thêm phó nhóm",
-        "/api/group/admins/add (11814).",
-        "group", "/api/group/admins/add", 11814, "POST", "group",
+        "GET /api/group/admins/add (11814) {grid, members:[], "
+        "imei}.",
+        "group", "/api/group/admins/add", 11814, "GET", "group",
         [{"key": "member_id", "label": "UserId", "required": True}],
-        lambda p, t, tt: _b_deputy(p, t, tt, "add_group_deputy")),
+        lambda p, t, tt: _b_deputy(p, t, tt, "add_group_deputy"),
+        body_unverified=False),
     "remove_group_deputy": _op(
         43, "remove_group_deputy", "nhom", "Xóa phó nhóm",
-        "/api/group/admins/remove (11815).",
-        "group", "/api/group/admins/remove", 11815, "POST", "group",
+        "GET /api/group/admins/remove (11815) {grid, members:[], "
+        "imei}.",
+        "group", "/api/group/admins/remove", 11815, "GET", "group",
         [{"key": "member_id", "label": "UserId", "required": True}],
-        lambda p, t, tt: _b_deputy(p, t, tt, "remove_group_deputy")),
+        lambda p, t, tt: _b_deputy(p, t, tt, "remove_group_deputy"),
+        body_unverified=False),
     "change_group_owner": _op(
         44, "change_group_owner", "nhom", "Chuyển quyền sở hữu nhóm",
-        "/api/group/change-owner (10063).",
+        "POST /api/group/change-owner (10063) {grid, newAdminId, "
+        "imei, language}.",
         "group", "/api/group/change-owner", 10063, "POST", "group",
         [{"key": "member_id", "label": "UserId chủ mới",
           "required": True}],
-        lambda p, t, tt: _b_deputy(p, t, tt, "change_group_owner"),
-        danger=True),
+        _b_change_owner, body_unverified=False, danger=True),
     "disperse_group": _op(
         45, "disperse_group", "nhom", "Giải tán nhóm",
-        "/api/group/disperse (11832). Không hoàn tác được.",
+        "POST /api/group/disperse (11832) {imei, grid}. Không hoàn "
+        "tác được.",
         "group", "/api/group/disperse", 11832, "POST", "group", [],
         lambda p, t, tt: _b_group_only(p, t, tt, "disperse_group"),
-        danger=True),
+        body_unverified=False, danger=True),
     "enable_group_link": _op(
         46, "enable_group_link", "nhom", "Bật link tham gia nhóm",
-        "/api/group/link/new (11822).",
-        "group", "/api/group/link/new", 11822, "POST", "group", [],
-        lambda p, t, tt: _b_group_only(p, t, tt, "enable_group_link")),
+        "GET /api/group/link/new (11822) {grid, imei}.",
+        "group", "/api/group/link/new", 11822, "GET", "group", [],
+        lambda p, t, tt: _b_group_only(p, t, tt,
+                                       "enable_group_link"),
+        body_unverified=False),
     "disable_group_link": _op(
         47, "disable_group_link", "nhom", "Tắt link tham gia nhóm",
-        "/api/group/link/disable (11823).",
-        "group", "/api/group/link/disable", 11823, "POST", "group",
-        [], lambda p, t, tt: _b_group_only(p, t, tt,
-                                           "disable_group_link")),
+        "GET /api/group/link/disable (11823) {grid}.",
+        "group", "/api/group/link/disable", 11823, "GET", "group", [],
+        lambda p, t, tt: _b_group_only(p, t, tt,
+                                       "disable_group_link"),
+        body_unverified=False),
     "get_group_link": _op(
         None, "(link nhóm — ngoài 96)", "nhom", "Xem link nhóm",
-        "/api/group/link/detail (11821).",
+        "GET /api/group/link/detail (11821) {grid, imei} — body "
+        "chưa lần hết.",
         "group", "/api/group/link/detail", 11821, "GET", "group", [],
-        _b_group_link),
+        lambda p, t, tt: _b_group_only(p, t, tt, "get_group_link")),
     "join_group": _op(
         48, "join_group", "nhom", "Tham gia nhóm bằng link",
-        "/api/group/link/join (11825).",
-        "group", "/api/group/link/join", 11825, "POST", "none",
+        "GET /api/group/link/join (11825) {link, clientLang}.",
+        "group", "/api/group/link/join", 11825, "GET", "none",
         [{"key": "link", "label": "Link mời", "required": True}],
-        _b_join_group),
+        _b_join_group, body_unverified=False),
     "leave_group": _op(
         49, "leave_group", "nhom", "Rời nhóm",
-        "/api/group/leave (11189).",
+        "POST /api/group/leave (11189) {grids:[], imei, "
+        "silent:0|1, language}.",
         "group", "/api/group/leave", 11189, "POST", "group",
         [{"key": "silent", "label": "Rời lặng lẽ (true/false)"}],
-        _b_leave_group, danger=True),
+        _b_leave_group, body_unverified=False, danger=True),
     "create_note_group": _op(
         76, "create_note_group", "nhom", "Tạo ghi chú trong nhóm",
-        "/api/board/topic/create.",
-        "group", "/api/board/topic/create", None, "POST", "group",
+        "POST board /api/board/topic/create (12141) {grid, "
+        "type:0, color, emoji, startTime:-1, duration:-1, params, "
+        "needPin, repeat:0, imei} (src chưa biết — không gửi).",
+        "board", "/api/board/topic/create", 12141, "POST", "group",
         [{"key": "title", "label": "Tiêu đề ghi chú",
-          "required": True}],
+          "required": True},
+         {"key": "pin_act", "label": "Ghim (true/false)"}],
         _b_note_create),
     "edit_note_group": _op(
         77, "edit_note_group", "nhom", "Sửa ghi chú trong nhóm",
-        "/api/board/topic/update.",
-        "group", "/api/board/topic/update", None, "POST", "group",
+        "POST board /api/board/topic/update (12142) — như create "
+        "+ topicId; needPin chỉ gửi khi có pin_act.",
+        "board", "/api/board/topic/update", 12142, "POST", "group",
         [{"key": "topic_id", "label": "ID ghi chú",
           "required": True},
-         {"key": "title", "label": "Tiêu đề mới", "required": True}],
+         {"key": "title", "label": "Tiêu đề mới", "required": True},
+         {"key": "pin_act", "label": "Ghim (true/false)"}],
         _b_note_edit),
     "get_list_board": _op(
         78, "get_list_board", "nhom", "Xem bảng tin của nhóm",
-        "/api/board/list.",
-        "group", "/api/board/list", None, "GET", "group", [],
+        "GET board /api/board/list (12140) {group_id, imei} "
+        "(board_type/page/count/last_* chưa biết giá trị).",
+        "board", "/api/board/list", 12140, "GET", "group", [],
         _b_board_list),
     # --- Hội thoại / trạng thái (nhóm D) ---
+    "set_pinned_conversation": _op(
+        53, "set_pinned_conversation", "hoi_thoai",
+        "Ghim/bỏ ghim hội thoại",
+        "POST convers-wpa /api/pinconvers/update (12121) "
+        "{version, conversations:[id 'u'/'g']}. Đọc trước GET "
+        "/api/pinconvers/list (12120) lấy version + danh sách "
+        "hiện tại rồi mới POST.",
+        "convers", "/api/pinconvers/update", 12121, "POST", "both",
+        [{"key": "pinned", "label": "Ghim (true/false)",
+          "required": True}],
+        _b_pin_set, body_unverified=False),
+    "get_pin_conversations": _op(
+        66, "get_pin_conversations", "hoi_thoai",
+        "Xem hội thoại đã ghim",
+        "GET convers-wpa /api/pinconvers/list (12120) {imei} -> "
+        "{version, conversations}.",
+        "convers", "/api/pinconvers/list", 12120, "GET", "none", [],
+        _b_pin_list, body_unverified=False),
+    "get_archived_chat_list": _op(
+        58, "get_archived_chat_list", "hoi_thoai",
+        "Xem hội thoại đã lưu trữ",
+        "GET label-wpa /api/archivedchat/list (12076) {version:0, "
+        "imei}.",
+        "label", "/api/archivedchat/list", 12076, "GET", "none", [],
+        _b_archived_list, body_unverified=False),
+    "get_hidden_conversations": _op(
+        61, "get_hidden_conversations", "hoi_thoai",
+        "Xem hội thoại ẩn",
+        "GET convers-wpa /api/hiddenconvers/get-all (10048) "
+        "{imei}.",
+        "convers", "/api/hiddenconvers/get-all", 10048, "GET",
+        "none", [], _b_hidden_list, body_unverified=False),
+    "set_hidden_conversations": _op(
+        62, "set_hidden_conversations", "hoi_thoai",
+        "Ẩn/bỏ ẩn hội thoại",
+        "POST convers-wpa /api/hiddenconvers/add-remove (10049) "
+        "{del_threads, add_threads (JSON-string), imei}.",
+        "convers", "/api/hiddenconvers/add-remove", 10049, "POST",
+        "both",
+        [{"key": "hidden", "label": "Ẩn (true/false)",
+          "required": True}],
+        _b_hidden_set, body_unverified=False),
+    "update_hidden_convers_pin": _op(
+        63, "update_hidden_convers_pin", "hoi_thoai",
+        "Đặt PIN hội thoại ẩn",
+        "GET convers-wpa /api/hiddenconvers/update-pin (10050) "
+        "{new_pin, imei}.",
+        "convers", "/api/hiddenconvers/update-pin", 10050, "GET",
+        "none",
+        [{"key": "pin", "label": "PIN mới", "required": True}],
+        _b_hidden_pin, body_unverified=False),
+    "reset_hidden_convers_pin": _op(
+        64, "reset_hidden_convers_pin", "hoi_thoai",
+        "Gỡ PIN hội thoại ẩn",
+        "GET convers-wpa /api/hiddenconvers/reset (10051) — "
+        "KHÔNG gửi params (chỉ common params).",
+        "convers", "/api/hiddenconvers/reset", 10051, "GET", "none",
+        [], lambda p, t, tt: None, body_unverified=False,
+        no_params=True),
     "get_unread_mark": _op(
         54, "get_unread_mark", "hoi_thoai", "Xem hội thoại chưa đọc",
-        "/api/conv/getUnreadMark (12011).",
+        "GET convers-wpa /api/conv/getUnreadMark (12011) {} "
+        "(params rỗng).",
         "convers", "/api/conv/getUnreadMark", 12011, "GET", "none",
-        [], lambda p, t, tt: {"imei": p["_imei"]}),
+        [], lambda p, t, tt: {}, body_unverified=False),
     "add_unread_mark": _op(
         55, "add_unread_mark", "hoi_thoai",
         "Đánh dấu hội thoại chưa đọc",
-        "/api/conv/addUnreadMark (12013).",
+        "POST convers-wpa /api/conv/addUnreadMark (12013) {param: "
+        "JSON-str({convsGroup, convsUser, imei})}.",
         "convers", "/api/conv/addUnreadMark", 12013, "POST", "both",
-        [], lambda p, t, tt: _b_unread(p, t, tt, "add_unread_mark")),
+        [], _b_unread_add, body_unverified=False),
     "remove_unread_mark": _op(
         56, "remove_unread_mark", "hoi_thoai",
         "Bỏ đánh dấu chưa đọc",
-        "/api/conv/removeUnreadMark (12014).",
+        "POST convers-wpa /api/conv/removeUnreadMark (12014) "
+        "{param: JSON-str({convsGroup, convsUser})} "
+        "(convsGroupData/convsUserData chưa biết — không gửi).",
         "convers", "/api/conv/removeUnreadMark", 12014, "POST",
-        "both", [],
-        lambda p, t, tt: _b_unread(p, t, tt, "remove_unread_mark")),
+        "both", [], _b_unread_remove),
     "delete_chat": _op(
         57, "delete_chat", "hoi_thoai", "Xóa hội thoại",
         "1-1: /api/message/deleteconver (11778); nhóm: "
-        "/api/group/deleteconver (11835).",
-        None, None, None, "POST", "both", [], _b_delete_chat,
-        danger=True),
+        "/api/group/deleteconver (11835). {toid|grid, onlyMe:1, "
+        "imei} + cliMsgId/conver nếu caller biết (lấy từ tin "
+        "cuối hội thoại).",
+        None, None, None, "POST", "both",
+        [{"key": "cli_msg_id", "label": "Client ID tin cuối"},
+         {"key": "conver", "label": "Conver của tin cuối"}],
+        _b_delete_chat, danger=True),
     "get_auto_delete_chat": _op(
         59, "get_auto_delete_chat", "hoi_thoai",
         "Xem hội thoại đang tự xóa",
-        "/api/conv/autodelete/getConvers (12022).",
+        "GET convers-wpa /api/conv/autodelete/getConvers (12022) "
+        "{} (params rỗng).",
         "convers", "/api/conv/autodelete/getConvers", 12022, "GET",
-        "none", [], lambda p, t, tt: {"imei": p["_imei"]}),
+        "none", [], lambda p, t, tt: {}, body_unverified=False),
     "update_auto_delete_chat": _op(
         60, "update_auto_delete_chat", "hoi_thoai",
         "Bật/tắt tự xóa tin nhắn",
-        "/api/conv/autodelete/updateConvers (12023).",
+        "POST convers-wpa /api/conv/autodelete/updateConvers "
+        "(12023) {threadId, isGroup:bool, ttl, clientLang} — "
+        "params trong QUERY URL, không có form body.",
         "convers", "/api/conv/autodelete/updateConvers", 12023,
-        "POST", "both",
+        "POST_QUERY", "both",
         [{"key": "ttl", "label": "TTL (0=tắt, 86400000=1 ngày, "
           "604800000=7 ngày)", "required": True}],
-        _b_auto_delete),
+        _b_auto_delete, body_unverified=False),
     "get_mute": _op(
         65, "get_mute", "hoi_thoai", "Xem danh sách tắt thông báo",
-        "/api/social/profile/getmute (mức tài khoản; chưa rõ có "
-        "mức từng thread không).",
-        "profile", "/api/social/profile/getmute", None, "GET", "none",
-        [], lambda p, t, tt: {"imei": p["_imei"]}),
+        "GET profile-wpa /api/social/profile/getmute (11280) "
+        "{imei}.",
+        "profile", "/api/social/profile/getmute", 11280, "GET",
+        "none", [], lambda p, t, tt: {"imei": p["_imei"]},
+        body_unverified=False),
     "set_mute": _op(
         52, "set_mute", "hoi_thoai", "Tắt thông báo",
-        "/api/social/profile/setmute (mức tài khoản; chưa rõ có "
-        "mức từng thread không).",
-        "profile", "/api/social/profile/setmute", None, "POST", "both",
+        "POST profile-wpa /api/social/profile/setmute (11288) "
+        "{toid, duration, action:1=tắt/3=bật lại, startTime, "
+        "muteType:1=1-1/2=nhóm, imei}.",
+        "profile", "/api/social/profile/setmute", 11288, "POST",
+        "both",
         [{"key": "duration", "label": "Thời lượng giây "
           "(3600/14400/-1=vĩnh viễn/0=bật lại)", "required": True}],
-        _b_mute),
+        _b_mute, body_unverified=False),
     # --- Hồ sơ / người dùng (nhóm B + G) ---
     "find_user": _op(
         6, "find_user", "ho_so", "Tìm người dùng theo SĐT",
-        "/api/social/friend/phonebook/v2 (body chưa lần hết).",
-        "profile", "/api/social/friend/phonebook/v2", None, "GET",
-        "none",
+        "GET friend-wpa /api/friend/profile/get (11420) {phone, "
+        "avatar_size:240, language, imei}.",
+        "friend", "/api/friend/profile/get", 11420, "GET", "none",
         [{"key": "phone", "label": "Số điện thoại", "required": True}],
-        _b_find_user),
+        _b_find_user, body_unverified=False),
     "get_user_info": _op(
         7, "get_user_info", "ho_so", "Xem thông tin người dùng",
-        "/api/social/friend/getprofiles/v2.",
-        "profile", "/api/social/friend/getprofiles/v2", None, "GET",
-        "none",
+        "GET profile-wpa /api/social/friend/getprofiles/v2 "
+        "(11140) — body chưa trích được caller.",
+        "profile", "/api/social/friend/getprofiles/v2", 11140,
+        "GET", "none",
         [{"key": "user_id", "label": "UserId", "required": True}],
         _b_user_info),
     "last_online": _op(
         94, "last_online", "ho_so", "Xem hoạt động cuối",
-        "/api/social/profile/lastOnline.",
-        "profile", "/api/social/profile/lastOnline", None, "GET",
+        "GET profile-wpa /api/social/profile/lastOnline (12090) "
+        "{uid, imei} (conv_type chưa biết — không gửi).",
+        "profile", "/api/social/profile/lastOnline", 12090, "GET",
         "none",
         [{"key": "user_id", "label": "UserId", "required": True}],
         _b_last_online),
     "update_profile": _op(
         50, "update_profile", "ho_so", "Cập nhật thông tin cá nhân",
-        "/api/social/profile/update.",
-        "profile", "/api/social/profile/update", None, "POST", "none",
+        "POST profile-wpa /api/social/profile/update (12075) — "
+        "fields cụ thể chưa lần.",
+        "profile", "/api/social/profile/update", 12075, "POST",
+        "none",
         [{"key": "name", "label": "Tên hiển thị"},
          {"key": "dob", "label": "Ngày sinh (yyyy-mm-dd)"},
          {"key": "gender", "label": "Giới tính (0=Nam, 1=Nữ)"}],
         _b_update_profile),
     "update_settings": _op(
         51, "update_settings", "ho_so", "Cập nhật cài đặt riêng tư",
-        "/api/setting/update.",
-        "profile", "/api/setting/update", None, "POST", "none",
+        "GET wpa.zalo.me /api/setting/update (12033) — object "
+        "truyền thẳng, key thật chưa lần.",
+        "auth", "/api/setting/update", 12033, "GET", "none",
         [{"key": "setting_type",
           "label": "Loại (online_status/seen_status/receive_message/"
           "phone_search)", "required": True},
@@ -732,15 +1474,19 @@ OPS = {
         _b_update_settings),
     "change_account_avatar": _op(
         92, "change_account_avatar", "ho_so", "Đổi ảnh đại diện",
-        "/api/social/profile/avatar-url (nhận URL ảnh).",
-        "profile", "/api/social/profile/avatar-url", None, "POST",
+        "POST files-wpa /api/profile/upavatar (11819). Client thật "
+        "UPLOAD FILE (multipart field 'file'); params {clientId, "
+        "language} (avatarSize/metaData chưa biết — không gửi).",
+        "file", "/api/profile/upavatar", 11819, "POST_MULTIPART",
         "none",
-        [{"key": "avatar_url", "label": "URL ảnh", "required": True}],
+        [{"key": "file", "label": "Ảnh đại diện (upload file)",
+          "required": True}],
         _b_change_avatar),
     "get_avatar_list": _op(
         93, "get_avatar_list", "ho_so", "Xem ảnh đại diện đã dùng",
-        "/api/social/avatar-list.",
-        "profile", "/api/social/avatar-list", None, "GET", "none",
+        "GET profile-wpa /api/social/avatar-list (12451) — body "
+        "chưa lần hết.",
+        "profile", "/api/social/avatar-list", 12451, "GET", "none",
         [{"key": "count", "label": "Số lượng"},
          {"key": "page", "label": "Trang"}],
         _b_avatar_list),
@@ -749,7 +1495,7 @@ OPS = {
         27, "send_sticker", "sticker", "Gửi sticker",
         "1-1: /api/message/sticker (11154) {stickerId, cateId, "
         "type, clientId, imei, toid}; nhóm: /api/group/sticker "
-        "(11165). Body đã biết.",
+        "(11165). Body đã biết (+ ttl).",
         None, None, None, "POST", "both",
         [{"key": "sticker_id", "label": "Sticker ID",
           "required": True},
@@ -758,74 +1504,155 @@ OPS = {
         _b_sticker, body_unverified=False),
     "get_stickers": _op(
         73, "get_stickers", "sticker", "Xem danh mục sticker",
-        "/api/message/sticker/category/list (+ /v2).",
-        "chat", "/api/message/sticker/category/list", None, "GET",
-        "none", [], _b_sticker_list),
+        "GET sticker-wpa /api/message/sticker/category/list "
+        "(11155) — params AES của chuỗi rỗng.",
+        "sticker", "/api/message/sticker/category/list", 11155,
+        "GET", "none", [], _b_sticker_list, body_unverified=False),
     "get_stickers_detail": _op(
         74, "get_stickers_detail", "sticker", "Xem chi tiết bộ sticker",
-        "/api/message/sticker/category/list theo cateId.",
-        "chat", "/api/message/sticker/category/list", None, "GET",
-        "none",
+        "GET sticker-wpa /api/message/sticker/category/detail "
+        "(11156) {cid}.",
+        "sticker", "/api/message/sticker/category/detail", 11156,
+        "GET", "none",
         [{"key": "sticker_album", "label": "Album/Cate ID",
           "required": True}],
-        _b_sticker_detail),
+        _b_sticker_detail, body_unverified=False),
     # --- Nhắc hẹn / bảng tin (nhóm F) ---
     "create_reminder": _op(
         29, "create_reminder", "nhac", "Tạo nhắc hẹn",
-        "1-1: /api/board/oneone/create. Nhóm: chưa có endpoint "
-        "trong bảng lệnh — không bịa path.",
+        "1-1: POST board /api/board/oneone/create (12429) "
+        "{objectData, imei}; nhóm: POST board "
+        "/api/board/topic/create (12141). objectData {toUid/grid, "
+        "type:0, color, emoji, startTime, duration:-1, params, "
+        "needPin, repeat, creatorUid} (src chưa biết — không gửi).",
         None, None, None, "POST", "both",
         [{"key": "title", "label": "Tiêu đề", "required": True},
          {"key": "content", "label": "Nội dung"},
-         {"key": "remind_time", "label": "Thời gian nhắc",
-          "required": True}],
+         {"key": "remind_time", "label": "Thời gian nhắc "
+          "(ISO-8601 hoặc epoch)", "required": True}],
         _b_reminder_create),
     "remove_reminder": _op(
         30, "remove_reminder", "nhac", "Xóa nhắc hẹn",
-        "1-1: /api/board/oneone/remove. Nhóm: chưa có endpoint.",
+        "1-1: POST board /api/board/oneone/remove (12431) {uid, "
+        "reminderId}; nhóm: POST board /api/board/topic/remove "
+        "(12143) {grid, topicId, imei}.",
         None, None, None, "POST", "both",
         [{"key": "reminder_id", "label": "ID nhắc hẹn",
           "required": True}],
-        _b_reminder_remove),
+        _b_reminder_remove, body_unverified=False),
     "edit_reminder": _op(
         82, "edit_reminder", "nhac", "Sửa nhắc hẹn",
-        "1-1: /api/board/oneone/update; nhóm: "
-        "/api/board/topic/updateEventResponse.",
+        "1-1: POST board /api/board/oneone/update (12430) "
+        "{objectData}; nhóm: POST board "
+        "/api/board/topic/updateEventResponse (12087) {grid, "
+        "eventId, imei} (type chưa biết — không gửi).",
         None, None, None, "POST", "both",
         [{"key": "topic_id", "label": "ID nhắc hẹn",
           "required": True},
-         {"key": "title", "label": "Tiêu đề mới", "required": True}],
+         {"key": "title", "label": "Tiêu đề mới", "required": True},
+         {"key": "remind_time", "label": "Thời gian nhắc mới"}],
         _b_reminder_edit),
     "get_reminder": _op(
         83, "get_reminder", "nhac", "Xem chi tiết nhắc hẹn",
-        "/api/board/topic/getReminder.",
-        "group", "/api/board/topic/getReminder", None, "GET", "group",
+        "GET board /api/board/topic/getReminder (12088) {eventId, "
+        "imei}.",
+        "board", "/api/board/topic/getReminder", 12088, "GET",
+        "none",
         [{"key": "reminder_id", "label": "ID nhắc hẹn",
           "required": True}],
-        _b_reminder_get),
+        _b_reminder_get, body_unverified=False),
     "get_list_reminder": _op(
         84, "get_list_reminder", "nhac", "Xem danh sách nhắc hẹn",
-        "1-1: /api/board/oneone/list; nhóm: "
-        "/api/board/listReminder.",
+        "1-1: GET board /api/board/oneone/list (12432); nhóm: GET "
+        "board /api/board/listReminder (12425). objectData "
+        "JSON-str({uid|group_id, ...}) — chỉ gửi key đã biết.",
         None, None, None, "GET", "both", [], _b_reminder_list),
     "get_reminder_responses": _op(
         85, "get_reminder_responses", "nhac", "Xem phản hồi nhắc hẹn",
-        "/api/board/topic/listResponseEvent.",
-        "group", "/api/board/topic/listResponseEvent", None, "GET",
-        "group",
+        "GET board /api/board/topic/listResponseEvent (12086) "
+        "{eventId} (KHÔNG imei).",
+        "board", "/api/board/topic/listResponseEvent", 12086, "GET",
+        "none",
         [{"key": "reminder_id", "label": "ID nhắc hẹn",
           "required": True}],
-        _b_reminder_responses),
+        _b_reminder_responses, body_unverified=False),
+    # --- Poll (nhóm, SERVICE-MAP §2.4) ---
+    "create_poll": _op(
+        79, "create_poll", "nhom", "Tạo bình chọn",
+        "POST group-wpa /api/poll/create (12080) {group_id, "
+        "question, options, allow_multi_choices, "
+        "allow_add_new_option:true, is_anonymous:false, "
+        "poll_type:0, expired_time:0, pinAct:0, imei} (src chưa "
+        "biết — không gửi).",
+        "group", "/api/poll/create", 12080, "POST", "group",
+        [{"key": "question", "label": "Câu hỏi", "required": True},
+         {"key": "options", "label": "Lựa chọn (cách nhau bằng dấu "
+          "phẩy)", "required": True},
+         {"key": "allow_multi_choices",
+          "label": "Cho chọn nhiều (true/false)"}],
+        _b_poll_create),
+    "get_poll_detail": _op(
+        80, "get_poll_detail", "nhom", "Xem chi tiết bình chọn",
+        "GET group-wpa /api/poll/detail (12081) {poll_id, imei}.",
+        "group", "/api/poll/detail", 12081, "GET", "group",
+        [{"key": "poll_id", "label": "ID bình chọn",
+          "required": True}],
+        _b_poll_detail, body_unverified=False),
+    "lock_poll": _op(
+        81, "lock_poll", "nhom", "Khóa bình chọn",
+        "POST group-wpa /api/poll/end (12089) {poll_id, imei}.",
+        "group", "/api/poll/end", 12089, "POST", "group",
+        [{"key": "poll_id", "label": "ID bình chọn",
+          "required": True}],
+        _b_poll_lock, body_unverified=False),
+    # --- Tin nhắn nhanh (nhóm, SERVICE-MAP §2.5) ---
+    "add_quick_message": _op(
+        86, "add_quick_message", "nhac", "Thêm tin nhắn nhanh",
+        "GET QUICK_MESSAGE /api/quickmessage/create (12029) "
+        "{keyword, message, imei} (media/type chưa biết — không "
+        "gửi). Domain lấy từ services map lúc login.",
+        "quick_message", "/api/quickmessage/create", 12029, "GET",
+        "none",
+        [{"key": "keyword", "label": "Từ khóa", "required": True},
+         {"key": "title", "label": "Nội dung", "required": True}],
+        _b_qm_add),
+    "get_quick_message": _op(
+        87, "get_quick_message", "nhac", "Xem tin nhắn nhanh",
+        "GET QUICK_MESSAGE /api/quickmessage/list (12025) "
+        "{version:0, lang:0, imei}.",
+        "quick_message", "/api/quickmessage/list", 12025, "GET",
+        "none", [], _b_qm_list, body_unverified=False),
+    "remove_quick_message": _op(
+        88, "remove_quick_message", "nhac", "Xóa tin nhắn nhanh",
+        "GET QUICK_MESSAGE /api/quickmessage/delete (12032) "
+        "{itemIds:[...]}.",
+        "quick_message", "/api/quickmessage/delete", 12032, "GET",
+        "none",
+        [{"key": "item_ids", "label": "ID (cách nhau bằng dấu phẩy)",
+          "required": True}],
+        _b_qm_delete, body_unverified=False),
+    "update_quick_message": _op(
+        89, "update_quick_message", "nhac", "Sửa tin nhắn nhanh",
+        "GET QUICK_MESSAGE /api/quickmessage/update (12026) "
+        "{itemId, keyword, message} (KHÔNG imei; media/type chưa "
+        "biết — không gửi).",
+        "quick_message", "/api/quickmessage/update", 12026, "GET",
+        "none",
+        [{"key": "item_id", "label": "ID", "required": True},
+         {"key": "keyword", "label": "Từ khóa"},
+         {"key": "title", "label": "Nội dung"}],
+        _b_qm_update),
     # --- Nhãn (nhóm I) ---
     "get_labels": _op(
         90, "get_labels", "nhan", "Xem danh sách nhãn",
-        "/api/convlabel/get.",
-        "convers", "/api/convlabel/get", None, "GET", "none", [],
-        _b_labels),
+        "GET label-wpa /api/convlabel/get (12161) {imei}.",
+        "label", "/api/convlabel/get", 12161, "GET", "none", [],
+        _b_labels, body_unverified=False),
     "update_label": _op(
         None, "(gắn nhãn — ngoài 96)", "nhan", "Gắn nhãn cho hội thoại",
-        "/api/convlabel/update (12160).",
-        "convers", "/api/convlabel/update", 12160, "POST", "both",
+        "POST label-wpa /api/convlabel/update (12160) "
+        "{labelData, version, imei} — labelData chưa lần.",
+        "label", "/api/convlabel/update", 12160, "POST", "both",
         [{"key": "label_ids", "label": "ID nhãn (cách nhau bằng dấu "
           "phẩy)", "required": True}],
         _b_label_update),
@@ -851,15 +1678,17 @@ _SPLIT = {
                      "group", "/api/group/sticker", 11165),
     "delete_chat": ("chat", "/api/message/deleteconver", 11778,
                     "group", "/api/group/deleteconver", 11835),
-    "create_reminder": ("chat", "/api/board/oneone/create", None,
-                        "group", None, None),
-    "remove_reminder": ("chat", "/api/board/oneone/remove", None,
-                        "group", None, None),
-    "edit_reminder": ("chat", "/api/board/oneone/update", None,
-                      "group", "/api/board/topic/updateEventResponse",
-                      None),
-    "get_list_reminder": ("chat", "/api/board/oneone/list", None,
-                          "group", "/api/board/listReminder", None),
+    "create_reminder": ("board", "/api/board/oneone/create", 12429,
+                        "board", "/api/board/topic/create", 12141),
+    "remove_reminder": ("board", "/api/board/oneone/remove", 12431,
+                        "board", "/api/board/topic/remove", 12143),
+    "edit_reminder": ("board", "/api/board/oneone/update", 12430,
+                      "board", "/api/board/topic/updateEventResponse",
+                      12087),
+    "get_list_reminder": ("board", "/api/board/oneone/list", 12432,
+                          "board", "/api/board/listReminder", 12425),
+    "add_reaction": ("reaction", "/api/message/reaction", 12410,
+                     "reaction", "/api/group/reaction", 12411),
 }
 
 _DOMAINS = {
@@ -867,7 +1696,20 @@ _DOMAINS = {
     "group": lambda: protocol.GROUP_DOMAIN,
     "profile": lambda: protocol.PROFILE_DOMAIN,
     "convers": lambda: protocol.CONVERS_DOMAIN,
+    "friend": lambda: protocol.FRIEND_DOMAIN,
+    "alias": lambda: protocol.ALIAS_DOMAIN,
+    "label": lambda: protocol.LABEL_DOMAIN,
+    "board": lambda: protocol.BOARD_DOMAIN,
+    "sticker": lambda: protocol.STICKER_DOMAIN,
+    "file": lambda: protocol.FILE_DOMAIN,
+    "auth": lambda: protocol.AUTH_DOMAIN,
 }
+
+# Domain chi co trong services map (khong hard-code — xem module
+# docstring). Key trong map: "reaction" / "quick_message" (enum
+# domainType trong bundle); gia tri la URL day du hoac list URL
+# (v3 map: lay phan tu dau).
+_SERVICES_MAP_DOMAINS = ("reaction", "quick_message")
 
 
 def _resolve(action, spec, ttype):
@@ -887,13 +1729,15 @@ def _resolve(action, spec, ttype):
 #  "chat"    — có đường PC nhưng thuộc khung chat (agent chat làm).
 #  "zalobot" — chỉ thuộc máy chủ zalobot, phiên web (không phải app PC).
 #  "view"    — đã xem được trên UI danh bạ hôm nay.
-#  "unsupported" — chưa có đường PC trong bảng lệnh 231 mục.
+# Genuine gap (SERVICE-MAP.md §5): 4, 5, 17–20, 21–23 (9 service)
+# + 96 (QR web — QR PC đã native trong app).
 
 _NOT_SUPPORTED = [
     # (addon_no, addon, group, status, reason)
     (1, "send_message", "tin_nhan", "chat",
-     "Gửi text thuộc khung chat — agent chat làm (đường PC: "
-     "1-1 /api/message/sms 11151, nhóm /api/group/sendmsg 11163)."),
+     "Gửi text thuộc khung chat — chat.py làm (đường PC: "
+     "1-1 /api/message/sms 11151, nhóm /api/group/sendmsg 11163, "
+     "clientId NUMBER + ttl)."),
     (2, "send_file", "tin_nhan", "chat",
      "Đính kèm file thuộc khung chat (1-1 sharefile_full 11146, "
      "nhóm 11191)."),
@@ -912,20 +1756,23 @@ _NOT_SUPPORTED = [
      "Gửi tin nhắn thoại thuộc khung chat (voicemp3 11148 / "
      "sendmp3 11169) — không phải gọi điện."),
     (71, "send_card", "tin_nhan", "chat",
-     "Gửi danh thiếp thuộc khung chat (1-1 contact 11774, nhóm "
-     "11827; body chưa lần hết)."),
+     "Gửi danh thiếp thuộc khung chat: đường card user thường "
+     "CHƯA lần riêng (chỉ có biến thể OA forwardContactOA "
+     "11774/11827) — chưa implement, không bịa body."),
     (72, "send_link", "tin_nhan", "chat",
      "Gửi link thuộc khung chat (1-1 link 11286, nhóm sendlink "
-     "11193; body chưa lần hết)."),
+     "11193) — chat.py send_link đã implement."),
     (75, "send_video", "tin_nhan", "chat",
-     "Gửi video thuộc khung chat (upload 12058/12061 + thumb; "
-     "bước send chưa lần hết)."),
+     "Gửi video thuộc khung chat: chỉ có bước upload "
+     "(12058/12061 + thumb); bước send sau upload CHƯA lần hết "
+     "— chưa implement, không bịa endpoint."),
     (4, "get_logged_accounts", "khac", "zalobot",
      "Đa tài khoản chỉ có trên máy chủ zalobot (phiên web). "
      "App PC đơn tài khoản — tài khoản hiện tại xem ở /api/status."),
     (5, "get_account_details", "khac", "zalobot",
      "Chi tiết tài khoản theo account_selection — chỉ có trên "
-     "máy chủ zalobot (phiên web)."),
+     "máy chủ zalobot (phiên web). Gần nhất trên PC: "
+     "/api/social/profile/me-v2 (chưa lần body)."),
     (17, "get_account_webhooks", "khac", "zalobot",
      "Webhook thuộc máy chủ zalobot (phiên web). Trang cài đặt "
      "webhook do agent riêng làm — không làm lại ở đây."),
@@ -944,93 +1791,20 @@ _NOT_SUPPORTED = [
      "Proxy chỉ có trên máy chủ zalobot; app PC không có proxy."),
     (96, "get_login_qr", "khac", "zalobot",
      "QR này là QR kiểu WEB của máy chủ zalobot — khác loại với "
-     "QR kiểu PC app đang dùng (đăng nhập QR PC đã có sẵn)."),
+     "QR kiểu PC app đang dùng (đăng nhập QR PC đã có sẵn: "
+     "reqqr 11133 → getLoginInfo 11134)."),
     (34, "get_all_friends", "ho_so", "view",
      "Đã xem được: danh bạ Bạn bè (60 bạn, đúng thật)."),
     (40, "get_all_groups", "ho_so", "view",
      "Đã xem được: danh bạ Nhóm (6 nhóm, đúng thật)."),
-    (8, "send_friend_request", "ho_so", "unsupported",
-     "Chưa có đường PC: không thấy endpoint kết bạn trong bảng "
-     "lệnh 231 mục — cần lần thêm, không bịa endpoint."),
-    (24, "accept_friend_request", "ho_so", "unsupported",
-     "Chưa có đường PC: không thấy endpoint chấp nhận kết bạn "
-     "trong bảng lệnh."),
-    (25, "block_user", "ho_so", "unsupported",
-     "Chưa có đường PC: không thấy endpoint chặn người dùng "
-     "trong bảng lệnh."),
-    (26, "unblock_user", "ho_so", "unsupported",
-     "Chưa có đường PC: không thấy endpoint bỏ chặn trong bảng "
-     "lệnh."),
-    (35, "get_sent_friend_requests", "ho_so", "unsupported",
-     "Chưa có đường PC: không thấy endpoint liệt kê lời mời đã "
-     "gửi trong bảng lệnh."),
-    (36, "undo_friend_request", "ho_so", "unsupported",
-     "Chưa có đường PC: không thấy endpoint thu hồi lời mời "
-     "trong bảng lệnh."),
-    (37, "remove_friend", "ho_so", "unsupported",
-     "Chưa có đường PC: không thấy endpoint hủy kết bạn trong "
-     "bảng lệnh."),
-    (38, "change_friend_alias", "ho_so", "unsupported",
-     "Chưa có đường PC: không thấy endpoint đổi biệt danh trong "
-     "bảng lệnh."),
-    (39, "remove_friend_alias", "ho_so", "unsupported",
-     "Chưa có đường PC: không thấy endpoint xóa biệt danh trong "
-     "bảng lệnh."),
-    (91, "block_view_feed", "ho_so", "unsupported",
-     "Chưa có đường PC: không thấy endpoint chặn xem nhật ký "
-     "trong bảng lệnh."),
-    (53, "set_pinned_conversation", "hoi_thoai", "unsupported",
-     "Chưa có đường PC: không thấy endpoint ghim/bỏ ghim hội "
-     "thoại trong bảng lệnh 231 mục."),
-    (58, "get_archived_chat_list", "hoi_thoai", "unsupported",
-     "Chưa có đường PC: không thấy endpoint lưu trữ hội thoại "
-     "trong bảng lệnh."),
-    (61, "get_hidden_conversations", "hoi_thoai", "unsupported",
-     "Chưa có đường PC: không thấy endpoint hội thoại ẩn trong "
-     "bảng lệnh."),
-    (62, "set_hidden_conversations", "hoi_thoai", "unsupported",
-     "Chưa có đường PC: không thấy endpoint ẩn/bỏ ẩn hội thoại "
-     "trong bảng lệnh."),
-    (63, "update_hidden_convers_pin", "hoi_thoai", "unsupported",
-     "Chưa có đường PC: không thấy endpoint đặt PIN hội thoại "
-     "ẩn trong bảng lệnh."),
-    (64, "reset_hidden_convers_pin", "hoi_thoai", "unsupported",
-     "Chưa có đường PC: không thấy endpoint gỡ PIN hội thoại "
-     "ẩn trong bảng lệnh."),
-    (66, "get_pin_conversations", "hoi_thoai", "unsupported",
-     "Chưa có đường PC: không thấy endpoint liệt kê hội thoại "
-     "đã ghim trong bảng lệnh."),
-    (67, "add_reaction", "tin_nhan", "unsupported",
-     "Chưa có đường PC: bảng lệnh chỉ có /api/react/gLastSn "
-     "(lấy reaction gần nhất), không có endpoint GỬI reaction."),
-    (79, "create_poll", "nhom", "unsupported",
-     "Chưa có đường PC: bundle có /api/board/... cho topic, "
-     "không thấy endpoint poll riêng trong bảng lệnh."),
-    (80, "get_poll_detail", "nhom", "unsupported",
-     "Chưa có đường PC: không thấy endpoint chi tiết poll "
-     "trong bảng lệnh."),
-    (81, "lock_poll", "nhom", "unsupported",
-     "Chưa có đường PC: không thấy endpoint khóa poll trong "
-     "bảng lệnh."),
-    (86, "add_quick_message", "nhac", "unsupported",
-     "Chưa có đường PC: không thấy endpoint tin nhắn nhanh "
-     "trong bảng lệnh 231 mục."),
-    (87, "get_quick_message", "nhac", "unsupported",
-     "Chưa có đường PC: không thấy endpoint tin nhắn nhanh "
-     "trong bảng lệnh."),
-    (88, "remove_quick_message", "nhac", "unsupported",
-     "Chưa có đường PC: không thấy endpoint tin nhắn nhanh "
-     "trong bảng lệnh."),
-    (89, "update_quick_message", "nhac", "unsupported",
-     "Chưa có đường PC: không thấy endpoint tin nhắn nhanh "
-     "trong bảng lệnh."),
 ]
 
 
 def build_catalog():
     """Toàn bộ 96 service addon + các op ngoài 96 (quote, seen,
-    fetchImportant, link nhóm, gắn nhãn): mỗi entry có status để
-    UI vẽ nút bấm hoặc trạng thái 'Chưa hỗ trợ' — không nút giả."""
+    fetchImportant, group link detail, label update): mỗi entry có
+    status để UI vẽ nút bấm hoặc trạng thái 'Chưa hỗ trợ' — không
+    nút giả."""
     entries = []
     for action, spec in OPS.items():
         entries.append({
@@ -1097,18 +1871,56 @@ CATALOG = build_catalog()
 def catalog_public():
     return CATALOG
 
-
 # ------------------------------------------------------------------ client
 class Services:
     """Client gọi endpoint PC cho các op trong OPS (giống
     Signaling/Contacts: cùng transport, cùng envelope hai lớp).
     Không đụng signaling.py hay body requestcall."""
 
-    def __init__(self, http_get, http_post, device_id, zpw_enk):
+    def __init__(self, http_get, http_post, device_id, zpw_enk,
+                 service_map=None, http_post_multipart=None):
         self.http_get = http_get
         self.http_post = http_post
         self.device_id = device_id
         self.zpw_enk = zpw_enk
+        # Services map server tra ve luc login (config
+        # zpw_service_map_new) — chi dung de resolve REACTION /
+        # QUICK_MESSAGE, khong hard-code domain (xem _domain_for).
+        self.service_map = service_map or {}
+        if http_post_multipart is None:
+            http_post_multipart = getattr(
+                http_get, "http_post_multipart", None)
+        self.http_post_multipart = http_post_multipart
+        self._logged_domains = set()
+
+    def _domain_for(self, action, domain_key):
+        """URL goc cho mot domain key. REACTION / QUICK_MESSAGE
+        chi resolve qua services map (log domain resolve duoc, chi
+        log host — khong log params/gia tri); neu map chua co thi
+        tu choi ro rang thay vi doan domain."""
+        if domain_key in _SERVICES_MAP_DOMAINS:
+            raw = (self.service_map or {}).get(domain_key)
+            if isinstance(raw, list):
+                raw = raw[0] if raw else None
+            if not raw or not isinstance(raw, str):
+                raise UnsupportedService(
+                    action, "unsupported",
+                    "Domain %s chưa có trong services map do server "
+                    "trả về lúc đăng nhập (config "
+                    "zpw_service_map_new) — không đoán domain; "
+                    "cần đăng nhập lại để lấy map." % domain_key)
+            url = raw.strip()
+            if "://" not in url:
+                url = "https://" + url
+            url = url.rstrip("/")
+            host = urllib.parse.urlparse(url).netloc or url
+            key = (domain_key, host)
+            if key not in self._logged_domains:
+                self._logged_domains.add(key)
+                log.info("svc domain %s resolved to %s",
+                         domain_key, host)
+            return url
+        return _DOMAINS[domain_key]()
 
     def _aes(self, raw_json):
         return session_aes_encrypt(self.zpw_enk, raw_json)
@@ -1118,38 +1930,149 @@ class Services:
             raise RuntimeError("svc %s: network status=%s"
                                % (where, status))
         if payload.get("error_code") != 0:
-            raise RuntimeError("svc %s: error_code=%s %s" % (
+            raise ServiceError(
                 where, payload.get("error_code"),
-                payload.get("error_message", "")))
-        return decode_postlogin_data(payload, self.zpw_enk)
+                payload.get("error_message", ""))
+        try:
+            return decode_postlogin_data(payload, self.zpw_enk)
+        except RuntimeError as e:
+            # Loi inner (vd. 212): doi sang ServiceError de caller
+            # phan biet ma loi; van la RuntimeError nen code cu bat
+            # RuntimeError khong doi.
+            import re as _re
+            m = _re.search(r"inner error_code=(\d+)", str(e))
+            if m:
+                raise ServiceError(where, int(m.group(1)), str(e))
+            raise
 
-    def _url(self, domain, path, body):
-        raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-        enc = self._aes(raw)
+    def _encode_body(self, body):
+        """params value: dict -> JSON; str -> raw (vd. "" cua
+        get_stickers — params AES cua chuoi rong, khong phai
+        JSON '""')."""
+        if isinstance(body, str):
+            return body
+        return json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+
+    def _url(self, domain, path, body, no_params=False):
         qs = urllib.parse.urlencode(protocol.common_params())
+        if no_params:
+            return "%s%s?%s" % (domain, path, qs)
+        enc = self._aes(self._encode_body(body))
         return "%s%s?%s&params=%s" % (
             domain, path, qs, urllib.parse.quote(enc, safe=""))
 
-    def _get(self, domain, path, body):
-        url = self._url(domain, path, body)
+    def _get(self, domain, path, body, no_params=False):
+        url = self._url(domain, path, body, no_params=no_params)
         status, payload = self.http_get(url, timeout=30)
         return self._unwrap(status, payload, "GET %s" % path)
 
     def _post(self, domain, path, body):
         url = "%s%s?%s" % (domain, path, urllib.parse.urlencode(
             protocol.common_params()))
-        raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-        form = "params=" + urllib.parse.quote(self._aes(raw), safe="")
+        form = "params=" + urllib.parse.quote(
+            self._aes(self._encode_body(body)), safe="")
         if self.http_post is None:
             raise RuntimeError("svc: POST transport missing for %s"
                                % path)
         status, payload = self.http_post(url, form, timeout=30)
         return self._unwrap(status, payload, "POST %s" % path)
 
-    def dispatch(self, action, params):
+    def _post_query(self, domain, path, body):
+        """POST nhung params nam trong QUERY URL, khong co form
+        body (update_auto_delete_chat 12023 — bundle _post(i, null,
+        null, 12023))."""
+        url = self._url(domain, path, body)
+        if self.http_post is None:
+            raise RuntimeError("svc: POST transport missing for %s"
+                               % path)
+        status, payload = self.http_post(url, "", timeout=30)
+        return self._unwrap(status, payload, "POST %s" % path)
+
+    def _post_multipart(self, domain, path, body, filename, mime,
+                        data):
+        """POST multipart fileContent (doi avatar): params AES o
+        query, file o FormData — giong chat.send_file."""
+        if self.http_post_multipart is None:
+            raise RuntimeError(
+                "svc: multipart transport missing for %s" % path)
+        url = self._url(domain, path, body)
+        payload_bytes, ctype = build_multipart(
+            {}, [("fileContent", filename, mime, data)])
+        status, payload = self.http_post_multipart(
+            url, payload_bytes, ctype, timeout=60)
+        return self._unwrap(status, payload, "POST %s" % path)
+
+    # -- cac op can nhieu buoc ---------------------------------------
+    def _set_pinned(self, params, tid, ttype):
+        """set_pinned_conversation: doc GET /api/pinconvers/list
+        lay version + danh sach hien tai (id co prefix 'u'/'g'),
+        tinh danh sach moi, cat vao params de body_fn gui POST
+        update. Loi 212 = server chua co danh sach ghim -> bat dau
+        tu rong, version 0 (theo PinDataManager trong bundle)."""
+        if params.get("pinned") is None:
+            raise ValueError("set_pinned_conversation: thiếu tham "
+                             "số bắt buộc pinned")
+        pinned = _bool_param(params, "pinned", True)
+        domain = self._domain_for("set_pinned_conversation",
+                                  "convers")
+        try:
+            data = self._get(domain, "/api/pinconvers/list",
+                             {"imei": self.device_id})
+        except ServiceError as e:
+            if e.code == 212:
+                data = {"version": 0, "conversations": []}
+            else:
+                raise
+        version, convs = 0, []
+        if isinstance(data, dict):
+            version = data.get("version") or 0
+            convs = data.get("conversations") or []
+        elif isinstance(data, list):
+            convs = data
+        try:
+            version = int(version)
+        except (TypeError, ValueError):
+            version = 0
+        mine = ("g" if ttype == "group" else "u") + tid
+        new_list = [c for c in convs if c != "m1"]
+        if pinned:
+            if mine not in new_list:
+                new_list.append(mine)
+        else:
+            new_list = [c for c in new_list if c != mine]
+        params["_pin_version"] = version
+        params["_pin_conversations"] = new_list
+
+    def _forward_message(self, params):
+        """forward_message: khung {toId|grid, imei} da xac minh;
+        transform theo loai tin CHUA lan nen chi gui khung. Chuyen
+        toi tung dich mot (endpoint don 11199/11818); multi
+        12440/12442 chua lan duoc path."""
+        dests = _csv(_need(params, "dest_thread_ids",
+                           "forward_message"))
+        dtype = (params.get("type") or "user").lower()
+        if dtype not in ("user", "group"):
+            raise ValueError(
+                "forward_message: type phải là user hoặc group")
+        domain_key, path, _code = _resolve(
+            "forward_message", OPS["forward_message"], dtype)
+        domain = self._domain_for("forward_message", domain_key)
+        results = []
+        for dest in dests:
+            if dtype == "group":
+                body = {"grid": dest, "imei": self.device_id}
+            else:
+                body = {"toId": dest, "imei": self.device_id}
+            results.append(self._post(domain, path, body))
+        return {"results": results}
+
+    def dispatch(self, action, params, files=None):
         """Chạy một op: trả về data đã giải mã từ envelope hai lớp.
         Raises: UnknownAction, UnsupportedService, ValueError
-        (thiếu tham số), RuntimeError (lỗi mạng/server Zalo)."""
+        (thiếu tham số), RuntimeError (lỗi mạng/server Zalo).
+        files: {"file": (filename, mime, bytes)} cho cac op upload
+        (multipart) — lay tu HTTP multipart hoac truyen truc tiep
+        o test."""
         spec = OPS.get(action)
         if spec is None:
             entry = next((e for e in CATALOG["services"]
@@ -1160,6 +2083,10 @@ class Services:
             raise UnknownAction("svc: không có thao tác %s" % action)
         params = dict(params or {})
         params["_imei"] = self.device_id
+        if files and "file" in files:
+            params["_file"] = files["file"]
+        if action == "forward_message":
+            return self._forward_message(params)
         thread_needed = spec["thread"]
         if thread_needed == "none":
             tid, ttype = "", "user"
@@ -1174,6 +2101,8 @@ class Services:
                 raise UnsupportedService(
                     action, "unsupported",
                     "Thao tác này chỉ áp dụng cho hội thoại 1-1.")
+        if action == "set_pinned_conversation":
+            self._set_pinned(params, tid, ttype)
         body = spec["body_fn"](params, tid, ttype)
         domain_key, path, _code = _resolve(action, spec, ttype)
         if path is None:
@@ -1181,13 +2110,23 @@ class Services:
                 action, "unsupported",
                 "Thao tác này chưa có endpoint cho nhóm — cần lần "
                 "thêm, không bịa path.")
-        domain = _DOMAINS[domain_key]()
-        if spec["method"] == "GET":
-            return self._get(domain, path, body)
-        return self._post(domain, path, body)
+        domain = self._domain_for(action, domain_key)
+        method = spec["method"]
+        if method == "GET":
+            return self._get(domain, path, body,
+                             no_params=spec.get("no_params", False))
+        if method == "POST":
+            return self._post(domain, path, body)
+        if method == "POST_QUERY":
+            return self._post_query(domain, path, body)
+        if method == "POST_MULTIPART":
+            filename, mime, data = params["_file"]
+            return self._post_multipart(domain, path, body, filename,
+                                        mime, data)
+        raise RuntimeError("svc: method lạ %s" % method)
 
 
-def handle_svc(state, action, body):
+def handle_svc(state, action, body, files=None):
     """Móc duy nhất từ server.py do_POST /api/svc/<action>.
     `state` là AppState (đã qua _require_login ở server).
     Trả (http_status, json_obj)."""
@@ -1195,9 +2134,13 @@ def handle_svc(state, action, body):
     sess = state.session
     transport = _server_mod.make_transport(sess["zpw_sek"])
     svc = Services(transport, transport.http_post,
-                   sess["device_id"], sess["zpw_enk"])
+                   sess["device_id"], sess["zpw_enk"],
+                   service_map=sess.get("service_map") or {},
+                   http_post_multipart=transport.http_post_multipart)
+    params = dict(body or {})
+    params["_uid"] = sess.get("uid", "")
     try:
-        data = svc.dispatch(action, body or {})
+        data = svc.dispatch(action, params, files=files)
     except UnknownAction as e:
         return 404, {"error": str(e)}
     except UnsupportedService as e:

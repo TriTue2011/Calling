@@ -11,9 +11,14 @@ requestcall (loi goi 114 do agent khac sua).
 
 Endpoint da dung (ma lenh trong ngoac):
   Gui text 1-1:  GET {chat-wpa}/api/message/sms (11151)
-                 body {message, clientId, imei, toid}
+                 body {message, clientId, imei, toid, ttl}
   Gui text nhom: GET {group-wpa}/api/group/sendmsg (11163)
-                 body {message, clientId, imei, visibility, grid}
+                 body {message, clientId, imei, visibility, grid, ttl}
+  clientId la JSON NUMBER epoch-ms tang don dieu (NMlV.next() —
+  xem protocol.new_client_id); ttl = ms tu xoa cua hoi thoai
+  (0 = khong tu xoa). Code cu gui clientId dang string + thieu
+  ttl — sai so voi client that, nghi pham so 1 cua loi 114
+  (SERVICE-MAP.md §3.1).
   Lich su nhom:  GET {group-wpa}/api/group/history (11240)
                  body {grid, count}
   Dinh kem file 1-1: POST multipart {files-wpa}/api/message/
@@ -49,7 +54,12 @@ KHONG CO endpoint HTTPS (dung bia — xem Bang 3):
     vua gui trong phien thi hien ngay nho ChatStore (bo nho RAM).
   - Nhan tin den: khong co endpoint polling; kenh sync/control
     chua lan het (diem mu lon nhat, can dot lan rieng / webhook O3).
-  - Gui reaction: khong thay endpoint gui trong bang lenh.
+  - Gui reaction: xem services.add_reaction (REACTION domain,
+    /api/message/reaction 12410 / /api/group/reaction 12411).
+  - Gui video: chi co buoc upload (12058-12062), buoc send sau
+    upload chua lan het — chua implement (SERVICE-MAP.md #75).
+  - Gui card user thuong: chua lan rieng (chi co bien the OA
+    forwardContactOA) — chua implement (SERVICE-MAP.md #71).
   - E2EE: hoi thoai 1-1 bat E2EE co nhanh e2eeExt rieng; code nay
     gui bang 11151 thuong — neu server tra loi thi UI hien loi,
     khong gia dinh gui duoc.
@@ -69,8 +79,6 @@ lame) o buoc sau; xem BAO-CAO-CHAT.md.
 """
 
 import json
-import random
-import string
 import time
 import urllib.parse
 import uuid
@@ -103,10 +111,10 @@ E2EE_NOTE = (
 
 
 def _new_client_id():
-    """clientId do client tu sinh (dung de map tin dang gui)."""
-    return "%d-%s" % (int(time.time() * 1000),
-                      "".join(random.choice(string.hexdigits.lower())
-                              for _ in range(6)))
+    """clientId do client tu sinh: JSON NUMBER epoch-ms tang don
+    dieu (NMlV.next() — xem protocol.new_client_id). Dung chung
+    mot generator cho moi lan gui trong phien, giong client that."""
+    return protocol.new_client_id()
 
 
 def _url_with_params(base, path, body, zpw_enk, extra_query=None):
@@ -276,13 +284,14 @@ class ChatStore:
 
 
 class Chat:
-    """Client chat PC: gui text/file/anh/voice, lich su nhom,
+    """Client chat PC: gui text/file/anh/voice/link, lich su nhom,
     typing/seen. Transport giong signaling/contacts: http_get
     callable (url, timeout) -> (status, json) + .http_post_multipart
-    (url, body_bytes, content_type, timeout) cho upload file."""
+    (url, body_bytes, content_type, timeout) cho upload file +
+    .http_post (url, form, timeout) cho POST form (send_link)."""
 
     def __init__(self, http_get, device_id, zpw_enk,
-                 http_post_multipart=None):
+                 http_post_multipart=None, http_post=None):
         self.http_get = http_get
         self.device_id = device_id
         self.zpw_enk = zpw_enk
@@ -290,6 +299,9 @@ class Chat:
             http_post_multipart = getattr(http_get,
                                           "http_post_multipart", None)
         self.http_post_multipart = http_post_multipart
+        if http_post is None:
+            http_post = getattr(http_get, "http_post", None)
+        self.http_post = http_post
 
     # -- co so -----------------------------------------------------------
     def _unwrap(self, status, payload, where):
@@ -312,6 +324,20 @@ class Chat:
                 "chat: %s can thieu multipart transport" % where)
         status, payload = self.http_post_multipart(
             url, body_bytes, content_type, timeout=60)
+        return self._unwrap(status, payload, where)
+
+    def _post_form(self, domain, path, body, where):
+        """POST form params=<AES JSON> (send_link): common params
+        o query, params o form body — giong Services._post."""
+        if self.http_post is None:
+            raise RuntimeError(
+                "chat: %s can thieu POST transport" % where)
+        url = "%s%s?%s" % (domain, path, urllib.parse.urlencode(
+            protocol.common_params()))
+        raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+        form = "params=" + urllib.parse.quote(
+            session_aes_encrypt(self.zpw_enk, raw), safe="")
+        status, payload = self.http_post(url, form, timeout=30)
         return self._unwrap(status, payload, where)
 
     # -- lich su ---------------------------------------------------------
@@ -347,26 +373,62 @@ class Chat:
 
     # -- gui text --------------------------------------------------------
     def send_text(self, thread_type, thread_id, message,
-                  visibility=0):
-        """11151 (1-1) / 11163 (nhom). Tra ve data giai ma + clientId
-        de UI map tin dang gui."""
+                  visibility=0, ttl=0):
+        """11151 (1-1) / 11163 (nhom). Body {message, clientId:
+        NUMBER, imei, toid|grid, visibility (nhom), ttl} — ttl =
+        ms tu xoa cua hoi thoai, 0 = khong tu xoa (SERVICE-MAP.md
+        §3.1). Tra ve data giai ma + clientId de UI map tin dang
+        gui."""
         if not message or not str(message).strip():
             raise ValueError("chat: message rong")
         client_id = _new_client_id()
         if thread_type == "group":
             body = {"message": message, "clientId": client_id,
                     "imei": self.device_id, "visibility": visibility,
-                    "grid": str(thread_id)}
+                    "grid": str(thread_id), "ttl": int(ttl)}
             url = _url_with_params(GROUP_DOMAIN, "/api/group/sendmsg",
                                    body, self.zpw_enk)
             data = self._get(url, "GET /api/group/sendmsg")
         else:
             body = {"message": message, "clientId": client_id,
-                    "imei": self.device_id, "toid": str(thread_id)}
+                    "imei": self.device_id, "toid": str(thread_id),
+                    "ttl": int(ttl)}
             url = _url_with_params(CHAT_DOMAIN, "/api/message/sms",
                                    body, self.zpw_enk)
             data = self._get(url, "GET /api/message/sms")
         return {"data": data, "client_id": client_id}
+
+    def send_link(self, thread_type, thread_id, href, message="",
+                  title="", desc="", thumb="", visibility=0, ttl=0):
+        """Gui link 1-1 POST /api/message/link (11286) / nhom POST
+        /api/group/sendlink (11193). Body: {msg, href, title, desc,
+        language, thumb (neu co), clientId NUMBER, toId|grid,
+        mentionInfo, imei (nhom)} + buildParams (ttl). Cac truong
+        src/type/media cua ham bundle chua lan duoc gia tri — KHONG
+        gui (SERVICE-MAP.md §3.2, #72). mentionInfo nhom: "[]" khi
+        khong co mention."""
+        if not href or not str(href).strip():
+            raise ValueError("chat: href rong")
+        client_id = _new_client_id()
+        body = {"msg": message or "", "href": href,
+                "title": title or "", "desc": desc or "",
+                "language": protocol.LANGUAGE,
+                "clientId": client_id, "ttl": int(ttl)}
+        if thumb:
+            body["thumb"] = thumb
+        if thread_type == "group":
+            body.update({"grid": str(thread_id), "mentionInfo": "[]",
+                         "visibility": visibility,
+                         "imei": self.device_id})
+            return {"data": self._post_form(
+                GROUP_DOMAIN, "/api/group/sendlink", body,
+                "POST /api/group/sendlink"),
+                "client_id": client_id}
+        body.update({"toId": str(thread_id), "mentionInfo": ""})
+        return {"data": self._post_form(
+            CHAT_DOMAIN, "/api/message/link", body,
+            "POST /api/message/link"),
+            "client_id": client_id}
 
     # -- gui file / anh / voice ------------------------------------------
     def send_file(self, thread_type, thread_id, filename, data,

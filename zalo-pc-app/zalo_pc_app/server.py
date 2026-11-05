@@ -967,9 +967,11 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_thread_post(self, path):
         """-- CHAT HOOK (module chat.py; diem moc duy nhat o do_POST) --
         POST /api/thread/<id>/send | sendfile | sendvoice | typing
-        | seen. Tat ca can _require_login (phien Zalo); dang nhap app chua co trong ban copy — xem ghi
+        | seen | sendlink. Tat ca can _require_login (phien Zalo);
+        dang nhap app chua co trong ban copy — xem ghi
         chu o route history tren. sendfile/sendvoice la multipart
-        (doc raw, khong doc JSON nhu cac POST khac)."""
+        (doc raw, khong doc JSON nhu cac POST khac). sendlink gui
+        link (11286/11193) qua chat.send_link."""
         import urllib.parse as _up
         segs = [s for s in path.split("/") if s]
         # segs = ["api", "thread", <id>, <action>]
@@ -982,7 +984,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"error": "chua_dang_nhap"},
                                    status=401)
         thread_type = None
-        if action in ("send", "typing", "seen"):
+        if action in ("send", "typing", "seen", "sendlink"):
             body = self._read_json()
             thread_type = body.get("type") or "user"
         elif action in ("sendfile", "sendvoice"):
@@ -1003,9 +1005,37 @@ class Handler(BaseHTTPRequestHandler):
                 if not message:
                     return self._send_json({"error": "message rong"},
                                            status=400)
-                res = chat.send_text(thread_type, thread_id, message)
+                try:
+                    ttl = int(body.get("ttl") or 0)
+                except (TypeError, ValueError):
+                    ttl = 0
+                res = chat.send_text(thread_type, thread_id, message,
+                                     ttl=ttl)
                 local = STATE.chat_store.local_message(
                     thread_type, thread_id, "text", text=message,
+                    client_id=res["client_id"])
+                STATE.chat_store.record_sent(thread_type, thread_id,
+                                             local)
+                return self._send_json({"ok": True, "data": res["data"],
+                                        "message": local})
+            if action == "sendlink":
+                link = (body.get("link") or "").strip()
+                if not link:
+                    return self._send_json({"error": "link rong"},
+                                           status=400)
+                try:
+                    ttl = int(body.get("ttl") or 0)
+                except (TypeError, ValueError):
+                    ttl = 0
+                res = chat.send_link(
+                    thread_type, thread_id, link,
+                    message=body.get("message") or "",
+                    title=body.get("title") or "",
+                    desc=body.get("desc") or "",
+                    thumb=body.get("thumbnail") or "", ttl=ttl)
+                local = STATE.chat_store.local_message(
+                    thread_type, thread_id, "text",
+                    text=body.get("message") or link,
                     client_id=res["client_id"])
                 STATE.chat_store.record_sent(thread_type, thread_id,
                                              local)
@@ -1076,7 +1106,13 @@ class Handler(BaseHTTPRequestHandler):
         # (multipart thi doc raw, khong doc JSON truoc).
         if path.startswith("/api/thread/"):
             return self._handle_thread_post(path)
-        body = self._read_json()
+        # /api/svc/* multipart (doi avatar): doc raw o _api_post,
+        # khong doc JSON truoc (giong /api/thread/*).
+        if path.startswith("/api/svc/") and "multipart/form-data" in (
+                self.headers.get("Content-Type") or ""):
+            body = {}
+        else:
+            body = self._read_json()
         if path == "/api/app/login":
             # Public. One generic failure for a wrong user OR a wrong
             # password — never say which one exists.
@@ -1137,7 +1173,18 @@ class Handler(BaseHTTPRequestHandler):
             if not action or "/" in action:
                 return self._send_json({"error": "not_found"},
                                        status=404)
-            status, obj = services_mod.handle_svc(STATE, action, body)
+            # Doi avatar (change_group_avatar / change_account_
+            # avatar): multipart field "file" — doc raw o day vi
+            # do_POST chua doc body (xem ghi chu o do_POST).
+            files = None
+            if "multipart/form-data" in (
+                    self.headers.get("Content-Type") or ""):
+                raw = self._read_raw()
+                fields, files = chat_mod.parse_multipart(
+                    raw, self.headers.get("Content-Type") or "")
+                body = fields
+            status, obj = services_mod.handle_svc(
+                STATE, action, body, files=files)
             return self._send_json(obj, status=status)
         if path == "/api/logout":
             # Dang xuat: xoa ca phien Zalo (cu) LAN phien app (moi)
