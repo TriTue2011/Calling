@@ -107,10 +107,14 @@ def test_server_e2e():
         assert body["ok"] is True, body
 
         # A group tap goes to the group endpoint (12433), addressed
-        # by the group threadId — not to the 1-1 requestcall.
+        # by the group threadId — not to the 1-1 requestcall — with
+        # partners = the members loaded with the contacts.
+        status, body = api("GET", "/api/contacts")
+        members = body["groups"]["rows"][0]["members"]
+        assert members == ["20001", "20002"], members
         status, body = api("POST", "/api/call/request",
                            {"callee_id": "30001", "call_id": "g9",
-                            "type": "group", "partners": []})
+                            "type": "group", "partners": members})
         assert body["ok"] is True, body
 
         status, body = api("POST", "/api/logout", {})

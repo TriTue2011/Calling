@@ -10,6 +10,17 @@ Common query params on every API call:
 Defaults for this build: apiVersion=695, apiType=30 (an INTEGER, not
 the string "embed" — see the note on API_TYPE below; the old
 "embed" value is why groups failed twice with 602, §7d in bao-cao.md).
+
+Group list (addon path, §7i in bao-cao.md): the addon (zca-js)
+lists groups in two steps — GET {group}/api/group/getlg/v4 (no
+body, no pagination) returns {version, gridVerMap: {groupId:
+version}}, then POST {group}/api/group/getmg-v2 with
+{gridVerMap: {groupId: 0}} returns {gridInfoMap} with the names,
+avatars and topMember lists. Both endpoints exist in the PC
+client's own command table too (codes 12027/12028). The old
+getlg/v3 list path was the PC client's list path, NOT the addon's;
+per the user's "lấy y nguyên" direction the app now follows the
+addon path only — v3 is not kept as a fallback.
 """
 
 import json
@@ -53,7 +64,8 @@ CODE_GET_SERVER_INFO = 11323
 CODE_GET_LOGIN_INFO = 11134
 CODE_LOGOUT = 11135
 CODE_GET_FRIENDS = 11137
-CODE_GET_GROUPS = 11161
+CODE_GET_GROUPS_V4 = 12027
+CODE_GET_INFO_MULTI_GROUP = 12028
 CODE_SETTING_ME = 12113
 
 # Voicecall path -> code (internal signal code = code - 10900-ish mapping
@@ -213,10 +225,11 @@ def vc_requestcall_group(group_id, call_id, type_request=0, data=None,
     to /api/voicecall/group/requestcall. NOTE: no imei field (unlike
     the 1-1 requestcall). groupId is the RAW group id = the threadId
     of the group thread (addon/zca-js ThreadType Group=1). `partners`
-    is the member userIds to ring; the client passes the group's
-    members — this build sends [] when the members are not loaded
-    yet (fetching members via getgi/v2 is the follow-up if the
-    server rejects an empty partners list)."""
+    is the member userIds to ring; it comes from the group's
+    topMember list, loaded via getmg-v2 when the contacts were
+    fetched (see contacts.groups). topMember may be partial
+    (hasMoreMember) — the full member list via getgi/v2 is the
+    follow-up if a large group's call misses members."""
     return {"groupId": group_id, "callId": call_id,
             "typeRequest": type_request, "data": data,
             "partners": partners if partners is not None else []}
@@ -284,18 +297,38 @@ def friends_params(device_id):
             "avatar_size": AVATAR_SIZE, "actiontime": 0, "imei": device_id}
 
 
-def groups_params(page=1, count=100, device_id=""):
-    """Body of getlg/v3, exactly as the real PC client sends it.
+# ---------------------------------------------------------------- groups (addon path)
+# zca-js getAllGroups: GET {group_poll}/api/group/getlg/v4 — no
+# body, no pagination, just the common params. The PC command table
+# maps code 12027 to the same path (domainType GROUP).
+GROUPS_V4_PATH = "/api/group/getlg/v4"
+# zca-js getGroupInfo / PC getInfoMultiGroup (code 12028): POST
+# {group}/api/group/getmg-v2, form body params=<AES JSON> with
+# {gridVerMap: "<JSON string of {groupId: 0}>"} — the map value is a
+# JSON STRING, not a nested object (both clients do
+# gridVerMap: JSON.stringify(map)).
+GROUP_INFO_MULTI_PATH = "/api/group/getmg-v2"
 
-    Bundle getGroupListV3(page, count=100): {page, count,
-    avatar_size:160, member_avatar_size:160, imei} to
-    /api/group/getlg/v3 (command table: 11161 -> getlg/v3). Every live
-    caller (_fetchAllGroups, the fetch-by-page helper,
-    callFetchGroupListByPage) uses V3, paginated. The plain
-    getGroupList() v1 (/api/group/getlg, {avatar_size,
-    member_avatar_size}, no imei) has no live caller for the main
-    list, and the real server rejects it with 602 — that was the
-    remaining groups bug after 8397d18 (friends passed, groups 602).
-    """
-    return {"page": page, "count": count, "avatar_size": AVATAR_SIZE,
-            "member_avatar_size": AVATAR_SIZE, "imei": device_id}
+
+def groups_v4_url():
+    """GET url for getlg/v4: common params only, no params value."""
+    return build_url(GROUP_DOMAIN, GROUPS_V4_PATH, common_params())
+
+
+def group_info_multi_params(grid_ver_map):
+    return {"gridVerMap": json.dumps(grid_ver_map,
+                                     separators=(",", ":"))}
+
+
+def group_info_multi_url():
+    """POST url for getmg-v2: common params only; the encrypted
+    params go in the form body (see group_info_multi_form)."""
+    return build_url(GROUP_DOMAIN, GROUP_INFO_MULTI_PATH, common_params())
+
+
+def group_info_multi_form(body, session_aes):
+    """Form body for getmg-v2: params=<AES JSON>, fully percent-
+    encoded (encodeURIComponent parity, same as voicecall_params)."""
+    raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+    enc = session_aes(raw)
+    return "params=" + urllib.parse.quote(enc, safe="")

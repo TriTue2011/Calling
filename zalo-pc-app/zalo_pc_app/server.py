@@ -53,14 +53,28 @@ COOKIE_NAME = os.environ.get("ZALO_PC_COOKIE_NAME", "zpw_sek")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 
-def make_transport(cookie_value=""):
-    """http_get(url, timeout) -> (status, json_dict)."""
+class _Transport:
+    """HTTP transport for one session: callable as http_get(url,
+    timeout) (the shape qr_login/signaling/contacts expect) plus an
+    http_post(url, form, timeout) for the getmg-v2 POST (form body
+    params=<AES JSON>, Content-Type application/x-www-form-urlencoded).
+    Both carry the zpw_sek cookie when one was supplied."""
 
-    def http_get(url, timeout=30):
-        req = urllib.request.Request(url, method="GET")
+    def __init__(self, cookie_value=""):
+        self.cookie_value = cookie_value
+
+    def __call__(self, url, timeout=30):
+        return self.http_get(url, timeout=timeout)
+
+    def _request(self, url, method, data, timeout):
+        req = urllib.request.Request(url, method=method, data=data)
         req.add_header("User-Agent", "zalo-pc-qr/1.0")
-        if cookie_value:
-            req.add_header("Cookie", "%s=%s" % (COOKIE_NAME, cookie_value))
+        if method == "POST":
+            req.add_header("Content-Type",
+                           "application/x-www-form-urlencoded")
+        if self.cookie_value:
+            req.add_header("Cookie", "%s=%s" % (COOKIE_NAME,
+                                                self.cookie_value))
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.status, json.loads(resp.read().decode("utf-8"))
@@ -71,9 +85,19 @@ def make_transport(cookie_value=""):
                 body = {}
             return e.code, body
         except (TimeoutError, socket.timeout):
-            raise TimeoutError("GET timeout: %s" % url)
+            raise TimeoutError("%s timeout: %s" % (method, url))
 
-    return http_get
+    def http_get(self, url, timeout=30):
+        return self._request(url, "GET", None, timeout)
+
+    def http_post(self, url, form, timeout=30):
+        return self._request(url, "POST", form.encode("utf-8"), timeout)
+
+
+def make_transport(cookie_value=""):
+    """http_get(url, timeout) -> (status, json_dict), callable, with
+    .http_post(url, form, timeout) attached (see _Transport)."""
+    return _Transport(cookie_value)
 
 
 class AppState:
@@ -300,7 +324,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 transport = make_transport(sess["zpw_sek"])
                 book = contacts_mod.Contacts(transport, sess["device_id"],
-                                             sess["zpw_enk"])
+                                             sess["zpw_enk"],
+                                             transport.http_post)
                 # Friends first, then groups — and name the failing
                 # endpoint in the error (the old code lumped both into
                 # one message, so a 602 could not be attributed).

@@ -794,12 +794,79 @@ callId, typeRequest, data, partners)`. Đã sửa: `protocol.py`
 gửi `type` theo tab đang mở + `partners: []`). Hàng trong danh bạ
 giờ đúng nghĩa là một thread: id của hàng = threadId (userId hoặc
 groupId thô), tab quyết định endpoint.
-- Giới hạn còn lại (nói rõ, chưa sửa trong lần này): `partners`
-  (danh sách userId thành viên cần đổ chuông) hiện gửi `[]` vì app
-  chưa tải thành viên nhóm. Nếu server từ chối partners rỗng, bước
-  tiếp theo là tải thành viên qua getgi/v2 rồi điền vào — lần gọi
-  nhóm thật đầu tiên sẽ cho biết (lỗi trả về nêu rõ). Giai đoạn 2
+- `partners` ĐÃ CÓ (xong ở 7i): danh sách member userIds lấy từ
+  topMember của getmg-v2 khi tải danh bạ; app.js gửi `peer.members`
+  khi bấm gọi nhóm. Giới hạn còn lại: topMember có thể chỉ là một
+  phần thành viên (hasMoreMember) — nếu nhóm lớn và server cần đủ
+  members, bước tiếp theo là tải đủ qua getgi/v2. Giai đoạn 2
   (tiếng + nhận cuộc gọi đến) vẫn chưa làm.
+
+### 7i. Danh sách nhóm chuyển sang đường addon (v4 + getGroupInfo)
+
+**Quyết định (theo chỉ đạo 17:05 «lấy y nguyên» + kết quả đọc repo
+17:10):** danh sách nhóm của app PC đi ĐÚNG đường addon, không giữ
+v3 nữa. V3 là đường list của client PC thật, không phải của addon —
+và giữ cả hai cách mà không biết cái nào đúng là điều user dặn
+không làm. Đường mới (một đường duy nhất):
+
+1. `GET {group}/api/group/getlg/v4` (code 12027, không body, không
+   phân trang, chỉ common params zpw_ver=695/zpw_type=30) →
+   `{version, gridVerMap: {groupId: version}}` — tập nhóm.
+2. `POST {group}/api/group/getmg-v2` (code 12028, form body
+   `params=<AES {gridVerMap: "{groupId: 0}"}>` — giá trị gridVerMap
+   là CHUỖI JSON, không phải object lồng) →
+   `{removedsGroup, unchangedsGroup, gridInfoMap: {groupId:
+   {groupId, name, avt, fullAvt, creatorId, topMember: [{id, ...}],
+   totalMember, type, ...}}}` — tên/avatar/thành viên. Không gọi
+   getmg-v2 khi map rỗng (tài khoản không có nhóm → 0 hàng, không
+   lỗi).
+
+**Bằng chứng (3 nguồn độc lập, khớp nhau):**
+- zca-js (addon): `getAllGroups` → GET `{group_poll}/api/group/
+  getlg/v4`, trả `{version, gridVerMap}`; `getGroupInfo` → POST
+  `{group}/api/group/getmg-v2` với `{gridVerMap:
+  JSON.stringify(map)}`, trả `{removedsGroup, unchangedsGroup,
+  gridInfoMap}` (xem `~/workspace/zalo-addon-doc/bao-cao-addon-96-
+  services.md` §3 — đọc repo zalo_bot, 96 services đã xác minh).
+- PC bundle: command table map `12027 → /api/group/getlg/v4`,
+  `12028 → /api/group/getmg-v2`; `getInfoMultiGroup` POST đúng dạng
+  trên; `_preFormatData` map `name → displayName, avt → avatar,
+  fullAvt → bgavatar`, `topMember` mặc định `[]`; `fetchGroupsByIdsV2`
+  tiêu thụ map `{groupId: info}`.
+- Máy chủ zalobot (`api/zalo/zalo.js:1216`): `gInfo?.gridInfoMap`
+  rồi `gmap[String(groupId)]` lấy `name` — gridInfoMap key theo
+  groupId THÔ.
+
+**Đã sửa:** `protocol.py` (bỏ `groups_params` v3; thêm
+`groups_v4_url`, `group_info_multi_params/url/form`, code 12027/
+12028); `contacts.py` (`groups()` 2 bước; `_group_row` từ
+gridInfoMap kèm `members` = topMember ids; `_post` cho getmg-v2;
+`describe_shape` biết `gridVerMap`/`gridInfoMap`); `server.py`
+(transport thêm `http_post`, Contacts nhận đủ cả hai);
+`mock_server.py` (thêm `do_POST`; phục vụ v4 + getmg-v2 đúng dạng
+thật; BỎ route v1/v3); `app.js` (`startCall` gửi
+`partners: peer.members || []`). Số đếm nhóm giờ theo đúng nguồn
+của addon: số key trong `gridVerMap` = số addon hiện — khớp theo
+cấu trúc, không còn hai nguồn số liệu lệch nhau.
+- Log chẩn đoán giờ có 3 dòng (ví dụ thật từ test):
+```text
+[contacts-shape] friends raw=list len=3 first_item_keys=['avatar', 'displayName', 'userId'] rows=3
+[contacts-shape] groups v4 raw=dict keys=['gridVerMap', 'version'] gridVerMap len=2 rows=2
+[contacts-shape] groups info raw=dict keys=['gridInfoMap', 'removedsGroup', 'unchangedsGroup'] gridInfoMap len=2 first_item_keys=['avt', 'creatorId', 'fullAvt', 'groupId', 'name', 'topMember', 'totalMember', 'type'] rows=2
+```
+**Test mới/cập nhật:** `test_friends_groups_contract` (đúng 1 v4
+GET + 1 getmg-v2 POST, không v3; members đúng topMember),
+`test_group_row_from_info`, `test_group_info_wrong_body_rejected`
+(thiếu gridVerMap, hoặc gửi dạng object thay vì chuỗi JSON),
+`test_groups_v4_zpwtype_embed_rejected`; `test_empty_account`
+(v4 rỗng → KHÔNG gọi getmg-v2); `test_shape_log_printed` (3 dòng
+mới). Toàn bộ suite xanh 6/6 (xem mục 7).
+- **Kiểm chứng cuối (cập nhật 7g):** sau redeploy, tab Nhóm phải
+  hiện đúng số addon hiện cho tài khoản phụ (số chuẩn đang chờ
+  user trả lời; chắc chắn lớn hơn 0). Vì số đếm giờ lấy từ đúng
+  nguồn của addon, nếu vẫn lệch thì 2 dòng log `groups v4` +
+  `groups info` sẽ cho biết server trả gì (số key trong gridVerMap
+  và gridInfoMap) — gửi lại 2 dòng đó là đủ, không cần tên hay id.
 
 **Test mới:** `test_group_call_uses_group_endpoint` (nhóm đi đúng
 `group/requestcall` với `groupId`, không có `imei`; 1-1 vẫn đi

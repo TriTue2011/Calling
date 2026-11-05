@@ -45,7 +45,8 @@ nguyên dòng gửi lại khi cần chẩn đoán:
 
 ```text
 [contacts-shape] friends raw=list len=3 first_item_keys=['avatar', 'displayName', 'userId'] rows=3
-[contacts-shape] groups page=1 raw=dict keys=['groups', 'hasMore', 'total'] groups len=2 first_item_keys=['avt', 'creatorId', 'fullAvt', 'groupId', 'name'] total=2 hasMore=False rows=2
+[contacts-shape] groups v4 raw=dict keys=['gridVerMap', 'version'] gridVerMap len=2 rows=2
+[contacts-shape] groups info raw=dict keys=['gridInfoMap', 'removedsGroup', 'unchangedsGroup'] gridInfoMap len=2 first_item_keys=['avt', 'creatorId', 'fullAvt', 'groupId', 'name', 'topMember', 'totalMember', 'type'] rows=2
 ```
 
 Nếu số `rows=` khác số trên tab (hoặc khác số trên app Zalo điện

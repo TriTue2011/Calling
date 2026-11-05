@@ -16,22 +16,14 @@ sys.path.insert(0, os.path.dirname(__file__))
 from mock_server import MockZalo, TEST_PARAM_KEY, TEST_SESSION_KEY  # noqa: E402
 from zalo_pc_app import contacts as contacts_mod  # noqa: E402
 from zalo_pc_app import protocol, qr_login, signaling  # noqa: E402
+from zalo_pc_app import server as app_server  # noqa: E402
 
 
 def make_transport(cookie=""):
-    def http_get(url, timeout=30):
-        req = urllib.request.Request(url, method="GET")
-        if cookie:
-            req.add_header("Cookie", "zpw_sek=" + cookie)
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return resp.status, json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            try:
-                return e.code, json.loads(e.read().decode("utf-8"))
-            except Exception:
-                return e.code, {}
-    return http_get
+    # The real server.make_transport: callable http_get + .http_post
+    # (getmg-v2 is a POST). Reuse it so the test exercises the same
+    # shape the app runs with.
+    return app_server.make_transport(cookie)
 
 
 def patch_domains(mock):
@@ -60,7 +52,8 @@ def test_full_flow_encrypted():
         data = sig.request_call("20001", "call-1", None, 0)
         assert data["body"]["calleeId"] == "20001", data
         assert data["body"]["codec"] == "[]", data
-        book = contacts_mod.Contacts(t2, "dev-1", TEST_SESSION_KEY)
+        book = contacts_mod.Contacts(t2, "dev-1", TEST_SESSION_KEY,
+                                     t2.http_post)
         # First friends load sends init=1 (real client _isFirstReq()).
         friends = book.friends(init=True)
         # Real shape: bare array; "Ban B" has only zaloName, "Ban C"
@@ -76,6 +69,9 @@ def test_full_flow_encrypted():
         # Raw group items: id is the raw groupId, avatar comes from avt.
         assert groups["rows"][0]["id"] == "30001"
         assert groups["rows"][0]["avatar"] == "avt-x"
+        # Members come from the getmg-v2 topMember list.
+        assert groups["rows"][0]["members"] == ["20001", "20002"]
+        assert groups["rows"][1]["members"] == ["20001"]
     finally:
         mock.stop()
 
@@ -92,10 +88,13 @@ def test_group_call_uses_group_endpoint():
         patch_domains(mock)
         t2 = make_transport("sek-test")
         sig = signaling.Signaling(t2, "dev-1", TEST_SESSION_KEY)
-        data = sig.request_call_group("30001", "call-g1", 0, None, [])
+        # partners are the group's members, loaded via getmg-v2
+        # topMember (addon path) — not [].
+        data = sig.request_call_group("30001", "call-g1", 0, None,
+                                      ["20001", "20002"])
         assert data["body"]["groupId"] == "30001", data
         assert data["body"]["callId"] == "call-g1", data
-        assert data["body"]["partners"] == [], data
+        assert data["body"]["partners"] == ["20001", "20002"], data
         assert "imei" not in data["body"], data  # bundle: no imei
         gpaths = [p for p, _, _ in mock.seen
                   if p == "/api/voicecall/group/requestcall"]
