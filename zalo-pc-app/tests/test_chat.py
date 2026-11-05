@@ -181,11 +181,13 @@ def test_send_file_photo_voice():
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
         res = chat.send_photo("user", "20001", "anh.jpg",
-                              b"FAKEJPEGDATA", "image/jpeg", 800, 600)
+                              b"\xff\xd8\xff\xe0FAKEJPEGDATA", "image/jpeg",
+                              800, 600)
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
         res = chat.send_photo("group", "30001", "anh.png",
-                              b"FAKEPNGDATA", "image/png", 640, 480)
+                              b"\x89PNG\r\n\x1a\nFAKEPNGDATA", "image/png",
+                              640, 480)
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
         res = chat.send_voice("user", "20001", "voice.mp3",
@@ -381,7 +383,8 @@ def test_server_thread_routes():
         mbody, mctype = chat_mod.build_multipart(
             {"type": "group", "kind": "photo", "width": "800",
              "height": "600"},
-            [("file", "anh.jpg", "image/jpeg", b"FAKEJPEGDATA")])
+            [("file", "anh.jpg", "image/jpeg",
+              b"\xff\xd8\xff\xe0FAKEJPEGDATA")])
         status, body = api("POST", "/api/thread/30001/sendfile",
                            mbody, {"Content-Type": mctype})
         assert status == 200 and body["ok"] is True, body
@@ -416,6 +419,241 @@ def test_server_thread_routes():
         assert body["ok"] is True
         status, body = api("GET", "/api/thread/30001/history?type=group")
         assert status == 401, body
+        httpd.shutdown()
+    finally:
+        mock.stop()
+
+
+def test_attach_validation():
+    """Dinh kem theo Node.js (zalobot): chi jpg/jpeg/png/webp la anh
+    (EXT_ALBUM); gif/heic/bmp/... la tep; file rong bi tu choi
+    truoc khi goi Zalo; anh phai dung la anh (magic bytes)."""
+    assert chat_mod.MAX_FILE_BYTES == 150 * 1024 * 1024
+    assert chat_mod.MAX_PHOTO_BYTES == 25 * 1024 * 1024
+    # Phan loai anh: duoi ten quyet dinh (Zalo phan loai bang duoi).
+    for name in ("a.jpg", "A.JPG", "a.jpeg", "a.png", "a.webp"):
+        assert chat_mod.is_photo_file(name, ""), name
+    for name, mime in (("a.gif", "image/gif"), ("a.bmp", "image/bmp"),
+                       ("a.heic", "image/heic"), ("a.svg", "image/svg+xml"),
+                       ("a.m3u", ""), ("a.txt", "text/plain"),
+                       ("a.mp4", "video/mp4"), ("khong-duoi", "")):
+        assert not chat_mod.is_photo_file(name, mime), (name, mime)
+    # Khong co duoi thi xet MIME.
+    assert chat_mod.is_photo_file("anh", "image/png")
+    assert not chat_mod.is_photo_file("anh", "image/gif")
+    assert not chat_mod.is_photo_file("anh", "")
+    # effective_kind: photo chi giu khi dung la anh.
+    assert chat_mod.effective_kind("photo", "a.jpg", "") == "photo"
+    assert chat_mod.effective_kind("photo", "a.gif", "image/gif") == "file"
+    assert chat_mod.effective_kind("photo", "a.heic", "") == "file"
+    assert chat_mod.effective_kind("file", "a.jpg", "") == "file"
+    assert chat_mod.effective_kind("", "a.jpg", "") == "file"
+    # Magic bytes (giong duoiAnhThat cua Node.js).
+    assert chat_mod.detect_image_format(b"\xff\xd8\xff" + b"x" * 9) == "jpg"
+    assert chat_mod.detect_image_format(
+        b"\x89PNG\r\n\x1a\n" + b"x" * 4) == "png"
+    assert chat_mod.detect_image_format(b"GIF89a" + b"x" * 6) == "gif"
+    assert chat_mod.detect_image_format(
+        b"RIFFxxxxWEBP" + b"x" * 4) == "webp"
+    assert chat_mod.detect_image_format(b"BM" + b"x" * 10) == "bmp"
+    assert chat_mod.detect_image_format(b"NOTANIMAGE....") is None
+    assert chat_mod.detect_image_format(b"") is None
+    assert chat_mod.detect_image_format(b"\xff\xd8") is None
+    # validate_attachment: ten thieu / file rong / qua lon / anh gia.
+    for bad_args, want in (
+            (("file", "", "", b"x"), "thieu ten file"),
+            (("file", "a.m3u", "", b""), "rong (0 byte)"),
+            (("photo", "a.jpg", "image/jpeg", b""), "rong (0 byte)"),
+            (("photo", "a.jpg", "image/jpeg", b"NOTANIMAGE...."),
+             "khong phai anh that")):
+        try:
+            chat_mod.validate_attachment(*bad_args)
+            raise AssertionError("expected ValueError for %r" % (bad_args,))
+        except ValueError as e:
+            assert want in str(e), (want, str(e))
+    # Gioi han kich thuoc (doi hang so tam de khong can cap MB that).
+    old_file, old_photo = (chat_mod.MAX_FILE_BYTES,
+                          chat_mod.MAX_PHOTO_BYTES)
+    try:
+        chat_mod.MAX_FILE_BYTES = 10
+        chat_mod.MAX_PHOTO_BYTES = 10
+        try:
+            chat_mod.validate_attachment("file", "a.txt", "", b"x" * 11)
+            raise AssertionError("expected ValueError on oversize file")
+        except ValueError as e:
+            assert "qua lon" in str(e), str(e)
+        try:
+            chat_mod.validate_attachment(
+                "photo", "a.jpg", "image/jpeg",
+                b"\xff\xd8\xff" + b"x" * 8)
+            raise AssertionError("expected ValueError on oversize photo")
+        except ValueError as e:
+            assert "25 MB" in str(e), str(e)
+    finally:
+        chat_mod.MAX_FILE_BYTES = old_file
+        chat_mod.MAX_PHOTO_BYTES = old_photo
+    # Hop le: file thuong (ke ca .m3u cua user), anh jpg/png that.
+    chat_mod.validate_attachment("file", "iptv-udpxy.m3u", "", b"data")
+    chat_mod.validate_attachment("photo", "a.jpg", "image/jpeg",
+                                 b"\xff\xd8\xff" + b"x" * 20)
+    chat_mod.validate_attachment("photo", "a.png", "image/png",
+                                 b"\x89PNG\r\n\x1a\n" + b"x" * 20)
+    # send_file/send_photo tu choi file rong truoc khi goi mang.
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        chat = make_chat(mock)
+        try:
+            chat.send_file("user", "20001", "rong.txt", b"", "text/plain")
+            raise AssertionError("expected ValueError on empty send_file")
+        except ValueError as e:
+            assert "rong (0 byte)" in str(e), str(e)
+        assert not [p for p, _, _ in mock.seen if "sharefile" in p]
+    finally:
+        mock.stop()
+
+
+def test_server_sendfile_validation():
+    """Endpoint /api/thread/<id>/sendfile sau sua: file rong -> 400
+    (khong goi Zalo); gif/heic gui kind=photo -> ha xuong file (200,
+    sharefile_full, khong phai photo); anh that -> photo (200,
+    sendpt); anh gia -> 400; loi Zalo -> 502 voi loi ro rang."""
+    global BASE
+    mock = MockZalo().start()
+    tmp = tempfile.mkdtemp(prefix="zalo-pc-attach-test-")
+    try:
+        patch_domains(mock)
+        state = app_server.AppState(tmp)
+        app_server.STATE = state
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), app_server.Handler)
+        port = httpd.server_address[1]
+        BASE = "http://127.0.0.1:%d" % port
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        login_via_mock()
+
+        def sharefile_calls():
+            return [p for p, _, _ in mock.seen if "sharefile" in p]
+
+        def photo_calls():
+            return [p for p, _, _ in mock.seen
+                    if p in ("/api/message/photo", "/api/group/sendpt")]
+
+        # File rong (case live cua user: iptv-udpxy.m3u, 0 byte).
+        before = len(sharefile_calls())
+        mbody, mctype = chat_mod.build_multipart(
+            {"type": "user"},
+            [("file", "iptv-udpxy.m3u", "application/octet-stream", b"")])
+        status, body = api("POST", "/api/thread/20001/sendfile",
+                           mbody, {"Content-Type": mctype})
+        assert status == 400, body
+        assert "rong (0 byte)" in body["error"], body
+        assert len(sharefile_calls()) == before, mock.seen
+
+        # File .m3u khong rong: duoi khong bi chan, gui duoc.
+        mbody, mctype = chat_mod.build_multipart(
+            {"type": "user"},
+            [("file", "iptv-udpxy.m3u", "text/plain", b"#EXTM3U\n")])
+        status, body = api("POST", "/api/thread/20001/sendfile",
+                           mbody, {"Content-Type": mctype})
+        assert status == 200 and body["ok"] is True, body
+        assert body["message"]["kind"] == "file", body
+
+        # GIF gui kind=photo -> ha xuong tep dinh kem (200, kind=file).
+        gif = b"GIF89a" + b"\x01\x00\x01\x00\x00\x00\x00;"
+        mbody, mctype = chat_mod.build_multipart(
+            {"type": "user", "kind": "photo", "width": "1",
+             "height": "1"},
+            [("file", "a.gif", "image/gif", gif)])
+        status, body = api("POST", "/api/thread/20001/sendfile",
+                           mbody, {"Content-Type": mctype})
+        assert status == 200 and body["ok"] is True, body
+        assert body["message"]["kind"] == "file", body
+        assert len(sharefile_calls()) == before + 2, mock.seen
+        assert photo_calls() == [], mock.seen
+
+        # HEIC gui kind=photo -> cung ha xuong tep.
+        mbody, mctype = chat_mod.build_multipart(
+            {"type": "user", "kind": "photo", "width": "1",
+             "height": "1"},
+            [("file", "anh.heic", "image/heic", b"ftypheic" + b"x" * 8)])
+        status, body = api("POST", "/api/thread/20001/sendfile",
+                           mbody, {"Content-Type": mctype})
+        assert status == 200 and body["ok"] is True, body
+        assert body["message"]["kind"] == "file", body
+
+        # Anh PNG that, kind=photo -> duong photo (sendpt/sharefile
+        # deu khong dung; mock ghi /api/message/photo).
+        png = b"\x89PNG\r\n\x1a\n" + b"x" * 20
+        mbody, mctype = chat_mod.build_multipart(
+            {"type": "user", "kind": "photo", "width": "800",
+             "height": "600"},
+            [("file", "anh.png", "image/png", png)])
+        status, body = api("POST", "/api/thread/20001/sendfile",
+                           mbody, {"Content-Type": mctype})
+        assert status == 200 and body["ok"] is True, body
+        assert body["message"]["kind"] == "photo", body
+        assert photo_calls() == ["/api/message/photo"], mock.seen
+
+        # Anh "gia": duoi .jpg nhung noi dung khong phai anh -> 400.
+        before_photo = len(photo_calls())
+        mbody, mctype = chat_mod.build_multipart(
+            {"type": "user", "kind": "photo", "width": "800",
+             "height": "600"},
+            [("file", "gia.jpg", "image/jpeg", b"<html>not image</html>")])
+        status, body = api("POST", "/api/thread/20001/sendfile",
+                           mbody, {"Content-Type": mctype})
+        assert status == 400, body
+        assert "khong phai anh that" in body["error"], body
+        assert len(photo_calls()) == before_photo, mock.seen
+
+        # Thieu ten file -> 400.
+        mbody, mctype = chat_mod.build_multipart(
+            {"type": "user"},
+            [("file", "", "text/plain", b"x")])
+        status, body = api("POST", "/api/thread/20001/sendfile",
+                           mbody, {"Content-Type": mctype})
+        assert status == 400, body
+        assert "thieu ten file" in body["error"], body
+
+        # Anh qua lon (doi hang so tam): 400, khong goi Zalo.
+        old_photo = chat_mod.MAX_PHOTO_BYTES
+        try:
+            chat_mod.MAX_PHOTO_BYTES = 10
+            mbody, mctype = chat_mod.build_multipart(
+                {"type": "user", "kind": "photo", "width": "1",
+                 "height": "1"},
+                [("file", "lon.png", "image/png", png)])
+            status, body = api("POST", "/api/thread/20001/sendfile",
+                               mbody, {"Content-Type": mctype})
+            assert status == 400, body
+            assert "qua lon" in body["error"], body
+        finally:
+            chat_mod.MAX_PHOTO_BYTES = old_photo
+
+        # Loi Zalo (error_code != 0) -> 502 voi loi ro rang (UI hien).
+        real_make_transport = app_server.make_transport
+
+        class ErrTransport:
+            def __call__(self, url, timeout=30):
+                return 200, {"error_code": 0, "data": {}}
+
+            def http_post_multipart(self, url, body_bytes, content_type,
+                                    timeout=60):
+                return 200, {"error_code": 133,
+                             "error_message": "File rong hoac sai dinh "
+                             "dang", "data": {}}
+
+        app_server.make_transport = lambda cookie="": ErrTransport()
+        try:
+            mbody, mctype = chat_mod.build_multipart(
+                {"type": "user"},
+                [("file", "x.txt", "text/plain", b"xx")])
+            status, body = api("POST", "/api/thread/20001/sendfile",
+                               mbody, {"Content-Type": mctype})
+            assert status == 502, body
+            assert "133" in body["error"], body
+        finally:
+            app_server.make_transport = real_make_transport
         httpd.shutdown()
     finally:
         mock.stop()

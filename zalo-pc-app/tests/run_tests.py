@@ -20,7 +20,8 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
 # (§7m) — the UI fix cannot be covered by the Python suites.
 JS_CHECKS = [["node", "--check", "zalo_pc_app/static/app.js"],
              ["node", "tests/test_app_js_end.js"],
-             ["node", "tests/test_app_js_feedrow.js"]]
+             ["node", "tests/test_app_js_feedrow.js"],
+             ["node", "tests/test_app_js_attach.js"]]
 
 
 def main():

@@ -212,7 +212,11 @@ class MockZalo:
                 qs = {k: v[0] for k, v in
                       urllib.parse.parse_qs(parsed.query).items()}
                 length = int(self.headers.get("Content-Length") or 0)
-                raw = self.rfile.read(length).decode("utf-8") if length \
+                # latin-1: giai ma khong mat byte (anh that la binary —
+                # 0xFF 0xD8... — utf-8 se vo). Cac assert trong mock chi
+                # soi chuoi ASCII ('name="fileContent"', 'filename=')
+                # nen van dung.
+                raw = self.rfile.read(length).decode("latin-1") if length \
                     else ""
                 mock.seen.append((parsed.path, qs, dict(self.headers)))
                 mock.seen_post.append((parsed.path, qs))
@@ -426,7 +430,7 @@ class MockZalo:
         """Gui file/anh/voice (11146/11191/11148/11169/11152/11164):
         POST multipart, fileContent + query params=<AES {toid|grid,
         clientId}> & type=2 (1-1) / 11 (nhom). raw_body o day la
-        str (mock do_POST decode utf-8) — test chi gui file ASCII."""
+        str (mock do_POST decode latin-1 — anh that la binary)."""
         assert headers.get("Cookie"), "chat upload needs Cookie"
         assert qs.get("zpw_ver") == "695", qs
         assert qs.get("zpw_type") == "30", qs

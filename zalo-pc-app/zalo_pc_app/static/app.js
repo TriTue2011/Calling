@@ -994,31 +994,101 @@ renderMessages = function (messages) {
   _renderMessagesOrig(messages);
 };
 
-async function sendChatFile(file) {
-  if (!currentThread || !file) return;
-  const form = new FormData();
-  form.append("type", currentThread.type === "group" ? "group" : "user");
-  const isPhoto = (file.type || "").startsWith("image/");
-  form.append("kind", isPhoto ? "photo" : "file");
-  if (isPhoto) {
-    // Real photo send carries width/height (11152/11164 params).
-    const dims = await new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-      img.onerror = () => resolve({ w: 0, h: 0 });
-      img.src = URL.createObjectURL(file);
-    });
-    form.append("width", String(dims.w));
-    form.append("height", String(dims.h));
+// -- dinh kem file/anh: phan loai + gioi han theo Node.js (zalobot) --
+// Chi jpg/jpeg/png/webp moi gui duong anh (EXT_ALBUM cua
+// utils/sendImages.js); gif/heic/bmp/svg/... gui dang tep dinh kem
+// (zca-js xep ext la vao "others"). Zalo khong nhan file rong —
+// case live 23:00 +07 (iptv-udpxy.m3u, 0 byte) truoc day gui thang
+// 0 byte sang Zalo roi khong co phan hoi hien ra.
+const PHOTO_EXTS = ["jpg", "jpeg", "png", "webp"];
+const MAX_FILE_BYTES = 100 * 1024 * 1024; // gioi han server hien tai
+const MAX_PHOTO_BYTES = 25 * 1024 * 1024; // cap saveImage cua Node.js
+function attachExt(name) {
+  const n = String(name || "");
+  const i = n.lastIndexOf(".");
+  if (i < 0) return "";
+  return n.slice(i + 1).toLowerCase();
+}
+function isPhotoFile(file) {
+  const ext = attachExt(file.name);
+  if (ext) return PHOTO_EXTS.indexOf(ext) !== -1;
+  return ["image/jpeg", "image/png", "image/webp"].indexOf(
+    (file.type || "").toLowerCase()) !== -1;
+}
+function attachNotice(msg) {
+  const el = $("chat-notice");
+  el.hidden = false;
+  el.textContent = msg;
+}
+// Kiem tra truoc khi gui: tra ve loi tieng Viet cu the, "" neu dat.
+function attachCheck(file) {
+  if (!file) return "Chưa chọn file để gửi.";
+  if (!file.name) return "File không có tên — hãy chọn file khác.";
+  if (!file.size) {
+    return "File “" + file.name + "” rỗng (0 byte) — Zalo không nhận "
+      + "file rỗng, hãy chọn file khác.";
   }
-  form.append("file", file, file.name);
-  const r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendfile", form);
-  if (r.error) {
-    $("chat-notice").hidden = false;
-    $("chat-notice").textContent = "Lỗi gửi file: " + r.error;
+  if (isPhotoFile(file) && file.size > MAX_PHOTO_BYTES) {
+    return "Ảnh “" + file.name + "” quá lớn ("
+      + (file.size / 1048576).toFixed(1)
+      + " MB > 25 MB) — hãy nén nhỏ ảnh trước khi gửi.";
+  }
+  if (!isPhotoFile(file) && file.size > MAX_FILE_BYTES) {
+    return "File “" + file.name + "” quá lớn ("
+      + (file.size / 1048576).toFixed(1)
+      + " MB > 100 MB).";
+  }
+  return "";
+}
+
+async function sendChatFile(file) {
+  if (!currentThread) {
+    attachNotice("Chưa mở đoạn chat nào — hãy chọn một cuộc trò chuyện rồi gửi file.");
     return;
   }
-  if (r.message) renderMessages([...chatRenderedMessages(), r.message]);
+  const bad = attachCheck(file);
+  if (bad) { attachNotice(bad); return; }
+  const btn = $("btn-chat-attach");
+  btn.disabled = true;
+  attachNotice("Đang gửi file “" + file.name + "”…");
+  try {
+    const form = new FormData();
+    form.append("type", currentThread.type === "group" ? "group" : "user");
+    const isPhoto = isPhotoFile(file);
+    form.append("kind", isPhoto ? "photo" : "file");
+    if (isPhoto) {
+      // Real photo send carries width/height (11152/11164 params).
+      const dims = await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => resolve({ w: 0, h: 0 });
+        img.src = URL.createObjectURL(file);
+      });
+      form.append("width", String(dims.w));
+      form.append("height", String(dims.h));
+    }
+    form.append("file", file, file.name);
+    const r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendfile", form);
+    if (r && r.error) {
+      attachNotice("Lỗi gửi file: " + r.error);
+      return;
+    }
+    if (r && r.message) {
+      $("chat-notice").hidden = true;
+      renderMessages([...chatRenderedMessages(), r.message]);
+      return;
+    }
+    attachNotice("Máy chủ trả về không rõ kết quả gửi file — hãy mở lại đoạn chat để kiểm tra.");
+  } catch (e) {
+    // fetch bi tu choi (mat mang / server khong tra loi) hoac tra ve
+    // khong phai JSON: truoc day promise reject im lang (onchange
+    // khong catch), nguoi dung khong thay gi — gio luon hien loi
+    // cu the (loi live 23:00 +07).
+    attachNotice("Lỗi gửi file: " + (e && e.message ? e.message : e)
+      + " — hãy kiểm tra mạng rồi gửi lại.");
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // -- ghi am: MediaRecorder cua trinh duyet (khong phai ghi am native

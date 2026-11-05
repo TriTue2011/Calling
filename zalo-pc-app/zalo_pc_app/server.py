@@ -1309,21 +1309,42 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"error": "file qua lon (>100MB)"},
                                        status=400)
             if action == "sendfile":
-                kind = fields.get("kind") or "file"
-                if kind == "photo":
-                    try:
-                        width = int(fields.get("width") or 0)
-                        height = int(fields.get("height") or 0)
-                    except ValueError:
-                        width, height = 0, 0
-                    res = chat.send_photo(thread_type, thread_id,
-                                          filename, data_bytes, mime,
-                                          width, height)
-                    local_kind = "photo"
-                else:
-                    res = chat.send_file(thread_type, thread_id,
-                                         filename, data_bytes, mime)
-                    local_kind = "file"
+                # Phan loai lai theo luat Node.js (chi jpg/jpeg/png/
+                # webp moi la anh — gif/heic/bmp/... la tep dinh
+                # kem), roi kiem tra truoc khi goi Zalo: ten thieu /
+                # file rong / anh qua lon / anh khong that -> 400 voi
+                # loi ro rang thay vi day sang Zalo roi moi loi (hoac
+                # im). Gioi han file hieu luc o day la 100 MB (guard
+                # chung tren, cung bao ve sendvoice) — chat hon cap
+                # 150 MB cua sendFile Node.js, huong chat (an toan
+                # hon); gioi han that cua Zalo theo phien
+                # (max_size_share_file_v3) chua lan duoc.
+                kind = chat_mod.effective_kind(
+                    fields.get("kind") or "file", filename, mime)
+                try:
+                    chat_mod.validate_attachment(kind, filename, mime,
+                                                 data_bytes)
+                except ValueError as e:
+                    return self._send_json({"error": str(e)}, status=400)
+                try:
+                    if kind == "photo":
+                        try:
+                            width = int(fields.get("width") or 0)
+                            height = int(fields.get("height") or 0)
+                        except ValueError:
+                            width, height = 0, 0
+                        res = chat.send_photo(thread_type, thread_id,
+                                              filename, data_bytes, mime,
+                                              width, height)
+                        local_kind = "photo"
+                    else:
+                        res = chat.send_file(thread_type, thread_id,
+                                             filename, data_bytes, mime)
+                        local_kind = "file"
+                except ValueError as e:
+                    # Phong thu them (validate trong chat.send_*):
+                    # loi kiem tra van la 400, khong phai 502.
+                    return self._send_json({"error": str(e)}, status=400)
                 local = STATE.chat_store.local_message(
                     thread_type, thread_id, local_kind,
                     text=filename, file_name=filename,

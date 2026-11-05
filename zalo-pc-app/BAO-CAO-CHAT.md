@@ -136,3 +136,39 @@ Them: `node --check app.js` OK; smoke chay server that + mock: `/`,
   gui text nhom -> doi phuong nhan duoc; gui text 1-1 -> neu loi thi
   ghi ma loi (nghi E2EE hoac visibility); gui file/anh/voice -> kiem
   doi phuong mo duoc file khong (dac biet voice .webm).
+
+## 6. Sua dinh kem file/anh (bug 23:00 +07, doi chieu Node.js)
+
+- **Live:** user chon file `iptv-udpxy.m3u`, 0 byte — khong gui duoc,
+  khong co loi hien ra. Nguyen nhan goc (chung minh bang repro
+  `/tmp/repro_attach.py`, `/tmp/repro_attach_js.js`):
+  1. `sendChatFile` khong co try/catch, `onchange` khong catch —
+     fetch bi tu choi hoac tra ve khong phai JSON thi promise reject
+     im lang, notice khong hien gi. (Loi JSON tu server thi hien duoc.)
+  2. File rong (0 byte) duoc gui thang sang Zalo, khong kiem tra o
+     bat ky lop nao (UI, server, `chat.py`).
+  3. Moi `image/*` deu gui duong photo — gif/heic/bmp/... khong phai
+     anh theo Zalo (xem bang duoi).
+- **Doi chieu Node.js** (zalobot-embedded tu lich su git `34ed43b`,
+  zca-js 2.1.2; `utils/sendImages.js`, `utils/helpers.js`,
+  `api/zalo/zalo.js`, `API-MAP.md` §4.2–4.4): duong truyen VAN LA
+  phien PC (endpoint bundle exe), chi hanh vi / dinh dang / tham so
+  khop Node.js.
+
+| Muc | Node.js (zalobot/zca-js) | Native truoc sua | Native sau sua |
+|---|---|---|---|
+| File rong (0 byte) | Khong co pre-check; loi Zalo tra ve thanh 500 `{error}` | Gui thang 0 byte sang Zalo, khong kiem tra | Tu choi truoc: UI + server 400 «file … rong (0 byte) — Zalo khong nhan file rong» |
+| Loai anh duoc gui duong photo | Chi jpg/jpeg/png/webp vao album (`EXT_ALBUM`); gif duong rieng, ext khac -> tep dinh kem (`others`) | Moi `image/*` deu la photo | Chi jpg/jpeg/png/webp la photo (UI + server `effective_kind` ha gif/heic/bmp/... xuong file) |
+| Anh that hay khong | `saveImage` soi magic bytes, doi duoi cho khop noi dung | Khong kiem tra | Server soi magic bytes (JPEG/PNG/WebP); khong khop -> 400 |
+| Gioi han kich thuoc | File 150 MB (`saveFileFromUrl`); anh 25 MB (`saveImage`); them gioi han phien `sharefile.max_file / max_size_share_file_v3 / restricted_ext_file` | File/anh chung 100 MB | Anh 25 MB; file 150 MB o `chat.py`, hieu luc o endpoint van 100 MB (guard chung, cung bao ve sendvoice — chat hon Node.js, huong an toan); gioi han phien that chua lan duoc |
+| `msg` kem dinh kem | `sendMessage` luon co `msg` (ke ca `""` — zca-js doc `msg.length`) | Khong co truong msg | Khong doi (endpoint exe `sharefile_full` don khong co msg) |
+| `clientId` dinh kem | STRING `Date.now().toString()` (anh), `attachment.clientFileId` (file) — trong `handleAttachment` cua zca-js | NUMBER epoch-ms | GIU NUMBER theo exe bundle (phien PC); mau thuan wire, ghi ro o `chat.send_file` — neu attach that van loi, day la nghi pham so 1 can kiem live |
+| `ttl` | Gui kem, mac dinh 0 | Khong gui | Khong doi (params exe khong co ttl); tuong duong ttl=0 |
+| Loi hien o UI | Loi tra ve dang `{success:false, error}` | Chi hien khi server tra JSON co `error` | Moi loi deu hien: fetch reject / non-JSON / JSON loi / khong co `message` / dang gui («Đang gửi file …», nut attach khoa tam) |
+| Video | 2 buoc upload-then-send, thumbnail BAT BUOC, `ffmpeg` | Chua implement | Khong doi — ngoai pham vi dinh kem file/anh |
+
+- **Chua kiem that:** gui file/anh that bang tai khoan phu tren
+  server (doi phuong mo duoc file/anh khong; file 0 byte da bi chan
+  truoc nen khong can gui that); hanh vi that cua Zalo voi file rong
+  va voi `clientId` NUMBER o `sharefile_full` van chua duoc chung
+  minh truc tiep.

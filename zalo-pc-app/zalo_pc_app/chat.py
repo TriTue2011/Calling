@@ -96,6 +96,116 @@ GROUP_DOMAIN = protocol.GROUP_DOMAIN
 TYPE_FILE_USER = 2
 TYPE_FILE_GROUP = 11
 
+# -- dinh kem: gioi han + phan loai theo Node.js (zalobot / zca-js) ---
+# Nguon chinh (lay tu lich su git 34ed43b, zalo-pc-app/zalobot-embedded):
+#  - sendFile (api/zalo/zalo.js sendFileByAccount :748-792): tai file
+#    qua saveFileFromUrl, cap 150 MB (FILE_DOWNLOAD_MAX_BYTES,
+#    utils/helpers.js), roi gui api.sendMessage({msg: message||"",
+#    attachments:[path], ttl}).
+#  - sendImage (zalo.js sendImageByAccount :391-433): tai anh qua
+#    saveImage, cap 25 MB (IMAGE_DOWNLOAD_MAX_BYTES) + soi magic
+#    bytes (JPEG/PNG/GIF/WebP/BMP that, khong tin duoi ten) + doi
+#    duoi ten cho khop dinh dang that (helpers.js doiDuoiChoKhop —
+#    vi zca-js phan loai dinh kem bang DUOI TEN).
+#  - Chi jpg/jpeg/png/webp vao duoc khoi album (EXT_ALBUM trong
+#    utils/sendImages.js); gif di duong rieng cua zca-js, ext khac
+#    bi xep "others" va gui nhu TEP DINH KEM.
+#  - Gioi han phien that (settings.features.sharefile: max_file,
+#    max_size_share_file_v3, restricted_ext_file) chi co luc dang
+#    nhap zca-js; phien PC o day khong co — dung cac cap cung cua
+#    Node.js lam gioi han mac dinh.
+# Duong truyen VAN LA phien PC (endpoint bundle exe: sharefile_full
+# 11146/11191, photo 11152/11164) — chi hanh vi / dinh dang / tham
+# so khop Node.js. Cho nao exe va Node.js mau thuan ve wire thi
+# giu theo exe (xem ghi chu o _new_client_id / send_file).
+MAX_FILE_BYTES = 150 * 1024 * 1024
+MAX_PHOTO_BYTES = 25 * 1024 * 1024
+PHOTO_EXTS = frozenset({"jpg", "jpeg", "png", "webp"})
+_MIME_TO_PHOTO_EXT = {"image/jpeg": "jpg", "image/png": "png",
+                      "image/webp": "webp"}
+
+
+def _file_ext(filename):
+    """Duoi ten file (lowercase, khong dau cham); "" neu khong co
+    duoi hop le. Zalo phan loai dinh kem bang duoi ten."""
+    name = (filename or "").strip()
+    if "." not in name:
+        return ""
+    ext = name.rsplit(".", 1)[1].strip().lower()
+    return ext if ext.isalnum() else ""
+
+
+def is_photo_file(filename, mime=""):
+    """Anh that gui duong photo (11152/11164) chi khi duoi nam trong
+    EXT_ALBUM cua Node.js (jpg/jpeg/png/webp). Gif/bmp/heic/svg/...
+    gui dang tep dinh kem, khong phai anh — khop cach zca-js xep
+    loai "others". Khong co duoi thi xet MIME (image/jpeg|png|webp)."""
+    ext = _file_ext(filename)
+    if ext:
+        return ext in PHOTO_EXTS
+    return (mime or "").strip().lower() in _MIME_TO_PHOTO_EXT
+
+
+def effective_kind(kind, filename, mime=""):
+    """kind hieu luc cho sendfile: client co the gui kind=photo cho
+    gif/heic/... — ha xuong file theo luat Node.js, khong bao gio
+    day ext la len endpoint photo."""
+    if (kind or "file") == "photo" and is_photo_file(filename, mime):
+        return "photo"
+    return "file"
+
+
+def detect_image_format(data):
+    """Dinh dang anh that theo magic bytes (giong duoiAnhThat trong
+    helpers.js cua Node.js): 'jpg' | 'png' | 'gif' | 'webp' | 'bmp'
+    | None. Can toi thieu 12 byte de nhan WebP; file ngan hon tra
+    None."""
+    if not data or len(data) < 2:
+        return None
+    if data[0:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if data[0:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if data[0:4] == b"GIF8":
+        return "gif"
+    if len(data) >= 12 and data[0:4] == b"RIFF" \
+            and data[8:12] == b"WEBP":
+        return "webp"
+    if data[0:2] == b"BM":
+        return "bmp"
+    return None
+
+
+def validate_attachment(kind, filename, mime, data):
+    """Kiem tra dinh kem TRUOC KHI goi Zalo (fail-fast, loi ro rang
+    thay vi doi Zalo tra ma loi kho hieu hoac im lang). ValueError
+    mang thong bao tieng Viet hien thang o UI. Quy tac theo Node.js:
+    - ten file bat buoc; file rong (0 byte) bi tu choi — Zalo khong
+      nhan file rong (tuong tu voice bi error_code=133 khi sai dinh
+      dang); day la case live 23:00 +07 (iptv-udpxy.m3u, 0 byte).
+    - file: toi da MAX_FILE_BYTES (150 MB, cap sendFile Node.js).
+    - anh: toi da MAX_PHOTO_BYTES (25 MB, cap saveImage Node.js) +
+      noi dung phai dung la anh (magic bytes)."""
+    name = (filename or "").strip()
+    if not name:
+        raise ValueError("dinh kem: thieu ten file")
+    if data is None or len(data) == 0:
+        raise ValueError("file \"%s\" rong (0 byte) — Zalo khong nhan "
+                         "file rong, hay chon file khac" % name)
+    if kind == "photo":
+        if len(data) > MAX_PHOTO_BYTES:
+            raise ValueError("anh \"%s\" qua lon (%.1f MB > 25 MB) — "
+                             "hay nen nho anh truoc khi gui"
+                             % (name, len(data) / 1048576.0))
+        fmt = detect_image_format(data)
+        if fmt not in PHOTO_EXTS:
+            raise ValueError("file \"%s\" khong phai anh that (noi dung "
+                             "khong khop JPEG/PNG/WebP) — kiem tra lai "
+                             "file" % name)
+    elif len(data) > MAX_FILE_BYTES:
+        raise ValueError("file \"%s\" qua lon (%.1f MB > 150 MB)"
+                         % (name, len(data) / 1048576.0))
+
 # Thong bao trung thuc khi khong lay duoc lich su 1-1 qua HTTPS.
 # (Cau dau giu nguyen de test cu van bat duoc; phan sau noi ro
 # tin den van ve qua kenh sync — xem sync_poll.py.)
@@ -494,7 +604,15 @@ class Chat:
     # -- gui file / anh / voice ------------------------------------------
     def send_file(self, thread_type, thread_id, filename, data,
                   mime="application/octet-stream"):
-        """11146 (1-1) / 11191 (nhom): multipart fileContent."""
+        """11146 (1-1) / 11191 (nhom): multipart fileContent.
+        Kiem tra truoc (validate_attachment): ten thieu / file rong
+        / file qua lon -> ValueError voi loi ro rang, khong goi Zalo.
+        clientId la NUMBER epoch-ms (xem _new_client_id): exe bundle
+        dung number; zca-js (handleAttachment) dung STRING cho anh va
+        clientFileId cho file — mau thuan wire, giu theo exe vi day
+        la phien PC (ghi ro de kiem that lan sau neu attach van loi).
+        """
+        validate_attachment("file", filename, mime, data)
         client_id = _new_client_id()
         if thread_type == "group":
             url = _multipart_url(
@@ -518,7 +636,12 @@ class Chat:
         """11152 (1-1) / 11164 (nhom): multipart fileContent +
         params AES {clientId, desc, width, height, toid|grid}.
         width/height lay tu anh that o UI; 0 = khong biet (best
-        effort — server that co the doi kich thuoc that)."""
+        effort — server that co the doi kich thuoc that). Kiem tra
+        truoc (validate_attachment): anh rong / qua lon / noi dung
+        khong phai anh -> ValueError, khong goi Zalo. Chi jpg/jpeg/
+        png/webp moi goi ham nay (xem effective_kind) — gif/bmp/
+        heic/... di duong send_file theo luat Node.js."""
+        validate_attachment("photo", filename, mime, data)
         client_id = _new_client_id()
         if thread_type == "group":
             params = {"clientId": client_id, "desc": filename,
