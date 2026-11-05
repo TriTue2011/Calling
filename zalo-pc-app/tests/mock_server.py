@@ -6,9 +6,9 @@ the protocol spec, so a client bug cannot hide behind shared code.
 
 Scenarios are switched via flags on the MockZalo instance:
   scan_mode:    "ok" | "reject" | "timeout" | "trust"
-  confirm_mode: "ok" | "reject"
+  confirm_mode: "ok" | "reject" | "no_sek"
   reqqr_mode:   "ok" | "rate_limit" | "force_plaintext_once"
-  login_mode:   "ok"
+  logininfo_mode: "ok" | "error102"
 """
 
 import base64
@@ -58,6 +58,7 @@ class MockZalo:
         self.scan_mode = "ok"
         self.confirm_mode = "ok"
         self.reqqr_mode = "ok"
+        self.logininfo_mode = "ok"
         self.seen = []  # (path, query, headers) log
         self._plaintext_forced = False
         self.server = None
@@ -110,12 +111,7 @@ class MockZalo:
         if path == "/confirm":
             return self._confirm()
         if path == "/api/login/getLoginInfo":
-            assert headers.get("Cookie"), "getLoginInfo needs Cookie"
-            return 200, {"error_code": 0, "data": {
-                "dkey": "dkey-test",
-                "zpw_enk": TEST_SESSION_KEY,
-                "config": {"zpw_service_map_new": {},
-                           "zpw_ws": "wss://mock.invalid/ws"}}}
+            return 200, self._logininfo(qs, headers)
         if path.startswith("/api/voicecall/"):
             return 200, self._voicecall(path, qs, headers)
         if path == "/api/social/friend/getfriends":
@@ -188,10 +184,71 @@ class MockZalo:
         return 200, {"error_code": 0, "data": {
             "avatar": "", "display_name": "Tester", "link_data": {}}}
 
+    def _logininfo(self, qs, headers):
+        """getLoginInfo, enforcing the real PC contract (renderer API
+        class getLoginInfo): session cookie zpw_sek + login envelope
+        (imei/computer_name/language/ts + type/client_version/signkey,
+        encrypted when a param cipher key is used). The old mock only
+        required a Cookie header, which let the missing-envelope bug
+        (server error 102) pass offline."""
+        if self.logininfo_mode == "error102":
+            return {"error_code": 102,
+                    "error_message": "The session key was improperly "
+                    "submitted or has reached its timeout. Direct the "
+                    "user to log in again to obtain another key",
+                    "data": {}}
+        assert headers.get("Cookie") == "zpw_sek=sek-test", (
+            "getLoginInfo needs zpw_sek cookie, got: %r"
+            % (headers.get("Cookie"),))
+        data = {
+            "dkey": "dkey-test",
+            "zpw_enk": TEST_SESSION_KEY,
+            "config": {"zpw_service_map_new": {},
+                       "zpw_ws": "wss://mock.invalid/ws"}}
+        if "zcid" in qs:
+            assert qs.get("type") == "embed", qs
+            assert qs.get("client_version") == "695", qs
+            assert qs.get("enc_ver") == "v2", qs
+            expect_sig = signkey_check("getlogininfo", {
+                k: v for k, v in qs.items() if k != "signkey"})
+            assert qs.get("signkey") == expect_sig, (
+                "signkey mismatch: %s != %s" % (qs.get("signkey"), expect_sig))
+            zcid_raw = _openssl_aes(
+                TEST_PARAM_KEY.encode(), bytes.fromhex(qs["zcid"]),
+                decrypt=True)
+            parts = zcid_raw.decode("utf-8").split(",")
+            assert parts[0] == "embed", parts
+            enk = derive_enk(qs["zcid"], qs["zcid_ext"])
+            plain = _openssl_aes(
+                enk.encode(), base64.b64decode(qs["params"]), decrypt=True)
+            params = json.loads(plain.decode("utf-8"))
+            assert parts[1] == params["imei"], (parts, params)
+            assert params["computer_name"] and params["language"], params
+            assert str(params["ts"]).isdigit(), params
+            enc = _openssl_aes(enk.encode(), json.dumps(data).encode())
+            return {"error_code": 0,
+                    "data": base64.b64encode(enc).decode()}
+        expect_sig = signkey_check("getlogininfo", {
+            k: v for k, v in qs.items() if k != "signkey"})
+        assert qs.get("signkey") == expect_sig, "plaintext signkey mismatch"
+        assert qs.get("imei"), "plaintext getLoginInfo needs imei"
+        assert qs.get("computer_name"), "needs computer_name"
+        assert qs.get("language"), "needs language"
+        assert qs.get("ts", "").isdigit(), "needs ts (ms)"
+        assert qs.get("type") == "embed", qs
+        assert qs.get("client_version") == "695", qs
+        return {"error_code": 0, "data": data}
+
     def _confirm(self):
         if self.confirm_mode == "reject":
             return 200, {"error_code": 18010, "error_message": "rejected",
                          "data": {}}
+        if self.confirm_mode == "no_sek":
+            return 200, {"error_code": 0, "data": {
+                "uid": "10001", "dkey": "dkey-test",
+                "profile": {"phonenum": "+84000000000"},
+                "needSyncMsg": False, "cptch_cert": "cert",
+                "zpw_sek": "", "zpw_kt": "kt-test", "devices": []}}
         return 200, {"error_code": 0, "data": {
             "uid": "10001", "dkey": "dkey-test",
             "profile": {"phonenum": "+84000000000"},

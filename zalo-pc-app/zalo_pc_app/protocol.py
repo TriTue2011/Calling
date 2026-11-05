@@ -124,6 +124,21 @@ def parse_confirm(data):
     }
 
 
+def logininfo_params(device_id, computer_name, language=LANGUAGE):
+    """Plain (pre-envelope) getLoginInfo parameters, exactly as the PC
+    client sends them (API class getLoginInfo in the renderer bundle):
+    imei, computer_name, language, ts in milliseconds. The caller wraps
+    these in the login envelope (type/client_version/signkey, encrypted
+    when a param cipher key is configured) — getLoginInfo is a *login*
+    API, so it does NOT use the post-login zpw_ver/zpw_type params."""
+    return {
+        "imei": device_id,
+        "computer_name": computer_name,
+        "language": language,
+        "ts": int(time.time() * 1000),
+    }
+
+
 # ---------------------------------------------------------------- voicecall
 def voicecall_url(path, extra_common=None):
     params = common_params()

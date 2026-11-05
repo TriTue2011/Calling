@@ -123,10 +123,20 @@ nhận cuộc gọi đến (cần map tiếp kênh sync WebSocket), tiếng tr�
   `trusted_device` đi vào auth cho lần đăng nhập sau).
 - Client sau đó: `setEndpoints(...)` (đặt domain map + endpoint
   WebSocket `zpw_ws`), `setUIN(dkey)`, `setDecryptKey(zpw_enk)`.
-- Lưu ý: tham số request chi tiết của `getLoginInfo` (ngoài common
-  params + cookie) chưa lần hết — mock test định nghĩa contract
-  “common params + cookie” và ghi rõ đây là điểm cần xác nhận ở lần
-  test thật đầu tiên (mục 6, O5).
+- Request chi tiết (ĐÃ XÁC NHẬN từ code client thật, sửa sau lỗi 102
+  ở lần quét thật đầu tiên 2026-11-05): `getLoginInfo` là API
+  *login*, không dùng common params `zpw_ver`/`zpw_type`. Nó gửi
+  login envelope — `imei`, `computer_name`, `language`, `ts` (ms) +
+  `type`/`client_version`/`signkey` (api name `"getlogininfo"`, mã hóa
+  ParamCipher khi có key) — kèm cookie phiên `zpw_sek`. Tên cookie
+  này cũng đã xác nhận: `setAppCookie` trong main.js đặt cookie tên
+  `zpw_sek` cho các domain zalo.me/zaloapp.com/chat.zalo.me.
+  `zpw_sek` trong payload confirm nằm top-level của `data`
+  (`data.data.zpw_sek` ở cả đường QR confirm lẫn đường password).
+  Bản client cũ chỉ gửi `zpw_ver`/`zpw_type` + cookie nên server trả
+  102; bản sửa gửi đúng envelope và validate `zpw_sek` rỗng thì báo
+  lỗi nêu tên field thay vì gửi request không cookie (xem
+  `tests/test_logininfo.py`; mock nay bắt buộc đúng contract này).
 
 ### Bước 5 — Phiên bền qua restart
 
@@ -314,12 +324,17 @@ Biến môi trường: `ZALO_PC_DATA_DIR` (mặc định `./data`),
   Agent song song đang làm SRTP/Opus (đã có primitive, chưa nối đường
   media, chưa chốt payload relay ZRTP). Seam đã định nghĩa (mục 5);
   khi engine xong, gắn qua `engine_seam.SEAM.attach(...)`.
-- **O5 — Chi tiết request thật chưa lần hết:**
-  tên cookie phiên gửi kèm API sau login (giả định `zpw_sek=...`,
-  chỉnh được qua env), tham số phụ của `getLoginInfo` (nếu có), và
-  domain thực tế sau khi service map override (mặc định đã có trong
-  mục 3). Tất cả đều là điểm sửa nhỏ khi có lần chạy thật đầu tiên,
-  không làm đổi verdict.
+- **O5 — ĐÃ XÁC NHẬN + SỬA (lỗi 102 ở lần quét thật đầu tiên
+  2026-11-05):** tên cookie phiên là `zpw_sek` (xác nhận từ
+  `setAppCookie` trong main.js); tham số `getLoginInfo` là login
+  envelope `imei`/`computer_name`/`language`/`ts` +
+  `type`/`client_version`/`signkey` (không phải `zpw_ver`/`zpw_type`);
+  `zpw_sek` nằm top-level trong payload confirm. Nguyên nhân 102:
+  bản cũ gửi thiếu envelope (và không validate `zpw_sek` rỗng).
+  Bản sửa + test hồi quy ở `tests/test_logininfo.py`. Còn lại duy
+  nhất điểm nhỏ: domain thực tế sau khi service map override (mặc
+  định đã có trong mục 3) — chưa dùng service map để đổi domain,
+  không chặn lần quét lại.
 
 ---
 
@@ -341,6 +356,11 @@ Biến môi trường: `ZALO_PC_DATA_DIR` (mặc định `./data`),
   chối đúng cách, fallback 19000 → trần. (Mock đã bắt được một lỗi
   thật trong công thức `enk` của client trước khi sửa — xem ghi chú
   trong code.)
+- `test_logininfo.py` (mới, hồi quy lỗi 102): contract `getLoginInfo`
+  đúng client thật — envelope plaintext và mã hóa đều qua mock (mock
+  tự verify signkey/envelope bằng openssl + hashlib, giải response
+  mã hóa); confirm thiếu `zpw_sek` thì lỗi nêu tên field và KHÔNG
+  gửi request; server trả 102 thì client báo đúng mã 102.
 - `test_server_smoke.py`: chạy thật app server qua HTTP API: QR →
   done, file phiên mode `0600`, `/api/status` không rò rỉ bí mật,
   contacts + call request + logout đều chạy.
@@ -351,10 +371,9 @@ Biến môi trường: `ZALO_PC_DATA_DIR` (mặc định `./data`),
 
 - Server có trả QR old-format và chấp nhận tham số trần/mã hóa ra sao
   (O1/O2) — cần probe `reqqr` không tài khoản.
-- Quét thật bằng app phụ, `getLoginInfo` thật, gọi thật — chưa làm
-  (task cấm tự thử đăng nhập; cần user cầm app phụ quét).
+- Quét thật lại sau bản sửa `getLoginInfo` (lỗi 102 lần đầu) — cần
+  user cầm app phụ quét lại với image mới.
 - Nhận cuộc gọi đến, tiếng trực tiếp, độ trễ, độ ổn định — giai đoạn 2.
-- Cookie name + tham số phụ `getLoginInfo` (O5).
 
 ## 9. Quy trình test quét thật (khi user sẵn sàng, tài khoản PHỤ tuyệt đối)
 

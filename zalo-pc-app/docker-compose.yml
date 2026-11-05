@@ -1,6 +1,5 @@
 services:
   zalo-pc:
-    build: .
     image: ghcr.io/tritue2011/zalo-pc-app-test:test
     ports:
       # Bind loopback on the host; put it behind the user's own
@@ -9,9 +8,8 @@ services:
     volumes:
       - zalo-pc-data:/data
     environment:
-      # Optional. Without it, login params go plaintext + signkey,
-      # which the server accepts only if param encryption is disabled
-      # server-side (see bao-cao.md, open question O2).
+      # Optional. Probe 2026-11-05 verified plaintext + signkey is
+      # accepted for reqqr, so no key is needed for the QR step.
       # ZALO_PC_PARAM_CIPHER_KEY: ""
       ZALO_PC_HOST: "0.0.0.0"
       ZALO_PC_PORT: "8080"

@@ -12,7 +12,11 @@ API (all JSON, never returns session secrets):
 
 Real transport uses urllib. Post-login calls send the session cookie
 (Cookie header name configurable via ZALO_PC_COOKIE_NAME, default
-"zpw_sek" — the cookie-name assumption is flagged in bao-cao.md).
+"zpw_sek" — confirmed as the PC client's cookie name from main.js
+setAppCookie). getLoginInfo itself is a *login* API: it carries the
+login envelope (imei/computer_name/language/ts + type/client_version/
+signkey, encrypted when a param cipher key is configured) plus the
+session cookie — never the post-login zpw_ver/zpw_type params.
 """
 
 import json
@@ -125,8 +129,9 @@ class AppState:
             with self.lock:
                 self.qr_state = "scanned"
             grant = qr_login.wait_confirm(transport, qr)
-            # Session established: fetch login info (cookie auth).
-            login_info = self._fetch_login_info(grant)
+            # Session established: fetch login info (login envelope +
+            # session cookie, exactly as the PC client sends it).
+            login_info = self._fetch_login_info(grant, device_id, computer)
             sess = session_mod.new_session(device_id, computer)
             sess.update({
                 "uid": grant["uid"], "dkey": grant["dkey"],
@@ -162,23 +167,40 @@ class AppState:
                 self.qr_state = "error"
                 self.qr_error = "%s: %s" % (type(e).__name__, e)
 
-    def _fetch_login_info(self, grant):
-        """GET getLoginInfo with the fresh session cookie.
-        Contract (mock-tested): common params + session cookie; the
-        response data carries config, dkey and zpw_enk. Exact extra
-        params, if the real server wants any, are a real-test fix
-        (flagged in bao-cao.md)."""
-        transport = make_transport(grant["zpw_sek"])
-        params = protocol.common_params()
+    def _fetch_login_info(self, grant, device_id, computer_name):
+        """GET getLoginInfo, exactly as the PC client sends it
+        (renderer API class getLoginInfo, api code 11134):
+        login envelope (imei/computer_name/language/ts + type/
+        client_version/signkey, encrypted when a param cipher key is
+        configured) plus the zpw_sek session cookie. The previous
+        implementation sent only zpw_ver/zpw_type + cookie, which the
+        server rejects with error 102 (session key improperly
+        submitted): without the envelope the session cannot be bound
+        to the device. The response data carries config, dkey and
+        zpw_enk (AES-decrypted first when the request went out
+        encrypted)."""
+        sek = grant.get("zpw_sek", "")
+        if not sek:
+            # Never send a cookieless request: the server answers it
+            # with a cryptic 102. Name the missing field instead.
+            # (The value itself is never logged.)
+            raise RuntimeError(
+                "getLoginInfo: confirm grant missing zpw_sek "
+                "(session key); cannot authenticate without it")
+        transport = make_transport(sek)
+        query, enk = qr_login.logininfo_query(
+            device_id, computer_name, PARAM_CIPHER_KEY)
         url = protocol.build_url(protocol.AUTH_DOMAIN,
-                                 "/api/login/getLoginInfo", params)
+                                 "/api/login/getLoginInfo", query)
         status, payload = transport(url, timeout=30)
         if status != 200 or not isinstance(payload, dict):
             raise RuntimeError("getLoginInfo: network status=%s" % status)
         if payload.get("error_code") != 0:
             raise RuntimeError("getLoginInfo: error_code=%s %s" % (
                 payload.get("error_code"), payload.get("error_message", "")))
-        data = payload.get("data") or {}
+        data = qr_login.decode_response(payload, enk)
+        if not isinstance(data, dict):
+            data = {}
         return {"zpw_enk": data.get("zpw_enk", ""),
                 "config": data.get("config", {}),
                 "dkey": data.get("dkey", "")}

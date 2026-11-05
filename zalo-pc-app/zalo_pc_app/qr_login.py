@@ -190,9 +190,35 @@ def wait_confirm(http_get, qr):
     if code == ERR_OK:
         grant = protocol.parse_confirm(payload.get("data") or {})
         if grant["uid"] and grant["dkey"]:
+            if not grant["zpw_sek"]:
+                # A grant without the session key would produce a
+                # cookieless getLoginInfo and a cryptic server 102.
+                # Fail here, naming the missing field, instead.
+                raise LoginError(
+                    "confirm: success payload without zpw_sek "
+                    "(session key missing from grant)")
             return grant
         raise LoginError("confirm: success payload without uid/dkey")
     if code == ERR_USER_REJECTED:
         raise UserRejected("user rejected the login on the phone (18010)")
     raise LoginError("wait_confirm: error_code=%s %s" % (
         code, payload.get("error_message", "")))
+
+
+def logininfo_query(device_id, computer_name, param_cipher_key=None,
+                    language="vi"):
+    """(query, enk) for getLoginInfo, mirroring the PC client: the
+    login envelope (imei/computer_name/language/ts + type/
+    client_version/signkey, encrypted when a param cipher key is
+    configured) with api name "getlogininfo". The session itself is
+    authenticated by the zpw_sek cookie, which the caller's transport
+    attaches — never by a query parameter."""
+    params = protocol.logininfo_params(device_id, computer_name,
+                                       language=language)
+    return _envelope(params, "getlogininfo", param_cipher_key, device_id)
+
+
+def decode_response(payload, enk):
+    """Decode a login-API response body (plain dict, or AES blob when
+    the request went out encrypted)."""
+    return _decode_payload(payload, enk)
