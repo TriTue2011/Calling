@@ -175,14 +175,6 @@ def _group_row(group_id, info):
             "members": members, "member_count": _member_count(info, members)}
 
 
-# Public aliases for the addon path (server.py): the sidecar's
-# getAllFriendsByAccount returns the same User[] shape as the PC
-# getfriends endpoint, and getGroupInfoByAccount returns the same
-# gridInfoMap — so the same row builders apply (API-MAP §3).
-extract_rows = _extract_rows
-group_row = _group_row
-
-
 def describe_shape(data):
     """Shape-only description of a response payload: value TYPES,
     lengths, and KEY NAMES only. Never includes names, ids, phone

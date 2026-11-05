@@ -1,4 +1,4 @@
-# Build image TRÊN SERVER từ source nhánh muse/calling-test, thay vì chờ
+# Build image TRÊN SERVER từ source nhánh muse/zalo-addon-pivot, thay vì chờ
 # image từ GitHub Actions rồi pull về.
 #
 # Vị trí trong repo: zalo-pc-app/docker-compose.build.yml
@@ -40,11 +40,6 @@ services:
       # LAN, giống Portainer stack hiện tại). Chỉ dùng trong LAN, đừng
       # forward cổng này ra Internet (trang QR không có mật khẩu riêng).
       - "8080:8080"
-      # PIVOT addon-embedded: sidecar zalobot nghe :3000 trong container
-      # (cung API nhu may chu zalobot cu) de HA integration noi vao
-      # (chi doi host, giu nguyen cong 3000). LXC zalobot cu co the
-      # dung sau khi kiem tra xong (user quyet, khong tu dong).
-      - "3000:3000"
     volumes:
       # GIỮ NGUYÊN host path chứa phiên đăng nhập — KHÔNG đổi, KHÔNG xóa.
       # Không cần chown tay: entrypoint tự chown thư mục data về app:app
@@ -53,20 +48,4 @@ services:
     environment:
       ZALO_PC_HOST: "0.0.0.0"
       ZALO_PC_PORT: "8080"
-      # PIVOT addon-embedded: tai khoan admin cua sidecar zalobot.
-      # Python client + sidecar dung CHUNG cac bien nay (entrypoint doc
-      # env, tu sinh + giu lai neu de trong — xem docker-entrypoint.py).
-      # CHI DIEN GIA TRI THAT TREN SERVER, khong commit gia tri that.
-      # ZALO_SERVER_ADMIN_USERNAME: "admin"  (mac dinh, co the bo qua)
-      # ZALO_SERVER_ADMIN_PASSWORD: ""  # <-- BAT BUOC dat: mat khau
-      #   admin sidecar; khong dat thi entrypoint tu sinh + ghi ra
-      #   /opt/zalo/zalobot/THONG-TIN-DANG-NHAP.txt (0600).
-      # ZALO_SERVER_API_KEY: ""  # tuy chon (chi dung cho route gui
-      #   tin bang header; HA khong dung khoa nay).
-      # SESSION_SECRET: ""  # tuy chon; trong thi entrypoint tu sinh
-      #   + giu trong /opt/zalo/zalobot/.session_secret.
-      ZALO_SERVER_ADMIN_USERNAME: ${ZALO_SERVER_ADMIN_USERNAME:-admin}
-      ZALO_SERVER_ADMIN_PASSWORD: ${ZALO_SERVER_ADMIN_PASSWORD:-}
-      ZALO_SERVER_API_KEY: ${ZALO_SERVER_API_KEY:-}
-      SESSION_SECRET: ${SESSION_SECRET:-}
     restart: unless-stopped

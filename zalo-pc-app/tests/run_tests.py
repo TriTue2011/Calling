@@ -13,8 +13,7 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
          "test_app_auth.py",
          "test_contacts_cache_429.py", "test_contacts_stale_swr.py",
          "test_view_decision.py", "test_webhooks.py", "test_chat.py",
-         "test_services.py", "test_server_smoke.py",
-         "test_addon_client.py"]
+         "test_services.py", "test_server_smoke.py"]
 
 # Node checks: app.js syntax + the vm harness for the End button
 # (§7m) — the UI fix cannot be covered by the Python suites.

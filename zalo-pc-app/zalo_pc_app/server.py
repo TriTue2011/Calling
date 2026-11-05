@@ -1,13 +1,7 @@
 """App service: stdlib HTTP server + JSON API + static UI.
 
 API (all JSON, never returns session secrets):
-  GET  /api/status        {login, uid, phonenum, engine, addon:
-                         {ok, logged_in, accounts}} (needs app login)
-  POST /api/addon/events?family=message|group_event|reaction
-                         loopback-only receiver for the sidecar's
-                         webhooks (127.0.0.1 only, no app login):
-                         stores the event in the chat store and
-                         relays it to the user's HA webhook URLs.
+  GET  /api/status        {login, uid, phonenum, engine} (needs app login)
   POST /api/qr/new        start a QR login (background thread)
   GET  /api/qr/status     {state, qr_image, countdown, wait_seconds, ...}
   POST /api/logout        clear the stored Zalo session AND the app
@@ -64,7 +58,6 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import VERSION as _PKG_VERSION
-from . import addon_client as addon_client_mod
 from . import app_auth
 from . import call_log
 from . import chat as chat_mod
@@ -286,13 +279,6 @@ class AppState:
         # ngay tin vua gui + lam lich su tam cho 1-1 (chat.ChatStore).
         self.chat_store = chat_mod.ChatStore()
         self.thread = None
-        # PIVOT addon-embedded: client sidecar (None = chua cau hinh
-        # / chua co mat khau admin trong env -> giu hanh vi PC cu).
-        # Tests gan truc tiep: state.addon = FakeAddonClient(...).
-        self.addon = None
-        self._addon_tried = False
-        self._media_server = None
-        self._media_lock = threading.Lock()
         # Stale-while-revalidate (sửa lỗi load chậm 2026-11-05): khi
         # cache đã hết TTL, GET /api/contacts trả cache cũ NGAY
         # (source "stale") rồi làm mới nền trong một thread riêng,
@@ -308,12 +294,7 @@ class AppState:
         with self.lock:
             base = {"version": VERSION,
                     "engine": engine_seam.SEAM.status(),
-                    "app_user": app_user,
-                    # PIVOT: trang thai sidecar (best-effort, khong
-                    # bao gio lam hong /api/status — xem addon_status).
-                    # logged_in lay tu GET /api/accounts (poll, API-MAP
-                    # §8: khong co QR TTL phia server).
-                    "addon": self.addon_status()}
+                    "app_user": app_user}
             if self.session and self.session.get("zpw_sek"):
                 base.update({"login": True,
                              "uid": self.session.get("uid", ""),
@@ -321,85 +302,6 @@ class AppState:
                 return base
             base.update({"login": False, "uid": "", "phonenum": ""})
             return base
-
-    # -- addon sidecar (PIVOT 2026-11-05) ------------------------------
-    def addon_client(self):
-        """AddonClient hien tai, hoac None khi sidecar chua duoc cau
-        hinh (khong co ZALO_SERVER_ADMIN_PASSWORD trong env va khong
-        co client nao duoc gan tay — luc do moi duong uy quyen giu
-        hanh vi PC cu). Client duoc tao toi da mot lan; uid phien PC
-        duoc cap nhat moi lan goi de chon dung tai khoan sidecar."""
-        client = self.addon
-        if client is None and not self._addon_tried:
-            self._addon_tried = True
-            try:
-                uid = ""
-                if self.session:
-                    uid = self.session.get("uid", "") or ""
-                client = addon_client_mod.make_client(pc_uid=uid)
-            except Exception:
-                client = None
-            self.addon = client
-        if client is not None and self.session:
-            setter = getattr(client, "set_pc_uid", None)
-            if callable(setter):
-                try:
-                    setter(self.session.get("uid", "") or "")
-                except Exception:
-                    pass
-        return client
-
-    def addon_status(self):
-        """Best-effort addon status cho /api/status — NEVER raises
-        (tra ve mac dinh khi khong co client hoac sidecar chet)."""
-        client = self.addon_client()
-        if client is None:
-            return {"ok": False, "logged_in": False, "accounts": []}
-        try:
-            return client.status()
-        except Exception:
-            return {"ok": False, "logged_in": False, "accounts": []}
-
-    def media_server(self):
-        """Loopback-only file server cho file upload staging
-        (addon_client.LocalMediaServer): sidecar chi tai media qua
-        HTTP/HTTPS, khong doc duong dan truc tiep (API-MAP §4.3)."""
-        with self._media_lock:
-            if self._media_server is None:
-                tmpdir = os.path.join(self.data_dir, "tmp")
-                os.makedirs(tmpdir, exist_ok=True)
-                self._media_server = addon_client_mod.LocalMediaServer(
-                    tmpdir)
-            return self._media_server
-
-    def addon_receiver_url(self, family):
-        """URL receiver cua app ma sidecar POST webhook toi
-        (loopback trong container)."""
-        return ("http://127.0.0.1:%d/api/addon/events?family=%s"
-                % (PORT, family))
-
-    def sync_addon_webhooks(self):
-        """Best-effort: tro 3 webhook cua sidecar (message /
-        group_event / reaction) ve receiver cua app. NEVER raises —
-        goi tu mot thread nen sau khi luu cau hinh webhook; neu
-        sidecar chet hoac chua co tai khoan thi chi log ten loi."""
-        client = self.addon_client()
-        if client is None:
-            return False
-        try:
-            own_id = client.resolve_account()
-            urls = {"messageWebhookUrl":
-                    self.addon_receiver_url("message"),
-                    "groupEventWebhookUrl":
-                    self.addon_receiver_url("group_event"),
-                    "reactionWebhookUrl":
-                    self.addon_receiver_url("reaction")}
-            client.webhooks_set(own_id, urls)
-            return True
-        except Exception as e:  # noqa: BLE001 - best-effort only
-            print("[addon-webhooks] sync failed: %s"
-                  % type(e).__name__, flush=True)
-            return False
 
     # -- contacts cache + 429 backoff ------------------------------------
     def _contacts_clear_cache(self):
@@ -570,54 +472,14 @@ class AppState:
                 return self._contacts_apply_fetch_result_locked(
                     uid, result)
 
-    def _contacts_fetch_via_addon(self, client):
-        """Danh ba qua sidecar (API-MAP §3): getAllFriendsByAccount
-        (User[] verbatim) + getAllGroupsByAccount ({version,
-        gridVerMap} — chi ID) + getGroupInfoByAccount ({gridInfoMap}
-        — ten/thanh vien). Hang dung lai ham xay hang cua
-        contacts.py vi shape giong het duong PC. Tra ve
-        (friends, groups) dang {rows, raw} nhu cu."""
-        friends_data = client.friends()
-        friends = {"rows": contacts_mod.extract_rows(friends_data),
-                   "raw": friends_data}
-        groups_data = client.groups()
-        grid_ver = {}
-        if isinstance(groups_data, dict):
-            grid_ver = groups_data.get("gridVerMap") or {}
-        if not isinstance(grid_ver, dict):
-            grid_ver = {}
-        info_data = {}
-        if grid_ver:
-            info_data = client.group_info(
-                [str(gid) for gid in grid_ver])
-        grid_info = {}
-        if isinstance(info_data, dict):
-            grid_info = info_data.get("gridInfoMap") or {}
-        if not isinstance(grid_info, dict):
-            grid_info = {}
-        rows = [contacts_mod.group_row(gid, grid_info.get(str(gid)))
-                for gid in grid_ver]
-        return friends, {"rows": rows, "raw": info_data}
-
-    def _contacts_do_fetch(self, sess, uid, init):
+    @staticmethod
+    def _contacts_do_fetch(sess, uid, init):
         """The Zalo calls themselves (friends, then groups), run
         with NEITHER lock held so a slow Zalo never blocks other
         loads from being served from the cache. Returns (True,
-        friends, groups, origin) on success or (False, stage, exc)
-        on an endpoint failure — never raises for one; the caller
-        applies the result under the state lock.
-        PIVOT: thu sidecar truoc (origin "addon"); sidecar chet/loi
-        thi FALLBACK duong PC truc tiep cu (origin "pc-fallback",
-        da chay that 60/6) thay vi bao loi kho. Khong co client thi
-        di thang PC nhu cu (origin "pc")."""
-        client = self.addon_client()
-        if client is not None:
-            try:
-                friends, groups = self._contacts_fetch_via_addon(client)
-                return (True, friends, groups, "addon")
-            except Exception as e:  # noqa: BLE001 - fallback to PC
-                print("[contacts-addon] sidecar failed (%s), "
-                      "fallback PC" % type(e).__name__, flush=True)
+        friends, groups) on success or (False, stage, exc) on an
+        endpoint failure — never raises for one; the caller applies
+        the result under the state lock."""
         transport = make_transport(sess["zpw_sek"])
         book = contacts_mod.Contacts(transport, sess["device_id"],
                                      sess["zpw_enk"],
@@ -630,8 +492,7 @@ class AppState:
             groups = book.groups()
         except Exception as e:  # noqa: BLE001 - returned, not raised
             return (False, "groups", e)
-        return (True, friends, groups,
-                "pc-fallback" if client is not None else "pc")
+        return (True, friends, groups)
 
     def _contacts_apply_fetch_result_locked(self, uid, result):
         """Apply a finished fetch under the state lock (held by the
@@ -643,15 +504,7 @@ class AppState:
         background refresh can never resurrect the old session's
         contacts."""
         if result[0]:
-            _, friends, groups, origin = result
-            # Chi fetch tuoi moi mang source theo nguon du lieu
-            # ("addon" khi sidecar khoe, "pc-fallback" khi sidecar
-            # chet, "fresh" khi khong cau hinh sidecar — giu dung
-            # gia tri cu cho truong hop cuoi de test cu khong doi).
-            # Cache hit / stale / cache-after-429 giu source theo
-            # trang thai cache nhu cu.
-            source = {"addon": "addon",
-                      "pc-fallback": "pc-fallback"}.get(origin, "fresh")
+            _, friends, groups = result
             self._contacts_init_pending = False
             fetched_at = time.time()
             cur = self.session
@@ -659,16 +512,15 @@ class AppState:
                 print("[contacts-cache] fresh discarded: session "
                       "changed during fetch", flush=True)
                 return 200, self._contacts_payload(
-                    friends, groups, source, fetched_at)
+                    friends, groups, "fresh", fetched_at)
             self._contacts_cache = {"friends": friends, "groups": groups,
-                                    "fetched_at": fetched_at, "uid": uid,
-                                    "origin": origin}
+                                    "fetched_at": fetched_at, "uid": uid}
             self._contacts_backoff_until = 0.0
             self._contacts_backoff_seconds = CONTACTS_BACKOFF_BASE_SECONDS
-            print("[contacts-cache] fresh fetched_at=%d source=%s"
-                  % (int(fetched_at), source), flush=True)
+            print("[contacts-cache] fresh fetched_at=%d"
+                  % int(fetched_at), flush=True)
             return 200, self._contacts_payload(
-                friends, groups, source, fetched_at)
+                friends, groups, "fresh", fetched_at)
         _, stage, exc = result
         if stage == "groups":
             # Friends already succeeded before groups failed.
@@ -1050,10 +902,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(payload, status=status)
         # -- CHAT HOOK (module chat.py; diem moc duy nhat o do_GET) --
         # GET /api/thread/<id>/history?type=user|group&count=50
-        # PIVOT: nhom qua sidecar getGroupChatHistoryByAccount
-        # (API-MAP §6, count 1-1000; co the tra tu local-cache kem
-        # warning). 1-1: KHONG co endpoint — tra thong bao gioi han
-        # trung thuc + tin da gui/nhan trong phien (chat.py).
+        # Nhom: GET group/history (11240) that + tin da gui trong
+        # phien. 1-1: KHONG co endpoint HTTPS — tra thong bao gioi
+        # han trung thuc + tin da gui trong phien (chat.py).
+        # Auth: _require_login (phien Zalo). Dang nhap app
+        # (user/mat khau) chua co trong ban copy nay — integrator
+        # phai gan them kiem tra dang nhap app o day khi phan do
+        # xong (xem BAO-CAO-CHAT.md).
         if path.startswith("/api/thread/") and path.endswith("/history"):
             sess = self._require_login()
             if sess is None:
@@ -1073,43 +928,13 @@ class Handler(BaseHTTPRequestHandler):
                 count = 50
             count = max(1, min(count, 200))
             try:
+                transport = make_transport(sess["zpw_sek"])
+                chat = chat_mod.Chat(transport, sess["device_id"],
+                                     sess["zpw_enk"])
                 if thread_type == "group":
-                    client = STATE.addon_client()
-                    if client is None:
-                        return self._send_json(
-                            {"error": "addon_unavailable: sidecar chua "
-                             "chay hoac chua cau hinh"}, status=502)
-                    try:
-                        env = client.group_history_full(thread_id,
-                                                        count)
-                    except addon_client_mod.AddonUnreachable as e:
-                        return self._send_json(
-                            {"error": "addon_unavailable: %s" % e},
-                            status=502)
-                    except addon_client_mod.AddonAuthError as e:
-                        return self._send_json(
-                            {"error": "addon_unavailable: %s" % e},
-                            status=502)
-                    except addon_client_mod.AddonError as e:
-                        return self._send_json({"error": str(e)},
-                                               status=502)
-                    data = env.get("data") if isinstance(env, dict) else {}
-                    if not isinstance(data, dict):
-                        data = {}
-                    items = data.get("groupMsgs") or []
-                    result = {
-                        "messages": [
-                            chat_mod.normalize_addon_group_message(it)
-                            for it in items],
-                        "has_more": bool(data.get("more")),
-                        "raw": data,
-                        "source": env.get("source", ""),
-                        "group_name": env.get("groupName", ""),
-                    }
-                    if env.get("warning"):
-                        result["warning"] = env["warning"]
+                    result = chat.history_group(thread_id, count)
                 else:
-                    result = chat_mod.history_user_unavailable()
+                    result = chat.history_user_unavailable()
                 sent = STATE.chat_store.sent_for(thread_type, thread_id)
                 seen_ids = {m.get("id") for m in result["messages"]}
                 merged = list(result["messages"]) + [
@@ -1125,6 +950,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"error": str(e)}, status=502)
         return self._send_json({"error": "not_found"}, status=404)
 
+    def _chat_client(self, sess):
+        """Chat client cho mot phien Zalo (transport mang cookie
+        zpw_sek + http_post_multipart cho upload file)."""
+        transport = make_transport(sess["zpw_sek"])
+        return chat_mod.Chat(transport, sess["device_id"],
+                             sess["zpw_enk"])
+
     def _read_raw(self):
         try:
             length = int(self.headers.get("Content-Length") or 0)
@@ -1132,53 +964,12 @@ class Handler(BaseHTTPRequestHandler):
             length = 0
         return self.rfile.read(length) if length else b""
 
-    @staticmethod
-    def _addon_msg_id(data):
-        """msgId de hien tin vua gui: sidecar tra data.message.msgId
-        (number, API-MAP §4.2 — KHONG co cliMsgId trong response) hoac
-        data.attachment[].msgId. Tra "" khi khong co."""
-        if not isinstance(data, dict):
-            return ""
-        msg = data.get("message")
-        if isinstance(msg, dict) and msg.get("msgId") is not None:
-            return str(msg["msgId"])
-        atts = data.get("attachment")
-        if isinstance(atts, list) and atts:
-            first = atts[0]
-            if isinstance(first, dict) and first.get("msgId") is not None:
-                return str(first["msgId"])
-        return ""
-
-    def _stage_upload(self, filename, data_bytes):
-        """Luu upload xuong <data_dir>/tmp roi phat hanh URL loopback
-        cho sidecar tai ve (sidecar chi tai qua HTTP/HTTPS — API-MAP
-        §4.3). Tra ve (staging_path, url, token); caller PHAI xoa
-        file + unpublish sau khi gui (xem _handle_thread_post)."""
-        safe = "".join(c for c in os.path.basename(filename or "file")
-                       if c.isalnum() or c in ("-", "_", ".")).strip(".")
-        if not safe:
-            safe = "file"
-        tmpdir = os.path.join(STATE.data_dir, "tmp")
-        os.makedirs(tmpdir, exist_ok=True)
-        staging = os.path.join(
-            tmpdir, "%d-%s-%s" % (int(time.time() * 1000),
-                                  os.urandom(4).hex(), safe))
-        with open(staging, "wb") as f:
-            f.write(data_bytes)
-        url, token = STATE.media_server().publish(staging)
-        return staging, url, token
-
     def _handle_thread_post(self, path):
-        """-- CHAT HOOK (diem moc duy nhat o do_POST) --
+        """-- CHAT HOOK (module chat.py; diem moc duy nhat o do_POST) --
         POST /api/thread/<id>/send | sendfile | sendvoice | typing
-        | seen. Tat ca can _require_login (phien Zalo).
-        PIVOT addon-embedded: moi thao tac di qua sidecar zalobot
-        (zca-js sendMessage) — day la sua send-114: khong con clientId
-        tu sinh dang epoch-hex STRING, khong con duong PC truc tiep
-        (chat.py cu da xoa). Upload: luu /data/tmp -> URL loopback ->
-        sidecar tai -> xoa sau khi gui. Sidecar chet -> 502
-        addon_unavailable, khong bia du lieu. sendfile/sendvoice la
-        multipart (doc raw, khong doc JSON nhu cac POST khac)."""
+        | seen. Tat ca can _require_login (phien Zalo); dang nhap app chua co trong ban copy — xem ghi
+        chu o route history tren. sendfile/sendvoice la multipart
+        (doc raw, khong doc JSON nhu cac POST khac)."""
         import urllib.parse as _up
         segs = [s for s in path.split("/") if s]
         # segs = ["api", "thread", <id>, <action>]
@@ -1205,32 +996,27 @@ class Handler(BaseHTTPRequestHandler):
         if thread_type not in ("user", "group"):
             return self._send_json({"error": "type phai la user|group"},
                                    status=400)
-        client = STATE.addon_client()
-        if client is None:
-            return self._send_json(
-                {"error": "addon_unavailable: sidecar chua chay hoac "
-                 "chua cau hinh"}, status=502)
-        ttype = 1 if thread_type == "group" else 0
         try:
+            chat = self._chat_client(sess)
             if action == "send":
                 message = (body.get("message") or "").strip()
                 if not message:
                     return self._send_json({"error": "message rong"},
                                            status=400)
-                data = client.send_message(thread_id, ttype, message)
+                res = chat.send_text(thread_type, thread_id, message)
                 local = STATE.chat_store.local_message(
                     thread_type, thread_id, "text", text=message,
-                    client_id=self._addon_msg_id(data))
+                    client_id=res["client_id"])
                 STATE.chat_store.record_sent(thread_type, thread_id,
                                              local)
-                return self._send_json({"ok": True, "data": data,
+                return self._send_json({"ok": True, "data": res["data"],
                                         "message": local})
             if action == "typing":
-                data = client.typing(thread_id)
+                data = chat.send_typing(thread_type, thread_id)
                 return self._send_json({"ok": True, "data": data})
             if action == "seen":
                 msg_ids = body.get("msg_ids") or []
-                data = client.seen(thread_id, ttype, msg_ids)
+                data = chat.send_seen(thread_type, thread_id, msg_ids)
                 return self._send_json({"ok": True, "data": data})
             # sendfile / sendvoice: multipart, field file = fileContent.
             files = body["_files"]
@@ -1242,132 +1028,50 @@ class Handler(BaseHTTPRequestHandler):
             if len(data_bytes) > 100 * 1024 * 1024:
                 return self._send_json({"error": "file qua lon (>100MB)"},
                                        status=400)
-            staging, url, token = self._stage_upload(filename,
-                                                     data_bytes)
-            try:
-                if action == "sendfile":
-                    kind = fields.get("kind") or "file"
-                    if kind == "photo":
-                        data = client.send_image(thread_id, ttype, url,
-                                                 message=filename)
-                        local_kind = "photo"
-                    else:
-                        data = client.send_file(thread_id, ttype, url,
-                                                message="")
-                        local_kind = "file"
+            if action == "sendfile":
+                kind = fields.get("kind") or "file"
+                if kind == "photo":
+                    try:
+                        width = int(fields.get("width") or 0)
+                        height = int(fields.get("height") or 0)
+                    except ValueError:
+                        width, height = 0, 0
+                    res = chat.send_photo(thread_type, thread_id,
+                                          filename, data_bytes, mime,
+                                          width, height)
+                    local_kind = "photo"
                 else:
-                    # sendvoice: file ghi am cua trinh duyet
-                    # (MediaRecorder). Ten file giu nguyen (thuong
-                    # .webm, khong phai .mp3); sidecar doi sang AAC
-                    # truoc khi gui (API-MAP §4.5).
-                    data = client.send_voice(thread_id, ttype, url)
-                    local_kind = "voice"
-            finally:
-                STATE.media_server().unpublish(token)
-                try:
-                    os.remove(staging)
-                except OSError:
-                    pass
+                    res = chat.send_file(thread_type, thread_id,
+                                         filename, data_bytes, mime)
+                    local_kind = "file"
+                local = STATE.chat_store.local_message(
+                    thread_type, thread_id, local_kind,
+                    text=filename, file_name=filename,
+                    client_id=res["client_id"])
+                STATE.chat_store.record_sent(thread_type, thread_id,
+                                             local)
+                return self._send_json({"ok": True, "data": res["data"],
+                                        "message": local})
+            # sendvoice: file ghi am cua trinh duyet (MediaRecorder).
+            # Ten file giu nguyen (thuong .webm, khong phai .mp3) —
+            # xem ghi chu o chat.py; Zalo that co the tu choi file
+            # khong phai mp3.
+            res = chat.send_voice(thread_type, thread_id, filename,
+                                  data_bytes, mime)
             local = STATE.chat_store.local_message(
-                thread_type, thread_id, local_kind,
-                text=filename, file_name=filename,
-                client_id=self._addon_msg_id(data))
+                thread_type, thread_id, "voice", text=filename,
+                file_name=filename, client_id=res["client_id"])
             STATE.chat_store.record_sent(thread_type, thread_id, local)
-            out = {"ok": True, "data": data, "message": local}
-            if action == "sendvoice":
-                out["note"] = ("Thu am tai trinh duyet roi gui file "
-                               "(khong phai ghi am native cua Zalo PC).")
-            return self._send_json(out)
-        except addon_client_mod.AddonUnreachable as e:
-            return self._send_json(
-                {"error": "addon_unavailable: %s" % e}, status=502)
-        except addon_client_mod.AddonAuthError as e:
-            return self._send_json(
-                {"error": "addon_unavailable: %s" % e}, status=502)
-        except addon_client_mod.AddonError as e:
-            return self._send_json({"error": str(e)}, status=502)
+            return self._send_json({"ok": True, "data": res["data"],
+                                    "message": local,
+                                    "note": "Thu am tai trinh duyet "
+                                    "roi gui file (khong phai ghi am "
+                                    "native cua Zalo PC)."})
         except Exception as e:  # noqa: BLE001
             return self._send_json({"error": str(e)}, status=502)
 
-    def _handle_addon_events(self):
-        """POST /api/addon/events?family=message|group_event|reaction
-        — receiver cho webhook cua sidecar (PIVOT addon-embedded).
-
-        Flow (API-MAP §5.3/§7): sidecar listener nhan message /
-        group_event / reaction -> POST verbatim (+ _accountId) toi
-        URL nay (do app cau hinh qua POST /api/account-webhook) ->
-        app luu tin vao chat_store (UI tu cap nhat) + RELAY tiep toi
-        URL webhook HA ma user da cau hinh (webhooks.json) qua
-        WebhookDispatcher — khong cat luong HA cu. Luat loc tin tu
-        gui (isSelf) duoc giu NGUYEN trong dispatcher (chi relay
-        khi self_reply=true), giong addon.
-        CHI nhan tu loopback (127.0.0.1 / ::1): sidecar chay cung
-        container nen day la du. Khong doi app login (sidecar khong
-        co cookie app) — kiem tra dia chi nguon la bien bao ve duy
-        nhat, nen phai chat: khong-loopback -> 403 ngay."""
-        remote = self.client_address[0]
-        if remote not in ("127.0.0.1", "::1"):
-            return self._send_json({"error": "forbidden"}, status=403)
-        qs = urllib.parse.parse_qs(
-            urllib.parse.urlparse(self.path).query)
-        family = (qs.get("family", [""])[0] or "").strip()
-        if family not in ("message", "group_event", "reaction"):
-            return self._send_json(
-                {"error": "family phai la message|group_event|reaction"},
-                status=400)
-        event = self._read_json()
-        if not isinstance(event, dict):
-            return self._send_json(
-                {"error": "event phai la doi tuong JSON"}, status=400)
-        account_id = str(event.get("_accountId") or "")
-        if not account_id and STATE.session:
-            account_id = STATE.session.get("uid", "") or ""
-        relayed = False
-        try:
-            if family == "message":
-                data = event.get("data") \
-                    if isinstance(event.get("data"), dict) else {}
-                thread_type = ("group" if event.get("type") == 1
-                               else "user")
-                thread_id = str(event.get("threadId")
-                                or data.get("idTo") or "")
-                if thread_id:
-                    msg = chat_mod.normalize_addon_group_message(event)
-                    msg["direction"] = "in"
-                    msg["status"] = "received"
-                    STATE.chat_store.record_received(
-                        thread_type, thread_id, msg)
-                # Lam phang ve shape WebhookDispatcher doi hoi
-                # (threadId/type/senderId/msgId/content/isSelf).
-                flat = {"threadId": thread_id,
-                        "type": event.get("type", 0),
-                        "senderId": str(data.get("uidFrom", "")),
-                        "msgId": str(data.get("msgId", "")),
-                        "content": data.get("content", ""),
-                        "isSelf": bool(event.get("isSelf", False))}
-                if event.get("self_reply"):
-                    flat["self_reply"] = True
-                if event.get("tag_khop"):
-                    flat["tag_khop"] = event["tag_khop"]
-                relayed = webhooks_mod.dispatch_message(
-                    STATE.webhook_dispatcher, flat, account_id)
-            elif family == "group_event":
-                relayed = webhooks_mod.dispatch_group_event(
-                    STATE.webhook_dispatcher, event, account_id)
-            else:
-                relayed = webhooks_mod.dispatch_reaction(
-                    STATE.webhook_dispatcher, event, account_id)
-        except Exception:  # noqa: BLE001 - relay khong duoc pha POST
-            print("[addon-events] relay error", flush=True)
-        return self._send_json({"ok": True, "family": family,
-                                "relayed": bool(relayed)})
-
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        # Receiver webhook cua sidecar: loopback-only, khong qua
-        # cong dang nhap app (xem _handle_addon_events).
-        if path == "/api/addon/events":
-            return self._handle_addon_events()
         # CHAT HOOK: route /api/thread/* doc o _handle_thread_post
         # (multipart thi doc raw, khong doc JSON truoc).
         if path.startswith("/api/thread/"):
@@ -1659,13 +1363,6 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = STATE.webhook_store.save(body)
             except ValueError as e:
                 return self._send_json({"error": str(e)}, status=400)
-            # PIVOT: cau hinh HA URL cua user van luu o day (local,
-            # shape khong doi — ca call_webhook_url ma sidecar khong
-            # co). Dong thoi tro 3 webhook cua sidecar ve receiver
-            # cua app (nen, khong chan response) de su kien den di
-            # qua /api/addon/events roi relay tiep toi URL HA.
-            threading.Thread(target=STATE.sync_addon_webhooks,
-                             daemon=True).start()
             return self._send_json({"ok": True, "config": cfg})
         # WEBHOOK HOOK (webhooks.py): «Gửi thử» one family. Body:
         # {"kind": "message"|"group_event"|"reaction"|"call"}.
