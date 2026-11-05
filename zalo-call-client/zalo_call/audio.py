@@ -3,20 +3,25 @@
 Status, stated honestly (bao-cao.md §7, pcap report):
 - Media rides a ZRTP relay over UDP port 4200, 20 ms frames at
   48 kHz, header type 03 (uplink) / 04 (downlink). The packet
-  header is implemented here (MediaPacket); the payload is opaque
-  (SRTP) and is NOT implemented.
+  header is implemented here (MediaPacket); the relay payload
+  format (whether it embeds a full RTP packet) is NOT pinned —
+  see srtp.py's integration-gap note before wiring SRTP into
+  the relay path.
 - Opus encode/decode is REAL: it binds libopus.so (x86-64, v1.4)
   via ctypes — no opuslib needed. If libopus is absent, OpusCodec
   raises OpusUnavailable (a clear error, not a silent stub).
-- SRTP protect/unprotect is a STUB: SrtpSession raises
-  SrtpUnavailable by design. The AudioPipeline takes protect/
-  unprotect as injectable callables; tests may pass identity
-  functions explicitly labeled test-only, which must never be
-  mistaken for real SRTP.
-- Mic/speaker are ABSTRACT interfaces. File/Silent/Null
+- SRTP protect/unprotect is REAL (libsrtp2 via ctypes, see
+  srtp.SrtpSession): AES-CM-128-HMAC-SHA1-80 and AES-GCM
+  128/256 suites, standard RTP packets. Keys are injected from
+  call setup, never generated here.
+- Mic/speaker are ABSTRACT interfaces. File/Silent/Null/stream
   implementations are provided; a real device mic/speaker or a
   TTS source is injected by the outer layer (TtsSource wraps a
   caller-supplied synthesize(text) -> PCM-bytes callable).
+  Stream sources/sinks take any binary stream (pipe, stdin/stdout,
+  socket file object) so HA/R1 can feed audio in and out — the
+  container is deliberately NOT assumed to have /dev/snd (on the
+  server, mic/speaker live at HA/R1, not in the container).
 """
 
 import ctypes
@@ -28,6 +33,7 @@ import time
 from abc import ABC, abstractmethod
 
 from zalo_call.errors import OpusUnavailable, SrtpUnavailable, ZaloCallError
+from zalo_call.srtp import SrtpSession  # noqa: F401  (re-exported)
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +95,48 @@ class SilentMicSource(MicSource):
 
     def read_frame(self) -> bytes:
         return b"\x00" * FRAME_BYTES
+
+
+class StreamMicSource(MicSource):
+    """Reads raw PCM16 mono 48 kHz frames from any binary stream.
+
+    The stream may be a pipe, sys.stdin.buffer, or a socket file
+    object — this is how HA/R1 feed live audio into the container
+    without the container owning /dev/snd. Short reads are
+    buffered until a full frame is available; a trailing partial
+    frame at EOF is dropped (padding it would inject fake audio).
+    """
+
+    def __init__(self, stream) -> None:
+        self._stream = stream
+        self._buf = bytearray()
+
+    def read_frame(self) -> bytes:
+        while len(self._buf) < FRAME_BYTES:
+            chunk = self._stream.read(FRAME_BYTES - len(self._buf))
+            if not chunk:
+                return b""
+            self._buf += chunk
+        frame = bytes(self._buf[:FRAME_BYTES])
+        del self._buf[:FRAME_BYTES]
+        return frame
+
+
+class StreamSpeakerSink(SpeakerSink):
+    """Writes raw PCM16 mono 48 kHz frames to any binary stream.
+
+    Each frame is flushed immediately so pipes/sockets deliver
+    audio with no extra buffering delay.
+    """
+
+    def __init__(self, stream) -> None:
+        self._stream = stream
+
+    def write_frame(self, pcm: bytes) -> None:
+        self._stream.write(pcm)
+        flush = getattr(self._stream, "flush", None)
+        if flush is not None:
+            flush()
 
 
 class NullSpeakerSink(SpeakerSink):
@@ -218,25 +266,16 @@ class OpusCodec:
             self._dec = None
 
 
-# ------------------------------------------------------------------ SRTP stub
+# ------------------------------------------------------------------ SRTP
 
-class SrtpSession:
-    """STUB — SRTP is NOT implemented.
-
-    The native engine's SRTP protect/unprotect (bao-cao.md §7) has
-    no portable x86 implementation in this package yet. Any call
-    raises SrtpUnavailable so a missing media path can never be
-    mistaken for a working one. When a real SRTP library is wired
-    in, this class is replaced by an implementation with the same
-    protect/unprotect signature.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        raise SrtpUnavailable(
-            "SRTP not implemented yet: no libsrtp binding is wired in "
-            "(see README TODO). Use identity protect/unprotect only "
-            "in offline tests, explicitly labeled test-only."
-        )
+# The real implementation lives in srtp.py (libsrtp2 via ctypes)
+# and is re-exported here so existing imports keep working:
+#   from zalo_call.audio import SrtpSession
+# NOTE: SrtpSession protects STANDARD RTP packets. Whether the
+# ZRTP relay payload embeds a full RTP packet is still UNCONFIRMED
+# (see srtp.py's integration-gap note); do NOT feed raw Opus
+# packets from AudioPipeline into SrtpSession until the
+# relay-payload <-> RTP mapping is known.
 
 
 # ------------------------------------------------------------------ media packets
@@ -297,8 +336,11 @@ class AudioPipeline:
     """Mic -> Opus encode -> protect -> network send, and the reverse.
 
     protect/unprotect are injectable callables (bytes -> bytes).
-    By default they raise SrtpUnavailable (the SRTP stub). Tests
-    pass identity functions explicitly labeled test-only.
+    By default they raise SrtpUnavailable (no session wired in);
+    a real call wires SrtpSession.protect/unprotect here — but
+    only once the relay-payload <-> RTP mapping is known (see
+    srtp.py). Tests pass identity functions explicitly labeled
+    test-only.
     """
 
     def __init__(
@@ -325,11 +367,11 @@ class AudioPipeline:
 
     @staticmethod
     def _stub_protect(data: bytes) -> bytes:
-        raise SrtpUnavailable("SRTP protect not implemented (stub)")
+        raise SrtpUnavailable("no SRTP session wired into the pipeline")
 
     @staticmethod
     def _stub_unprotect(data: bytes) -> bytes:
-        raise SrtpUnavailable("SRTP unprotect not implemented (stub)")
+        raise SrtpUnavailable("no SRTP session wired into the pipeline")
 
     def start(self) -> None:
         self._thread = threading.Thread(

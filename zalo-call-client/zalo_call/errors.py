@@ -33,3 +33,13 @@ class SrtpUnavailable(ZaloCallError):
     material comes from the media handshake, which is not yet done.
     This error is intentional — media must not pretend to work.
     """
+
+
+class SrtpError(ZaloCallError):
+    """Raised when a libsrtp protect/unprotect/create call fails
+    (auth failure, replay failure, bad parameters, ...)."""
+
+
+class MissingSecretsError(ZaloCallError):
+    """Raised when runtime secrets required for a real call are
+    missing. The message lists secret NAMES only, never values."""

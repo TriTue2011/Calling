@@ -87,6 +87,33 @@ def build_401_mode2(
     return w.build(), param_byte
 
 
+# ---------------------------------------------------------------- 401 modes
+
+# 401 mode summary (layouts from giai-ma-packet.md §5; SEMANTICS
+# UNCONFIRMED — which field carries the thread id / call id, and
+# what distinguishes modes 1/2/3, must be confirmed against a real
+# handshake; see README TODO). Use build_401() to select a mode;
+# the mode-1 thread_id mapping in client.make_call (thread_id ->
+# str2, the first string field) is a documented guess.
+MODE_401_MODE1 = "mode 1/3: b1(mode) b1(4) g4 g4 h2+s g4 h2+s h2+s"
+MODE_401_MODE2 = "mode 2: b1(mode) b1(len) s g4 h2+s"
+
+
+def build_401(mode: int, **kwargs) -> tuple[bytes, int]:
+    """Build 401 params for the given mode (1/2/3).
+
+    Mode 1 and 3 share the mode-1 layout; mode 2 uses its own
+    layout. Keyword arguments are forwarded to the mode builder
+    (mode 1: i, i5, str2, i9, str3, str4, param_byte; mode 2:
+    first_str, i5, str2, param_byte).
+    """
+    if mode in (1, 3):
+        return build_401_mode1(mode=mode, **kwargs)
+    if mode == 2:
+        return build_401_mode2(mode=mode, **kwargs)
+    raise ValueError(f"unknown 401 mode: {mode}")
+
+
 def build_402(
     i1: int = 0,
     b: int = 0,

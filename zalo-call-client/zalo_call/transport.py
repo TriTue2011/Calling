@@ -25,11 +25,19 @@ Wire frame (confirmed on real pcap, bao-cao.md §5, bao-cao-transport.md §2):
 
     Prov: ECDH via X25519 (32-byte public keys — the curve is inferred
     from the 32-byte server pubkey, NOT absolutely confirmed). The
-    shared-secret -> GCM-key derivation is NOT documented in the
-    disassembly reports, so it is a pluggable hook (default: raise).
-    The identities of the trailing 32-byte fields A/B are likewise
-    unconfirmed (bao-cao-transport.md S2): callers must supply them
-    explicitly; this module never fabricates them.
+    shared-secret -> GCM-key derivation has NO isolated KDF step in
+    the disassembly (bao-cao-transport.md §2.4: AESGCM256Encrypt
+    "with the shared secret derived from ECDH"); see
+    prov_kdf.identity_kdf for the literal-reading hypothesis
+    (shared secret used directly as the 32-byte key), which is
+    UNCONFIRMED and replaceable via the ecdh_kdf hook. The
+    identities of the trailing 32-byte fields A/B are likewise
+    partly unconfirmed (bao-cao-transport.md S2): A is
+    HYPOTHESIZED to be the sender's public-key material (so the
+    server can derive the same shared secret) — in the ECDH path,
+    a defaults to the ephemeral client public key; B's identity is
+    unpinned, so the caller must supply it explicitly. This module
+    never fabricates B.
 
     CBCXor+MD5 fallback: the exact CBCXor construction is NOT
     documented either. This module implements the frame LAYOUT
@@ -38,7 +46,13 @@ Wire frame (confirmed on real pcap, bao-cao.md §5, bao-cao-transport.md §2):
     On decode, wire inner+2 frames are tried as GCM first, then as
     CBC fallback when a cipher hook is configured — an interpretation,
     flagged as such, because the reports do not pin a distinct
-    wire_type for CBC frames.
+    wire_type for CBC frames. Static-analysis note (not a proven
+    construction): the pcap XOR-identical trace (§2.6 — cipher
+    differs exactly where plaintext differs) is characteristic of
+    a STREAM cipher, not CBC (which would avalanche after the
+    first differing block), so the unknown key schedule is most
+    plausibly a repeating-key XOR stream; the key schedule itself
+    is unknown and no candidate is implemented here.
 """
 
 import hashlib
@@ -49,6 +63,10 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey,
     X25519PublicKey,
+)
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    PublicFormat,
 )
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -157,8 +175,8 @@ def gcm_decrypt_with_retry(
 def prov_encrypt(
     inner_type: int,
     message: bytes,
-    a: bytes,
-    b: bytes,
+    a: bytes | None = None,
+    b: bytes | None = None,
     gcm_key: bytes | None = None,
     server_pubkey: bytes | None = None,
     ecdh_kdf=None,
@@ -167,24 +185,27 @@ def prov_encrypt(
     """Build a Prov wire frame.
 
     Returns (wire_frame, client_pubkey_or_None). Either pass gcm_key
-    directly (tests / known-key paths) or server_pubkey + ecdh_kdf
-    (real ECDH path: ephemeral X25519 keypair, shared secret ->
-    ecdh_kdf(shared) -> 32-byte GCM key). a and b are the two
-    trailing 32-byte fields; their identities are UNCONFIRMED, so
-    the caller must supply them explicitly. For the ECDH path, a
-    defaults to the ephemeral client public key; b must be supplied.
+    directly (tests / known-key paths; then a and b are both
+    required) or server_pubkey + ecdh_kdf (real ECDH path:
+    ephemeral X25519 keypair, shared secret -> ecdh_kdf(shared) ->
+    32-byte GCM key). In the ECDH path, a defaults to the
+    ephemeral client public key (HYPOTHESIS S2: A = sender
+    public-key material); b must always be supplied explicitly
+    (its identity is unpinned). For a recommended ecdh_kdf see
+    prov_kdf.identity_kdf (hypothesis, UNCONFIRMED).
     """
     if inner_type not in (2, 4):
         raise FrameError(f"Prov inner_type must be 2 or 4, got {inner_type}")
-    if len(a) != PROV_AB_LEN or len(b) != PROV_AB_LEN:
-        raise FrameError("Prov A and B fields must be exactly 32 bytes each")
+    if b is None or len(b) != PROV_AB_LEN:
+        raise FrameError("Prov B field must be exactly 32 bytes")
     client_pubkey = None
     if gcm_key is None:
         if server_pubkey is None or ecdh_kdf is None:
             raise DecryptError(
                 "Prov encryption needs gcm_key, or server_pubkey + "
-                "ecdh_kdf (shared-secret -> GCM key derivation is "
-                "TODO: not documented in the disassembly reports)"
+                "ecdh_kdf (see prov_kdf.identity_kdf for the "
+                "unconfirmed hypothesis; the KDF is not documented "
+                "in the disassembly reports)"
             )
         if len(server_pubkey) != 32:
             raise FrameError("Prov server pubkey must be 32 bytes")
@@ -193,9 +214,16 @@ def prov_encrypt(
             X25519PublicKey.from_public_bytes(server_pubkey)
         )
         gcm_key = ecdh_kdf(shared)
-        client_pubkey = ephemeral.public_key().public_bytes()
+        client_pubkey = ephemeral.public_key().public_bytes(
+            Encoding.Raw, PublicFormat.Raw
+        )
         if len(gcm_key) != 32:
             raise DecryptError("ecdh_kdf must return a 32-byte GCM key")
+        if a is None:
+            # HYPOTHESIS S2: A = sender public-key material.
+            a = client_pubkey
+    if a is None or len(a) != PROV_AB_LEN:
+        raise FrameError("Prov A field must be exactly 32 bytes")
     if nonce is None:
         nonce = os.urandom(GCM_NONCE_LEN)
     cipher_and_tag = _aesgcm(gcm_key).encrypt(nonce, message, None)

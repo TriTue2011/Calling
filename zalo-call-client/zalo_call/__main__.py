@@ -5,14 +5,20 @@ this package deliberately does NOT supply (see README). The CLI
 therefore offers only:
   --help        usage
   --self-check  offline verification: Req build + checksum + GCM
-                round-trip + Opus round-trip (if libopus present).
+                round-trip + Opus round-trip (if libopus present)
+                + SRTP round-trip (if libsrtp2 present).
                 Exits 0 when every offline check passes.
+  --check-call-ready
+                report whether the runtime secrets for a real call
+                are present (names only, never values). Exits 0
+                when ready, 2 when secrets are missing.
 """
 
 import argparse
 import sys
 
 from zalo_call.req import Message
+from zalo_call.secrets import check_call_ready
 from zalo_call.transport import gcm_decrypt, gcm_encrypt
 
 
@@ -69,10 +75,39 @@ def self_check() -> int:
             failures.append(f"opus: {exc}")
             print(f"FAIL opus: {exc}")
 
+    # 4. SRTP round-trip with a test key (skipped when libsrtp2
+    #    is absent; the Dockerfile installs libsrtp2-1).
+    try:
+        import struct
+
+        from zalo_call.srtp import SrtpSession
+
+        key = bytes(range(30))
+        with SrtpSession(key) as sess:
+            rtp = struct.pack(">BBHII", 0x80, 111, 1, 960, 7) + b"opus"
+            assert sess.unprotect(sess.protect(rtp)) == rtp
+        print("PASS srtp round-trip (aes_cm_128_hmac_sha1_80)")
+    except Exception as exc:  # noqa: BLE001
+        if "libsrtp" in str(exc) or "SrtpUnavailable" in type(exc).__name__:
+            print("SKIP srtp (libsrtp2 not present)")
+        else:
+            failures.append(f"srtp: {exc}")
+            print(f"FAIL srtp: {exc}")
+
     if failures:
         print(f"self-check FAILED: {len(failures)} failure(s)")
         return 1
     print("self-check OK (offline checks only; no real call attempted)")
+    return 0
+
+
+def check_ready() -> int:
+    missing = check_call_ready()
+    if missing:
+        print("not ready for a real call; missing secrets: " + ", ".join(missing))
+        print("(names only — provide via ZALO_* env vars or a mounted secrets file)")
+        return 2
+    print("ready for a real call (secrets present; validity unproven until a call)")
     return 0
 
 
@@ -81,7 +116,7 @@ def main(argv=None) -> int:
         prog="python -m zalo_call",
         description=(
             "Zalo voice-call signaling client (signaling complete per "
-            "disassembly spec; SRTP + real session still TODO). "
+            "disassembly spec; real session + p/q still TODO). "
             "There is no real-call mode: a mobile socket session and "
             "p/q values are required and must be supplied by the "
             "outer layer, never by this CLI."
@@ -92,9 +127,16 @@ def main(argv=None) -> int:
         action="store_true",
         help="run offline verification checks and exit",
     )
+    parser.add_argument(
+        "--check-call-ready",
+        action="store_true",
+        help="report whether runtime secrets for a real call are present",
+    )
     args = parser.parse_args(argv)
     if args.self_check:
         return self_check()
+    if args.check_call_ready:
+        return check_ready()
     parser.print_help()
     return 0
 

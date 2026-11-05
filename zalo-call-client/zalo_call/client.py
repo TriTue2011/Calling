@@ -34,11 +34,12 @@ from zalo_call.errors import (
     ZaloCallError,
 )
 from zalo_call.keyset import KeySet
+from zalo_call.secrets import require_call_secrets
 from zalo_call.req import MSG_TYPE_VOIP, Message
 from zalo_call.signaling import (
     CallStateMachine,
     Opcode,
-    build_401_mode1,
+    build_401,
     build_402,
     build_409,
     build_425,
@@ -62,7 +63,15 @@ DEFAULT_INNER_TYPE = 2
 
 
 class ClientConfig:
-    """Connection configuration. All session/key material is injected."""
+    """Connection configuration. All session/key material is injected.
+
+    require_secrets (default True): make_call() — the real-call
+    entry point — refuses to run unless the runtime secrets
+    (p, q, session, SRTP key; see secrets.py) are present, either
+    passed as `secrets` or loaded from env / a mounted secrets
+    file. Offline tests that exercise make_call without secrets
+    must pass require_secrets=False explicitly.
+    """
 
     def __init__(
         self,
@@ -79,6 +88,8 @@ class ClientConfig:
         cbc_cipher=None,
         prov_map_kdf=None,
         ecdh_kdf=None,
+        secrets: dict | None = None,
+        require_secrets: bool = True,
     ) -> None:
         self.talk_host = talk_host
         self.talk_port = talk_port
@@ -93,6 +104,8 @@ class ClientConfig:
         self.cbc_cipher = cbc_cipher
         self.prov_map_kdf = prov_map_kdf
         self.ecdh_kdf = ecdh_kdf
+        self.secrets = secrets
+        self.require_secrets = require_secrets
 
 
 class ZaloCallClient:
@@ -311,11 +324,16 @@ class ZaloCallClient:
         tts_text is stored for the audio pipeline (played when the
         call becomes ACTIVE); it is NOT a signaling param.
         """
+        if self.config.require_secrets:
+            # Real-call mode refuses to start without runtime
+            # secrets (p, q, session, SRTP key). The error lists
+            # missing NAMES only, never values.
+            require_call_secrets(self.config.secrets)
         logger.warning(
             "make_call thread_id mapping to 401/str2 is UNCONFIRMED "
             "(needs a real handshake to verify)"
         )
-        params, _h_byte = build_401_mode1(str2=thread_id)
+        params, _h_byte = build_401(1, str2=thread_id)
         msg = self._new_message(Opcode.REQUEST_CALL, params, sub_cmd=sub_cmd)
         self.send_message(msg, scheme="gcm")
         self.state.sent(Opcode.REQUEST_CALL)

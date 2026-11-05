@@ -4,4 +4,6 @@ __pycache__/
 venv/
 data/
 .env
+*.secret
+secrets/
 *.log

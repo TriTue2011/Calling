@@ -25,6 +25,9 @@ def _wire_client(peer_sock):
         talk_host="127.0.0.1",
         talk_port=1,
         keyset=KeySet(transport_key=TEST_KEY),
+        # Offline socketpair test, not a real call: the secret
+        # guard is covered separately in test_call_guards.py.
+        require_secrets=False,
     )
     client = ZaloCallClient(cfg)
     client._sock = peer_sock

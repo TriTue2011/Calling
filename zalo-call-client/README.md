@@ -42,34 +42,70 @@ here pretends otherwise.
   timestamp +960 per 20 ms frame).
 - **Opus codec**: real encode/decode via ctypes `libopus.so`
   (VOIP, 48 kHz, mono, 20 ms frames). No opuslib needed.
+- **SRTP**: real protect/unprotect via ctypes `libsrtp2`
+  (Debian `libsrtp2-1`, installed in the Dockerfile):
+  AES-CM-128-HMAC-SHA1-80, AES-CM-128-HMAC-SHA1-32,
+  AES-GCM-128-16 and AES-GCM-256-16, standard RTP packets.
+  Keys are injected from call setup, never generated here.
+  OPEN GAP: whether the ZRTP relay payload embeds a full RTP
+  packet is NOT pinned in the reports, so the relay-payload <->
+  RTP mapping is still TODO before wiring SRTP into the media
+  path (see `srtp.py`).
+- **Prov KDF (hypothesis)**: `prov_kdf.identity_kdf` — the
+  disassembly shows no isolated KDF step between ECDH and
+  AES-GCM-256, and an X25519 secret is exactly the 32 bytes a
+  GCM-256 key needs, so the literal reading is "secret used
+  directly". This is UNCONFIRMED and replaceable via the
+  `ecdh_kdf` hook; a real handshake must confirm or refute it.
+  In the ECDH path, Prov field A defaults to the ephemeral
+  client public key (hypothesis S2); B must be supplied
+  explicitly (identity unpinned).
 - **Abstract audio I/O**: `MicSource`/`SpeakerSink` interfaces with
-  file, silent, null, and TTS-backed implementations; `AudioPipeline`
+  file, silent, null, stream (pipe/stdin/stdout/socket — the
+  HA/R1 audio path; the container is NOT assumed to have
+  /dev/snd), and TTS-backed implementations; `AudioPipeline`
   wires mic → Opus → protect → network and back.
+- **Runtime secrets**: `secrets.py` loads p/q, session, SRTP key
+  from env vars or a mounted secrets file (mode 0600,
+  gitignored); `make_call` refuses to run when they are missing
+  (error lists NAMES only, never values); `--check-call-ready`
+  reports readiness. No real secret value is in this repo.
 
 ## What is NOT done (TODO, blocking a real call)
 
 1. **p/q values** (`CoreUtility.p` / `.q`): the server JSON values
    that seed the transport key. No real values are in this repo and
-   none may be committed.
+   none may be committed. They are injected at runtime only
+   (see `secrets.py`); `make_call` refuses to run without them.
 2. **Mobile socket session**: how the talk socket is authenticated
    (U5). The client takes a host/port and assumes a session.
-3. **Prov key derivation**: the shared-secret → GCM key KDF is not
-   documented in the disassembly; it is an injectable hook that
-   raises `NotImplementedError` by default.
-4. **Prov A/B field identities**: the two trailing 32-byte fields
-   are caller-supplied parameters, not interpreted here.
+   Injected at runtime only (see `secrets.py`).
+3. **Prov key derivation (UNCONFIRMED hypothesis)**: `identity_kdf`
+   (shared secret used directly as the GCM key) is implemented
+   but NOT proven — a real handshake with known keys must
+   confirm or refute it. The (s1, s2) string-pair receive-path
+   KDF has no formula proposed at all (hook raises until the
+   caller supplies one).
+4. **Prov B field identity**: unpinned; the caller must supply B
+   explicitly. A is hypothesized (sender public-key material)
+   and defaults to the ephemeral client pubkey in the ECDH path.
 5. **First Prov message content** (U4): caller-supplied; not invented.
 6. **CBCXor construction**: exact cipher + which header bytes feed
    the MD5 are not documented; the frame layout is implemented
-   with an injectable cipher hook (default: raise).
-7. **SRTP**: `SrtpSession` raises `SrtpUnavailable` by design.
-   Media payloads are opaque until a portable x86 SRTP library is
-   wired in. Test-only identity protect/unprotect functions are
-   never real SRTP.
+   with an injectable cipher hook (default: raise). Static-analysis
+   note: the pcap XOR-identical trace suggests a stream cipher,
+   not CBC, but the key schedule is unknown and no candidate is
+   implemented.
+7. **SRTP relay-payload mapping**: the SRTP primitive is real
+   (libsrtp2), but whether the ZRTP relay payload embeds a full
+   RTP packet is NOT pinned — do not wire SRTP into the media
+   path until that mapping is known (real call or further
+   libzrtc analysis).
 8. **401 field semantics**: which field carries the thread id, and
    the meaning of 401 modes 1/2/3, are unconfirmed. `make_call`
    maps thread_id to the first string field of a mode-1 401 and
-   logs that mapping as UNCONFIRMED.
+   logs that mapping as UNCONFIRMED. A `build_401(mode, ...)`
+   dispatcher now exists for all three modes.
 9. **Real-world test**: no test against a real server has been run.
    All tests are offline. Any future real test must use a secondary
    account only, never a primary account.
