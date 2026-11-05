@@ -72,6 +72,20 @@ class Signaling:
             callee_id, rtcp_address, rtp_address, codec, session, call_id,
             self.device_id, extend_data))
 
+    def send_request_group(self, callee_id, call_id, call_type, data,
+                           session, partners, group_id):
+        """Group media request (code 12434): POST-equivalent GET to
+        /api/voicecall/group/request with {calleeId, callId,
+        callType, data, session, partners, groupId} (bundle class
+        wZ sendRequestCallGroup). The 1-1 twin is send_request
+        (11301); a group call needs this step for the same reason —
+        without it the server holds an invitation with no media
+        endpoints, so the members' phones never ring."""
+        return self._call("group/request",
+                          protocol.vc_request_group(
+                              callee_id, call_id, call_type, data, session,
+                              partners, group_id))
+
     def ringring(self, caller_id, call_id):
         return self._call("ringring", protocol.vc_ringring(
             caller_id, call_id, self.device_id))

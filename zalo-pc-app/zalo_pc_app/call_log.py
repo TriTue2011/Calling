@@ -6,10 +6,21 @@ who was called, which thread, what kind, and the result. No session
 secrets, no audio, no message content ever enters this log.
 
 Statuses (Vietnamese labels live in the UI, not here):
-  sent   — the requestcall was accepted by the server, so the far end
-           rings; the call is live until it is ended or superseded.
+  sent   — the requestcall was accepted by the server. NOTE (7l):
+           that alone does NOT mean the far end rings: the server
+           only has a complete invitation once the follow-up
+           `request` step (11301 / 12434, carrying the caller's
+           media endpoints) is also sent. `request_sent` records
+           whether that second step went through; until the live
+           test confirms the far end rings, "sent" means "invitation
+           fully sent", not "the peer's phone is ringing".
   error  — the request failed; `detail` carries the error text.
   ended  — /api/call/end was called for this call_id.
+
+Each entry also carries `request_sent` (True/False/None — None
+means the request step was never attempted, e.g. entries recorded
+before §7l) and `request_detail` (the request step's error text
+when it failed, "" otherwise).
 
 The log is process memory only (a restart clears it) and capped at
 50 records — it is a monitor, not an archive.
@@ -38,10 +49,24 @@ class CallLog:
             entry = {"call_id": str(call_id), "peer": peer or "",
                      "thread_id": str(thread_id), "type": call_type,
                      "status": "sent", "started_at": now,
-                     "ended_at": None, "detail": ""}
+                     "ended_at": None, "detail": "",
+                     "request_sent": None, "request_detail": ""}
             self._calls.append(entry)
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
+
+    def record_request(self, call_id, sent, detail=""):
+        """Record the outcome of the follow-up `request` step
+        (11301 / 12434) for a live call: whether the media request
+        went through. Unknown ids are ignored."""
+        now = time.time()
+        with self._lock:
+            for c in self._calls:
+                if c["call_id"] == str(call_id) and c["status"] == "sent":
+                    c["request_sent"] = bool(sent)
+                    c["request_detail"] = detail or ""
+                    return dict(c)
+            return None
 
     def record_error(self, call_id, peer, thread_id, call_type, detail):
         now = time.time()
@@ -49,7 +74,8 @@ class CallLog:
             entry = {"call_id": str(call_id), "peer": peer or "",
                      "thread_id": str(thread_id), "type": call_type,
                      "status": "error", "started_at": now,
-                     "ended_at": now, "detail": detail or ""}
+                     "ended_at": now, "detail": detail or "",
+                     "request_sent": None, "request_detail": ""}
             self._calls.append(entry)
             del self._calls[:-MAX_RECORDS]
             return dict(entry)

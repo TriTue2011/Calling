@@ -1122,6 +1122,141 @@ lại nếu 114 vẫn còn: codec `"[]"` (xem mục 3 ở trên).
 
 ---
 
+### 7l. Gọi đi qua 114 nhưng ĐIỆN THOẠI BÊN KIA KHÔNG ĐỔ CHUÔNG — thiếu bước `request` (11301 / 12434) sau requestcall (chạy thật 17:51)
+
+**Triệu chứng chạy thật (ảnh user 17:51 +07):** redeploy 01f7ee7, gọi 1-1
+→ UI hiện «Đang đổ chuông», đồng hồ chạy tới 00:26, mục Cuộc gọi ghi lại
+lần gọi, KHÔNG còn lỗi 114. NHƯNG điện thoại người được gọi không hiện
+cuộc gọi đến. «Đang đổ chuông» trên UI chỉ là trạng thái cục bộ sau khi
+requestcall được chấp nhận — không phải xác nhận bên kia đã nhận.
+
+**Bằng chứng mới 17:54 (ảnh từ điện thoại user) — thay đổi hướng điều tra:**
+điện thoại của user đang ở màn hình gọi đi cho một bạn khác («BenBap —
+Đang đổ chuông») thì phía trên hiện banner CUỘC GỌI ĐẾN từ «Đại ca —
+Đang gọi đến» (nút Từ chối / Trả lời). Tức là điện thoại ĐÃ hiện cuộc gọi
+đến từ Đại ca, chỉ vài phút sau cuộc gọi PC 17:51 mà user báo «không
+thấy». Hai giả thuyết, CHƯA PHÂN BIỆT ĐƯỢC:
+(a) cuộc gọi từ app PC tới muộn — server giữ lời mời đến khi có đủ
+thông tin (hoặc đẩy chậm), tới nơi sau vài phút;
+(b) Đại ca thấy cuộc gọi nhỡ từ app PC nên gọi lại ngay.
+Cả hai đều nghĩa là: tín hiệu gọi ĐÃ tới được phía bên kia ở mức nào
+đó — không phải hoàn toàn không tới. Điều này loại giả thuyết «thiếu
+bước nên không tới được», và thêm hai khả năng phải kiểm: TRỄ chuyển
+tiếp, và cuộc gọi PC chỉ hiện thành «cuộc gọi nhỡ» ở bên kia thay vì
+đổ chuông ngay. **Cần user xác nhận trước khi kết luận: Đại ca gọi lại
+hay cuộc gọi PC tới muộn.** (Không ghi số điện thoại hay threadId cụ
+thể từ ảnh.)
+
+**Luồng đầy đủ của client thật — lần từ bundle (không đoán):**
+Zalo PC 26.11.10, renderer `compact-app-pc.*.js`:
+- UI bấm gọi → renderer `makeCall` chỉ gửi MỘT tin cho native engine
+  qua pipe: `{type:"request", command:"makeCall", data:{partner:[{id,
+  avatar, name}], type:1/3/5/6, groupInfo}}`. Mọi bước báo hiệu sau đó
+  đều do ENGINE quyết định, phát qua pipe `sendSignal` → main chuyển
+  cho renderer qua IPC `call-send-signal` → hàm `handleSendSignal`
+  (`dSignal`) map mã lệnh sang hàm HTTPS API (lớp wZ). Trích nguyên
+  văn hai case quan trọng:
+  `case 401: a=s.default.requestCall(n.calleeId,n.callId,n.codec,n.type);`
+  `case 416: a=s.default.sendRequestCall(n.calleeId,n.rtcpAddress,
+  n.rtpAddress,n.codec,n.extendData,n.session,n.callId);`
+  (case 407: `sendRingRingCall` — do BÊN NGHE gửi khi máy nó đổ chuông,
+  không phải bên gọi; case 402 answer, 408 answerack, 405 cancel, 409
+  endcall, 411–414 hold/unhold; nhóm: 12433 requestCallGroup, 12434
+  sendRequestCallGroup, 12435–12439.)
+- Lớp wZ, nguyên văn:
+  `static sendRequestCall(e,t,n,a,i,r,s){let l=.../api/voicecall/request?...,
+  c={calleeId:e,rtcpAddress:t,rtpAddress:n,codec:a,session:r,callId:o,
+  imei:D.a.getZaloClientID()};return i&&(c.extendData=i,c.subCommand=3),
+  ...this._get(l,null,11301)}`
+  và nhóm:
+  `static sendRequestCallGroup(e,t,n,a,i,r,o){.../api/voicecall/group/request?...,
+  c={calleeId:e,callId:t,callType:n,data:a,session:i,partners:r,groupId:o};
+  ...this._get(l,null,12434)}`
+- Các field của signal 416 đến từ NATIVE ENGINE, không phải renderer:
+  payload signal 416 trong ZaloCall.exe là `{command, calleeId, callId,
+  rtpAddress, rtcpAddress, extendData, session}` (strings còn liệt kê
+  `rtpAddressIPv6`, `rtcpAddressIPv6`, `rtcpIP`). Engine cấp các địa chỉ
+  relay này từ máy chủ relay ZRTP lúc bắt đầu gọi — pcap 2026-11-04 cho
+  thấy máy gọi bắt đầu setup media tới relay ~0,5 giây sau khi bấm gọi;
+  client mang cả cấu hình `timeoutMakeCall2ZRtp` cho bước này. Mobile
+  khớp 1-1: opcode 416 `voiceRequestCallZRTPWithExtendData` (`g4 g4` rồi
+  7 blob nhị phân — nội dung blob vẫn CHƯA BIẾT, xem giai-ma-packet.md).
+
+**Kết luận:** app cũ chỉ gửi bước 1 (11300). Hàm `send_request` (11301)
+đã có sẵn trong `signaling.py` từ giai đoạn 1 nhưng KHÔNG AI GỌI (dead
+code). Server chấp nhận requestcall nhưng chỉ giữ một lời mời chưa có
+địa chỉ media — nên máy bên kia không đổ chuông (hoặc đổ chuông muộn /
+chỉ hiện cuộc gọi nhỡ, đúng hai giả thuyết ở trên).
+
+**Đã sửa:**
+- `protocol.py`: thêm `vc_request_group` (12434) đúng dạng bundle;
+  `vc_request` (11301) đã có sẵn, đối chiếu lại khớp nguyên văn wZ.
+- `signaling.py`: thêm `send_request_group` (12434).
+- Mới `zalo_pc_app/media_endpoints.py` — seam cấp địa chỉ media cho
+  bước request. Giai đoạn 1 chưa có engine nên trả chuỗi rỗng cho
+  rtcp/rtp/session, không extendData, codec `"[]"` (cùng fallback như
+  requestcall). **Chuỗi rỗng là PLACEHOLDER, không phải địa chỉ thật —
+  server thật có chấp nhận hay không là CHƯA XÁC MINH, đúng là điều
+  test thật phải cho thấy.** Giai đoạn 2 engine sẽ thay provider này
+  bằng địa chỉ relay thật từ bắt tay ZRTP; không chỗ nào khác đổi.
+- `server.py` `/api/call/request`: sau requestcall thành công, gửi tiếp
+  bước request (1-1 → 11301; nhóm → 12434, calleeId lấy bằng groupId —
+  CHƯA XÁC MINH TỪ BUNDLE, xem dưới). Bước này là BEST-EFFORT: nếu
+  server từ chối (ví dụ 114 vì địa chỉ rỗng), cuộc gọi vẫn báo ok như
+  cũ (requestcall đã qua) nhưng trả về `request_sent=false` +
+  `request_error` và ghi vào call log, để phân biệt «lời mời có thể
+  chưa được chuyển» với «đã gửi đủ».
+- `call_log.py`: entry thêm `request_sent` (True/False/None) +
+  `request_detail`; phương thức `record_request`. Sửa luôn docstring cũ
+  ở `sent` — câu «requestcall được chấp nhận thì bên kia đổ chuông» là
+  SAI sau phát hiện này; «sent» giờ chỉ nghĩa là «lời mời đã gửi đủ»,
+  chưa phải «máy bên kia đang đổ chuông».
+- Mock `tests/mock_server.py`: theo dõi trạng thái từng callId
+  (`voice_calls`, `voice_call_state`): «requested» khi có requestcall,
+  «delivered» chỉ khi có thêm bước request cùng callId. Nhánh
+  `request` / `group/request`: chỉ kiểm tra những gì bundle chứng minh
+  được (calleeId + callId số uint32; nhóm thêm groupId) — KHÔNG kiểm
+  giá trị rtcp/rtp/session (mock không được bịa ra một lỗi từ chối mà
+  server thật chưa từng được thấy). Thêm `request_mode="error114"` để
+  test mô phỏng server từ chối bước 2.
+- Mới `tests/test_call_11301.py` 7 test: body 11301/12434 đúng dạng
+  bundle; luồng cũ (chỉ requestcall) → requested nhưng KHÔNG BAO GIỜ
+  delivered (tái hiện triệu chứng thật); luồng mới qua API thật →
+  đủ 2 bước đúng thứ tự, cùng callId, delivered, `request_sent=true`,
+  call log ghi nhận (cả 1-1 và nhóm); bước request lỗi → cuộc gọi vẫn
+  ok, `request_sent=false` + lỗi 114 ghi rõ; request không có
+  requestcall trước → không delivered. Toàn suite xanh 9/9; `node
+  --check app.js` + py_compile OK. Cập nhật `test_calls.py` (whitelist
+  key của snapshot thêm 2 key mới; `record_error` cũng mang đủ key để
+  dạng entry đồng nhất).
+- Phiên bản mới: `2026-11-05-call-11301`.
+
+**CHƯA XÁC MINH (ghi rõ, đừng claim):**
+1. Server thật có chấp nhận địa chỉ media rỗng ở bước 11301 không.
+   Nếu từ chối (114 hoặc mã khác), `request_error` trong response và
+   call log sẽ ghi rõ mã đó — đó là kết quả test thật cần thu thập,
+   không phải thất bại của bản sửa.
+2. `calleeId` của 12434 (gọi nhóm) lấy bằng groupId — giá trị này không
+   nhìn thấy trong đoạn bundle đã trích; nhóm là đích của cuộc gọi nên
+   đây là giả thuyết hợp lý nhất, cần kiểm chứng live.
+3. Nội dung thật của `session` / `extendData` (vật liệu ZRTP/relay) —
+   chỉ engine giai đoạn 2 mới cấp được; bản này chỉ chứng minh bước
+   báo hiệu đã đủ, chưa chứng minh tiếng đi được.
+4. «Đang đổ chuông» trên UI vẫn là trạng thái cục bộ (chưa có kênh
+   sync O3 để nhận 407 ringring thật từ bên kia) — chỉ test thật với
+   máy bên kia mới xác nhận nó đổ chuông đúng lúc.
+
+**Kiểm tra sau redeploy:** pull + up (giữ volume `/opt/zalo`, không
+quét lại); footer phải hiện `2026-11-05-call-11301` (hoặc sha mới);
+bấm một tên bạn bè gọi lại và NHÌN MÁY BÊN KIA NGAY: kỳ vọng máy bên
+kia **đổ chuông trong vài giây** (không phải vài phút sau) và giữ
+chuông thay vì chỉ hiện cuộc gọi nhỡ. Ghi lại: (a) máy bên kia đổ
+chuông sau bao lâu, (b) nếu không đổ chuông thì UI/mục Cuộc gọi có ghi
+`request_sent=false` + mã lỗi gì không, (c) xác nhận giúp câu hỏi ở
+trên: lần 17:54 Đại ca gọi lại hay cuộc gọi PC tới muộn.
+
+---
+
 ## 8. Những gì CHƯA kiểm bằng chạy thật (ghi rõ, không suy đoán)
 
 - Danh bạ trống sau bản bd380d1 (xem 7f) — lỗi 602 đã hết nhưng
@@ -1137,9 +1272,11 @@ lại nếu 114 vẫn còn: codec `"[]"` (xem mục 3 ở trên).
   (O1/O2) — cần probe `reqqr` không tài khoản.
 - Quét thật lại sau bản sửa `getLoginInfo` (lỗi 102 lần đầu) — cần
   user cầm app phụ quét lại với image mới.
-- Gọi đi sau bản sửa 114 (xem 7k) — mock tái hiện 114 với body cũ
-  và qua với body mới, nhưng chỉ redeploy + bấm gọi thật mới chứng
-  minh server đã hết chê tham số (kỳ vọng: bên kia đổ chuông).
+- Gọi đi sau bản sửa 114 (xem 7k) — đã kiểm thật 17:51: 114 hết,
+  UI «Đang đổ chuông» 00:26, nhưng máy bên kia không hiện cuộc gọi
+  đến; xem 7l — bản sửa bước `request` (11301) đã xong, cần gọi thật
+  lại để chứng minh máy bên kia đổ chuông ngay (không phải vài phút
+  sau / chỉ hiện cuộc gọi nhỡ).
 - Nhận cuộc gọi đến, tiếng trực tiếp, độ trễ, độ ổn định — giai đoạn 2.
 - Giao diện mới 7j chưa được nhìn bằng trình duyệt thật ở bất kỳ
   chiều rộng nào: inspector của skill không chạy được trên VM (Chrome
@@ -1181,10 +1318,11 @@ bao-cao.md  README.md  Dockerfile  docker-compose.yml
 zalo_pc_app/
   aes_pure.py  crypto.py  protocol.py  session.py
   qr_login.py  signaling.py  contacts.py  engine_seam.py  server.py
-  call_log.py
+  call_log.py  media_endpoints.py
   static/  app.html  app.js  style.css  fonts/ (10 file woff2)
 tests/
   test_aes.py  test_crypto.py  test_flow_mock.py  test_server_smoke.py
-  test_calls.py  mock_server.py  run_tests.py
+  test_calls.py  test_call_114.py  test_call_11301.py
+  mock_server.py  run_tests.py
 .taste-skill/  direction.json  notes.md
 ```

@@ -92,7 +92,8 @@ def test_no_secrets_in_snapshot():
                    "enk-test", "session_key"):
         assert secret not in blob, secret
     allowed = {"call_id", "peer", "thread_id", "type", "status",
-               "started_at", "ended_at", "detail"}
+               "started_at", "ended_at", "detail", "request_sent",
+               "request_detail"}
     for c in log.snapshot()["calls"]:
         assert set(c) == allowed, set(c)
 

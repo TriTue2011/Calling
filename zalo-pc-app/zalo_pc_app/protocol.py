@@ -303,6 +303,32 @@ def vc_request(callee_id, rtcp_address, rtp_address, codec, session,
     return body
 
 
+def vc_request_group(callee_id, call_id, call_type, data, session,
+                     partners, group_id):
+    """Body of group/request (code 12434), exactly as the PC client
+    sends it (bundle class wZ: static sendRequestCallGroup(e,t,n,a,i,
+    r,o) -> {calleeId:e, callId:t, callType:n, data:a, session:i,
+    partners:r, groupId:o} to /api/voicecall/group/request):
+    - calleeId: the group's id. CHUA XAC MINH TU BUNDLE — the engine
+      signal (handleSendSignal case 12434) carries calleeId as a
+      separate field from groupId, but its VALUE is not visible in
+      the renderer excerpt; the group itself is the callee of a
+      group call, so groupId is the most plausible value. The live
+      test will confirm (a wrong calleeId should draw an inner
+      error like 114 did for requestcall).
+    - callType: 5 for group AUDIO (6 video), same enum as
+      requestcall.
+    - session / data / partners: the media-session material from
+      the native engine (see media_endpoints.py); partners is the
+      member userIds to ring. No imei field (unlike the 1-1
+      request) and no extendData/subCommand pair — the group
+      variant carries no such fields in the bundle."""
+    return {"calleeId": callee_id, "callId": call_id,
+            "callType": call_type, "data": data, "session": session,
+            "partners": partners if partners is not None else [],
+            "groupId": group_id}
+
+
 def vc_ringring(caller_id, call_id, device_id):
     return {"callerId": caller_id, "callId": call_id, "status": 0,
             "imei": device_id}

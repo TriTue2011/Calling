@@ -6,7 +6,8 @@ API (all JSON, never returns session secrets):
   GET  /api/qr/status     {state, qr_image, countdown, wait_seconds, ...}
   POST /api/logout        clear the stored session
   GET  /api/contacts      {friends:[...], groups:[...]} (needs login)
-  POST /api/call/request  {callee_id} -> signaling requestcall
+  POST /api/call/request  {callee_id} -> signaling requestcall (11300)
+                          + follow-up request (11301 / 12434, §7l)
   POST /api/call/end      {uid_to, call_id} -> signaling endcall
   GET  /api/engine/status media-engine seam status
 
@@ -34,6 +35,7 @@ from . import VERSION as _PKG_VERSION
 from . import call_log
 from . import contacts as contacts_mod
 from . import engine_seam
+from . import media_endpoints
 from . import protocol
 from . import qr_login
 from . import session as session_mod
@@ -456,10 +458,51 @@ class Handler(BaseHTTPRequestHandler):
                         call_id,
                         body.get("codec"),
                         type_request)
+                # §7l — SECOND STEP, the one the 17:51 live call was
+                # missing: after requestcall the real client sends
+                # `request` (11301, 1-1) / `group/request` (12434)
+                # with the caller's media endpoints, and only then
+                # does the server hold a complete invitation for the
+                # far end. Without it the requestcall is accepted
+                # (no error) but the callee's phone never rings —
+                # exactly the live symptom (UI "ringing" locally,
+                # nothing on the other side; the callee called back
+                # ~3 min later, i.e. the invitation arrived late
+                # and/or as a missed call). The endpoints come from
+                # media_endpoints (empty placeholders in phase 1 —
+                # no engine yet; whether the real server accepts
+                # them is what the live test must show). The step is
+                # BEST-EFFORT: if the server rejects it, the call is
+                # still reported ok (requestcall succeeded, same as
+                # today's behaviour) but request_sent=False is
+                # returned and logged, so the UI/monitor can tell
+                # "invitation may not have been delivered" apart
+                # from "fully sent".
+                endpoints = media_endpoints.ENDPOINTS.for_call(
+                    body.get("codec"))
+                request_sent, request_error = True, ""
+                try:
+                    if call_type == "group":
+                        sig.send_request_group(
+                            thread_id, call_id, type_request,
+                            body.get("data"), endpoints["session"],
+                            body.get("partners"), thread_id)
+                    else:
+                        sig.send_request(
+                            thread_id, endpoints["rtcp_address"],
+                            endpoints["rtp_address"], endpoints["codec"],
+                            endpoints["session"], call_id,
+                            endpoints["extend_data"])
+                except Exception as exc:  # noqa: BLE001 - best-effort
+                    request_sent, request_error = False, str(exc)
                 STATE.calls.record_start(call_id, peer, thread_id,
                                          call_type)
+                STATE.calls.record_request(call_id, request_sent,
+                                           request_error)
                 return self._send_json({"ok": True, "data": data,
-                                        "call_id": call_id})
+                                        "call_id": call_id,
+                                        "request_sent": request_sent,
+                                        "request_error": request_error})
             except Exception as e:  # noqa: BLE001
                 STATE.calls.record_error(call_id, peer, thread_id,
                                          call_type, str(e))

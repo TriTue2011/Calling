@@ -96,6 +96,20 @@ class MockZalo:
         # the call with the real 602 message, as in the 2026-11-05 bug).
         self.friends_mode = "ok"
         self.groups_mode = "ok"
+        # Voicecall request-step simulation (§7l): "ok" | "error114".
+        # "error114" makes the follow-up `request` (11301) /
+        # `group/request` (12434) step fail with the real server's
+        # inner 114, so tests can prove the app treats that step as
+        # best-effort (the call itself still succeeds).
+        self.request_mode = "ok"
+        # Call-delivery tracking (§7l): call_id -> {"steps": [...],
+        # "delivered": bool}. A call is "requested" once its
+        # requestcall (11300/12433) arrives and "delivered" only
+        # once the follow-up request step (11301/12434) arrives with
+        # the same callId — the mock's model of the real server,
+        # which holds an invitation with no media endpoints instead
+        # of ringing the far end (observed live 2026-11-05 17:51).
+        self.voice_calls = {}
         self._friends_first = True  # first friends call must send init=1
         self.seen = []  # (path, query, headers) log
         self._plaintext_forced = False
@@ -103,7 +117,31 @@ class MockZalo:
         self.port = 0
         self.base = ""
 
-    # -- server plumbing -------------------------------------------------
+    def voice_call_state(self, call_id):
+        """{"requested": bool, "delivered": bool, "steps": [...]}
+        for one callId — the test hook for §7l delivery."""
+        entry = self.voice_calls.get(call_id, {"steps": [],
+                                               "delivered": False})
+        steps = list(entry["steps"])
+        requested = ("requestcall" in steps
+                     or "group/requestcall" in steps)
+        return {"requested": requested,
+                "delivered": bool(entry["delivered"]), "steps": steps}
+
+    def _record_voice_step(self, call_id, step):
+        """Record one voicecall step for a callId; the follow-up
+        request step only counts as delivery when a requestcall for
+        the same callId was seen first (the real server correlates
+        the two steps by callId)."""
+        entry = self.voice_calls.setdefault(
+            call_id, {"steps": [], "delivered": False})
+        if step not in entry["steps"]:
+            entry["steps"].append(step)
+        if step in ("request", "group/request") and (
+                "requestcall" in entry["steps"]
+                or "group/requestcall" in entry["steps"]):
+            entry["delivered"] = True
+        return entry
     def start(self):
         mock = self
 
@@ -408,6 +446,34 @@ class MockZalo:
                     or not id_ok or not body.get(id_field)):
                 return self._postlogin_envelope_error(
                     114, "Tham số không hợp lệ")
+            self._record_voice_step(call_id, sub)
+            return self._postlogin_envelope(
+                {"ok": True, "path": path, "body": body})
+        if sub in ("request", "group/request"):
+            # Follow-up request step (§7l, bundle class wZ
+            # sendRequestCall / sendRequestCallGroup): the caller's
+            # media endpoints for the invitation. Contract enforced
+            # here is only what the bundle proves — calleeId +
+            # callId (uint32 number) must be present, and (group)
+            # groupId must be present. The endpoint VALUES
+            # (rtcp/rtp/session) are NOT validated: phase 1 sends
+            # empty placeholders and whether the real server
+            # accepts them is unverified — the mock must not invent
+            # a rejection the real server was never observed to
+            # make. request_mode="error114" simulates the rejection
+            # explicitly when a test wants it.
+            call_id = body.get("callId")
+            id_ok = (isinstance(call_id, int)
+                     and not isinstance(call_id, bool)
+                     and 1 <= call_id <= 2 ** 32 - 1)
+            need = ["calleeId"]
+            if sub == "group/request":
+                need.append("groupId")
+            if (not id_ok or any(not body.get(f) for f in need)
+                    or self.request_mode == "error114"):
+                return self._postlogin_envelope_error(
+                    114, "Tham số không hợp lệ")
+            self._record_voice_step(call_id, sub)
             return self._postlogin_envelope(
                 {"ok": True, "path": path, "body": body})
         # 1-1 requestcall carries imei; group/requestcall carries
