@@ -150,8 +150,18 @@ class MockZalo:
         # long-poll het han, khong co tin) | "error69" (error -69,
         # server bao dung retry). Mac dinh "messages".
         self.poll_mode = "messages"
+        # Voice upload simulation (§7n — tin nhan thoai): "ok" |
+        # "error133". "error133" lam voicemp3/sendmp3 tra loi that
+        # cua may chu khi file khong phai MP3 (inner error_code=133
+        # "Ban chi co the tai tap tin co dinh dang sau : MP3",
+        # gap tren may chu 2026-11-05 23:03), de test chung minh
+        # app tra loi ro ve UI thay vi gia vo gui duoc.
+        self.voice_upload_mode = "ok"
         self.seen = []  # (path, query, headers) log
         self.seen_post = []  # (path, query) log — chi cac POST
+        self.seen_post_raw = []  # (path, raw bytes) — de test doc
+        # noi dung file that gui len (vd. fileContent co phai MP3
+        # that khong); them vao vi do_POST decode utf-8 mat byte.
         self._plaintext_forced = False
         self.server = None
         self.port = 0
@@ -216,13 +226,18 @@ class MockZalo:
                 # 0xFF 0xD8... — utf-8 se vo). Cac assert trong mock chi
                 # soi chuoi ASCII ('name="fileContent"', 'filename=')
                 # nen van dung.
-                raw = self.rfile.read(length).decode("latin-1") if length \
+                raw = self.rfile.read(length) if length else b""
+                mock.seen_post_raw.append((parsed.path, raw))
+                # decode kieu latin-1: file nhi phan (vd. MP3) co
+                # byte khong phai utf-8; decode chat se loi 500
+                # thay vi tra loi that — xem _chat_upload.
+                raw_text = raw.decode("latin-1") if length \
                     else ""
                 mock.seen.append((parsed.path, qs, dict(self.headers)))
                 mock.seen_post.append((parsed.path, qs))
                 try:
                     status, obj = mock.route_post(
-                        parsed.path, qs, self.headers, raw,
+                        parsed.path, qs, self.headers, raw_text,
                         parsed.query)
                 except Exception as e:  # noqa: BLE001 - mock must answer
                     status, obj = 500, {"error_code": -1,
@@ -454,6 +469,12 @@ class MockZalo:
             assert body.get("desc"), body
             assert isinstance(body.get("width"), int), body
             assert isinstance(body.get("height"), int), body
+        if path in ("/api/message/voicemp3", "/api/group/sendmp3") \
+                and self.voice_upload_mode == "error133":
+            # Loi that khi file gui len khong phai MP3 (2026-11-05
+            # 23:03): inner 133, khong phai outer error.
+            return self._postlogin_envelope_error(
+                133, "Bạn chỉ có thể tải tập tin có định dạng sau : MP3")
         return self._postlogin_envelope(
             {"msgId": "msg-file-1", "clientId": body["clientId"]})
 

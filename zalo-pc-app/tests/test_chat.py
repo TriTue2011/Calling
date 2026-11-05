@@ -390,10 +390,15 @@ def test_server_thread_routes():
         assert status == 200 and body["ok"] is True, body
         assert body["message"]["kind"] == "photo", body
 
-        # Gui file ghi am (multipart) nhom.
+        # Gui file ghi am (multipart) nhom. File phai la MP3 THAT
+        # (it nhat header ID3/frame sync) vi route sendvoice kiem
+        # tra noi dung truoc khi gui — byte gia kieu FAKEMP3DATA
+        # khong phai MP3 se bi dua di doi bang ffmpeg va loi
+        # (loi 133 ngay 2026-11-05; xem test_voice_transcode.py).
         mbody, mctype = chat_mod.build_multipart(
             {"type": "group"},
-            [("file", "voice.mp3", "audio/mpeg", b"FAKEMP3DATA")])
+            [("file", "voice.mp3", "audio/mpeg",
+              b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 64)])
         status, body = api("POST", "/api/thread/30001/sendvoice",
                            mbody, {"Content-Type": mctype})
         assert status == 200 and body["ok"] is True, body

@@ -70,6 +70,7 @@ from . import services as services_mod
 from . import session as session_mod
 from . import signaling as signaling_mod
 from . import sync_poll as sync_poll_mod
+from . import voice_transcode as voice_mod
 from . import webhooks as webhooks_mod
 from .crypto import make_device_id
 
@@ -1354,20 +1355,40 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"ok": True, "data": res["data"],
                                         "message": local})
             # sendvoice: file ghi am cua trinh duyet (MediaRecorder).
-            # Ten file giu nguyen (thuong .webm, khong phai .mp3) —
-            # xem ghi chu o chat.py; Zalo that co the tu choi file
-            # khong phai mp3.
-            res = chat.send_voice(thread_type, thread_id, filename,
-                                  data_bytes, mime)
+            # Chrome cho webm/opus, Safari cho mp4/aac — KHONG phai
+            # mp3 — ma voicemp3 (11148) / sendmp3 (11169) CHI nhan
+            # MP3 (loi that 2026-11-05 23:03: inner error_code=133
+            # "Ban chi co the tai tap tin co dinh dang sau : MP3").
+            # Nen doi sang MP3 o day TRUOC khi gui, theo dung cach
+            # Node.js lam (zalobot voiceAac.js: ffmpeg server-side,
+            # mono 16 kHz 64 kbps, timeout 60 s) — chi khac codec
+            # (libmp3lame/mp3 thay cho aac/adts) vi endpoint PC bat
+            # buoc MP3; xem voice_transcode.py. File da la MP3 thi
+            # gui thang, khong ton ffmpeg. Chuyen doi that bai ->
+            # loi ro cho UI, KHONG gui file goc (gui la bi 133) va
+            # KHONG lam rot ban ghi am lang le.
+            try:
+                mp3_bytes, mp3_name, mp3_mime, converted = (
+                    voice_mod.ensure_voice_mp3(
+                        filename, mime, data_bytes))
+            except voice_mod.VoiceTranscodeError as e:
+                return self._send_json(
+                    {"error": "khong_chuyen_duoc_sang_mp3: %s" % e},
+                    status=502)
+            res = chat.send_voice(thread_type, thread_id, mp3_name,
+                                  mp3_bytes, mp3_mime)
             local = STATE.chat_store.local_message(
-                thread_type, thread_id, "voice", text=filename,
-                file_name=filename, client_id=res["client_id"])
+                thread_type, thread_id, "voice", text=mp3_name,
+                file_name=mp3_name, client_id=res["client_id"])
             STATE.chat_store.record_sent(thread_type, thread_id, local)
             return self._send_json({"ok": True, "data": res["data"],
                                     "message": local,
-                                    "note": "Thu am tai trinh duyet "
-                                    "roi gui file (khong phai ghi am "
-                                    "native cua Zalo PC)."})
+                                    "converted_to_mp3": converted,
+                                    "note": "Thu am tai trinh duyet, "
+                                    "da chuyen sang MP3 (ffmpeg, mono "
+                                    "16 kHz 64 kbps) truoc khi gui qua "
+                                    "voicemp3; khong phai ghi am native "
+                                    "cua Zalo PC."})
         except Exception as e:  # noqa: BLE001
             return self._send_json({"error": str(e)}, status=502)
 

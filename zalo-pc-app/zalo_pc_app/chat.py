@@ -73,10 +73,11 @@ la nghi pham dau tien can kiem (xem BAO-CAO-CHAT.md).
 Ghi chu ve ghi am: KHONG co endpoint HTTPS ghi am — ghi am la
 native. UI thu bang MediaRecorder cua trinh duyet roi gui file
 da ghi qua voicemp3/sendmp3. MediaRecorder cua Chrome/Firefox
-thuong cho webm/opus (khong phai mp3); server forward dung file
-nhan duoc, ten file giu nguyen — Zalo that co the tu choi file
-khong phai mp3. Muon chac mp3 can them bo ma hoa mp3 (vd. wasm
-lame) o buoc sau; xem BAO-CAO-CHAT.md.
+thuong cho webm/opus (khong phai mp3) — server DOI SANG MP3
+TRUOC KHI GUI (voice_transcode.py: ffmpeg, mono 16 kHz 64 kbps,
+theo cach Node.js voiceAac.js lam; chi khac codec vi voicemp3
+bat buoc MP3 — loi that inner 133 ngay 2026-11-05). File da la
+MP3 thi gui thang, khong doi.
 """
 
 import json

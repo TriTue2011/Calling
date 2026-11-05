@@ -1,5 +1,14 @@
 FROM python:3.12-slim
 WORKDIR /app
+# ffmpeg: doi file ghi am cua trinh duyet (webm/opus, mp4/aac) sang
+# MP3 truoc khi gui qua voicemp3 — giong zalobot (Node.js) cai ffmpeg
+# trong image de doi tin thoai (voiceAac.js); chi khac dich (MP3 thay
+# cho AAC) vi endpoint PC voicemp3 bat buoc MP3 (loi 133). Xem
+# zalo_pc_app/voice_transcode.py. --no-install-recommends de image
+# gon; khong co ffmpeg thi gui tin thoai loi ro, khong crash server.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 COPY zalo_pc_app/ ./zalo_pc_app/
 COPY docker-entrypoint.py /usr/local/bin/docker-entrypoint.py
 RUN useradd -m app && mkdir -p /data && chown app:app /data

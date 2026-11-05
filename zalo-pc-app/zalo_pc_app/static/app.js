@@ -1093,8 +1093,11 @@ async function sendChatFile(file) {
 
 // -- ghi am: MediaRecorder cua trinh duyet (khong phai ghi am native
 // cua Zalo PC) -> gui file da ghi qua voicemp3/sendmp3. Chrome thuong
-// cho webm/opus, khong phai mp3 — server gui dung file nhan duoc va
-// ghi ro trong bao cao; muon chac mp3 can bo ma hoa mp3 o buoc sau.
+// cho webm/opus, khong phai mp3 — server DOI SANG MP3 truoc khi gui
+// (ffmpeg, mono 16 kHz 64 kbps, theo cach Node.js voiceAac.js lam;
+// chi khac codec vi voicemp3 bat buoc MP3 — loi 133 ngay 2026-11-05).
+// UI chi hien trang thai tung buoc; loi o buoc nao hien ro buoc do,
+// khong lam rot ban ghi lang le.
 async function toggleRecord() {
   const btn = $("btn-chat-record");
   const state = $("chat-rec-state");
@@ -1122,13 +1125,28 @@ async function toggleRecord() {
       btn.textContent = "● Ghi âm";
       state.hidden = true;
       const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || "audio/webm" });
-      if (!blob.size) return;
+      if (!blob.size) {
+        state.hidden = false;
+        state.textContent = "Ghi âm không thu được âm thanh nào — thử lại.";
+        return;
+      }
       const ext = (blob.type || "").includes("mp4") ? "mp4" : "webm";
       const file = new File([blob], "voice." + ext, { type: blob.type || "audio/webm" });
       const form = new FormData();
       form.append("type", currentThread.type === "group" ? "group" : "user");
       form.append("file", file, file.name);
-      const r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendvoice", form);
+      // Server doi sang MP3 (ffmpeg) roi moi gui qua voicemp3 —
+      // buoc nay co the mat vai giay voi ban ghi dai.
+      state.hidden = false;
+      state.textContent = "Đang chuyển sang MP3 rồi gửi…";
+      let r;
+      try {
+        r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendvoice", form);
+      } catch (e) {
+        state.textContent = "Lỗi gửi tin nhắn thoại: không tới được máy chủ (" + (e && e.message ? e.message : e) + "). Bản ghi vẫn ở trình duyệt — bấm ghi âm lại để gửi.";
+        return;
+      }
+      state.hidden = true;
       if (r.error) {
         $("chat-notice").hidden = false;
         $("chat-notice").textContent = "Lỗi gửi tin nhắn thoại: " + r.error;
