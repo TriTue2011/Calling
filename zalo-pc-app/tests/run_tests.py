@@ -1,0 +1,29 @@
+"""Run all offline tests. Usage: python3 tests/run_tests.py"""
+
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(__file__)
+FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
+         "test_server_smoke.py"]
+
+
+def main():
+    failed = []
+    for name in FILES:
+        path = os.path.join(HERE, name)
+        print("=== %s ===" % name)
+        p = subprocess.run([sys.executable, path],
+                           cwd=os.path.join(HERE, ".."))
+        if p.returncode != 0:
+            failed.append(name)
+    if failed:
+        print("FAILED:", failed)
+        return 1
+    print("ALL TEST SUITES PASSED")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

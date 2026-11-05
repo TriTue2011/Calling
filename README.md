@@ -14,7 +14,14 @@ repo này chỉ chứa phần gọi mới.
   Xem chi tiết trong `zalo-call-client/README.md`. Lưu ý trung thực: client
   hiện ở mức signaling đã test offline (40/40); SRTP thật, phiên socket
   mobile thật và kiểm thử bằng tài khoản phụ vẫn là việc tiếp theo.
-- `.github/workflows/` — 2 workflow tự build image test (xem dưới).
+- `zalo-pc-app/` — app Zalo dạng PC chạy Docker: đăng nhập bằng QR kiểu
+  PC (old-format, không WASM), phiên bền qua restart, danh bạ/nhóm,
+  gọi đi qua API voicecall HTTPS. Xem chi tiết trong
+  `zalo-pc-app/README.md` và báo cáo `zalo-pc-app/bao-cao.md`. Lưu ý
+  trung thực: giai đoạn 1 đã test offline (mock server + openssl
+  cross-check); nhận cuộc gọi đến (kênh sync) và tiếng trực tiếp
+  (engine) là giai đoạn 2; chưa kiểm bằng quét thật.
+- `.github/workflows/` — 3 workflow tự build image test (xem dưới).
 
 ## Image test (tự build, không cần build tay)
 
@@ -27,12 +34,14 @@ gốc repo này nên mới chạy được — trước đây file workflow nằ
 | --- | --- |
 | Telegram gateway | `ghcr.io/tritue2011/telegram-gateway-test:test` và `ghcr.io/tritue2011/telegram-gateway-test:test-<sha>` |
 | Zalo call client | `ghcr.io/tritue2011/zalo-call-test:test` và `ghcr.io/tritue2011/zalo-call-test:test-<sha>` |
+| Zalo PC app | `ghcr.io/tritue2011/zalo-pc-app-test:test` và `ghcr.io/tritue2011/zalo-pc-app-test:test-<sha>` |
 
 Lệnh pull trên server:
 
 ```sh
 docker pull ghcr.io/tritue2011/telegram-gateway-test:test
 docker pull ghcr.io/tritue2011/zalo-call-test:test
+docker pull ghcr.io/tritue2011/zalo-pc-app-test:test
 ```
 
 Build đa kiến trúc `linux/amd64,linux/arm64` trong 1 job bằng QEMU
@@ -50,8 +59,8 @@ không mở ra Internet.
 - Patch module `telegram-user` cho web2api KHÔNG nằm trong repo này.
   Patch đó vẫn nằm ở outbox repo Giao (nhánh `muse/telegram-p1`), chờ
   gộp vào repo web2api.
-- Repo này chỉ chứa 2 thành phần chạy Docker độc lập: gateway Telegram
-  và client gọi Zalo.
+- Repo này chỉ chứa 3 thành phần chạy Docker độc lập: gateway Telegram,
+  client gọi Zalo (đường mobile) và app Zalo kiểu PC (đường QR PC).
 
 ## Ràng buộc an toàn
 

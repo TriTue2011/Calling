@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zalo PC (bản Docker)</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>Zalo PC — bản chạy trên server</h1>
+  <div id="who"></div>
+</header>
+
+<!-- View 1: đăng nhập bằng QR -->
+<section id="view-login" class="view">
+  <h2>Đăng nhập bằng mã QR</h2>
+  <p>Mở app Zalo trên điện thoại, quét mã dưới đây là xong. Quét một lần,
+     lần sau mở lên là dùng ngay, không cần quét lại.</p>
+  <div id="qr-box">
+    <img id="qr-img" alt="Mã QR đăng nhập" style="display:none">
+    <div id="qr-wait">Bấm “Lấy mã QR” để bắt đầu.</div>
+  </div>
+  <div id="qr-status"></div>
+  <button id="btn-qr">Lấy mã QR</button>
+  <button id="btn-qr-again" style="display:none">Lấy mã mới</button>
+</section>
+
+<!-- View 2: chính — danh bạ / nhóm -->
+<section id="view-main" class="view" style="display:none">
+  <h2>Danh bạ</h2>
+  <input id="search" type="text" placeholder="Tìm tên...">
+  <div class="tabs">
+    <button id="tab-friends" class="on">Bạn bè</button>
+    <button id="tab-groups">Nhóm</button>
+  </div>
+  <ul id="list"></ul>
+  <button id="btn-logout">Đăng xuất</button>
+  <p id="engine-note"></p>
+</section>
+
+<!-- View 3: màn hình gọi -->
+<section id="view-call" class="view" style="display:none">
+  <h2>Cuộc gọi</h2>
+  <p id="call-peer"></p>
+  <p id="call-state"></p>
+  <div id="call-incoming" style="display:none">
+    <p>Có cuộc gọi đến (kênh nhận cuộc gọi đang ở giai đoạn 2).</p>
+  </div>
+  <button id="btn-end">Kết thúc</button>
+  <button id="btn-back">Quay lại danh bạ</button>
+</section>
+
+<script src="/app.js"></script>
+</body>
+</html>
