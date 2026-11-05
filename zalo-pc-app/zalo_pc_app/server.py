@@ -1544,8 +1544,13 @@ class Handler(BaseHTTPRequestHandler):
                 # `servers` (real shape: list of dicts with
                 # `rtcpaddr`/`rtpIPv6`, seen live 2026-11-05;
                 # legacy `zrtc_config.servers` string as fallback)
-                # / `sessId` / `srtpKey`
-                # (see `allocation_from_requestcall_data`). When
+                # / `sessId` (LIVE 2026-11-06: the 11301 token —
+                # 115 bytes / 154 chars — there is NO `token` key
+                # in the real 11300) / `srtpKey` (LIVE 2026-11-06:
+                # the real 11300 carries NO srtpKey, so signaling
+                # proceeds handshake-only and voice stays unwired
+                # until the key source is found — see
+                # `allocation_from_requestcall_data`). When
                 # that allocation is missing, `for_call` raises
                 # `MissingTransportParam` NAMING the missing
                 # parameter instead of returning the phase-1 empty

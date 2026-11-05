@@ -5,9 +5,12 @@ noi vao `Udp4200Transport` that (agent A) + `PcMediaEngine`
 
 Quy tac test (mock offline, KHONG goi that):
   * Thieu tham so bat buoc (call_id / callee_id / relays / token /
-    session / local_session / srtp_key) hoac dia chi rong -> loi ro
+    session / local_session) hoac dia chi rong -> loi ro
     neu TEN tham so (`MissingTransportParam`), KHONG bao gio tra
-    dia chi "" va KHONG gui 11301 rong.
+    dia chi "" va KHONG gui 11301 rong. `srtp_key` KHONG con bat
+    buoc cho signaling (live 2026-11-06: response 11300 that
+    khong co srtpKey) — thieu khoa thi 11301 VAN gui, chi bao
+    srtp "not-wired" va media khong chay (send_pcm doi hook).
   * Du tham so + khoa gia + hook identity (CHI DUNG CHO TEST — khong
     phai SRTP that) -> delivered: transport start + `for_call` tra
     dia chi "IP:port" + session + codec.
@@ -196,8 +199,26 @@ def test_missing_local_session():
 
 
 def test_missing_srtp_key():
-    _assert_missing(lambda: _provider().for_call(**_good_kwargs(
-        srtp_key=None)), "srtp_key")
+    """Khong co srtp_key KHONG con chan signaling (doi hanh vi
+    2026-11-06): response 11300 that khong co srtpKey, nen
+    for_call VAN tra endpoint de 11301 duoc gui — nhung bao
+    srtp "not-wired", khong co hook, va send_pcm van tu choi
+    (can protect_rtp). Media khong chay cho den khi tim ra
+    nguon khoa that; khong phat minh khoa."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(
+        srtp_key=None, protect_rtp=None, unprotect_rtp=None,
+        call_id=CALL_ID + 6))
+    assert out["rtp_address"] == "127.0.0.1:4200", out
+    assert out["srtp"] == "not-wired", out
+    assert provider.active_record(CALL_ID + 6)["srtp_key"] is None
+    try:
+        out["transport"].send_pcm(b"\x00" * udp_transport.FRAME_BYTES)
+    except MissingTransportParam as exc:
+        assert "protect_rtp" in str(exc), str(exc)
+        provider.stop_all()
+        return
+    raise AssertionError("expected MissingTransportParam (protect_rtp)")
 
 
 def test_empty_relay_address_rejected():
@@ -496,6 +517,156 @@ def test_describe_requestcall_shape_names_only():
     assert "rtcpaddr" in shape and "rtpIPv6" in shape, shape
     assert "SECRET" not in shape and "sess-x" not in shape, shape
     assert "127.0.0.1" not in shape, shape
+
+
+# ------------------------------------------------------------------ live 11300
+# 2026-11-06 06:35 +07 (ban 9d87501, cuoc goi that): buoc 1 (11300)
+# GUI OK, buoc 2 (11301) KHONG gui — loi moi "token: missing
+# (need 115 raw bytes or a 154-char base64url string, most likely
+# from response 11300)". Hinh 11300 THAT (CHI TEN KEY, khong gia
+# tri): [changeZRTP, fec, fromId, id, msg, protocol, rtcpIP,
+# rtpIP, servers, sessId, settings, showDebugInfo, status, toId,
+# ts, video, zrtc_config]; servers la list[5] dict voi key
+# [bonus, rtcpIPv6, rtcpaddr, rtpIPv6, rtpaddr, spTcp] (relay
+# parser vong truoc van dung — khong con "relays: empty");
+# zrtc_config KHONG co srtpKey / srtpNoSeq / srtpRTCP (gia thuyet
+# cu "srtpKey la key cua zrtc_config" SAI voi response that).
+# Token = sessId: 115 byte tho == 154 ky tu base64url — dung
+# cap so trong thong bao loi, va la key duy nhat co the co dang
+# do. Cac fixture duoi day TONG HOP (gia tri tu sinh, khong phai
+# gia tri that bi bat): sessId 154 ky tu tu 115 byte xac dinh,
+# dia chi loopback / TEST-NET.
+SESSID_RAW_115 = bytes((i * 11 + 5) % 256 for i in range(115))
+SESSID_154 = base64.urlsafe_b64encode(SESSID_RAW_115).rstrip(
+    b"=").decode()
+assert len(SESSID_154) == 154, len(SESSID_154)
+REAL_11300_2026_11_06_SERVERS = [
+    {"bonus": 0, "rtcpaddr": "127.0.0.1:4201",
+     "rtpaddr": "127.0.0.1:4200",
+     "rtcpIPv6": "[2001:db8::1]:4201",
+     "rtpIPv6": "[2001:db8::1]:4200", "spTcp": 0},
+    {"bonus": 0, "rtcpaddr": "192.0.2.2:4211",
+     "rtpaddr": "192.0.2.2:4210",
+     "rtcpIPv6": "[2001:db8::2]:4211",
+     "rtpIPv6": "[2001:db8::2]:4210", "spTcp": 0},
+    {"bonus": 0, "rtcpaddr": "192.0.2.3:4221",
+     "rtpaddr": "192.0.2.3:4220",
+     "rtcpIPv6": "[2001:db8::3]:4221",
+     "rtpIPv6": "[2001:db8::3]:4220", "spTcp": 0},
+    {"bonus": 0, "rtcpaddr": "192.0.2.4:4231",
+     "rtpaddr": "192.0.2.4:4230",
+     "rtcpIPv6": "[2001:db8::4]:4231",
+     "rtpIPv6": "[2001:db8::4]:4230", "spTcp": 0},
+    {"bonus": 0, "rtcpaddr": "192.0.2.5:4241",
+     "rtpaddr": "192.0.2.5:4240",
+     "rtcpIPv6": "[2001:db8::5]:4241",
+     "rtpIPv6": "[2001:db8::5]:4240", "spTcp": 0},
+]
+# Toan bo key top-level that — KHONG co "token", KHONG co
+# "srtpKey" (ca top-level lan trong zrtc_config).
+REAL_11300_2026_11_06 = {
+    "changeZRTP": 0, "fec": 0, "fromId": "10001-test",
+    "id": "1-test", "msg": "", "protocol": 0,
+    "rtcpIP": "127.0.0.1", "rtpIP": "127.0.0.1",
+    "servers": REAL_11300_2026_11_06_SERVERS,
+    "sessId": SESSID_154, "settings": {}, "showDebugInfo": 0,
+    "status": 0, "toId": "20001-test", "ts": 1762745678,
+    "video": 0, "zrtc_config": {"srtpMode": 2}}
+
+
+def test_sessid_154_is_token():
+    """sessId 154 ky tu base64url -> token = sessId; for_call qua
+    requestcall_data that (khong token rieng, khong srtpKey) VAN
+    tra endpoint: relay van parse dung, session = sessId, srtp
+    "not-wired". Day la loi cu "token: missing" da duoc sua."""
+    alloc = media_endpoints.allocation_from_requestcall_data(
+        REAL_11300_2026_11_06)
+    assert alloc["token"] == SESSID_154, alloc
+    assert alloc["session"] == SESSID_154, alloc
+    assert "srtp_key" not in alloc, alloc
+    provider = _provider()
+    out = provider.for_call(
+        call_id=CALL_ID + 20, callee_id="20001",
+        local_session=FAKE_LOCAL_SESSION,
+        requestcall_data=REAL_11300_2026_11_06)
+    assert out["rtp_address"] == "127.0.0.1:4200", out
+    assert out["rtcp_address"] == "127.0.0.1:4201", out
+    assert out["session"] == SESSID_154, out
+    assert out["srtp"] == "not-wired", out
+    assert out["transport"].config.token == SESSID_154.encode(), out
+    assert len(out["transport"].config.token_raw) == 115, out
+    assert out["extend_data"] == '{"srtpMode":2}', out
+    provider.stop_all()
+
+
+def test_sessid_raw_115_bytes_is_token():
+    """sessId dang 115 byte tho -> token = 115 byte do; session
+    la dang base64url 154 ky tu cua no (khong phai str(bytes))."""
+    data = dict(REAL_11300_2026_11_06)
+    data["sessId"] = SESSID_RAW_115
+    alloc = media_endpoints.allocation_from_requestcall_data(data)
+    assert alloc["token"] == SESSID_RAW_115, alloc
+    assert alloc["session"] == SESSID_154, alloc
+    provider = _provider()
+    out = provider.for_call(
+        call_id=CALL_ID + 21, callee_id="20001",
+        local_session=FAKE_LOCAL_SESSION, requestcall_data=data)
+    assert out["session"] == SESSID_154, out
+    assert out["transport"].config.token == SESSID_154.encode(), out
+    provider.stop_all()
+
+
+def test_sessid_wrong_shape_is_not_token():
+    """sessId sai dang (chuoi ngan "sess-real") KHONG duoc ep
+    thanh token: allocation khong co token, for_call loi neu ro
+    `token` + ghi sessId co mat nhung sai dang (ke ca do dai
+    trong shape note) — khong doan, khong che gia tri."""
+    data = dict(REAL_11300_2026_11_06)
+    data["sessId"] = "sess-real"
+    alloc = media_endpoints.allocation_from_requestcall_data(data)
+    assert "token" not in alloc, alloc
+    assert alloc["session"] == "sess-real", alloc
+    shape = media_endpoints.describe_requestcall_shape(data)
+    assert "sessId: str[9 chars]" in shape, shape
+    assert "sess-real" not in shape, shape
+    try:
+        _provider().for_call(
+            call_id=CALL_ID + 22, callee_id="20001",
+            local_session=FAKE_LOCAL_SESSION, requestcall_data=data)
+    except MissingTransportParam as exc:
+        msg = str(exc)
+        assert "token" in msg, msg
+        assert "sessId was present" in msg, msg
+        assert "sess-real" not in msg, msg
+        return
+    raise AssertionError("expected MissingTransportParam (token)")
+
+
+def test_explicit_token_wins_over_sessid():
+    """Neu response co ca `token` rieng lan `sessId` thi `token`
+    rieng thang (tuong thich nguoc voi mock cu)."""
+    data = dict(REAL_11300_2026_11_06)
+    data["token"] = FAKE_TOKEN
+    alloc = media_endpoints.allocation_from_requestcall_data(data)
+    assert alloc["token"] == FAKE_TOKEN, alloc
+    assert alloc["session"] == SESSID_154, alloc
+
+
+def test_token_absent_without_sessid():
+    """Khong co `token` lan khong co `sessId` -> loi neu ro
+    `token` (khong ghi "sessId was present" vi that su khong
+    co) — day la thong bao loi ma test that 2026-11-06 da thay."""
+    data = {"servers": REAL_11300_2026_11_06_SERVERS}
+    try:
+        _provider().for_call(
+            call_id=CALL_ID + 23, callee_id="20001",
+            local_session=FAKE_LOCAL_SESSION, requestcall_data=data)
+    except MissingTransportParam as exc:
+        msg = str(exc)
+        assert "token" in msg, msg
+        assert "sessId was present" not in msg, msg
+        return
+    raise AssertionError("expected MissingTransportParam (token)")
 
 
 def test_srtp_key_wrong_length():

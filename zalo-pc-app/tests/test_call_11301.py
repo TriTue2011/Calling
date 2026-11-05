@@ -62,6 +62,7 @@ CALL_ID_GROUP = 1762345679
 # mot id khac, mock se khong thay buoc nao cho CALL_ID cu.
 CALL_ID_FAIL = 1762545678
 CALL_ID_REAL_SHAPE = 1762645678  # test hinh 11300 that (§7n)
+CALL_ID_REAL_SHAPE_1106 = 1762745678  # test hinh 11300 that 2026-11-06
 
 
 def _sig(mock):
@@ -439,6 +440,78 @@ def test_real_11300_shape_delivered_e2e():
         state = mock.voice_call_state(eff_id)
         assert state["steps"] == ["requestcall", "request"], state
         assert state["delivered"] is True, state
+        status, body = _api(base, "GET", "/api/calls")
+        by_id = {c["call_id"]: c for c in body["calls"]}
+        assert by_id[str(eff_id)]["request_sent"] is True, body
+        httpd.shutdown()
+    finally:
+        endpoints.stop_all()
+        media_endpoints.ENDPOINTS = old_endpoints
+        if httpd is not None:
+            try:
+                httpd.server_close()
+            except Exception:  # noqa: BLE001
+                pass
+        mock.stop()
+
+
+def _bare_endpoints():
+    """Provider KHONG co default token/session/srtp_key — moi
+    thu phai den tu response 11300 (chi local_session van lay
+    tu default gia, vi nguon that cua no chua biet)."""
+    return media_endpoints.MediaEndpoints(
+        transport_factory=lambda cfg: FakeTransport(cfg),
+        default_local_session=FAKE_LOCAL_SESSION)
+
+
+def test_real_11300_shape_2026_11_06_delivered_e2e():
+    """Hinh 11300 THAT 2026-11-06 06:35 +07 (ban 9d87501, loi
+    "token: missing" tren may chu that): KHONG co key `token`,
+    KHONG co `srtpKey` (ca top-level lan zrtc_config); servers
+    la list[5] dict voi key [bonus, rtcpIPv6, rtcpaddr, rtpIPv6,
+    rtpaddr, spTcp]; sessId la chuoi base64url 154 ky tu TONG
+    HOP (khong phai gia tri that bi bat). Qua API that, buoc
+    11301 VAN DUOC GUI voi token = sessId (mock thay du 2 buoc
+    dung thu tu, delivered) va request_sent=true; data_shape
+    chi ghi ten key + do dai sessId, KHONG tra gia tri nao.
+    GIOI HAN HONEST: local_session van lay tu default gia;
+    srtp "not-wired" (khong co srtpKey that) nen test nay chung
+    minh SIGNALING (11301 duoc gui, ben kia co the do chuong),
+    KHONG chung minh co tieng — nguon khoa SRTP van mo."""
+    from test_media_provider import (  # noqa: E402
+        REAL_11300_2026_11_06, SESSID_154)
+    mock = MockZalo().start()
+    mock.requestcall_data = dict(REAL_11300_2026_11_06)
+    httpd = None
+    old_endpoints = media_endpoints.ENDPOINTS
+    endpoints = _bare_endpoints()
+    media_endpoints.ENDPOINTS = endpoints
+    try:
+        httpd, base = _start_app(mock)
+        _login(base)
+        status, body = _api(base, "POST", "/api/call/request",
+                            {"callee_id": "20001",
+                             "call_id": CALL_ID_REAL_SHAPE_1106})
+        assert body["ok"] is True, body
+        assert body["request_sent"] is True, body
+        assert body["request_error"] == "", body
+        assert "data" not in body, body
+        assert "sessId: str[154 chars]" in body["data_shape"], body
+        assert "rtcpaddr" in body["data_shape"], body
+        assert "127.0.0.1" not in body["data_shape"], body
+        assert SESSID_154 not in body["data_shape"], body
+        eff_id = body["call_id"]
+        state = mock.voice_call_state(eff_id)
+        assert state["steps"] == ["requestcall", "request"], state
+        assert state["delivered"] is True, state
+        # Token that dung trong transport chinh la sessId (khong
+        # phai default gia nao — provider nay khong co default).
+        record = endpoints.active_record(eff_id)
+        assert record is not None, body
+        assert record["transport"].config.token == \
+            SESSID_154.encode(), body
+        assert len(record["transport"].config.token_raw) == 115, body
+        assert record["srtp_key"] is None, body
         status, body = _api(base, "GET", "/api/calls")
         by_id = {c["call_id"]: c for c in body["calls"]}
         assert by_id[str(eff_id)]["request_sent"] is True, body

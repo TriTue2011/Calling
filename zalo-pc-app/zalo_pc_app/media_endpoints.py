@@ -64,14 +64,28 @@ Parameter sources (all UNCONFIRMED where noted — see
                failed with "relays: empty" even though the
                response DID carry relays.
   token        115 raw bytes or the 154-char base64url string.
-               Ultimate source UNCONFIRMED (most likely 11300);
-               the provider takes it from `zrtc_config["token"]`
-               or an explicit argument — it never generates one.
-  session      the 416 `session` STRING. Candidate source:
-               11300 `sessId` (same struct as `servers`) —
-               UNCONFIRMED, the disassembly never found who writes
-               it first. The provider uses an explicit `session`
-               first, then `sessId`.
+               SOURCE (LIVE 2026-11-06 06:35 +07, build 9d87501):
+               the real 11300 response carries NO `token` key —
+               its top-level keys are [changeZRTP, fec, fromId, id,
+               msg, protocol, rtcpIP, rtpIP, servers, sessId,
+               settings, showDebugInfo, status, toId, ts, video,
+               zrtc_config]. The token is `sessId`: 115 raw bytes
+               == 154-char base64url unpadded — exactly the numbers
+               in the old "token: missing" error, and the only key
+               whose value can have that shape (every other key is
+               an id, a flag, an address, or a struct). The provider
+               takes an explicit `token` first, then `sessId` —
+               but ONLY when `sessId` validates as 115 bytes /
+               154 chars (`_looks_like_token`); a wrong-shaped
+               sessId leaves the token absent and `for_call` raises
+               naming `token` (with the sessId length in the shape
+               note, so the next live round can judge). The token is
+               NEVER generated, randomised, or defaulted.
+  session      the 416 `session` STRING. Source: 11300 `sessId`
+               (same value as the token — the 154-char string, or
+               the base64url form when sessId arrives as 115 raw
+               bytes). UNCONFIRMED as the session, like the token
+               it is the only candidate among the real keys.
   local_session  u32, the same value as the RTP SSRC (setup packet
                offset 10-13 LE = RTP SSRC BE). A per-device value
                whose source is UNKNOWN — it is NOT the captured
@@ -83,13 +97,24 @@ Parameter sources (all UNCONFIRMED where noted — see
   peer_session   u32 or None (not yet known before the callee's
                416); optional.
   srtp_key     from `zrtc_config.srtpKey` (a STRING of unknown
-               format/length). The provider does NOT decode it and
-               does NOT guess key material: it is passed unchanged
-               to the SRTP hook factory (`pc_media`), which
-               converts it strictly (base64url attempt + exact
-               suite-length check) or fails loudly. `srtpKey` /
-               `srtpNoSeq` / `srtpRTCP` are keys of `zrtc_config`,
-               NOT of extendData (disassembly correction).
+               format/length). LIVE 2026-11-06: the real 11300
+               `zrtc_config` carries NO `srtpKey` (nor `srtpNoSeq`
+               / `srtpRTCP`) — so a missing key is NOT fatal for
+               signaling any more: `for_call` still returns the
+               endpoints and 11301 is still sent, with `srtp`
+               reported as "not-wired" and media unwired (the
+               transport starts for the handshake; `send_pcm`
+               still refuses without a `protect_rtp` hook). The key
+               source is still OPEN — it may live inside the
+               115-byte token, in `settings`/`msg`, or be issued
+               separately by the server. The provider does NOT
+               decode it and does NOT guess key material: when a
+               key IS present it is passed unchanged to the SRTP
+               hook factory (`pc_media`), which converts it
+               strictly (base64url attempt + exact suite-length
+               check) or fails loudly. `srtpKey` / `srtpNoSeq` /
+               `srtpRTCP` are keys of `zrtc_config`, NOT of
+               extendData (disassembly correction).
   extend_data  dict or JSON string, normalized to the 23 known
                keys (`udp_transport.normalize_extend_data` — unknown
                keys dropped, bad `srtpMode` reset to 0). Optional:
@@ -111,6 +136,8 @@ Parameter sources (all UNCONFIRMED where noted — see
                (the transport raises `MissingTransportParam` then).
 """
 
+import base64
+import binascii
 import ipaddress
 import json
 import re
@@ -328,6 +355,40 @@ def _describe_servers_value(value):
     return type(value).__name__
 
 
+def _looks_like_token(value):
+    """True when `value` can be the 11301 token: 115 raw bytes,
+    or a 154-char base64url string decoding to exactly 115
+    bytes. Shape only — the value is never logged or returned.
+    115 bytes == 920 bits == ceil(920/6) == 154 base64 chars
+    (unpadded), which is exactly the pair the "token: missing"
+    error names; any other length fails, never coerced."""
+    if isinstance(value, (bytes, bytearray)):
+        return len(value) == 115
+    if isinstance(value, str):
+        if len(value) != 154:
+            return False
+        try:
+            raw = base64.b64decode(
+                value.encode("ascii") + b"==",
+                altchars=b"-_", validate=True)
+        except (binascii.Error, ValueError, UnicodeEncodeError):
+            return False
+        return len(raw) == 115
+    return False
+
+
+def _sessid_to_session_str(value):
+    """A `sessId` value as the 416 `session` string: a str as-is;
+    115 raw bytes as their 154-char base64url form (never
+    `str(bytes)`, which would yield a "b'\\x..'" literal)."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        return base64.urlsafe_b64encode(
+            bytes(value)).rstrip(b"=").decode("ascii")
+    return str(value)
+
+
 def describe_requestcall_shape(data):
     """One-line shape summary of a decoded 11300 response: key
     names and counts ONLY, never values. Safe for the UI, the
@@ -342,6 +403,16 @@ def describe_requestcall_shape(data):
     servers = _find_in_requestcall_data(data, "servers")
     if servers is not None:
         parts.append("servers: %s" % _describe_servers_value(servers))
+    # sessId length (never the value): the token candidate's shape
+    # is the one number the next live round needs to confirm.
+    sess = _find_in_requestcall_data(data, "sessId")
+    if sess is not None:
+        if isinstance(sess, (bytes, bytearray)):
+            parts.append("sessId: bytes[%d]" % len(sess))
+        elif isinstance(sess, str):
+            parts.append("sessId: str[%d chars]" % len(sess))
+        else:
+            parts.append("sessId: %s" % type(sess).__name__)
     return "; ".join(parts)
 
 
@@ -448,12 +519,19 @@ def allocation_from_requestcall_data(data):
     the REAL shape is a list of dicts keyed rtcpaddr/rtpIPv6,
     seen live 2026-11-05; the legacy `zrtc_config.servers`
     string is kept as a fallback),
-    `token`, `session` (from `sessId` — UNCONFIRMED candidate),
-    `srtp_key` (from `zrtc_config.srtpKey`), `srtp_mode`,
-    `codec` (from `zrtc_config.g711`), `extend_data` (from a
-    top-level `extendData` string/dict when present).
+    `token` (an explicit `token` key first; else 11300 `sessId`
+    — LIVE 2026-11-06 the real response has no `token` key and
+    `sessId` is the 115-byte / 154-char token — but ONLY when
+    its shape validates via `_looks_like_token`; a wrong-shaped
+    sessId leaves `token` absent),
+    `session` (from `sessId` — same value as the token),
+    `srtp_key` (from `zrtc_config.srtpKey` — LIVE 2026-11-06
+    the real response has none; absent keys are simply missing),
+    `srtp_mode`, `codec` (from `zrtc_config.g711`), `extend_data`
+    (from a top-level `extendData` string/dict when present).
     Absent keys are simply missing: `for_call` raises naming
-    each one instead of filling in a guess.
+    each one instead of filling in a guess (except `srtp_key`,
+    which no longer blocks signaling — see `for_call`).
     """
     if not isinstance(data, dict):
         return {}
@@ -463,13 +541,27 @@ def allocation_from_requestcall_data(data):
     if servers is not None:
         out["servers"] = servers
     token = _find_in_requestcall_data(data, "token")
+    if token is None:
+        # LIVE 2026-11-06 (build 9d87501): the real 11300
+        # response carries NO `token` key, and step 2 (11301)
+        # failed on "token: missing (need 115 raw bytes or a
+        # 154-char base64url string, most likely from response
+        # 11300)". The token is `sessId`: 115 raw bytes ==
+        # 154-char base64url — exactly those numbers, and the
+        # only real key whose value can have that shape.
+        # Accepted ONLY when the shape validates; never a
+        # captured value, never randomised, never coerced.
+        sess_candidate = _find_in_requestcall_data(data, "sessId")
+        if (sess_candidate is not None
+                and _looks_like_token(sess_candidate)):
+            token = sess_candidate
     if token is not None:
         out["token"] = token
     sess = _find_in_requestcall_data(data, "sessId")
     if sess is None:
         sess = _find_in_requestcall_data(data, "session")
     if sess is not None:
-        out["session"] = str(sess)
+        out["session"] = _sessid_to_session_str(sess)
     srtp_key = cfg.get("srtpKey")
     if srtp_key is None:
         # Fallback: the real 11300 layout is only partly known
@@ -598,13 +690,20 @@ class MediaEndpoints:
         Raises `MissingTransportParam` naming the missing
         parameter when any of these is absent: `call_id`,
         `callee_id`, `relays`/`servers`, `token`, `session`,
-        `local_session`, `srtp_key`. (A missing `srtp_key` is
-        fatal here even though the transport itself can start
-        without SRTP hooks: without the key the call can never
-        carry voice, so promising media in 11301 would be a lie.
-        Supplying explicit `protect_rtp`/`unprotect_rtp` hooks
-        does NOT waive the key — the key is the call's SRTP
-        material from `zrtc_config.srtpKey`.)
+        `local_session`. (`token` comes from an explicit `token`
+        key or from 11300 `sessId` when it validates as 115
+        bytes / 154 chars — LIVE 2026-11-06; see
+        `allocation_from_requestcall_data`.)
+        `srtp_key` is NOT in that list any more: the real 11300
+        response (live 2026-11-06) carries NO `srtpKey`, so
+        requiring it made 11301 unsendable on every real call.
+        Without a key the call still signals (11301 is sent, the
+        transport handshakes) but media stays unwired — `srtp`
+        is reported as "not-wired", no SRTP hooks are built, and
+        `send_pcm` refuses without a `protect_rtp` hook. The key
+        source is still open (it may live inside the 115-byte
+        token, in `settings`/`msg`, or be issued separately);
+        nothing is invented to stand in for it.
         """
         # 1. Merge sources: explicit args > 11300 response > zrtc_config.
         alloc = {}
@@ -674,12 +773,16 @@ class MediaEndpoints:
                     servers if servers is not None else relays),
                     ("; " + shape_note) if shape_note else ""))
 
-        # 4. Token / session / local session / SRTP key.
+        # 4. Token / session / local session (SRTP key: see below).
         if token is None or token == b"" or token == "":
             raise MissingTransportParam(
                 "token: missing (need 115 raw bytes or a 154-char "
-                "base64url string, most likely from response 11300%s)"
-                % (("; " + shape_note) if shape_note else ""))
+                "base64url string, most likely response 11300 "
+                "sessId%s%s)"
+                % ("; sessId was present but is not a 115-byte / "
+                   "154-char token"
+                   if alloc.get("session") is not None else "",
+                   ("; " + shape_note) if shape_note else ""))
         if session is None or (isinstance(session, str)
                                and not session):
             raise MissingTransportParam(
@@ -701,12 +804,13 @@ class MediaEndpoints:
             raise MissingTransportParam(
                 "local_session: must be a u32 int, got %r"
                 % (local_session,))
-        if srtp_key is None or srtp_key == b"" or srtp_key == "":
-            raise MissingTransportParam(
-                "srtp_key: missing (need zrtc_config.srtpKey from "
-                "response 11300; without it the call can never carry "
-                "voice%s)"
-                % (("; " + shape_note) if shape_note else ""))
+        # srtp_key is OPTIONAL for signaling (see docstring):
+        # the real 11300 carries no srtpKey (live 2026-11-06),
+        # so blocking 11301 on it would block every real call.
+        # Without a key the transport handshakes and 11301 is
+        # sent, but `srtp` stays "not-wired" and voice cannot
+        # flow until the key source is found — never a lie, and
+        # never a guessed key.
 
         # 5. Codec + extendData.
         if codec is None:
@@ -718,9 +822,13 @@ class MediaEndpoints:
                       if ext_dict else None)
 
         # 6. SRTP hooks: explicit hooks win; else build from the key
-        # via the injected factory; else handshake-only (None).
+        # via the injected factory (only when a key exists); else
+        # handshake-only (None). An empty key counts as no key.
+        if srtp_key == b"" or srtp_key == "":
+            srtp_key = None
         if protect_rtp is None and unprotect_rtp is None \
-                and self._srtp_factory is not None:
+                and self._srtp_factory is not None \
+                and srtp_key is not None:
             protect_rtp, unprotect_rtp = self._srtp_factory(srtp_key)
         srtp_state = ("wired" if protect_rtp is not None
                       and unprotect_rtp is not None else "not-wired")

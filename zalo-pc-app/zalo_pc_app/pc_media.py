@@ -31,7 +31,13 @@ SRTP key (read before wiring a real call):
   The key comes from response 11300 `zrtc_config.srtpKey` — a
   STRING whose format and length are UNCONFIRMED (disassembly:
   `srtpKey` is a plain string field of `zrtc_config`, no length
-  limit in the parser). `media_hooks_for_call` converts it
+  limit in the parser). LIVE 2026-11-06: the real 11300
+  `zrtc_config` carries NO `srtpKey` at all, so a real call
+  currently has no key to wire — signaling proceeds
+  handshake-only (`media_endpoints` reports srtp "not-wired")
+  and the key source is still OPEN (it may live inside the
+  115-byte token, in `settings`/`msg`, or be issued separately
+  by the server). `media_hooks_for_call` converts it
   best-effort: raw `bytes` are used as-is; a `str` is tried as
   base64url first, then as UTF-8 — and the result MUST match the
   suite's exact key-material length (30 bytes for
