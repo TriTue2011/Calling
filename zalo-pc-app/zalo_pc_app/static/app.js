@@ -675,10 +675,18 @@ function feedRow(c) {
   const name = document.createElement("div");
   name.className = "feed-name";
   name.textContent = c.peer || c.thread_id;
+  // Rail tracking must show the thread ID (same as the active card
+  // and the history table): the rail is the view the user watches
+  // while a call is live, and feed rows previously showed only the
+  // name + time/type, so a call could not be matched to its thread.
+  const tid = document.createElement("div");
+  tid.className = "feed-tid mono";
+  tid.textContent = c.thread_id;
   const sub = document.createElement("div");
   sub.className = "feed-sub";
   sub.textContent = fmtTime(c.started_at) + " · " + typePill(c.type);
   main.appendChild(name);
+  main.appendChild(tid);
   main.appendChild(sub);
   const pill = document.createElement("span");
   const [cls, label] = statusPill(c.status);
