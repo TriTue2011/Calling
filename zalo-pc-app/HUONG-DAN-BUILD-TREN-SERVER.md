@@ -105,6 +105,86 @@ Rồi trong Portainer start lại stack `zalo` như cũ (nó pull image
 `ghcr.io/tritue2011/zalo-pc-app-test:test` về chạy). Volume `/opt/zalo`
 không bị đụng tới trong cả hai đường nên phiên đăng nhập vẫn còn.
 
+## 5. Vòng sửa 4 lỗi (2026-11-06) — redeploy + kiểm tra từng lỗi
+
+Vòng này sửa 4 lỗi đã gặp trên server: (1) tin nhắn đến không hiện,
+(2) gọi đi kẹt ở bước 2 (11301), (3) đính kèm file không gửi được,
+(4) tin nhắn thoại báo lỗi 133 (chỉ nhận MP3). Code đã push lên nhánh
+`muse/zalo-addon-pivot`; **bắt buộc rebuild từ source** vì image giờ
+cài thêm `ffmpeg` (tin nhắn thoại) — pull image CI cũ sẽ không có
+ffmpeg và lỗi 133 vẫn còn.
+
+### Redeploy
+
+```bash
+cd ~/calling/Calling
+git pull
+cd zalo-pc-app
+APP_VERSION=$(git rev-parse HEAD) docker compose -f docker-compose.build.yml up -d --build
+```
+
+Phiên đăng nhập giữ nguyên (volume `/opt/zalo`), không cần quét lại QR
+— trừ trường hợp mục (1) dưới đây báo `sync: no_endpoints`. Kiểm tra
+đúng bản mới: cuối trang UI phải hiện sha mới, và log phải có dòng
+`[sync-poll]` khi poller chạy.
+
+### (1) Tin nhắn đến — kiểm tra
+
+- Mở `http://<địa-chỉ-server>:8080/api/status`: phải có
+  `"sync": "running"`.
+  - Nếu là `"sync": "no_endpoints"`: phiên cũ thiếu endpoint poll —
+    quét lại QR **một lần** rồi kiểm tra lại (poller tự lấy endpoint
+    từ lúc đăng nhập).
+- Nhờ một tài khoản khác gửi tin 1-1: tin phải hiện trong thread đang
+  mở trong ~5 giây, không cần F5; khi thread không mở phải có badge
+  chưa đọc + xem trước tin mới ở danh sách.
+- Tin nhóm: hiện với tên người gửi; F5 trong nhóm không trùng tin cũ.
+- Nếu không hiện: ghi lại giá trị `"sync"` + các dòng log `[sync-poll]`
+  (chỉ số lượng/mã lỗi, không có nội dung tin).
+
+### (2) Gọi đi — kiểm tra
+
+- Bấm gọi từ một dòng liên hệ (dùng tài khoản phụ, không dùng tài
+  khoản chính). Dòng trạng thái bước 2 phải đọc:
+  `Bước 2 (11301): đã gửi`.
+- Nếu vẫn lỗi, dòng bước 2 giờ nêu rõ **tham số còn thiếu + danh sách
+  key của phản hồi 11300** — chụp lại dòng đó (không có IP/giá trị
+  thật trong đó). Đây là thông tin để sửa tiếp, không phải lỗi hiển
+  thị.
+- Chưa chứng minh được cuộc gọi thật hoàn tất (nghe/nói 2 chiều) —
+  vòng này mới sửa tới bước gửi 11301.
+
+### (3) Đính kèm file — kiểm tra
+
+- File thường (vd. `.m3u`, `.txt`): gửi được, bên kia nhận được file.
+- Ảnh `.jpg`/`.png`/`.webp`: gửi dạng ảnh.
+- GIF: gửi dạng **file**, không phải ảnh.
+- File 0 byte: phải báo lỗi rõ ngay trên UI, không gửi ngầm.
+- File >100MB / ảnh >25MB: báo lỗi rõ, không gửi.
+- Nếu đính kèm vẫn thất bại dù các trường hợp trên đều báo đúng:
+  nghi vấn số 1 là `clientId` — app đang gửi dạng SỐ (epoch-ms, theo
+  bản PC), trong khi code Node.js gửi dạng CHUỖI. Ghi lại thông báo lỗi
+  trên UI để đối chiếu.
+
+### (4) Tin nhắn thoại — kiểm tra
+
+- Ghi âm ~5 giây rồi gửi: trạng thái phải hiện
+  `Đang chuyển sang MP3 rồi gửi…`, sau đó bong bóng thoại hiện và
+  bên kia nghe được.
+- Nếu báo lỗi, thông báo phải nêu rõ ở bước nào (ghi âm / chuyển MP3 /
+  gửi) thay vì lỗi chung chung.
+- Lưu ý: ffmpeg chỉ có sau khi rebuild image mới; nếu image cũ thì
+  vẫn lỗi 133.
+
+### Câu hỏi còn mở (chưa có đáp án, không chặn redeploy)
+
+- Gọi đi: phản hồi 11300 thật có mang `token`/`sessId`/`srtpKey`
+  không (lần lỗi trước dừng ở relay nên chưa thấy); `local_session`
+  lấy SSRC từ đâu (không được random mỗi cuộc gọi, cũng không được
+  dùng giá trị đã bắt sẵn).
+- Đính kèm: `clientId` dạng SỐ có được `sharefile_full` chấp nhận
+  không (xem mục (3)).
+
 ## Ghi chú
 
 - Một container, một cổng duy nhất 8080 — không còn sidecar Node/zalobot,
