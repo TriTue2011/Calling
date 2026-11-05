@@ -85,9 +85,17 @@ def test_friends_groups_contract():
         book = contacts_mod.Contacts(
             partial(http_get, cookie="sek-test"), "dev-1", TEST_SESSION_KEY)
         friends = book.friends(init=True)
-        assert [r["name"] for r in friends["rows"]] == ["Ban A", "Ban B"]
+        assert [r["name"] for r in friends["rows"]] == \
+            ["Ban A", "Ban B", "Ban C"]
+        assert [r["id"] for r in friends["rows"]] == \
+            ["20001", "20002", "20003"]
         groups = book.groups()
         assert [r["name"] for r in groups["rows"]] == ["Nhom X", "Nhom Y"]
+        # Raw group items carry groupId (not userId) — the id must be
+        # the raw groupId, otherwise tapping a group would call with
+        # an empty peer id. Avatar comes from avt, not avatar.
+        assert [r["id"] for r in groups["rows"]] == ["30001", "30002"]
+        assert [r["avatar"] for r in groups["rows"]] == ["avt-x", ""]
         # V3 is paginated: the mock returns 2 pages, both merged, so
         # the client must have fetched page 1 and page 2 (page/count
         # live inside the encrypted body, not in the query string).
@@ -99,6 +107,67 @@ def test_friends_groups_contract():
                if p == "/api/social/friend/getfriends"][0]
         assert fqs["zpw_ver"] == "695" and fqs["zpw_type"] == "30"
         assert fqs["init"] == "1", fqs
+    finally:
+        mock.stop()
+
+
+def test_extract_rows_real_shapes():
+    """_extract_rows against the REAL server shapes (bundle-verified):
+    friends = bare array of {userId, displayName|zaloName, avatar};
+    groups = {groups: [raw {groupId, name, avt, ...}], hasMore, total}.
+    The old extractor missed groupId, avt/fullAvt and zaloName — so
+    group rows had an empty id (tapping one would call with an empty
+    peer id) and a zaloName-only friend showed its numeric id instead
+    of its name. Also pins the defensive fallbacks ("rows" container,
+    item nested under "profile") and the empty-account case."""
+    ext = contacts_mod._extract_rows
+    # Friends: bare array; one friend has only zaloName, one only
+    # snake_case fields.
+    rows = ext([
+        {"userId": "20001", "displayName": "Ban A", "avatar": "a1"},
+        {"userId": "20002", "zaloName": "Ban B", "avatar": ""},
+        {"uid": "20003", "display_name": "Ban C",
+         "zalo_name": "Ban C", "avatar": ""},
+    ])
+    assert [(r["id"], r["name"]) for r in rows] == [
+        ("20001", "Ban A"), ("20002", "Ban B"), ("20003", "Ban C")], rows
+    # Groups: raw items {groupId, name, avt, fullAvt}.
+    rows = ext({"groups": [
+        {"groupId": "30001", "name": "Nhom X", "avt": "avt-x",
+         "fullAvt": "full-x", "creatorId": "20001"},
+        {"groupId": "30002", "name": "Nhom Y", "avt": "",
+         "fullAvt": "", "creatorId": "20001"},
+    ], "hasMore": False, "total": 2})
+    assert [(r["id"], r["name"], r["avatar"]) for r in rows] == [
+        ("30001", "Nhom X", "avt-x"), ("30002", "Nhom Y", "")], rows
+    # Defensive fallbacks: "rows" container key, item under "profile".
+    assert ext({"rows": [{"userId": "1", "displayName": "Mot"}]}) == [
+        {"id": "1", "name": "Mot", "avatar": ""}]
+    assert ext([{"profile": {"userId": "2", "displayName": "Hai"}}]) == [
+        {"id": "2", "name": "Hai", "avatar": ""}]
+    # Empty account: empty array / empty groups list -> no rows, and
+    # items without any id or name are skipped (not rendered blank).
+    assert ext([]) == []
+    assert ext({"groups": [], "hasMore": False, "total": 0}) == []
+    assert ext([{"foo": 1}]) == []
+
+
+def test_empty_account():
+    """Mock modes "empty": an account with no friends and no groups
+    must load contacts successfully with empty rows — not an error.
+    (Live, the UI showed empty tabs with no error after bd380d1; the
+    counts on the tabs now make this case visible: "Bạn bè (0)" /
+    "Nhóm (0)" means the account is empty, while a non-zero count
+    with no names would mean a parsing bug.)"""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        mock.friends_mode = "empty"
+        mock.groups_mode = "empty"
+        book = contacts_mod.Contacts(
+            partial(http_get, cookie="sek-test"), "dev-1", TEST_SESSION_KEY)
+        assert book.friends(init=True)["rows"] == []
+        assert book.groups()["rows"] == []
     finally:
         mock.stop()
 
@@ -197,7 +266,8 @@ def test_friends_zpwtype_embed_accepted():
         status, payload = http_get(url, cookie="sek-test")
         assert status == 200, (status, payload)
         assert payload.get("error_code") == 0, payload
-        assert payload["data"]["friends"], payload
+        # Real friends shape: data is a bare array (not {"friends": [...]}).
+        assert isinstance(payload["data"], list) and payload["data"], payload
     finally:
         mock.stop()
 

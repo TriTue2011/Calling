@@ -63,11 +63,19 @@ def test_full_flow_encrypted():
         book = contacts_mod.Contacts(t2, "dev-1", TEST_SESSION_KEY)
         # First friends load sends init=1 (real client _isFirstReq()).
         friends = book.friends(init=True)
-        assert [r["name"] for r in friends["rows"]] == ["Ban A", "Ban B"]
+        # Real shape: bare array; "Ban B" has only zaloName, "Ban C"
+        # only snake_case fields — all three must resolve to names.
+        assert [r["name"] for r in friends["rows"]] == \
+            ["Ban A", "Ban B", "Ban C"]
+        assert [r["id"] for r in friends["rows"]] == \
+            ["20001", "20002", "20003"]
         # A second load must NOT send init again.
         book.friends()
         groups = book.groups()
         assert groups["rows"][0]["name"] == "Nhom X"
+        # Raw group items: id is the raw groupId, avatar comes from avt.
+        assert groups["rows"][0]["id"] == "30001"
+        assert groups["rows"][0]["avatar"] == "avt-x"
     finally:
         mock.stop()
 

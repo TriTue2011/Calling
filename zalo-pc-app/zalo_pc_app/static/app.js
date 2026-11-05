@@ -21,8 +21,15 @@ async function api(path, method, body) {
 }
 
 function renderList() {
-  const rows = currentTab === "friends"
-    ? (contacts.friends.rows || []) : (contacts.groups.rows || []);
+  const fRows = contacts.friends.rows || [];
+  const gRows = contacts.groups.rows || [];
+  // Counts on the tabs (totals, not the filtered view): "Bạn bè (0)"
+  // / "Nhóm (0)" means the account really has none, while a non-zero
+  // count with no names would mean a parsing bug — the two cases
+  // looked identical before (both showed empty tabs).
+  $("tab-friends").textContent = "Bạn bè (" + fRows.length + ")";
+  $("tab-groups").textContent = "Nhóm (" + gRows.length + ")";
+  const rows = currentTab === "friends" ? fRows : gRows;
   const q = $("search").value.trim().toLowerCase();
   const ul = $("list");
   ul.innerHTML = "";

@@ -59,7 +59,9 @@ python3 tests/run_tests.py
 ## Trạng thái
 
 - Giai đoạn 1 (xong, test offline pass): trang QR, phiên bền,
-  danh bạ/nhóm, gọi đi qua signaling kiểu PC.
+  danh bạ/nhóm, gọi đi qua signaling kiểu PC. Tab danh bạ hiện số
+  lượng «Bạn bè (N)» / «Nhóm (M)» — số 0 nghĩa là tài khoản thật sự
+  không có bạn/nhóm (xem bao-cao.md 7f).
 - Giai đoạn 2 (chưa): nhận cuộc gọi đến (kênh sync WebSocket),
   tiếng trực tiếp (engine gắn qua `zalo_pc_app/engine_seam.py`),
   QR new-format (trust-device, cần WASM — cố tình chưa làm).

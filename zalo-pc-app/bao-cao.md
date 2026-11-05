@@ -558,6 +558,77 @@ traceback như cũ. Test `test_connection_reset_silenced` kiểm cả hai
 mức (gọi trực tiếp `handle_error` + RST thật vào server đang chạy:
 không còn traceback, server vẫn trả `/api/status`).
 
+### 7f. Danh bạ hiện TRỐNG sau bản bd380d1: dạng thật của friends/groups + số đếm trên tab
+
+**Chạy thật (16:44 ngày 05/11):** user redeploy bd380d1, footer
+version khớp, đã đăng nhập, `/api/contacts` KHÔNG trả error nữa —
+nhưng cả hai tab đều trống, bấm tab vẫn «Chưa có gì». Chưa rõ tài
+khoản phụ có bạn/nhóm thật hay không, nên không giả định hướng nào.
+
+**Dạng thật (lần lại bundle `compact-app-pc`, lần này tới tận hàm
+parse của client):**
+- Friends (getfriends): `data` là MẢNG TRẦN các profile
+  `{userId, displayName|zaloName, avatar}`. Bằng chứng:
+  `FriendListManager._callApi` — `.then(s.a)` unwrap envelope rồi
+  `_preFormatData` trả `{data: e}` và code sau kiểm
+  `Array.isArray(e)`; tên hiển thị trong UI contacts được giải quyết
+  bằng `getDName(userId) || displayName || zaloName`;
+  `reformatConversationFromFriend` chấp nhận cả snake_case
+  (`uid` / `zalo_name` / `display_name`); `_normalizeMiniProfileData`
+  đặt `displayName = zaloName` khi thiếu.
+- Groups (getlg/v3): `data` là `{groups: [...], hasMore, total}`;
+  mỗi item là group THÔ `{groupId, name, avt, fullAvt, creatorId,
+  ...}`. Bằng chứng: `GroupListManager._callApi` +
+  `_fetchAllGroups` đọc `r.groups`/`r.hasMore`/`r.total`;
+  `_preFormatItemGroup` map `groupId -> userId` ("group"+groupId),
+  `name -> displayName`, `avt -> avatar`, `fullAvt -> bgavatar`;
+  `callFetchGroupListByPage` cũng format từng item qua
+  `_preFormatItemGroup`. `_formatDataAGroup` (gridInfoMap) xác nhận
+  cùng dạng thô.
+- Không có bằng chứng item lồng «profile» trong hai hàm parse này
+  (grep `.profile` trong cả hai manager = 0) — chỉ giữ làm fallback
+  phòng thủ trong code, không coi là dạng thật.
+
+**Lỗ hổng `_extract_rows` cũ (đã sửa):** không đọc `groupId` (nhóm
+bị id rỗng → bấm vào gọi với peer id rỗng), không đọc
+`avt`/`fullAvt` (avatar nhóm luôn rỗng), không đọc
+`zaloName`/`zalo_name`/`display_name` (bạn chỉ có zaloName thì hiện
+số id thay vì tên). Lưu ý trung thực: với dạng thô này, tên nhóm vẫn
+trích được qua field `name` và bạn bè vẫn trích được qua
+`userId`+`displayName` — nên các lỗ hổng trên GIẢI THÍCH được nút
+gọi nhóm gãy và tên hiển thị sai, nhưng KHÔNG giải thích được danh
+sách hoàn toàn trống. Khả năng còn lại là tài khoản phụ vốn trống —
+chưa chứng minh được từ đây.
+
+**Mock sai dạng thật (đã sửa):** mock cũ trả
+`data = {"friends": [...]}` với item đã format sẵn
+`{userId, displayName, avatar}` cho cả hai endpoint — server thật
+không trả như vậy, nên test offline không bắt được các lỗ hổng trên.
+Mock mới trả đúng dạng thật (friends: mảng trần, có 1 bạn chỉ có
+`zaloName` và 1 bạn chỉ có snake_case; groups: item thô
+`{groupId, name, avt, ...}` phân 2 trang), thêm chế độ
+`friends_mode`/`groups_mode = "empty"` (friends `[]`, groups
+`{groups: [], hasMore: False, total: 0}`).
+
+**Số đếm trên tab (để lần sau phân biệt ngay):** `app.js renderList`
+đặt nhãn tab theo tổng số rows đã trích — «Bạn bè (N)» /
+«Nhóm (M)». «Bạn bè (0)» / «Nhóm (0)» nghĩa là tài khoản thật sự
+trống; số > 0 mà không thấy tên mới là lỗi trích tên.
+
+**Test mới:** `test_extract_rows_real_shapes` (dạng thật trích đủ
+id/tên/avatar; fallback "rows"/"profile"; tài khoản trống → rows
+rỗng), `test_empty_account` (mock "empty" → contacts trả rows rỗng,
+không lỗi); `test_friends_groups_contract` assert thêm id nhóm =
+groupId và avatar nhóm = avt; `test_friends_zpwtype_embed_accepted`
+sửa theo dạng thật (data là mảng).
+
+**Kiểm chứng cuối:** user pull image mới, up lại stack cũ (giữ
+volume, không chown, không quét lại trừ khi trang hiện lại QR) — đọc
+số trên tab: nếu «Bạn bè (0)» / «Nhóm (0)» thì tài khoản phụ trống
+thật (cần thêm bạn cho nó mới thử gọi được); nếu số > 0 thì tên phải
+hiện; nếu số > 0 mà vẫn không thấy tên thì báo lại — đó mới là lỗi
+trích tên còn sót.
+
 ### Không cần chown tay nữa — cách đã chọn
 
 Image cũ chạy bằng user `app` (UID 1000) nên mount host path thuộc
@@ -594,8 +665,12 @@ README + `docker-compose.yml` đã bỏ hướng dẫn chown tay.
 
 ## 8. Những gì CHƯA kiểm bằng chạy thật (ghi rõ, không suy đoán)
 
-- Tải danh bạ sau bản sửa 602 (xem 7b) — cần user pull image mới,
-  deploy lại stack cũ, quét lại bằng tài khoản phụ.
+- Danh bạ trống sau bản bd380d1 (xem 7f) — lỗi 602 đã hết nhưng
+  chưa rõ tài khoản phụ có bạn/nhóm thật hay không; bản sửa 7f thêm
+  số đếm «Bạn bè (N)» / «Nhóm (M)» lên tab để phân biệt trống thật
+  hay lỗi trích tên — cần user pull image mới, deploy lại stack cũ
+  (giữ volume, không quét lại trừ khi trang hiện lại QR) và đọc số
+  trên tab.
 - Entrypoint chown/hạ quyền trong container thật (xem 7b) — VM này
   không chạy được container Docker; đã kiểm logic entrypoint bằng
   user `app` thật trên VM, còn deploy trên server là bước cuối.

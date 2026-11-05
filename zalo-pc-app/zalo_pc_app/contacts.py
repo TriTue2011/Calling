@@ -15,6 +15,12 @@ Response parsing here is deliberately loose (best-effort id/name
 extraction): the server's list shapes vary, and the UI only needs
 id + display name + avatar to render rows. Anything unparsed is still
 returned raw under "raw" for the UI to inspect.
+
+Real response shapes (bundle compact-app-pc, see _extract_rows):
+  friends: data is a BARE ARRAY of profile items
+    {userId, displayName|zaloName, avatar};
+  groups:  data is {groups: [...raw {groupId, name, avt, ...}...],
+    hasMore, total}.
 """
 
 import json
@@ -42,13 +48,34 @@ def _url_with_params(base, path, body, zpw_enk, extra_query=None):
 
 
 def _extract_rows(data):
-    """Best-effort: pull [{id, name, avatar}] out of common shapes."""
+    """Best-effort: pull [{id, name, avatar}] out of the REAL shapes.
+
+    Real shapes (Zalo PC bundle compact-app-pc, verified 2026-11-05
+    from the client's own parsing code — NOT from the old mock, which
+    returned pre-formatted items and hid these gaps):
+      friends (getfriends): data is a BARE ARRAY of profile items
+        {userId, displayName|zaloName, avatar}. The client's
+        FriendListManager checks Array.isArray(data) after unwrapping
+        the envelope; the contacts UI resolves a name as
+        getDName(userId) || displayName || zaloName, and
+        reformatConversationFromFriend also accepts snake_case
+        (uid / zalo_name / display_name).
+      groups (getlg/v3): data is {groups: [...], hasMore, total};
+        each item is a RAW group object {groupId, name, avt, fullAvt,
+        creatorId, ...}. The client's _preFormatItemGroup maps
+        groupId -> userId ("group"+groupId), name -> displayName,
+        avt -> avatar, fullAvt -> bgavatar. Our rows keep the RAW
+        groupId as id (the voicecall API takes the raw group id;
+        the "group" prefix is only a client-store convention).
+    Defensive fallbacks (not bundle-confirmed, harmless): a "rows"
+    container key, and an item nested under "profile".
+    """
     rows = []
     items = []
     if isinstance(data, list):
         items = data
     elif isinstance(data, dict):
-        for key in ("friends", "groups", "items", "list", "data"):
+        for key in ("friends", "groups", "items", "list", "data", "rows"):
             val = data.get(key)
             if isinstance(val, list):
                 items = val
@@ -56,10 +83,15 @@ def _extract_rows(data):
     for it in items:
         if not isinstance(it, dict):
             continue
-        uid = (it.get("userId") or it.get("id") or it.get("uid") or "")
-        name = (it.get("displayName") or it.get("name")
-                or it.get("dName") or "")
-        avatar = it.get("avatar", "")
+        if isinstance(it.get("profile"), dict):
+            it = it["profile"]
+        uid = (it.get("userId") or it.get("groupId") or it.get("id")
+               or it.get("uid") or "")
+        name = (it.get("displayName") or it.get("dName")
+                or it.get("zaloName") or it.get("name")
+                or it.get("display_name") or it.get("zalo_name") or "")
+        avatar = (it.get("avatar") or it.get("avt")
+                  or it.get("fullAvt") or "")
         if uid or name:
             rows.append({"id": str(uid), "name": name, "avatar": avatar})
     return rows
