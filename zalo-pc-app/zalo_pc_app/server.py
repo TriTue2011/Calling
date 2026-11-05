@@ -30,6 +30,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import VERSION as _PKG_VERSION
+from . import call_log
 from . import contacts as contacts_mod
 from . import engine_seam
 from . import protocol
@@ -115,6 +116,9 @@ class AppState:
         # First friends load after start/login sends init=1 (real client
         # _isFirstReq()). Cleared after the first successful friends call.
         self._contacts_init_pending = True
+        # Call log (in-memory only): every outgoing call attempt and
+        # every end, for the calling monitor (GET /api/calls).
+        self.calls = call_log.CallLog()
         self.thread = None
 
     # -- session helpers -------------------------------------------------
@@ -310,12 +314,21 @@ class Handler(BaseHTTPRequestHandler):
             ctype = ("text/javascript" if path.endswith(".js")
                      else "text/css")
             return self._serve_static(path.lstrip("/"), ctype)
+        if path.startswith("/fonts/"):
+            return self._serve_static(path.lstrip("/"),
+                                      "font/woff2")
         if path == "/api/status":
             return self._send_json(STATE.public_status())
         if path == "/api/qr/status":
             return self._send_json(STATE.qr_status())
         if path == "/api/engine/status":
             return self._send_json(engine_seam.SEAM.status())
+        if path == "/api/calls":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            return self._send_json(STATE.calls.snapshot())
         if path == "/api/contacts":
             sess = self._require_login()
             if sess is None:
@@ -361,6 +374,13 @@ class Handler(BaseHTTPRequestHandler):
             if sess is None:
                 return self._send_json({"error": "chua_dang_nhap"},
                                        status=401)
+            # Log the attempt for the calling monitor (GET /api/calls):
+            # the UI sends the peer's display name; the log never
+            # carries secrets, only who/when/which thread/result.
+            call_id = body.get("call_id", "")
+            thread_id = body.get("callee_id", "")
+            call_type = body.get("type") or "user"
+            peer = body.get("peer_name") or thread_id
             try:
                 transport = make_transport(sess["zpw_sek"])
                 sig = signaling_mod.Signaling(transport, sess["device_id"],
@@ -370,21 +390,25 @@ class Handler(BaseHTTPRequestHandler):
                 #   the user threadId; type "group" -> group/requestcall
                 #   (12433), groupId is the group threadId. Sending a
                 #   group id through the 1-1 endpoint is wrong.
-                if body.get("type") == "group":
+                if call_type == "group":
                     data = sig.request_call_group(
-                        body.get("callee_id", ""),
-                        body.get("call_id", ""),
+                        thread_id,
+                        call_id,
                         body.get("type_request", 0),
                         body.get("data"),
                         body.get("partners"))
                 else:
                     data = sig.request_call(
-                        body.get("callee_id", ""),
-                        body.get("call_id", ""),
+                        thread_id,
+                        call_id,
                         body.get("codec"),
                         body.get("type_request", 0))
+                STATE.calls.record_start(call_id, peer, thread_id,
+                                         call_type)
                 return self._send_json({"ok": True, "data": data})
             except Exception as e:  # noqa: BLE001
+                STATE.calls.record_error(call_id, peer, thread_id,
+                                         call_type, str(e))
                 return self._send_json({"error": str(e)}, status=502)
         if path == "/api/call/end":
             sess = self._require_login()
@@ -397,6 +421,7 @@ class Handler(BaseHTTPRequestHandler):
                                               sess["zpw_enk"])
                 data = sig.endcall(body.get("uid_to", ""),
                                    body.get("call_id", ""))
+                STATE.calls.record_end(body.get("call_id", ""))
                 return self._send_json({"ok": True, "data": data})
             except Exception as e:  # noqa: BLE001
                 return self._send_json({"error": str(e)}, status=502)

@@ -117,11 +117,39 @@ def test_server_e2e():
                             "type": "group", "partners": members})
         assert body["ok"] is True, body
 
+        # The call log (UI Calls view + rail) records both calls,
+        # newest first, with threadId + type, and the live one.
+        # Starting the group call already closed the older user
+        # call (a new call replaces the live one).
+        status, body = api("GET", "/api/calls")
+        assert status == 200, body
+        assert [c["thread_id"] for c in body["calls"]] == ["30001", "20001"], body
+        assert [c["type"] for c in body["calls"]] == ["group", "user"], body
+        assert [c["status"] for c in body["calls"]] == ["sent", "ended"], body
+        assert body["active"]["call_id"] == "g9", body
+        blob = json.dumps(body)
+        for secret in ("zpw_sek", "zpw_enk", "zpw_kt", "dkey", "sek-test",
+                       "enk-test"):
+            assert secret not in blob, secret
+
+        # Ending the group call marks it ended and leaves no live call.
+        status, body = api("POST", "/api/call/end",
+                           {"uid_to": "30001", "call_id": "g9"})
+        assert body["ok"] is True, body
+        status, body = api("GET", "/api/calls")
+        by_id = {c["call_id"]: c for c in body["calls"]}
+        assert by_id["g9"]["status"] == "ended", body
+        assert by_id["c9"]["status"] == "ended", body
+        assert body["active"] is None, body
+
         status, body = api("POST", "/api/logout", {})
         assert body["ok"] is True
         assert not os.path.exists(sess_path)
         status, body = api("GET", "/api/status")
         assert body["login"] is False
+        # /api/calls also requires login.
+        status, body = api("GET", "/api/calls")
+        assert status == 401, body
         httpd.shutdown()
     finally:
         mock.stop()

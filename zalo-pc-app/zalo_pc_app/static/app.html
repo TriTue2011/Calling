@@ -3,55 +3,150 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Zalo PC (bản Docker)</title>
+<title>Zalo PC — bản chạy trên server</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header>
-  <h1>Zalo PC — bản chạy trên server</h1>
-  <div id="who"></div>
-</header>
+<div class="shell">
+  <!-- Sidebar: product mark + name, scope, nav, account. On the page
+       ground, no rule between it and the top bar (framed-sheet L-frame). -->
+  <aside class="sidebar" id="sidebar" aria-label="Điều hướng">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">Z</span>
+      <span class="brand-name">Zalo PC</span>
+      <span class="brand-scope">Bản chạy trên server</span>
+    </div>
+    <nav class="nav" aria-label="Mục chính">
+      <button id="nav-contacts" class="nav-item on" type="button">
+        <span class="nav-label">Danh bạ</span>
+      </button>
+      <button id="nav-calls" class="nav-item" type="button">
+        <span class="nav-label">Cuộc gọi</span>
+        <span id="nav-call-dot" class="nav-dot" hidden></span>
+      </button>
+    </nav>
+    <div class="sidebar-foot">
+      <div id="who" class="who">Chưa đăng nhập</div>
+      <button id="btn-logout" class="btn btn-danger-outline" type="button">Đăng xuất</button>
+    </div>
+  </aside>
 
-<!-- View 1: đăng nhập bằng QR -->
-<section id="view-login" class="view">
-  <h2>Đăng nhập bằng mã QR</h2>
-  <p>Mở app Zalo trên điện thoại, quét mã dưới đây là xong. Quét một lần,
-     lần sau mở lên là dùng ngay, không cần quét lại.</p>
-  <div id="qr-box">
-    <img id="qr-img" alt="Mã QR đăng nhập" style="display:none">
-    <div id="qr-wait">Bấm “Lấy mã QR” để bắt đầu.</div>
+  <div class="main-col">
+    <!-- Top bar (48px, on the ground): menu on phones, centred search,
+         active-call pill on the right. -->
+    <header class="topbar">
+      <button id="btn-menu" class="btn-menu" type="button" aria-label="Mở menu" aria-expanded="false"><svg width="18" height="14" viewBox="0 0 18 14" aria-hidden="true"><path d="M0 1h18M0 7h18M0 13h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      <div class="topbar-search">
+        <input id="search" type="text" placeholder="Tìm tên hoặc threadID…" aria-label="Tìm tên hoặc threadID" autocomplete="off">
+      </div>
+      <button id="topbar-call" class="call-pill" type="button" hidden></button>
+    </header>
+
+    <!-- White sheet: the work. Inset 8px from the right/bottom edges. -->
+    <main class="sheet">
+      <!-- View 1: đăng nhập bằng QR -->
+      <section id="view-login" class="view">
+        <div class="login-wrap">
+          <h1>Đăng nhập bằng mã QR</h1>
+          <p class="lede">Mở app Zalo trên điện thoại, quét mã dưới đây là xong.
+            Quét một lần, lần sau mở lên là dùng ngay, không cần quét lại.</p>
+          <div id="qr-box">
+            <img id="qr-img" alt="Mã QR đăng nhập" style="display:none">
+            <div id="qr-wait">Bấm “Lấy mã QR” để bắt đầu.</div>
+          </div>
+          <div id="qr-status" role="status"></div>
+          <div class="login-actions">
+            <button id="btn-qr" class="btn btn-primary" type="button">Lấy mã QR</button>
+            <button id="btn-qr-again" class="btn btn-secondary" type="button" style="display:none">Lấy mã mới</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- View 2: chính — danh bạ + theo dõi cuộc gọi -->
+      <section id="view-main" class="view" style="display:none">
+        <div class="title-row">
+          <div>
+            <h1>Danh bạ</h1>
+            <p class="subline">Danh bạ lấy y nguyên từ addon — bấm một hàng để gọi theo threadID.</p>
+          </div>
+        </div>
+        <div class="count-cards" role="group" aria-label="Lọc theo loại">
+          <button id="filter-all" class="count-card on" type="button">
+            <span class="count-label">Tất cả</span>
+            <span class="count-value num" id="count-all">0</span>
+          </button>
+          <button id="filter-friends" class="count-card" type="button">
+            <span class="count-label">Bạn bè</span>
+            <span class="count-value num" id="count-friends">0</span>
+          </button>
+          <button id="filter-groups" class="count-card" type="button">
+            <span class="count-label">Nhóm</span>
+            <span class="count-value num" id="count-groups">0</span>
+          </button>
+        </div>
+        <div class="main-grid">
+          <div class="contacts-col">
+            <div id="contacts-error" class="error-box" hidden>
+              <span id="contacts-error-text"></span>
+              <button id="btn-retry-contacts" class="btn btn-text" type="button">Tải lại</button>
+            </div>
+            <ul id="list" class="thread-list"></ul>
+            <p id="list-empty" class="empty-note" hidden></p>
+          </div>
+          <aside class="calls-rail" aria-label="Theo dõi cuộc gọi">
+            <h2 class="rail-title">Cuộc gọi</h2>
+            <div id="rail-active"></div>
+            <ul id="rail-history" class="call-feed"></ul>
+            <p id="rail-empty" class="empty-note">Chưa có cuộc gọi nào.</p>
+            <button id="rail-view-all" class="btn btn-text" type="button">Xem tất cả cuộc gọi</button>
+          </aside>
+        </div>
+      </section>
+
+      <!-- View 3: tất cả cuộc gọi -->
+      <section id="view-calls" class="view" style="display:none">
+        <div class="title-row">
+          <div>
+            <h1>Cuộc gọi</h1>
+            <p class="subline">Cuộc gọi đang diễn ra và lịch sử các lần gọi đi.</p>
+          </div>
+        </div>
+        <div id="calls-active"></div>
+        <table class="call-table">
+          <thead>
+            <tr><th>Thời gian</th><th>Đối phương</th><th>ThreadID</th><th>Loại</th><th>Kết quả</th></tr>
+          </thead>
+          <tbody id="calls-history"></tbody>
+        </table>
+        <p id="calls-empty" class="empty-note">Chưa có cuộc gọi nào. Bấm một hàng trong Danh bạ để gọi.</p>
+      </section>
+
+      <!-- View 4: chi tiết cuộc gọi đang diễn ra -->
+      <section id="view-call" class="view" style="display:none">
+        <div class="crumbs">
+          <button id="btn-back" class="btn btn-text" type="button">← Danh bạ</button>
+        </div>
+        <div class="detail-head">
+          <h1 id="call-peer">Cuộc gọi</h1>
+          <span id="call-type" class="pill pill-neutral"></span>
+        </div>
+        <p class="detail-meta">ThreadID <span id="call-thread" class="mono"></span> · <span id="call-timer" class="num">00:00</span></p>
+        <p id="call-state" class="call-state" role="status"></p>
+        <div id="call-incoming" style="display:none">
+          <p>Có cuộc gọi đến (kênh nhận cuộc gọi đang ở giai đoạn 2).</p>
+        </div>
+        <div class="detail-actions">
+          <button id="btn-end" class="btn btn-primary" type="button">Kết thúc</button>
+        </div>
+      </section>
+
+      <footer class="sheet-foot">
+        <span id="app-version" class="mono"></span>
+        <span id="engine-note"></span>
+      </footer>
+    </main>
   </div>
-  <div id="qr-status"></div>
-  <button id="btn-qr">Lấy mã QR</button>
-  <button id="btn-qr-again" style="display:none">Lấy mã mới</button>
-</section>
-
-<!-- View 2: chính — danh bạ / nhóm -->
-<section id="view-main" class="view" style="display:none">
-  <h2>Danh bạ</h2>
-  <input id="search" type="text" placeholder="Tìm tên...">
-  <div class="tabs">
-    <button id="tab-friends" class="on">Bạn bè</button>
-    <button id="tab-groups">Nhóm</button>
-  </div>
-  <ul id="list"></ul>
-  <button id="btn-logout">Đăng xuất</button>
-  <p id="engine-note"></p>
-</section>
-
-<!-- View 3: màn hình gọi -->
-<section id="view-call" class="view" style="display:none">
-  <h2>Cuộc gọi</h2>
-  <p id="call-peer"></p>
-  <p id="call-state"></p>
-  <div id="call-incoming" style="display:none">
-    <p>Có cuộc gọi đến (kênh nhận cuộc gọi đang ở giai đoạn 2).</p>
-  </div>
-  <button id="btn-end">Kết thúc</button>
-  <button id="btn-back">Quay lại danh bạ</button>
-</section>
-
+</div>
 <script src="/app.js"></script>
-<footer><span id="app-version"></span></footer>
 </body>
 </html>

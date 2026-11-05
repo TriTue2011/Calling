@@ -19,6 +19,25 @@ docker compose pull && docker compose up -d
 > data về user `app` (UID 1000) khi khởi động, rồi hạ quyền và chạy
 > server bằng user `app` (server không bao giờ chạy bằng root).
 
+## Giao diện + gọi ngay trên UI
+
+Giao diện mới (framed-sheet, font IBM Plex Sans/Mono tự host — xem
+bao-cao.md 7j): sidebar trái (Danh bạ / Cuộc gọi), ô tìm kiếm, thẻ
+đếm Tất cả / Bạn bè / Nhóm, danh sách thread, rail Cuộc gọi bên phải.
+
+**Gọi ngay trên UI, không cần chờ service HA:** bấm một hàng danh bạ
+(hoặc nút «Gọi») là gọi được ngay theo threadID — bạn bè đi
+requestcall 11300, nhóm đi group/requestcall 12433 với partners là
+thành viên nhóm. Service HA `make_call` làm sau, không chặn việc này.
+
+**Theo dõi calling:** mục Cuộc gọi (sidebar, hoặc rail bên phải danh
+bạ) hiện cuộc gọi đang diễn ra (đang đổ chuông + đồng hồ đếm thời
+gian) và lịch sử các lần gọi (thời gian, đối phương, threadId, loại
+Cá nhân/Nhóm, kết quả: Đang đổ chuông / Đã kết thúc / Lỗi). Lịch sử
+lưu trong bộ nhớ server (tối đa 50 lần gọi gần nhất, mất khi restart
+container) — xem qua `GET /api/calls` (cần đăng nhập). Không lưu bí
+mật, không lưu nội dung thoại.
+
 ## Kiểm tra phiên bản đang chạy
 
 Sau khi redeploy, mở trang app và đọc dòng "Phiên bản:" ở cuối trang
@@ -80,6 +99,9 @@ python3 tests/run_tests.py
   danh bạ/nhóm, gọi đi qua signaling kiểu PC. Tab danh bạ hiện số
   lượng «Bạn bè (N)» / «Nhóm (M)» — số 0 nghĩa là tài khoản thật sự
   không có bạn/nhóm (xem bao-cao.md 7f).
+- Giao diện mới (xem bao-cao.md 7j): gọi ngay trên UI theo threadID
+  + mục theo dõi Cuộc gọi. Chưa kiểm trực quan bằng trình duyệt thật
+  (VM không chạy được Chrome) — kiểm sau deploy trên server.
 - Giai đoạn 2 (chưa): nhận cuộc gọi đến (kênh sync WebSocket),
   tiếng trực tiếp (engine gắn qua `zalo_pc_app/engine_seam.py`),
   QR new-format (trust-device, cần WASM — cố tình chưa làm).

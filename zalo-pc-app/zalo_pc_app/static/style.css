@@ -1,19 +1,386 @@
-/* Plain, quiet UI: the app should feel like a small PC client. */
-body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 720px;
-       padding: 16px; color: #222; }
-header { display: flex; justify-content: space-between; align-items: baseline;
-         border-bottom: 1px solid #ddd; margin-bottom: 16px; }
-h1 { font-size: 20px; }
-h2 { font-size: 17px; }
-button { padding: 8px 16px; margin: 4px 4px 4px 0; cursor: pointer; }
-button.on { font-weight: bold; }
-input[type=text] { width: 100%; padding: 8px; margin-bottom: 8px;
-                   box-sizing: border-box; }
-ul { list-style: none; padding: 0; }
-li { padding: 10px 8px; border-bottom: 1px solid #eee; cursor: pointer; }
-li:hover { background: #f5f5f5; }
-#qr-box { min-height: 220px; display: flex; align-items: center;
-          justify-content: center; border: 1px dashed #bbb; margin: 12px 0; }
+/* Zalo PC — framed-sheet (deal: seed 540927485, kind support).
+   Face: frame tinted one low-chroma step of Zalo blue; Zalo blue as the
+   accent, darkened to #0066c2 (4.5:1+ on white); IBM Plex Sans + IBM Plex
+   Mono (self-hosted in fonts/, the app runs on a LAN server).
+   Grid arithmetic (1440px): 1440 - 228 (sidebar) - 8 (sheet inset) = 1204
+   sheet; content 1204 - 2*24 padding = 1156; main grid 748 + 24 + 384
+   (calls rail) = 1156. Count cards in the 748px column: 3 x 244 + 2 x 8
+   = 748. One gap (24px) horizontally and vertically. */
+
+@font-face {
+  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibmplexsans-400-vietnamese.woff2") format("woff2");
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169,
+    U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309,
+    U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibmplexsans-400-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibmplexsans-500-vietnamese.woff2") format("woff2");
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169,
+    U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309,
+    U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibmplexsans-500-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/ibmplexsans-600-vietnamese.woff2") format("woff2");
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169,
+    U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309,
+    U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/ibmplexsans-600-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibmplexmono-400-vietnamese.woff2") format("woff2");
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169,
+    U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309,
+    U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibmplexmono-400-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibmplexmono-500-vietnamese.woff2") format("woff2");
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169,
+    U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309,
+    U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibmplexmono-500-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  --ground: #f2f6fa;  --surface: #ffffff;  --raised: #f4f6f8;
+  --active: #e7ebee;
+  --border: #e8eaec;  --rule: #f0f1f2;     --control: #cdced1;
+  --text: #131416;    --muted: #5d5f60;
+  --accent: #0066c2;  --accent-pale-bg: #e3eefb;
+  --primary: #1d1f20;
+  --positive: #1e7b4f;
+  --negative: #c4242a;  --pill-negative-bg: #ffedea;  --pill-negative-ink: #831c1e;
+  --pill-positive-bg: #dcfae5;  --pill-positive-ink: #04250e;
+  --pill-warning-bg: #fffbeb;  --pill-warning-ink: #92400e;
+  --pill-neutral-bg: #ebedee;  --pill-neutral-ink: #353736;
+  --radius-card: 8px;  --radius-control: 6px;  --radius-sheet: 16px;
+  --gap: 24px;  --pad: 24px;
+  --sidebar-width: 228px;
+  --font: "IBM Plex Sans", Inter, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font);
+  font-size: 14px; line-height: 20px;
+  background: var(--ground); color: var(--text);
+}
+h1 { font-size: 22px; line-height: 28px; font-weight: 600; margin: 0; }
+h2 { font-size: 16px; line-height: 22px; font-weight: 600; margin: 0; }
+p { margin: 0; }
+button { font-family: var(--font); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); font-size: 13px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Shell: tinted L-frame (sidebar + top bar share the ground, no rule
+   between them); the work on a white sheet inset 8px right/bottom. */
+.shell { display: flex; min-height: 100vh; }
+.sidebar {
+  width: var(--sidebar-width); flex: none;
+  position: sticky; top: 0; height: 100vh;
+  display: flex; flex-direction: column;
+  padding: 24px 16px;
+}
+.brand { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; }
+.mark {
+  width: 32px; height: 32px; flex: none;
+  display: grid; place-items: center;
+  background: var(--accent); color: #fff;
+  font-size: 17px; font-weight: 600; border-radius: 8px;
+}
+.brand-name { font-size: 16px; font-weight: 600; }
+.brand-scope { width: 100%; margin: 6px 0 0 42px; font-size: 12px; color: var(--muted); }
+.nav { margin-top: 32px; display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 34px; padding: 0 12px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--text);
+  font-size: 14px; text-align: left; cursor: pointer;
+}
+.nav-item:hover { background: var(--raised); }
+.nav-item.on { background: var(--active); font-weight: 600; }
+.nav-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); flex: none;
+}
+.sidebar-foot { margin-top: auto; }
+.who { font-size: 12px; color: var(--muted); margin-bottom: 8px; word-break: break-all; }
+.who strong { color: var(--text); font-weight: 600; }
+
+.main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+  height: 48px; flex: none;
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 24px;
+}
+.btn-menu {
+  display: none; width: 40px; height: 40px; flex: none;
+  border: 0; background: transparent; font-size: 18px; cursor: pointer;
+  color: var(--text);
+}
+.topbar-search { flex: 1; display: flex; justify-content: center; }
+.topbar-search input {
+  width: 100%; max-width: 548px; height: 32px;
+  padding: 0 12px; border: 1px solid var(--control); border-radius: 6px;
+  background: #fff; color: var(--text);
+  font-family: var(--font); font-size: 14px;
+}
+.topbar-search input::placeholder { color: #6b6b6b; }
+.call-pill {
+  height: 28px; padding: 0 12px; flex: none;
+  border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--accent-pale-bg); color: var(--accent);
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+
+.sheet {
+  flex: 1; background: var(--surface);
+  border: 1px solid #eaeaea; border-radius: var(--radius-sheet);
+  margin: 0 8px 8px 0; padding: var(--pad);
+}
+.sheet-foot {
+  display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  border-top: 1px solid var(--rule);
+  margin-top: 32px; padding-top: 12px;
+  font-size: 12px; color: var(--muted);
+}
+.sheet-foot .mono { font-size: 12px; word-break: break-all; }
+
+.title-row { margin-bottom: 24px; }
+.subline { margin-top: 6px; font-size: 14px; color: var(--muted); }
+
+/* Buttons: one filled primary (near-black) per screen; secondary is
+   white with a border; tertiary is text. */
+.btn {
+  height: 32px; padding: 0 14px; border-radius: 6px;
+  font-size: 14px; font-weight: 500; cursor: pointer;
+  border: 1px solid transparent; background: transparent; color: var(--text);
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-secondary { background: #fff; border-color: var(--control); }
+.btn-text { color: var(--accent); padding: 0 8px; }
+.btn-danger-outline {
+  width: 100%; background: #fff;
+  border-color: #e8b4b8; color: var(--negative);
+}
+.btn:disabled { opacity: .55; cursor: default; }
+
+/* Pills: pale tint with dark text of the same hue, inside rows only. */
+.pill {
+  display: inline-flex; align-items: center;
+  height: 20px; padding: 0 8px; border-radius: 4px;
+  font-size: 12px; font-weight: 500; white-space: nowrap; flex: none;
+}
+.pill-neutral { background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); }
+.pill-accent { background: var(--accent-pale-bg); color: var(--accent); }
+.pill-positive { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+.pill-negative { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+
+/* Count cards (list pattern): the type filter. Selected card takes a
+   1.5px accent border and a pale accent fill. */
+.count-cards { display: flex; gap: 8px; margin-bottom: 24px; }
+.count-card {
+  flex: 1; height: 61px; padding: 12px; text-align: left;
+  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  cursor: pointer;
+}
+.count-label { display: block; font-size: 13px; color: var(--muted); }
+.count-value { display: block; font-size: 16px; font-weight: 600; margin-top: 2px; }
+.count-card.on { border: 1.5px solid var(--accent); background: var(--accent-pale-bg); }
+.count-card.on .count-label { color: var(--accent); }
+
+/* Main grid: contacts + calls rail (384px, starts level with the
+   first card). */
+.main-grid {
+  display: grid; grid-template-columns: 1fr 384px;
+  gap: var(--gap); align-items: start;
+}
+.contacts-col { min-width: 0; }
+
+/* Thread rows: avatar initial in a pale tint, name, subline with the
+   threadId in mono, type pill, Goi action. Hover/selection is a 1px
+   outline, never a fill change. */
+.thread-list { list-style: none; margin: 0; padding: 0; }
+.thread-list li {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 56px; padding: 8px 4px;
+  border-bottom: 1px solid var(--rule); cursor: pointer;
+}
+.thread-list li:hover { outline: 1px solid var(--control); outline-offset: -1px; border-radius: 8px; }
+.thread-list li:last-child { border-bottom: 0; }
+.avatar {
+  width: 32px; height: 32px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 50%; font-size: 13px; font-weight: 600;
+}
+.t0 { background: #e3eefb; color: #14518a; }
+.t1 { background: #dff2ef; color: #0f5f56; }
+.t2 { background: #e2f3e5; color: #1e6b3a; }
+.t3 { background: #fdf0d3; color: #7a5200; }
+.t4 { background: #fbe4e4; color: #8f1d1d; }
+.t5 { background: #e8e8e8; color: #333333; }
+.row-main { flex: 1; min-width: 0; }
+.row-name {
+  font-size: 14px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.row-sub {
+  font-size: 12px; color: var(--muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.row-sub .mono { font-size: 12px; }
+.row-call { flex: none; }
+
+.empty-note {
+  padding: 16px; border: 1px dashed var(--control); border-radius: 8px;
+  font-size: 14px; color: var(--muted);
+}
+.error-box {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--pill-warning-bg);
+  border: 1px solid #fde68a; border-radius: 8px;
+  padding: 12px 16px; margin-bottom: 16px;
+  font-size: 14px; color: var(--pill-warning-ink);
+}
+
+/* Calls rail: a stable secondary stream beside the list. */
+.calls-rail { min-width: 0; }
+.rail-title { margin-bottom: 8px; }
+.call-card {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; margin-bottom: 16px;
+}
+.call-card .call-peer { font-size: 16px; font-weight: 600; }
+.call-card .call-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.call-card .call-status-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 12px;
+}
+.call-card .call-actions { margin-top: 12px; display: flex; gap: 8px; }
+.call-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.call-feed li {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 48px; padding: 8px 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.call-feed .feed-main { flex: 1; min-width: 0; }
+.call-feed .feed-name {
+  font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.call-feed .feed-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+#rail-view-all { margin-top: 12px; }
+
+/* Calls view: full history table. Numbers right-aligned, tabular. */
+.call-table { width: 100%; border-collapse: collapse; }
+.call-table th {
+  font-size: 12px; font-weight: 500; color: var(--muted);
+  text-align: left; padding: 8px;
+}
+.call-table td {
+  font-size: 14px; padding: 12px 8px;
+  border-top: 1px solid var(--rule);
+  vertical-align: middle;
+}
+.call-table td.num, .call-table th.num { text-align: right; }
+.table-scroll { overflow-x: auto; }
+
+/* Login view: centred column, QR slot is a dashed empty frame. */
+.login-wrap { max-width: 480px; margin: 48px auto; }
+.login-wrap .lede { margin-top: 8px; font-size: 14px; line-height: 22px; }
+#qr-box {
+  min-height: 220px; margin: 16px 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--control); border-radius: 8px;
+}
 #qr-img { width: 200px; height: 200px; }
-#qr-status { margin: 8px 0; color: #555; }
-#engine-note { color: #777; font-size: 13px; }
+#qr-status { margin: 8px 0; font-size: 14px; color: var(--muted); min-height: 20px; }
+.login-actions { display: flex; gap: 8px; }
+
+/* Call detail view. */
+.crumbs { margin-bottom: 16px; }
+.detail-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.detail-meta { margin-top: 8px; font-size: 14px; color: var(--muted); }
+.call-state { margin: 16px 0; font-size: 16px; }
+.detail-actions { display: flex; gap: 8px; }
+
+/* Tablet (641-1100px): the sidebar folds to the top bar; the rail
+   stacks under the contacts; tables keep their columns. */
+@media (max-width: 1100px) {
+  .sidebar {
+    position: fixed; left: 0; top: 0; z-index: 20;
+    transform: translateX(-100%);
+    background: var(--ground);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+  }
+  .sidebar.open { transform: none; }
+  .btn-menu { display: grid; place-items: center; }
+  .main-grid { grid-template-columns: 1fr; }
+  .sheet { padding: 16px; }
+}
+
+/* Phone (<=640px): the sheet becomes the screen; count cards scroll
+   sideways; rows keep 44px+ touch targets; the table scrolls in its
+   own frame, the page never scrolls sideways. */
+@media (max-width: 640px) {
+  .sheet { margin: 0; border: 0; border-radius: 0; }
+  .topbar { padding: 0 16px; }
+  h1 { font-size: 20px; line-height: 26px; }
+  .count-cards {
+    overflow-x: auto; padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .count-cards::-webkit-scrollbar { display: none; }
+  .count-card { flex: none; width: 160px; }
+  .login-wrap { margin: 24px auto; }
+  .thread-list li { min-height: 56px; }
+}

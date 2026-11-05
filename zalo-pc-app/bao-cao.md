@@ -906,6 +906,124 @@ tay nào; server phải khởi động và ghi được phiên.
 
 README + `docker-compose.yml` đã bỏ hướng dẫn chown tay.
 
+### 7j. Làm lại toàn bộ web UI + theo dõi calling (lệnh 17:17, chốt thứ tự 17:25)
+
+**Lệnh user 17:17 +07:** «Làm lại cả webui giống addon nhưng dùng
+skill làm lại cho đẹp, hợp xu hướng và theo dõi thêm cả calling».
+**Chốt thứ tự 17:25 +07:** «hoặc gọi ngay trên ui, service làm
+custom zalo sau» — **gọi ngay trên UI trước; service HA `make_call`
+làm sau, không làm trong lần này** (track service đã tách ra và dừng
+lại). Vì vậy ưu tiên của lần sửa này: bấm tên/thread trên UI là gọi
+được ngay (signaling theo threadID, đã có từ trước), kèm mục theo
+dõi calling; không chờ service HA.
+
+**«Giống addon» giữ nguyên gì:** cấu trúc/nội dung lấy y nguyên
+addon — đăng nhập QR, danh bạ Bạn bè/Nhóm kèm số đếm, phiên bản,
+trạng thái đăng nhập; thread = (threadId, type 0=user/1=group);
+không vẽ lại mô hình danh bạ riêng (xem báo cáo đọc repo
+`~/workspace/zalo-addon-doc/bao-cao-addon-96-services.md`). Tham
+chiếu giao diện admin máy chủ zalobot (`~/workspace/zalo-container/
+app/views/index.ejs`, Bootstrap cũ) chỉ ở mức cấu trúc/nội dung,
+không copy kiểu.
+
+**Hướng đã deal (skill design-taste-frontend, tasteskill v2, run
+riêng app screen):** `draw.mjs --app --kind support --screens
+list,detail --options 3` → style **`framed-sheet`, seed 540927485**,
+sheet đầy đủ lưu tại `.taste-skill/direction.json`, notes tại
+`.taste-skill/notes.md`. Face: khung tinted một bước low-chroma của
+màu Zalo (ground xanh-xám #f2f6fa), accent là màu Zalo đậm lại
+**#0066c2** (≥4.5:1 trên trắng; thay teal #1b6c80 đã deal bằng màu
+thương hiệu, giữ nguyên tỉ lệ — lựa chọn face mà sheet cho phép,
+không phải redraw palette). Type: IBM Plex Sans (400/500/600) +
+IBM Plex Mono cho ID/khóa. **Không có lần redraw nào.**
+- Font tự host: 10 file woff2 (Sans 400/500/600 + Mono 400/500,
+  subset vietnamese + latin) trong `static/fonts/`, nguồn Google
+  Fonts, giấy phép OFL — vì app chạy trên server LAN, trình duyệt có
+  thể không với tới Google Fonts. Phục vụ qua `/fonts/*`
+  (font/woff2).
+- Layout: sidebar 228px + topbar 48px (khung L tinted, không có
+  rule ngăn cách) + sheet trắng inset 8px phải/dưới, radius 16,
+  không shadow. Số học ở 1440px: nội dung 1156 = contacts 748 +
+  gap 24 + rail 384; count cards 3×244 + 2×8 = 748. Một gap 24px
+  ngang/dọc. Hàng thread ≥48px (56px hai dòng): avatar chữ cái đầu
+  trên nền nhạt riêng theo hue (6 hue, không violet), tên, threadId
+  bằng mono, pill loại (Cá nhân/Nhóm), nút Gọi. Thẻ đếm là bộ lọc
+  (Tất cả/Bạn bè/Nhóm, thẻ chọn viền accent 1.5px + nền nhạt).
+- Câu idea: «On this screen, the addon's thread list becomes the
+  dialler: every row is a thread you can call, and every call returns
+  to the log as a thread with a result.» Live thing: gọi ngay từ
+  danh sách (bấm một hàng → request gửi đi, cuộc gọi hiện live
+  trong rail với trạng thái + đồng hồ đếm) + ô tìm kiếm lọc live
+  theo tên HOẶC threadId.
+
+**Theo dõi calling — server:** file mới `zalo_pc_app/call_log.py`
+(class `CallLog`, thread-safe, chỉ bộ nhớ, cap 50 bản ghi mới nhất,
+restart là mất; entry: call_id, peer, thread_id, type, status
+sent|error|ended, started_at, ended_at, detail; KHÔNG bao giờ chứa
+bí mật). `server.py`: `AppState.calls`; **GET `/api/calls`** (cần
+đăng nhập, 401 nếu chưa) trả `{"calls": [mới nhất trước],
+"active": <entry live hoặc None>}`; POST `/api/call/request` ghi
+`record_start` khi thành công / `record_error` khi lỗi (peer lấy từ
+body `peer_name` hoặc callee_id); POST `/api/call/end` ghi
+`record_end`. Cuộc gọi mới thay thế cuộc live trước đó (cuộc cũ
+thành «ended»).
+
+**Theo dõi calling — UI:** sidebar thêm nav Cuộc gọi (dot khi có
+cuộc live) + pill «Đang đổ chuông: <peer>» trên topbar; view Danh bạ
+có rail Cuộc gọi (thẻ cuộc live + 5 lần gần nhất + «Xem tất cả»);
+view Cuộc gọi riêng: bảng lịch sử đầy đủ (Thời gian / Đối phương /
+ThreadID / Loại / Kết quả, số giờ/phút tabular, threadId mono);
+view chi tiết cuộc gọi (tên + pill loại + threadId mono + đồng hồ
+đếm live + nút Kết thúc; có placeholder «cuộc gọi đến» ẩn cho O3).
+Poll `/api/calls` mỗi 5 giây khi đã đăng nhập; đồng hồ đếm cập nhật
+mỗi giây. Ô tìm kiếm lọc cả danh sách lẫn lịch sử gọi. Phiên bản
+mới: `2026-11-05-ui-moi-calls`.
+
+**Giữ nguyên:** luồng QR, tải danh bạ (friends mảng trần; groups
+v4+getmg-v2; envelope hai lớp; log `[contacts-shape]`), footer
+phiên bản, Đăng xuất, gọi theo threadID (11300/12433, partners từ
+topMember), ghi chú engine, QuietServer tắt tiếng RST; stack giữ
+HTML/CSS/JS thuần, không migrate framework.
+
+**Gate của skill:**
+- `lint.mjs --app` trên 3 file mới: **0 FAIL, 12 WARN**. Một FAIL
+  ban đầu (ký tự ☰ ở nút menu, bị coi là emoji) đã sửa thành SVG
+  hamburger nội tuyến. 12 WARN còn lại đều là dùng đúng luật, giữ
+  lại có lý do: `padStart(2,"0")` cho đồng hồ mm:ss (chính lint ghi
+  «fine for a clock»); mono ×10 là IBM Plex Mono cho ID thật
+  (threadId, version sha — hướng đã deal chọn face này); shadow ×1
+  chỉ ở sidebar gấp lại trên tablet/phone, là menu trượt nổi — chỗ
+  duy nhất skill cho phép shadow.
+- **`inspect.mjs --app` KHÔNG chạy được** (đã thử): Chrome duy nhất
+  trên VM (`/opt/meta-chromium/chrome`, «Muse Browser 155.0.8059.91»)
+  từ chối khởi động headless — «Hatch WebGL domain policy is
+  required for browser startup», exit code 13 (hai lần thử trực tiếp
+  + một lần qua inspector, cùng lỗi). **Không có screenshot nào,
+  không claim đã kiểm tra bằng trình duyệt.** Critique vòng cuối làm
+  từ code (xem `.taste-skill/notes.md` §2.8): số học 1440/768/390
+  đã đối chiếu tay; điểm yếu nhất là chưa có lần nhìn thật nào —
+  lần nhìn đầu tiên phải làm sau deploy trên server (rủi ro lớn
+  nhất: tên nhóm dài ở rail tại 768px; topbar chật tại 390px).
+
+**Kiểm live thay thế (mock server, API HTTP thật):** GET / 200 có
+nav/rail mới; `/style.css` 200 (10 @font-face); `/app.js` 200
+(loadCalls + timer); font woff2 200, đúng magic `wOF2`; QR flow tới
+«done»; danh bạ Ban A/B/C + Nhom X/Y; gọi user đi đúng
+`/api/voicecall/requestcall` (11300), gọi nhóm đi đúng
+`/api/voicecall/group/requestcall` (12433); `/api/calls` hiện cuộc
+nhóm live, cuộc user đã ended (bị thay thế). **Toàn suite
+`tests/run_tests.py` xanh 7/7** (thêm `tests/test_calls.py`: 7 test
+unit CallLog + e2e `/api/calls` trong `test_server_smoke.py`, gồm
+401 khi chưa đăng nhập và quét bí mật trong payload).
+
+**Kiểm tra sau redeploy:** pull + up, giữ volume `/opt/zalo`,
+không chown, không quét lại trừ khi trang hiện lại QR; footer phải
+hiện `2026-11-05-ui-moi-calls` (hoặc commit sha); tab hiện đúng số
+addon; bấm một tên → màn hình chi tiết cuộc gọi hiện «Đang đổ
+chuông» + đồng hồ chạy; rail/mục Cuộc gọi ghi lại lần gọi đó sau
+khi kết thúc. Lưu ý: lịch sử gọi mất khi restart container (chỉ
+bộ nhớ).
+
 ---
 
 ## 8. Những gì CHƯA kiểm bằng chạy thật (ghi rõ, không suy đoán)
@@ -924,6 +1042,12 @@ README + `docker-compose.yml` đã bỏ hướng dẫn chown tay.
 - Quét thật lại sau bản sửa `getLoginInfo` (lỗi 102 lần đầu) — cần
   user cầm app phụ quét lại với image mới.
 - Nhận cuộc gọi đến, tiếng trực tiếp, độ trễ, độ ổn định — giai đoạn 2.
+- Giao diện mới 7j chưa được nhìn bằng trình duyệt thật ở bất kỳ
+  chiều rộng nào: inspector của skill không chạy được trên VM (Chrome
+  từ chối khởi động headless, xem 7j); chỉ mới kiểm bằng lint + API
+  live + đối chiếu số học tay. Lần nhìn đầu tiên phải làm sau deploy:
+  1440px (rail 384 có tràn tên nhóm dài không), 768px (sidebar gấp,
+  rail xếp dưới), 390px (topbar + pill cuộc gọi có chật không).
 
 ## 9. Quy trình test quét thật (khi user sẵn sàng, tài khoản PHỤ tuyệt đối)
 
@@ -958,8 +1082,10 @@ bao-cao.md  README.md  Dockerfile  docker-compose.yml
 zalo_pc_app/
   aes_pure.py  crypto.py  protocol.py  session.py
   qr_login.py  signaling.py  contacts.py  engine_seam.py  server.py
-  static/  app.html  app.js  style.css
+  call_log.py
+  static/  app.html  app.js  style.css  fonts/ (10 file woff2)
 tests/
   test_aes.py  test_crypto.py  test_flow_mock.py  test_server_smoke.py
-  mock_server.py  run_tests.py
+  test_calls.py  mock_server.py  run_tests.py
+.taste-skill/  direction.json  notes.md
 ```
