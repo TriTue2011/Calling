@@ -3,8 +3,8 @@
 The real Zalo server rejected the contacts calls with error_code=602
 "zpw_type bị thiếu hoặc không đúng" after a successful QR login. Static
 comparison against the real PC client showed the request skeleton was
-right (zpw_ver=695, zpw_type="embed", domains, cookie, session key)
-but wire-format details were wrong:
+right (zpw_ver=695, domains, cookie, session key) but wire-format
+details were wrong:
   1. friends body missed avatar_size=160 (and init=1 on first load);
   2. groups must call getlg/v3 (paginated {page, count:100,
      avatar_size, member_avatar_size, imei}) — the plain v1
@@ -12,6 +12,12 @@ but wire-format details were wrong:
      it with 602 (found live after 8397d18: friends passed, groups
      still 602);
   3. the params base64 value was not fully percent-encoded (raw '/').
+  4. zpw_type must be the NUMBER 30, not the string "embed" (bundle
+     config: apiType:"embed"===__ZaBUNDLENAME__?31:30, bundle name
+     "compact-app-pc" -> 30; see bao-cao.md 7d). The old code sent
+     "embed": friends passed because profile-wpa tolerates it, but
+     group-wpa validates it strictly and answered 602 — twice, for
+     both getlg v1 and getlg/v3 (found live after 7bc97bf).
 These tests pin the corrected contract and prove the strict mock
 rejects the old (pre-fix) requests.
 """
@@ -91,7 +97,7 @@ def test_friends_groups_contract():
         # The mock saw the right common params + init on first load.
         fqs = [qs for p, qs, _ in mock.seen
                if p == "/api/social/friend/getfriends"][0]
-        assert fqs["zpw_ver"] == "695" and fqs["zpw_type"] == "embed"
+        assert fqs["zpw_ver"] == "695" and fqs["zpw_type"] == "30"
         assert fqs["init"] == "1", fqs
     finally:
         mock.stop()
@@ -141,6 +147,59 @@ def _handbuilt_url(base, path, body, use_raw_quote):
              else urllib.parse.quote(enc, safe=""))
     qs = urllib.parse.urlencode(protocol.common_params())
     return "%s%s?%s&params=%s" % (base, path, qs, quote)
+
+
+def _handbuilt_url_with_type(base, path, body, zpw_type):
+    """Like _handbuilt_url but with an explicit zpw_type value, to
+    reproduce the pre-fix request (zpw_type="embed") against the mock."""
+    enc = session_aes_encrypt(
+        TEST_SESSION_KEY,
+        json.dumps(body, separators=(",", ":"), ensure_ascii=False))
+    qs = urllib.parse.urlencode({"zpw_ver": 695, "zpw_type": zpw_type})
+    return "%s%s?%s&params=%s" % (
+        base, path, qs, urllib.parse.quote(enc, safe=""))
+
+
+def test_groups_zpwtype_embed_rejected():
+    """Pre-fix groups call (getlg/v3, correct body, but zpw_type=
+    "embed") must be rejected with the real server's 602 — this
+    reproduces the live failure after 7bc97bf (friends passed, groups
+    still 602). The correct value is the numeric 30."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        url = _handbuilt_url_with_type(
+            mock.base, "/api/group/getlg/v3",
+            {"page": 1, "count": 100, "avatar_size": 160,
+             "member_avatar_size": 160, "imei": "dev-1"}, "embed")
+        status, payload = http_get(url, cookie="sek-test")
+        assert status == 200, (status, payload)
+        assert payload.get("error_code") == 602, payload
+        assert "zpw_type" in payload.get("error_message", ""), payload
+    finally:
+        mock.stop()
+
+
+def test_friends_zpwtype_embed_accepted():
+    """Documents the observed live asymmetry: friends (profile-wpa)
+    ACCEPTED zpw_type="embed" while groups 602'd on the same value.
+    The client now sends 30 everywhere (the real client's value);
+    this test only pins why the two endpoints behaved differently."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        url = _handbuilt_url_with_type(
+            mock.base, "/api/social/friend/getfriends",
+            {"incInvalid": 1, "page": 1, "count": 20000,
+             "avatar_size": 160, "actiontime": 0, "imei": "dev-1"},
+            "embed")
+        url += "&init=1"
+        status, payload = http_get(url, cookie="sek-test")
+        assert status == 200, (status, payload)
+        assert payload.get("error_code") == 0, payload
+        assert payload["data"]["friends"], payload
+    finally:
+        mock.stop()
 
 
 def test_old_friends_body_rejected():

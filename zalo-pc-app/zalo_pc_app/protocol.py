@@ -7,7 +7,9 @@ ParamCipher envelope or plaintext params + signkey (see crypto.py).
 
 Common query params on every API call:
     zpw_ver=<apiVersion> & zpw_type=<apiType>
-Defaults for this build: apiVersion=695, apiType="embed".
+Defaults for this build: apiVersion=695, apiType=30 (an INTEGER, not
+the string "embed" — see the note on API_TYPE below; the old
+"embed" value is why groups failed twice with 602, §7d in bao-cao.md).
 """
 
 import json
@@ -21,7 +23,28 @@ PROFILE_DOMAIN = "https://profile-wpa.zalo.me"
 GROUP_DOMAIN = "https://group-wpa.zalo.me"
 
 API_VERSION = 695
-API_TYPE = "embed"
+# apiType is a NUMBER. Bundle evidence (compact-app-pc bundle,
+# Zalo PC 26.11.10):
+#   config literal: apiVersion:695,
+#                   apiType:"embed"===__ZaBUNDLENAME__?31:30
+#   __ZaBUNDLENAME__ for this bundle is "compact-app-pc" — proven by
+#   the startup guard `if(!("compact-app-pc"===__ZaBUNDLENAME__))
+#   return;` before "Starting compact application".
+#   "embed" === "compact-app-pc" is false, so apiType = 30.
+#   Common params are built as
+#   re={zpw_ver:r.default.apiVersion, zpw_type:r.default.apiType},
+#   i.e. zpw_ver=695 & zpw_type=30 on every post-login call
+#   (friends, groups, voicecall) and in the login envelope
+#   (encryptParam: n.type=r.default.apiType).
+#   The getServerInfo response carries no top-level type /
+#   client_version (probe 2026-11-05: error_code 0, no such keys),
+#   so nothing overrides these defaults.
+# The 2026-11-05 fixes read this ternary as apiType="embed" and sent
+# zpw_type=embed. Friends (profile-wpa) accepted it, but group-wpa
+# validates zpw_type strictly and answered 602 "zpw_type bị thiếu
+# hoặc không đúng" — twice, for both getlg v1 and getlg/v3. Sending
+# the correct numeric 30 is the fix.
+API_TYPE = 30
 LANGUAGE = "vi"
 
 # API codes (QoS/logging ids the client sends alongside each call).

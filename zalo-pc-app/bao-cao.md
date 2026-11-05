@@ -173,7 +173,7 @@ mật khẩu/TOTP; tất cả đều do server cấp sau một lần quét QR h�
 ## 3. Signaling kiểu PC (gọi đi — đã map đủ, đã implement)
 
 Mọi lệnh là `HTTPS GET`:
-`https://voicecall-wpa.zalo.me/api/voicecall/<path>?zpw_ver=695&zpw_type=embed&params=<AES JSON base64>`
+`https://voicecall-wpa.zalo.me/api/voicecall/<path>?zpw_ver=695&zpw_type=30&params=<AES JSON base64>`
 (khóa AES = `zpw_enk` của phiên, mục 4.3). Mã API trong ngoặc.
 
 | Lệnh | Path (mã) | Body JSON (đủ trường) |
@@ -390,7 +390,10 @@ tải danh bạ. Đối chiếu code client PC thật trong `app.asar` đã gi�
 (`main-dist/main.js`, `ZaloAPIServices.js`, `ServiceAPI.js`) đã
 **loại trừ**: `zpw_ver=695`/`zpw_type="embed"` đúng theo config mặc
 định của bundle (`apiVersion:695`, `apiType:"embed"`, probe
-`getServerInfo` không override); domain `profile-wpa`/`group-wpa`
+`getServerInfo` không override) — **ĐÍNH CHÍNH ở 7d: kết luận này
+SAI, do đọc nhầm biểu thức `apiType:"embed"===__ZaBUNDLENAME__?31:30`
+thành `apiType="embed"`; giá trị đúng là số 30, và chính nó là nguyên
+nhân gốc của lỗi 602 ở nhóm**; domain `profile-wpa`/`group-wpa`
 đúng; cookie `zpw_sek` gắn đúng; khóa phiên AES đúng
 (`decryptKey = data.zpw_enk`, `UIN = data.dkey` trong handler
 `getLoginInfo` của bundle); AES-CBC/IV0/Pkcs7/base64 khớp.
@@ -450,8 +453,9 @@ imei) chỉ là định nghĩa trong bundle, không có caller thật nào lần
 
 Contract đúng của V3 (đã sửa vào code): `GET
 group-wpa.zalo.me/api/group/getlg/v3`, common params
-`zpw_ver=695`/`zpw_type="embed"` + cookie `zpw_sek` như cũ, body
-`{page, count:100, avatar_size:160, member_avatar_size:160, imei}`,
+`zpw_ver=695`/`zpw_type=30` + cookie `zpw_sek` như cũ — **ĐÍNH CHÍNH
+ở 7d: bản 7c ghi `zpw_type="embed"` là sai; giá trị đúng là số 30**,
+body `{page, count:100, avatar_size:160, member_avatar_size:160, imei}`,
 params AES mã hóa URL đầy đủ; response `{groups, hasMore, total}`,
 client lặp các trang cho tới khi hết `hasMore`. Các tham số `_get`
 thừa trong lời gọi V3 (`0, ae, 0, void 0, {}, n`) chỉ là timeout /
@@ -463,6 +467,96 @@ Kiểm chứng cuối (chưa làm được ở VM này): user pull image mới,
 deploy lại stack cũ (giữ volume `/opt/zalo`), mở lại trang — danh
 bạ phải hiện cả bạn bè lẫn nhóm, không còn 602, không cần quét lại
 (phiên cũ còn trong volume).
+
+### 7d. Nhóm VẪN 602 sau bản 7bc97bf: `zpw_type` phải là số 30, không phải chuỗi "embed"
+
+Sau khi user redeploy bản 7bc97bf (16:24 ngày 05/11): friends ĐÃ QUA,
+chỉ groups còn `error_code=602 zpw_type bị thiếu hoặc không đúng`.
+Lần này lỗi ghi rõ `zpw_type` — và điều tra lại từ đầu cho thấy cả
+hai lần sửa trước đều giữ một giá trị `zpw_type` SAI mà không ai
+nghi ngờ, vì nó nằm trong phần "đã loại trừ" của 7b.
+
+**Nguyên nhân gốc — đọc nhầm biểu thức config trong bundle.**
+Config mặc định của bundle (compact-app-pc, Zalo PC 26.11.10) là:
+
+```
+apiVersion:695, apiType:"embed"===__ZaBUNDLENAME__?31:30
+```
+
+Đây là toán tử ba ngôi: giá trị của `apiType` là `31` nếu
+`__ZaBUNDLENAME__ === "embed"`, ngược lại là `30`. `__ZaBUNDLENAME__`
+của bundle này là `"compact-app-pc"` — chứng minh bằng guard khởi
+động `if(!("compact-app-pc"===__ZaBUNDLENAME__))return;` ngay trước
+log "Starting compact application" (không phải tên đó thì app đã
+không chạy). `"embed" === "compact-app-pc"` là sai, nên
+**`apiType = 30` (số)**. Common params của mọi API sau login được
+build đúng một chỗ: `re={zpw_ver:r.default.apiVersion,
+zpw_type:r.default.apiType}`, tức `zpw_ver=695&zpw_type=30` — cho
+friends, groups và voicecall giống nhau, và `type=30` trong cả
+envelope login (`encryptParam`: `n.type=r.default.apiType`).
+
+Probe `getServerInfo` chạy lại ngày 05/11 (không tài khoản, không
+phiên): `error_code 0`, nhưng `data` KHÔNG có key `type` /
+`client_version` ở tầng cao nhất — nên không có gì override giá trị
+mặc định 695/30. (Code client có đọc `a.type`/`a.client_version`
+nhưng `a` ở đó là tham số khởi động của app, không phải response
+HTTP này.)
+
+**Vì sao friends qua mà groups 602 với cùng một giá trị sai?**
+`profile-wpa` (friends) chấp nhận cả `zpw_type="embed"` — quan sát
+chạy thật hai lần đều vậy — còn `group-wpa` kiểm tra `zpw_type`
+nghiêm ngặt và trả đúng thông báo "zpw_type bị thiếu hoặc không
+đúng". Hai lần sửa trước chỉ đổi path/body của groups (v1 → v3) mà
+giữ nguyên `zpw_type="embed"` nên đều gãy ở cùng một chỗ. V3 là đúng
+(có caller thật: `_fetchAllGroups`, `_callApi`,
+`callFetchGroupListByPage`); sai chỉ còn ở `zpw_type`.
+
+**Đã kiểm thêm và loại trừ trong lần này:** domain mặc định đúng
+(`apiGroupDomain: https://group-wpa.${Xe}` → `group-wpa.zalo.me`,
+`apiProfileDomain` tương tự); `getGroupListV3` và `getFriendsList`
+dùng chung `_getCommonParamsObj()` và cùng `_get` (chỉ khác domain /
+path / body), nên không có tham số/query/header/cookie riêng nào cho
+nhóm bị bỏ sót; `_constructUrlParams` chỉ là `k=encodeURIComponent(v)`
+nối bằng `&`; `avatar_size` (`se`) = 160; `imei` dùng chung
+`getZaloClientID()` cho cả hai (friends qua nên imei đúng); mã hóa
+params AES giống nhau cho cả hai (friends qua nên khóa đúng).
+
+**Cách sửa:** `protocol.API_TYPE = 30` (số nguyên). Kéo theo tự động:
+`common_params()` → `zpw_type=30` cho friends/groups/voicecall;
+`type=30` trong envelope login (reqqr/getLoginInfo) và `ParamCipher`;
+probe `getServerInfo` gửi `type=30`. Mock siết theo đúng server
+thật: groups với `zpw_type="embed"` → 602 (test tái hiện lỗi cũ),
+groups với `30` → qua; friends chấp nhận cả hai (ghi lại đúng độ
+lệch đã quan sát). Test mới: `test_groups_zpwtype_embed_rejected`,
+`test_friends_zpwtype_embed_accepted`; assertion cũ
+`zpw_type == "embed"` đổi thành `"30"` (contacts, logininfo,
+envelope trong mock).
+
+### 7e. Version marker + tắt tiếng log ConnectionResetError
+
+**Version marker (để loại trừ khả năng Portainer giữ image `:test`
+cũ):** `GET /api/status` trả thêm `version`; footer của UI hiện
+"Phiên bản: ...". Nguồn version: biến môi trường `ZALO_PC_VERSION`
+— CI truyền đúng commit sha vào lúc build (`build-args:
+APP_VERSION=${{ github.sha }}`, Dockerfile `ARG APP_VERSION` →
+`ENV ZALO_PC_VERSION`) — nếu không có thì dùng tag trong code
+(`zalo_pc_app.VERSION`, ví dụ `2026-11-05-groups-zpwtype30`, bump
+mỗi lần sửa). Cách kiểm tra sau khi redeploy: mở trang app, đọc
+dòng phiên bản ở cuối trang (hoặc `GET /api/status` và xem trường
+`version`) — phải trùng với commit/tag được báo, nếu không tức là
+image cũ vẫn đang chạy (cần `docker compose pull` rồi mới `up -d`).
+
+**Log `ConnectionResetError: [Errno 104] Connection reset by peer`:**
+user dán log thấy nhiều traceback từ client LAN 172.16.10.1 ở
+`socketserver.py process_request_thread` → `rfile.readline`. Đây
+chỉ là client (trình duyệt/proxy) đóng kết nối trước khi gửi
+request — server vẫn chạy bình thường, KHÔNG phải nguyên nhân lỗi
+groups 602. Đã tắt tiếng bằng `QuietServer(ThreadingHTTPServer)`
+trong `server.py`: override `handle_error` để bỏ qua đúng
+`ConnectionResetError`/`BrokenPipeError`, mọi lỗi khác vẫn in
+traceback như cũ. Test `test_connection_reset_silenced` kiểm cả hai
+mức (gọi trực tiếp `handle_error` + RST thật vào server đang chạy:
+không còn traceback, server vẫn trả `/api/status`).
 
 ### Không cần chown tay nữa — cách đã chọn
 

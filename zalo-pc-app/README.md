@@ -19,6 +19,22 @@ docker compose pull && docker compose up -d
 > data về user `app` (UID 1000) khi khởi động, rồi hạ quyền và chạy
 > server bằng user `app` (server không bao giờ chạy bằng root).
 
+## Kiểm tra phiên bản đang chạy
+
+Sau khi redeploy, mở trang app và đọc dòng "Phiên bản:" ở cuối trang
+(hoặc `GET /api/status` và xem trường `version`): nó phải trùng với
+commit/tag được báo cho lần sửa đó (image do CI build có sẵn commit
+sha đầy đủ). Nếu không trùng, tức là image `:test` cũ vẫn đang chạy
+— chạy `docker compose pull` rồi mới `docker compose up -d`.
+
+## Log `ConnectionResetError` (không phải lỗi)
+
+Thỉnh thoảng log có traceback `ConnectionResetError: [Errno 104]
+Connection reset by peer` — đó chỉ là trình duyệt/proxy đóng kết
+nối trước khi gửi request; server vẫn chạy bình thường. Từ bản
+`2026-11-05-groups-zpwtype30` trở đi, server tắt tiếng đúng loại
+lỗi này (mọi lỗi khác vẫn in ra như cũ).
+
 Chạy trực tiếp (không Docker):
 
 ```sh

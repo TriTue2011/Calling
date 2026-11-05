@@ -32,6 +32,11 @@ jobs:
           file: ./zalo-pc-app/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          # Bake the commit sha into the image: the app reports it in
+          # /api/status and the UI footer (ZALO_PC_VERSION), so a
+          # redeploy can be verified against the pushed code.
+          build-args: |
+            APP_VERSION=${{ github.sha }}
           tags: |
             ghcr.io/tritue2011/zalo-pc-app-test:test
             ghcr.io/tritue2011/zalo-pc-app-test:test-${{ github.sha }}

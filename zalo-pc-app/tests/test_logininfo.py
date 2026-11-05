@@ -87,7 +87,7 @@ def test_logininfo_plaintext_envelope():
         q, h = hits[0]
         assert q["imei"] == "dev-1" and q["computer_name"] == "testhost"
         assert q["language"] == "vi" and q["ts"].isdigit()
-        assert q["type"] == "embed" and q["client_version"] == "695"
+        assert q["type"] == "30" and q["client_version"] == "695"
         assert q["signkey"], q
         assert h["Cookie"] == "zpw_sek=sek-test", h
     finally:

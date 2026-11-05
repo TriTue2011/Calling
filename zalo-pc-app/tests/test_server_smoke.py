@@ -9,11 +9,16 @@ mock, runs the QR flow via /api/*, and checks:
   - /api/logout clears the session
 """
 
+import contextlib
+import io
 import json
 import os
+import socket
 import stat
+import struct
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -62,6 +67,9 @@ def test_server_e2e():
 
         status, body = api("GET", "/api/status")
         assert body["login"] is False, body
+        # Version marker: /api/status always reports the running
+        # version, so a deploy can be checked against the pushed code.
+        assert body.get("version"), body
 
         status, body = api("POST", "/api/qr/new", {})
         assert body["ok"] is True
@@ -86,6 +94,7 @@ def test_server_e2e():
         # Public status must NOT leak secrets.
         status, body = api("GET", "/api/status")
         assert body["login"] is True and body["uid"] == "10001"
+        assert body.get("version"), body
         blob = json.dumps(body)
         for secret in ("sek-test", "kt-test", sess["zpw_enk"], "dkey-test"):
             assert secret not in blob, secret
@@ -107,8 +116,69 @@ def test_server_e2e():
         mock.stop()
 
 
+def test_connection_reset_silenced():
+    """A client that RSTs before sending a request (browser/proxy
+    closing early — seen live from LAN client 172.16.10.1) must NOT
+    produce a ConnectionResetError traceback in the server log, and
+    the server must keep answering afterwards. The traceback came
+    from socketserver.handle_error; QuietServer swallows exactly
+    ConnectionResetError/BrokenPipeError."""
+    # Deterministic unit part: call handle_error with a live
+    # ConnectionResetError and check nothing is printed.
+    srv = app_server.QuietServer(("127.0.0.1", 0), app_server.Handler)
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            try:
+                raise ConnectionResetError(104, "Connection reset by peer")
+            except ConnectionResetError:
+                srv.handle_error(None, ("127.0.0.1", 12345))
+            try:
+                raise BrokenPipeError(32, "Broken pipe")
+            except BrokenPipeError:
+                srv.handle_error(None, ("127.0.0.1", 12345))
+        assert "Traceback" not in buf.getvalue(), buf.getvalue()
+        assert "ConnectionResetError" not in buf.getvalue(), buf.getvalue()
+        # A different error must still print (no blanket silencing).
+        buf2 = io.StringIO()
+        with contextlib.redirect_stderr(buf2):
+            try:
+                raise ValueError("boom")
+            except ValueError:
+                srv.handle_error(None, ("127.0.0.1", 12345))
+        assert "Traceback" in buf2.getvalue(), buf2.getvalue()
+    finally:
+        srv.server_close()
+    # Live part: real RSTs against a running QuietServer.
+    live = app_server.QuietServer(("127.0.0.1", 0), app_server.Handler)
+    port = live.server_address[1]
+    threading.Thread(target=live.serve_forever, daemon=True).start()
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            for _ in range(5):
+                s = socket.socket()
+                s.connect(("127.0.0.1", port))
+                # Close with RST instead of FIN: abortive close.
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                             struct.pack("ii", 1, 0))
+                s.close()
+            time.sleep(0.5)
+        assert "Traceback" not in buf.getvalue(), buf.getvalue()
+        req = urllib.request.Request(
+            "http://127.0.0.1:%d/api/status" % port, method="GET")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read().decode())
+        assert resp.status == 200 and body.get("version"), body
+    finally:
+        live.shutdown()
+        live.server_close()
+
+
 if __name__ == "__main__":
     BASE = ""
     test_server_e2e()
     print("PASS test_server_e2e")
+    test_connection_reset_silenced()
+    print("PASS test_connection_reset_silenced")
     print("ALL SERVER TESTS PASSED")

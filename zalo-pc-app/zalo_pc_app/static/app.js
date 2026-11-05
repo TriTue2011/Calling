@@ -39,6 +39,9 @@ async function loadMain() {
   const st = await api("/api/status");
   $("who").textContent = st.login
     ? ("Đã đăng nhập: " + (st.phonenum || st.uid)) : "Chưa đăng nhập";
+  // Version marker: shows which image/commit the server is really
+  // running, so a redeploy can be verified at a glance.
+  if (st.version) $("app-version").textContent = "Phiên bản: " + st.version;
   $("engine-note").textContent = st.engine && st.engine.detail
     ? ("Tiếng: " + st.engine.detail) : "";
   if (!st.login) { show("view-login"); return; }

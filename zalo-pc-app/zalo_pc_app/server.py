@@ -22,12 +22,14 @@ session cookie — never the post-login zpw_ver/zpw_type params.
 import json
 import os
 import socket
+import sys
 import threading
 import urllib.error
 import urllib.request
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from . import VERSION as _PKG_VERSION
 from . import contacts as contacts_mod
 from . import engine_seam
 from . import protocol
@@ -35,6 +37,12 @@ from . import qr_login
 from . import session as session_mod
 from . import signaling as signaling_mod
 from .crypto import make_device_id
+
+# Version marker (see zalo_pc_app/__init__.py): the Docker build sets
+# ZALO_PC_VERSION to the exact commit sha; without it, the code tag
+# above applies. /api/status returns it and the UI footer shows it,
+# so a deploy can be checked against the pushed code.
+VERSION = os.environ.get("ZALO_PC_VERSION") or _PKG_VERSION
 
 DATA_DIR = os.environ.get("ZALO_PC_DATA_DIR", "./data")
 PORT = int(os.environ.get("ZALO_PC_PORT", "8080"))
@@ -88,13 +96,15 @@ class AppState:
     # -- session helpers -------------------------------------------------
     def public_status(self):
         with self.lock:
-            if self.session and self.session.get("zpw_sek"):
-                return {"login": True,
-                        "uid": self.session.get("uid", ""),
-                        "phonenum": self.session.get("phonenum", ""),
-                        "engine": engine_seam.SEAM.status()}
-            return {"login": False, "uid": "", "phonenum": "",
+            base = {"version": VERSION,
                     "engine": engine_seam.SEAM.status()}
+            if self.session and self.session.get("zpw_sek"):
+                base.update({"login": True,
+                             "uid": self.session.get("uid", ""),
+                             "phonenum": self.session.get("phonenum", "")})
+                return base
+            base.update({"login": False, "uid": "", "phonenum": ""})
+            return base
 
     def _device_and_computer(self):
         if self.session and self.session.get("device_id"):
@@ -368,13 +378,32 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print("zalo-pc-qr app on http://%s:%d (data: %s)"
-          % (HOST, PORT, DATA_DIR))
+    server = QuietServer((HOST, PORT), Handler)
+    print("zalo-pc-qr app %s on http://%s:%d (data: %s)"
+          % (VERSION, HOST, PORT, DATA_DIR))
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+
+
+class QuietServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that stays silent when a client disconnects
+    before sending a request.
+
+    Browsers/proxies sometimes open a connection and close it (RST)
+    before any request line arrives; socketserver then logs a full
+    traceback (ConnectionResetError: [Errno 104] Connection reset by
+    peer, in process_request_thread -> rfile.readline). The server is
+    fine — the client simply went away — but the traceback pollutes
+    the log and looks like the app is broken. Swallow exactly that
+    class of error; anything else still prints as before."""
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
 
 
 if __name__ == "__main__":

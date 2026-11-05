@@ -136,15 +136,28 @@ class MockZalo:
             return 200, self._groups(qs, headers, raw_qs)
         return 404, {"error_code": 404, "error_message": "mock no route"}
 
-    def _check_postlogin(self, qs, headers, raw_qs, name):
+    def _check_postlogin(self, qs, headers, raw_qs, name,
+                         strict_type=True):
         """Strict contract shared by post-login GET endpoints (lesson
         from bug 102: a loose mock lets a wrong request slip through).
-        Cookie + zpw_ver=695/zpw_type=embed + the params value fully
+        Cookie + zpw_ver=695/zpw_type=30 + the params value fully
         percent-encoded (encodeURIComponent parity: no literal '/' or
-        '+' inside it, only %2F/%2B)."""
+        '+' inside it, only %2F/%2B).
+        zpw_type=30 is the real PC client's value (bundle config:
+        apiType:"embed"===__ZaBUNDLENAME__?31:30, bundle name
+        "compact-app-pc" -> 30). The old code sent zpw_type="embed":
+        profile-wpa (friends) tolerates it, but group-wpa rejects it
+        with 602 — observed live twice (v1 and v3). So friends is
+        checked lenient (strict_type=False: accepts "30" or "embed"),
+        while groups/voicecall are strict (only "30")."""
         assert headers.get("Cookie"), "%s needs Cookie" % name
-        assert qs.get("zpw_ver") == "695" and \
-            qs.get("zpw_type") == "embed", "%s common params: %s" % (name, qs)
+        assert qs.get("zpw_ver") == "695", "%s common params: %s" % (name, qs)
+        if strict_type:
+            assert qs.get("zpw_type") == "30", \
+                "%s common params: %s" % (name, qs)
+        else:
+            assert qs.get("zpw_type") in ("30", "embed"), \
+                "%s common params: %s" % (name, qs)
         m = re.search(r"(?:^|&)params=([^&]*)", raw_qs or "")
         assert m, "%s needs raw params value" % name
         assert "/" not in m.group(1) and "+" not in m.group(1), \
@@ -169,7 +182,7 @@ class MockZalo:
         }
         if "zcid" in qs:
             # Encrypted mode: verify envelope with openssl + hashlib.
-            assert qs.get("type") == "embed", qs
+            assert qs.get("type") == "30", qs
             assert qs.get("client_version") == "695", qs
             assert qs.get("enc_ver") == "v2", qs
             expect_sig = signkey_check("reqqr", {
@@ -180,7 +193,7 @@ class MockZalo:
                 TEST_PARAM_KEY.encode(), bytes.fromhex(qs["zcid"]),
                 decrypt=True)
             parts = zcid_raw.decode("utf-8").split(",")
-            assert parts[0] == "embed", parts
+            assert parts[0] == "30", parts
             enk = derive_enk(qs["zcid"], qs["zcid_ext"])
             plain = _openssl_aes(
                 enk.encode(), base64.b64decode(qs["params"]), decrypt=True)
@@ -236,7 +249,7 @@ class MockZalo:
             "config": {"zpw_service_map_new": {},
                        "zpw_ws": "wss://mock.invalid/ws"}}
         if "zcid" in qs:
-            assert qs.get("type") == "embed", qs
+            assert qs.get("type") == "30", qs
             assert qs.get("client_version") == "695", qs
             assert qs.get("enc_ver") == "v2", qs
             expect_sig = signkey_check("getlogininfo", {
@@ -247,7 +260,7 @@ class MockZalo:
                 TEST_PARAM_KEY.encode(), bytes.fromhex(qs["zcid"]),
                 decrypt=True)
             parts = zcid_raw.decode("utf-8").split(",")
-            assert parts[0] == "embed", parts
+            assert parts[0] == "30", parts
             enk = derive_enk(qs["zcid"], qs["zcid_ext"])
             plain = _openssl_aes(
                 enk.encode(), base64.b64decode(qs["params"]), decrypt=True)
@@ -265,7 +278,7 @@ class MockZalo:
         assert qs.get("computer_name"), "needs computer_name"
         assert qs.get("language"), "needs language"
         assert qs.get("ts", "").isdigit(), "needs ts (ms)"
-        assert qs.get("type") == "embed", qs
+        assert qs.get("type") == "30", qs
         assert qs.get("client_version") == "695", qs
         return {"error_code": 0, "data": data}
 
@@ -300,7 +313,10 @@ class MockZalo:
             return {"error_code": 602,
                     "error_message": "zpw_type bị thiếu hoặc không đúng",
                     "data": {}}
-        self._check_postlogin(qs, headers, raw_qs, "friends")
+        # profile-wpa tolerates zpw_type="embed" (observed live: friends
+        # passed with "embed" while groups 602'd) — lenient check.
+        self._check_postlogin(qs, headers, raw_qs, "friends",
+                              strict_type=False)
         # Real client: init=1 on the FIRST friends load only.
         if self._friends_first:
             assert qs.get("init") == "1", "first friends load needs init=1"
@@ -326,6 +342,14 @@ class MockZalo:
 
     def _groups(self, qs, headers, raw_qs=""):
         if self.groups_mode == "error602":
+            return {"error_code": 602,
+                    "error_message": "zpw_type bị thiếu hoặc không đúng",
+                    "data": {}}
+        # group-wpa validates zpw_type strictly: the old client sent
+        # zpw_type="embed" and the real server answered 602 — twice
+        # (v1 and v3). Reproduce that here so a regression is caught
+        # offline; the correct value is the numeric 30.
+        if qs.get("zpw_type") == "embed":
             return {"error_code": 602,
                     "error_message": "zpw_type bị thiếu hoặc không đúng",
                     "data": {}}
