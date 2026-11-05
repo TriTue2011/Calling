@@ -61,8 +61,11 @@ def test_full_flow_encrypted():
         assert data["body"]["calleeId"] == "20001", data
         assert data["body"]["codec"] == "[]", data
         book = contacts_mod.Contacts(t2, "dev-1", TEST_SESSION_KEY)
-        friends = book.friends()
+        # First friends load sends init=1 (real client _isFirstReq()).
+        friends = book.friends(init=True)
         assert [r["name"] for r in friends["rows"]] == ["Ban A", "Ban B"]
+        # A second load must NOT send init again.
+        book.friends()
         groups = book.groups()
         assert groups["rows"][0]["name"] == "Nhom X"
     finally:

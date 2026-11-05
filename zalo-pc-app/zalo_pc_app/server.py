@@ -80,6 +80,9 @@ class AppState:
         self.qr_error = ""
         self.qr_wait = 0
         self.session = self.store.load() if self.store.exists() else None
+        # First friends load after start/login sends init=1 (real client
+        # _isFirstReq()). Cleared after the first successful friends call.
+        self._contacts_init_pending = True
         self.thread = None
 
     # -- session helpers -------------------------------------------------
@@ -148,6 +151,8 @@ class AppState:
                 self.session = sess
                 self.qr_state = "done"
                 self.qr = None
+                # New session: next friends load is a first load (init=1).
+                self._contacts_init_pending = True
         except qr_login.RateLimited as e:
             with self.lock:
                 self.qr_state = "rate_limited"
@@ -286,8 +291,23 @@ class Handler(BaseHTTPRequestHandler):
                 transport = make_transport(sess["zpw_sek"])
                 book = contacts_mod.Contacts(transport, sess["device_id"],
                                              sess["zpw_enk"])
-                return self._send_json({"friends": book.friends(),
-                                        "groups": book.groups()})
+                # Friends first, then groups — and name the failing
+                # endpoint in the error (the old code lumped both into
+                # one message, so a 602 could not be attributed).
+                try:
+                    friends = book.friends(init=STATE._contacts_init_pending)
+                except Exception as e:  # noqa: BLE001
+                    return self._send_json(
+                        {"error": "friends: %s" % e}, status=502)
+                # A successful friends call consumes the first-load flag.
+                STATE._contacts_init_pending = False
+                try:
+                    groups = book.groups()
+                except Exception as e:  # noqa: BLE001
+                    return self._send_json(
+                        {"error": "groups: %s" % e}, status=502)
+                return self._send_json({"friends": friends,
+                                        "groups": groups})
             except Exception as e:  # noqa: BLE001
                 return self._send_json({"error": str(e)}, status=502)
         return self._send_json({"error": "not_found"}, status=404)

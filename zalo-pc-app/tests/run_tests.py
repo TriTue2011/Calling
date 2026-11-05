@@ -6,7 +6,7 @@ import sys
 
 HERE = os.path.dirname(__file__)
 FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
-         "test_logininfo.py", "test_server_smoke.py"]
+         "test_logininfo.py", "test_contacts.py", "test_server_smoke.py"]
 
 
 def main():

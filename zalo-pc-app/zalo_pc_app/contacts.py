@@ -24,13 +24,18 @@ FRIENDS_PATH = "/api/social/friend/getfriends"
 GROUPS_PATH = "/api/group/getlg"
 
 
-def _url_with_params(base, path, body, zpw_enk):
+def _url_with_params(base, path, body, zpw_enk, extra_query=None):
     raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
     enc = session_aes_encrypt(zpw_enk, raw)
     params = protocol.common_params()
+    if extra_query:
+        params.update(extra_query)
     qs = urllib.parse.urlencode(params)
+    # encodeURIComponent parity: quote() with safe="" encodes '/' as %2F
+    # (the default safe="/" left raw '/' in the base64 value, unlike the
+    # real client — one of the wire-format deviations behind the 602).
     return "%s%s?%s&params=%s" % (
-        base, path, qs, urllib.parse.quote(enc))
+        base, path, qs, urllib.parse.quote(enc, safe=""))
 
 
 def _extract_rows(data):
@@ -72,16 +77,18 @@ class Contacts:
                 payload.get("error_code"), payload.get("error_message", "")))
         return payload.get("data")
 
-    def friends(self):
-        body = {"incInvalid": 1, "page": 1, "count": 20000,
-                "actiontime": 0, "imei": self.device_id}
+    def friends(self, init=False):
+        """getfriends. init=True on the first load only (real client sends
+        init=1 as a query param on its first friends request)."""
+        body = protocol.friends_params(self.device_id)
+        extra = {"init": 1} if init else None
         url = _url_with_params(protocol.PROFILE_DOMAIN, FRIENDS_PATH,
-                               body, self.zpw_enk)
+                               body, self.zpw_enk, extra)
         data = self._get(url)
         return {"rows": _extract_rows(data), "raw": data}
 
     def groups(self):
         url = _url_with_params(protocol.GROUP_DOMAIN, GROUPS_PATH,
-                               {"imei": self.device_id}, self.zpw_enk)
+                               protocol.groups_params(), self.zpw_enk)
         data = self._get(url)
         return {"rows": _extract_rows(data), "raw": data}

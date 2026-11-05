@@ -364,11 +364,106 @@ Biến môi trường: `ZALO_PC_DATA_DIR` (mặc định `./data`),
 - `test_server_smoke.py`: chạy thật app server qua HTTP API: QR →
   done, file phiên mode `0600`, `/api/status` không rò rỉ bí mật,
   contacts + call request + logout đều chạy.
+- `test_contacts.py` (mới, hồi quy lỗi 602): contract danh bạ đúng
+  client thật — friends body có `avatar_size:160`, `init=1` ở lần tải
+  đầu; groups body `{avatar_size, member_avatar_size}` không `imei`;
+  giá trị `params` mã hóa URL đầy đủ (không còn `/` thô); mock
+  bắt buộc đúng contract nên request kiểu cũ (thiếu `avatar_size`,
+  body nhóm `{imei}`, `params` có `/` thô) đều bị mock từ chối 500;
+  lỗi 602 mô phỏng từ friends vs groups được `/api/contacts` báo
+  nêu tên đúng endpoint, và cờ `init` không bị tiêu sau lần friends
+  lỗi.
+
+---
+
+## 7b. Sửa lỗi sau chạy thật 2026-11-05 (danh bạ 602 + chown tay)
+
+Chạy thật trên server (quét QR bằng tài khoản phụ, đăng nhập thành
+công, phiên đã lưu) lộ 2 lỗi; cả 2 đã sửa trong cùng lần này.
+
+### Lỗi 602 ở danh bạ — nguyên nhân gốc
+
+Server trả `error_code=602 "zpw_type bị thiếu hoặc không đúng"` khi
+tải danh bạ. Đối chiếu code client PC thật trong `app.asar` đã giải
+(`main-dist/main.js`, `ZaloAPIServices.js`, `ServiceAPI.js`) đã
+**loại trừ**: `zpw_ver=695`/`zpw_type="embed"` đúng theo config mặc
+định của bundle (`apiVersion:695`, `apiType:"embed"`, probe
+`getServerInfo` không override); domain `profile-wpa`/`group-wpa`
+đúng; cookie `zpw_sek` gắn đúng; khóa phiên AES đúng
+(`decryptKey = data.zpw_enk`, `UIN = data.dkey` trong handler
+`getLoginInfo` của bundle); AES-CBC/IV0/Pkcs7/base64 khớp.
+
+Còn lại 3 sai khác thật so với client (đây là nguyên nhân gốc — một
+trong 3 khiến server từ chối request, và bản sửa khớp cả 3):
+
+1. **Friends body thiếu `avatar_size:160`** — client thật gửi
+   `{incInvalid:1, page:1, count:20000, avatar_size:160,
+   actiontime:0, imei}` + `init=1` (query) ở lần tải đầu
+   (`getFriendsList(this._isFirstReq(), ...)`).
+2. **Groups body sai hoàn toàn** — code cũ gửi `{imei}`, client thật
+   (`getGroupList`) gửi `{avatar_size:160, member_avatar_size:160}`,
+   cùng path `/api/group/getlg`.
+3. **`params` không mã hóa URL đầy đủ** — `urllib.parse.quote`
+   mặc định giữ `/` thô trong giá trị base64 (đã đo thực tế: giá trị
+   `params` có `/` thô), còn client dùng `encodeURIComponent` mã hóa
+   thành `%2F`. Sửa bằng `quote(enc, safe="")` — cùng sửa cả
+   `protocol.voicecall_params` (cùng lỗi).
+
+Cách sửa: `protocol.friends_params`/`groups_params` đúng body thật
+(+ hằng `AVATAR_SIZE = 160`), `contacts._url_with_params` nhận
+`extra_query` và mã hóa đầy đủ, `Contacts.friends(init=...)`,
+`server.py /api/contacts` báo lỗi nêu tên endpoint
+(`friends: ...` / `groups: ...`) thay vì gộp chung, và cờ
+`_contacts_init_pending` gửi `init=1` ở lần friends đầu sau
+start/login, chỉ tiêu sau khi friends thành công. Mock siết chặt:
+kiểm `zpw_ver`/`zpw_type`, cookie, `params` không `/`/`+` thô,
+body friends/groups đúng contract, `init=1` bắt buộc ở lần đầu.
+
+Kiểm chứng cuối (chưa làm được ở VM này): user pull image mới,
+deploy lại stack cũ (giữ volume `/opt/zalo`), quét lại bằng tài khoản
+phụ, tải danh bạ phải ra danh sách (không còn 602).
+
+### Không cần chown tay nữa — cách đã chọn
+
+Image cũ chạy bằng user `app` (UID 1000) nên mount host path thuộc
+root (`/opt/zalo:/data`) thì không ghi được `session.json` → user
+phải `sudo chown -R 1000:1000 /opt/zalo` tay. Cách chọn: **entrypoint
+chạy bằng root, chown thư mục data, hạ quyền rồi chạy server**
+(`docker-entrypoint.py`, thuần stdlib — không phụ thuộc `su`/`setpriv`
+vì `python:3.12-slim` không đảm bảo có các công cụ đó):
+
+- Container khởi động bằng root (bỏ `USER app` khỏi Dockerfile),
+  entrypoint `mkdir -p $ZALO_PC_DATA_DIR` (mặc định `/data`), chown
+  **chỉ đúng thư mục data** (không đệ quy) về `app:app` khi khác
+  ownership, rồi `setgroups([])` → `setgid` → `setuid` xuống `app`
+  và `exec` server — server không bao giờ chạy bằng root.
+- `session.json` vẫn mode 0600 (server tự enforce khi lưu); named
+  volume không đổi hành vi (chown là no-op vì Docker đã copy
+  ownership của `/data` trong image).
+- Entrypoint chạy không phải root (ví dụ `--user`) hoặc thiếu user
+  `app` thì chỉ exec như cũ; chown lỗi (ví dụ mount read-only) chỉ
+  cảnh báo, server sẽ lỗi rõ nếu không ghi được.
+
+Đã kiểm trên VM này (chạy bằng root, tạo user `app` UID 1000 để
+mô phỏng image): thư mục root-owned → `app:app` sau entrypoint,
+tiến trình server chạy uid/gid 1000, `/api/status` trả `login: false`,
+chạy lại khi thư mục đã thuộc `app` (no-op) và chạy bằng chính user
+`app` đều đúng. **VM không chạy được container Docker nên deploy
+trên server của user là bước kiểm chứng cuối**: pull image mới,
+`docker compose up -d` với volume host path cũ, không còn bước chown
+tay nào; server phải khởi động và ghi được phiên.
+
+README + `docker-compose.yml` đã bỏ hướng dẫn chown tay.
 
 ---
 
 ## 8. Những gì CHƯA kiểm bằng chạy thật (ghi rõ, không suy đoán)
 
+- Tải danh bạ sau bản sửa 602 (xem 7b) — cần user pull image mới,
+  deploy lại stack cũ, quét lại bằng tài khoản phụ.
+- Entrypoint chown/hạ quyền trong container thật (xem 7b) — VM này
+  không chạy được container Docker; đã kiểm logic entrypoint bằng
+  user `app` thật trên VM, còn deploy trên server là bước cuối.
 - Server có trả QR old-format và chấp nhận tham số trần/mã hóa ra sao
   (O1/O2) — cần probe `reqqr` không tài khoản.
 - Quét thật lại sau bản sửa `getLoginInfo` (lỗi 102 lần đầu) — cần

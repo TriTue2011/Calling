@@ -6,6 +6,10 @@ services:
       # reverse proxy / HA ingress for remote access.
       - "127.0.0.1:8080:8080"
     volumes:
+      # Named volume (default) or a host path (e.g. /opt/zalo:/data):
+      # no manual chown is needed — the entrypoint chowns the data
+      # directory to user app (UID 1000) at startup, then drops
+      # privileges and runs the server as app.
       - zalo-pc-data:/data
     environment:
       # Optional. Probe 2026-11-05 verified plaintext + signkey is

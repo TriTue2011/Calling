@@ -9,11 +9,13 @@ Scenarios are switched via flags on the MockZalo instance:
   confirm_mode: "ok" | "reject" | "no_sek"
   reqqr_mode:   "ok" | "rate_limit" | "force_plaintext_once"
   logininfo_mode: "ok" | "error102"
+  friends_mode / groups_mode: "ok" | "error602"
 """
 
 import base64
 import hashlib
 import json
+import re
 import subprocess
 import threading
 import urllib.parse
@@ -59,6 +61,11 @@ class MockZalo:
         self.confirm_mode = "ok"
         self.reqqr_mode = "ok"
         self.logininfo_mode = "ok"
+        # Contacts error simulation: "ok" | "error602" (server rejects
+        # the call with the real 602 message, as in the 2026-11-05 bug).
+        self.friends_mode = "ok"
+        self.groups_mode = "ok"
+        self._friends_first = True  # first friends call must send init=1
         self.seen = []  # (path, query, headers) log
         self._plaintext_forced = False
         self.server = None
@@ -79,7 +86,8 @@ class MockZalo:
                       urllib.parse.parse_qs(parsed.query).items()}
                 mock.seen.append((parsed.path, qs, dict(self.headers)))
                 try:
-                    status, obj = mock.route(parsed.path, qs, self.headers)
+                    status, obj = mock.route(
+                        parsed.path, qs, self.headers, parsed.query)
                 except Exception as e:  # noqa: BLE001 - mock must answer
                     status, obj = 500, {"error_code": -1,
                                         "error_message": "mock: %s" % e}
@@ -103,7 +111,7 @@ class MockZalo:
             self.server.server_close()
 
     # -- routes ------------------------------------------------------------
-    def route(self, path, qs, headers):
+    def route(self, path, qs, headers, raw_qs=""):
         if path == "/api/login/reqqr":
             return 200, self._reqqr(qs)
         if path == "/scan":
@@ -113,12 +121,26 @@ class MockZalo:
         if path == "/api/login/getLoginInfo":
             return 200, self._logininfo(qs, headers)
         if path.startswith("/api/voicecall/"):
-            return 200, self._voicecall(path, qs, headers)
+            return 200, self._voicecall(path, qs, headers, raw_qs)
         if path == "/api/social/friend/getfriends":
-            return 200, self._friends(qs, headers)
+            return 200, self._friends(qs, headers, raw_qs)
         if path == "/api/group/getlg":
-            return 200, self._groups(qs, headers)
+            return 200, self._groups(qs, headers, raw_qs)
         return 404, {"error_code": 404, "error_message": "mock no route"}
+
+    def _check_postlogin(self, qs, headers, raw_qs, name):
+        """Strict contract shared by post-login GET endpoints (lesson
+        from bug 102: a loose mock lets a wrong request slip through).
+        Cookie + zpw_ver=695/zpw_type=embed + the params value fully
+        percent-encoded (encodeURIComponent parity: no literal '/' or
+        '+' inside it, only %2F/%2B)."""
+        assert headers.get("Cookie"), "%s needs Cookie" % name
+        assert qs.get("zpw_ver") == "695" and \
+            qs.get("zpw_type") == "embed", "%s common params: %s" % (name, qs)
+        m = re.search(r"(?:^|&)params=([^&]*)", raw_qs or "")
+        assert m, "%s needs raw params value" % name
+        assert "/" not in m.group(1) and "+" not in m.group(1), \
+            "%s params not fully percent-encoded: %s" % (name, m.group(1))
 
     def _reqqr(self, qs):
         if self.reqqr_mode == "rate_limit":
@@ -255,9 +277,8 @@ class MockZalo:
             "needSyncMsg": False, "cptch_cert": "cert",
             "zpw_sek": "sek-test", "zpw_kt": "kt-test", "devices": []}}
 
-    def _voicecall(self, path, qs, headers):
-        assert headers.get("Cookie"), "voicecall needs Cookie"
-        assert qs.get("zpw_ver") == "695" and qs.get("zpw_type") == "embed"
+    def _voicecall(self, path, qs, headers, raw_qs=""):
+        self._check_postlogin(qs, headers, raw_qs, "voicecall")
         key = base64.b64decode(TEST_SESSION_KEY)
         plain = _openssl_aes(key, base64.b64decode(qs["params"]),
                              decrypt=True)
@@ -266,25 +287,53 @@ class MockZalo:
         return {"error_code": 0, "data": {"ok": True, "path": path,
                                           "body": body}}
 
-    def _friends(self, qs, headers):
-        assert headers.get("Cookie"), "friends needs Cookie"
+    def _friends(self, qs, headers, raw_qs=""):
+        if self.friends_mode == "error602":
+            return {"error_code": 602,
+                    "error_message": "zpw_type bị thiếu hoặc không đúng",
+                    "data": {}}
+        self._check_postlogin(qs, headers, raw_qs, "friends")
+        # Real client: init=1 on the FIRST friends load only.
+        if self._friends_first:
+            assert qs.get("init") == "1", "first friends load needs init=1"
+            self._friends_first = False
+        else:
+            assert "init" not in qs, "init only on first friends load"
         key = base64.b64decode(TEST_SESSION_KEY)
         plain = _openssl_aes(key, base64.b64decode(qs["params"]),
                              decrypt=True)
         body = json.loads(plain.decode("utf-8"))
+        # Real getFriendsList body: {incInvalid:1, page:1, count:20000,
+        # avatar_size:160, actiontime:0, imei}. The pre-fix code missed
+        # avatar_size — the mock must reject that (bug 102 lesson).
         assert body["count"] == 20000 and body["page"] == 1, body
+        assert body.get("avatar_size") == 160, \
+            "friends body needs avatar_size=160: %s" % body
+        assert body.get("actiontime") == 0 and body.get("imei"), body
         return {"error_code": 0, "data": {
             "friends": [{"userId": "20001", "displayName": "Ban A",
                          "avatar": ""},
                         {"userId": "20002", "displayName": "Ban B",
                          "avatar": ""}]}}
 
-    def _groups(self, qs, headers):
-        assert headers.get("Cookie"), "groups needs Cookie"
+    def _groups(self, qs, headers, raw_qs=""):
+        if self.groups_mode == "error602":
+            return {"error_code": 602,
+                    "error_message": "zpw_type bị thiếu hoặc không đúng",
+                    "data": {}}
+        self._check_postlogin(qs, headers, raw_qs, "groups")
         key = base64.b64decode(TEST_SESSION_KEY)
         plain = _openssl_aes(key, base64.b64decode(qs["params"]),
                              decrypt=True)
-        json.loads(plain.decode("utf-8"))  # must be valid JSON
+        body = json.loads(plain.decode("utf-8"))
+        # Real getGroupList body: {avatar_size:160, member_avatar_size:160}
+        # — NO imei. The pre-fix code sent {imei} only.
+        assert body.get("avatar_size") == 160, \
+            "groups body needs avatar_size=160: %s" % body
+        assert body.get("member_avatar_size") == 160, \
+            "groups body needs member_avatar_size=160: %s" % body
+        assert "imei" not in body, \
+            "groups body must not contain imei: %s" % body
         return {"error_code": 0, "data": {
             "groups": [{"userId": "30001", "displayName": "Nhom X",
                         "avatar": ""}]}}

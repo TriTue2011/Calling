@@ -152,7 +152,10 @@ def voicecall_params(path, body, session_aes):
     """Full voicecall GET url: common params + params=<AES JSON>."""
     raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
     enc = session_aes(raw)
-    return voicecall_url(path) + "&params=" + urllib.parse.quote(enc)
+    # encodeURIComponent parity: quote() with safe="" encodes '/' as %2F
+    # (the default safe="/" left raw '/' in the base64 value, unlike the
+    # real client). Same fix as contacts._url_with_params.
+    return voicecall_url(path) + "&params=" + urllib.parse.quote(enc, safe="")
 
 
 def vc_requestcall(callee_id, call_id, codec, type_request, device_id):
@@ -208,9 +211,26 @@ def vc_hold(to_id):
 
 
 # ---------------------------------------------------------------- post-login data
+# Avatar size the real PC client asks for in friends/groups lists
+# (bundle: getFriendsList/getGroupList send avatar_size: 160, i.e. se=160).
+AVATAR_SIZE = 160
+
+
 def friends_params(device_id):
-    return {"imei": device_id}
+    """Body of getfriends, exactly as the real PC client sends it.
+
+    Bundle: {incInvalid:1, page:1, count:20000, avatar_size:160,
+    actiontime:0, imei} (+ init=1 as a QUERY param on the first load).
+    """
+    return {"incInvalid": 1, "page": 1, "count": 20000,
+            "avatar_size": AVATAR_SIZE, "actiontime": 0, "imei": device_id}
 
 
-def groups_params(device_id):
-    return {"imei": device_id}
+def groups_params():
+    """Body of getlg, exactly as the real PC client sends it.
+
+    Bundle getGroupList: {avatar_size:160, member_avatar_size:160}.
+    Note: NO imei in this body (the old code wrongly sent {imei}).
+    """
+    return {"avatar_size": AVATAR_SIZE,
+            "member_avatar_size": AVATAR_SIZE}

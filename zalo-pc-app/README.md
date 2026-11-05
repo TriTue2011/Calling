@@ -10,9 +10,14 @@ xem [bao-cao.md](bao-cao.md).
 ## Chạy
 
 ```sh
-docker compose up --build
+docker compose pull && docker compose up -d
 # UI: http://127.0.0.1:8080
 ```
+
+> Dùng host path làm volume (ví dụ `/opt/zalo:/data`) hay named volume
+> đều không cần bước chown tay nào: entrypoint của image chown thư mục
+> data về user `app` (UID 1000) khi khởi động, rồi hạ quyền và chạy
+> server bằng user `app` (server không bao giờ chạy bằng root).
 
 Chạy trực tiếp (không Docker):
 
