@@ -10,7 +10,7 @@ Env:  ZALO_PC_DATA_DIR  (default ./data)
 """
 
 from . import contacts as contacts_mod
-from . import engine_seam, media_endpoints, protocol, qr_login
+from . import engine_seam, media_endpoints, pc_media, protocol, qr_login
 from . import session as session_mod
 from . import signaling as signaling_mod
 from .crypto import make_device_id
@@ -20,8 +20,8 @@ from .crypto import make_device_id
 # server really running the new image?"). Bump the tag on every fix
 # that changes behaviour; the Docker build may override it with the
 # exact commit sha via env ZALO_PC_VERSION (see Dockerfile).
-VERSION = "2026-11-05-call-end-fix"
+VERSION = "2026-11-05-transport-udp4200-p2p"
 
 __all__ = ["protocol", "qr_login", "session_mod", "signaling_mod",
            "contacts_mod", "engine_seam", "media_endpoints",
-           "make_device_id", "VERSION"]
+           "pc_media", "make_device_id", "VERSION"]

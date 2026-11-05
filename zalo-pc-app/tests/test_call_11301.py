@@ -46,6 +46,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
 from mock_server import MockZalo, TEST_SESSION_KEY  # noqa: E402
+from test_media_provider import (  # noqa: E402
+    FAKE_LOCAL_SESSION, FAKE_RELAYS, FAKE_SESSION, FAKE_SRTP_KEY,
+    FAKE_TOKEN, FakeTransport)
+from zalo_pc_app import media_endpoints  # noqa: E402
 from zalo_pc_app import protocol  # noqa: E402
 from zalo_pc_app import server as app_server  # noqa: E402
 from zalo_pc_app import signaling  # noqa: E402
@@ -200,10 +204,26 @@ def _login(base):
     assert last["state"] == "done", last
 
 
-def test_new_flow_delivered_e2e():
-    """Luong moi qua API that: goi 1-1 roi goi nhom — moi cuoc mock
-    deu thay du 2 buoc dung thu tu, cung callId, va danh dau
-    delivered; response tra request_sent=true; call log ghi nhan."""
+def _fake_endpoints():
+    """Provider voi allocation gia + FakeTransport (chi dung cho
+    test): mo phong response 11300 co du zrtc_config."""
+    return media_endpoints.MediaEndpoints(
+        transport_factory=lambda cfg: FakeTransport(cfg),
+        default_relays=FAKE_RELAYS, default_token=FAKE_TOKEN,
+        default_session=FAKE_SESSION,
+        default_local_session=FAKE_LOCAL_SESSION,
+        default_srtp_key=FAKE_SRTP_KEY)
+
+
+def test_no_allocation_not_delivered_e2e():
+    """Khong co allocation relay (mock 11300 khong tra zrtc_config)
+    thi buoc request KHONG duoc gui voi dia chi rong: cuoc goi van
+    bao ok (requestcall da qua) nhung request_sent=false, loi neu
+    ro tham so thieu (relays), mock chi thay requestcall, khong
+    delivered. Day la hanh vi dung theo disassembly (engine that
+    khong bao gio gui 416 rong) — test cu `test_new_flow_delivered
+    _e2e` khang dinh nguoc lai (placeholder rong = delivered) nen
+    duoc thay bang test nay."""
     mock = MockZalo().start()
     httpd = None
     try:
@@ -212,26 +232,29 @@ def test_new_flow_delivered_e2e():
         status, body = _api(base, "POST", "/api/call/request",
                             {"callee_id": "20001", "call_id": CALL_ID})
         assert body["ok"] is True, body
-        assert body["request_sent"] is True, body
-        assert body["request_error"] == "", body
-        assert body["call_id"] == CALL_ID, body
-        state = mock.voice_call_state(CALL_ID)
-        assert state["steps"] == ["requestcall", "request"], state
-        assert state["delivered"] is True, state
+        assert body["request_sent"] is False, body
+        assert "relays" in body["request_error"], body
+        # call_id hieu luc lay tu response: server giu guard don
+        # dieu _LAST_CALL_ID (module-global) nen goi lai cung ID o
+        # test sau trong cung process se duoc day len mot id khac.
+        eff_id = body["call_id"]
+        state = mock.voice_call_state(eff_id)
+        assert state["steps"] == ["requestcall"], state
+        assert state["delivered"] is False, state
         status, body = _api(base, "POST", "/api/call/request",
                             {"callee_id": "30001",
                              "call_id": CALL_ID_GROUP, "type": "group",
                              "partners": ["20001", "20002"]})
         assert body["ok"] is True, body
-        assert body["request_sent"] is True, body
-        state = mock.voice_call_state(CALL_ID_GROUP)
-        assert state["steps"] == ["group/requestcall",
-                                  "group/request"], state
-        assert state["delivered"] is True, state
+        assert body["request_sent"] is False, body
+        eff_group = body["call_id"]
+        state = mock.voice_call_state(eff_group)
+        assert state["steps"] == ["group/requestcall"], state
+        assert state["delivered"] is False, state
         status, body = _api(base, "GET", "/api/calls")
         by_id = {c["call_id"]: c for c in body["calls"]}
-        assert by_id[str(CALL_ID)]["request_sent"] is True, body
-        assert by_id[str(CALL_ID_GROUP)]["request_sent"] is True, body
+        assert by_id[str(eff_id)]["request_sent"] is False, body
+        assert by_id[str(eff_group)]["request_sent"] is False, body
         httpd.shutdown()
     finally:
         if httpd is not None:
@@ -242,13 +265,68 @@ def test_new_flow_delivered_e2e():
         mock.stop()
 
 
+def test_allocated_flow_delivered_e2e():
+    """Co allocation (provider gia) thi luong moi qua API that: goi
+    1-1 roi goi nhom — moi cuoc mock deu thay du 2 buoc dung thu
+    tu, cung callId, va danh dau delivered; response tra
+    request_sent=true; call log ghi nhan."""
+    mock = MockZalo().start()
+    httpd = None
+    old_endpoints = media_endpoints.ENDPOINTS
+    endpoints = _fake_endpoints()
+    media_endpoints.ENDPOINTS = endpoints
+    try:
+        httpd, base = _start_app(mock)
+        _login(base)
+        status, body = _api(base, "POST", "/api/call/request",
+                            {"callee_id": "20001", "call_id": CALL_ID})
+        assert body["ok"] is True, body
+        assert body["request_sent"] is True, body
+        assert body["request_error"] == "", body
+        # call_id hieu luc lay tu response (guard don dieu
+        # _LAST_CALL_ID co the day ID len khi test chay sau test
+        # khac trong cung process — xem test_no_allocation).
+        eff_id = body["call_id"]
+        state = mock.voice_call_state(eff_id)
+        assert state["steps"] == ["requestcall", "request"], state
+        assert state["delivered"] is True, state
+        status, body = _api(base, "POST", "/api/call/request",
+                            {"callee_id": "30001",
+                             "call_id": CALL_ID_GROUP, "type": "group",
+                             "partners": ["20001", "20002"]})
+        assert body["ok"] is True, body
+        assert body["request_sent"] is True, body
+        eff_group = body["call_id"]
+        state = mock.voice_call_state(eff_group)
+        assert state["steps"] == ["group/requestcall",
+                                  "group/request"], state
+        assert state["delivered"] is True, state
+        status, body = _api(base, "GET", "/api/calls")
+        by_id = {c["call_id"]: c for c in body["calls"]}
+        assert by_id[str(eff_id)]["request_sent"] is True, body
+        assert by_id[str(eff_group)]["request_sent"] is True, body
+        httpd.shutdown()
+    finally:
+        endpoints.stop_all()
+        media_endpoints.ENDPOINTS = old_endpoints
+        if httpd is not None:
+            try:
+                httpd.server_close()
+            except Exception:  # noqa: BLE001
+                pass
+        mock.stop()
+
+
 def test_request_failure_is_non_fatal_e2e():
-    """Neu server that tu choi buoc request (mock request_mode=
-    error114), cuoc goi VAN bao ok (requestcall da qua, dung nhu
-    hanh vi cu) nhung request_sent=false + request_error ghi ro —
-    buoc 2 la best-effort, khong duoc lam hong cuoc goi."""
+    """Khong co allocation (mock 11300 khong tra zrtc_config) thi
+    buoc request khong gui duoc — cuoc goi VAN bao ok (requestcall
+    da qua) nhung request_sent=false + request_error neu ro tham
+    so thieu. Buoc 2 la best-effort, khong duoc lam hong cuoc goi.
+    (Truoc day test nay dung mock request_mode=error114 de mo
+    phong server tu choi 11301; truong hop do gio nam o
+    test_request_114_with_allocation_e2e vi 11301 chi duoc gui
+    khi da co allocation.)"""
     mock = MockZalo()
-    mock.request_mode = "error114"
     mock = mock.start()
     httpd = None
     try:
@@ -259,17 +337,60 @@ def test_request_failure_is_non_fatal_e2e():
                              "call_id": CALL_ID_FAIL})
         assert body["ok"] is True, body
         assert body["request_sent"] is False, body
-        assert "114" in body["request_error"], body
-        state = mock.voice_call_state(CALL_ID_FAIL)
+        assert "relays" in body["request_error"], body
+        eff_id = body["call_id"]  # guard don dieu co the day ID len
+        state = mock.voice_call_state(eff_id)
         assert state["requested"] is True, state
         assert state["delivered"] is False, state
         status, body = _api(base, "GET", "/api/calls")
         by_id = {c["call_id"]: c for c in body["calls"]}
-        entry = by_id[str(CALL_ID_FAIL)]
+        entry = by_id[str(eff_id)]
+        assert entry["request_sent"] is False, body
+        assert "relays" in entry["request_detail"], body
+        httpd.shutdown()
+    finally:
+        if httpd is not None:
+            try:
+                httpd.server_close()
+            except Exception:  # noqa: BLE001
+                pass
+        mock.stop()
+
+
+def test_request_114_with_allocation_e2e():
+    """Co allocation ma server that tu choi buoc request (mock
+    request_mode=error114) thi cuoc goi VAN bao ok nhung
+    request_sent=false + request_error ghi ro 114 — buoc 2 la
+    best-effort, khong duoc lam hong cuoc goi."""
+    mock = MockZalo()
+    mock.request_mode = "error114"
+    mock = mock.start()
+    httpd = None
+    old_endpoints = media_endpoints.ENDPOINTS
+    endpoints = _fake_endpoints()
+    media_endpoints.ENDPOINTS = endpoints
+    try:
+        httpd, base = _start_app(mock)
+        _login(base)
+        status, body = _api(base, "POST", "/api/call/request",
+                            {"callee_id": "20001",
+                             "call_id": CALL_ID_FAIL})
+        assert body["ok"] is True, body
+        assert body["request_sent"] is False, body
+        assert "114" in body["request_error"], body
+        eff_id = body["call_id"]  # guard don dieu co the day ID len
+        state = mock.voice_call_state(eff_id)
+        assert state["requested"] is True, state
+        assert state["delivered"] is False, state
+        status, body = _api(base, "GET", "/api/calls")
+        by_id = {c["call_id"]: c for c in body["calls"]}
+        entry = by_id[str(eff_id)]
         assert entry["request_sent"] is False, body
         assert "114" in entry["request_detail"], body
         httpd.shutdown()
     finally:
+        endpoints.stop_all()
+        media_endpoints.ENDPOINTS = old_endpoints
         if httpd is not None:
             try:
                 httpd.server_close()

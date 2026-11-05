@@ -1199,29 +1199,68 @@ class Handler(BaseHTTPRequestHandler):
                 # does the server hold a complete invitation for the
                 # far end. Without it the requestcall is accepted
                 # (no error) but the callee's phone never rings.
-                # The endpoints come from media_endpoints (empty
-                # placeholders in phase 1 — no engine yet; whether
-                # the real server accepts them is what the live test
-                # must show). The step is BEST-EFFORT: if the server
-                # rejects it, the call is still reported ok but
-                # request_sent=False is returned and logged.
-                endpoints = media_endpoints.ENDPOINTS.for_call(
-                    body.get("codec"))
+                # Phase 2 (stage 2): the endpoints come from the
+                # real relay allocation (`media_endpoints`, backed
+                # by `Udp4200Transport`) — the 11300 response's
+                # `zrtc_config.servers` / `sessId` / `srtpKey`
+                # (see `allocation_from_requestcall_data`). When
+                # that allocation is missing, `for_call` raises
+                # `MissingTransportParam` NAMING the missing
+                # parameter instead of returning the phase-1 empty
+                # placeholders: the real engine NEVER sends 416
+                # with empty addresses, so this app does not
+                # either. The step stays BEST-EFFORT: the call is
+                # still reported ok (requestcall succeeded) but
+                # request_sent=False is returned and logged, so
+                # the UI/monitor can tell "invitation may not
+                # have been delivered" apart from "fully sent".
+                # Media hooks (Opus 16 kHz + SRTP) are best-effort
+                # too: `pc_media.media_hooks_for_call` builds them
+                # when libopus/libsrtp2 are available; when they
+                # are not (the stdlib-only image), the transport
+                # still handshakes and the call signals, but voice
+                # stays unwired — never a crash, never a lie.
                 request_sent, request_error = True, ""
+                endpoints = None
                 try:
-                    if call_type == "group":
-                        sig.send_request_group(
-                            thread_id, call_id, type_request,
-                            body.get("data"), endpoints["session"],
-                            body.get("partners"), thread_id)
-                    else:
-                        sig.send_request(
-                            thread_id, endpoints["rtcp_address"],
-                            endpoints["rtp_address"], endpoints["codec"],
-                            endpoints["session"], call_id,
-                            endpoints["extend_data"])
+                    hooks = {}
+                    _alloc = media_endpoints.\
+                        allocation_from_requestcall_data(data)
+                    if _alloc.get("srtp_key") is not None:
+                        try:
+                            from . import pc_media
+                            hooks = pc_media.media_hooks_for_call(
+                                _alloc["srtp_key"])
+                        except Exception:  # noqa: BLE001 - optional
+                            hooks = {}
+                    endpoints = media_endpoints.ENDPOINTS.for_call(
+                        call_id=call_id, callee_id=thread_id,
+                        call_type=call_type, codec=body.get("codec"),
+                        requestcall_data=data, **hooks)
                 except Exception as exc:  # noqa: BLE001 - best-effort
                     request_sent, request_error = False, str(exc)
+                if endpoints is not None:
+                    try:
+                        if call_type == "group":
+                            sig.send_request_group(
+                                thread_id, call_id, type_request,
+                                body.get("data"), endpoints["session"],
+                                body.get("partners"), thread_id)
+                        else:
+                            sig.send_request(
+                                thread_id, endpoints["rtcp_address"],
+                                endpoints["rtp_address"],
+                                endpoints["codec"],
+                                endpoints["session"], call_id,
+                                endpoints["extend_data"])
+                        # 11301 accepted: attach the media engine
+                        # to the started transport (best-effort;
+                        # never breaks the call when it fails).
+                        engine_seam.SEAM.attach_pc_media(
+                            media_endpoints.ENDPOINTS.active_record(
+                                call_id))
+                    except Exception as exc:  # noqa: BLE001 - best-effort
+                        request_sent, request_error = False, str(exc)
                 sent_entry = STATE.calls.record_start(call_id, peer, thread_id,
                                          call_type)
                 STATE.calls.record_request(call_id, request_sent,
@@ -1303,6 +1342,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001 - best-effort
                 zalo_ok, zalo_error = False, str(e)
                 STATE.calls.record_end_error(ended_id, zalo_error)
+            # Phase 2: stop the media engine + the relay transport
+            # for this call (best-effort; a stuck UDP socket must
+            # not leave the call half-alive after the user ends it).
+            engine_seam.SEAM.stop_media()
+            media_endpoints.ENDPOINTS.stop_call(ended_id)
             return self._send_json(
                 {"ok": True, "ended_call_id": ended_id,
                  "zalo_endcall_ok": zalo_ok, "zalo_error": zalo_error,

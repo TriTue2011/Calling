@@ -58,4 +58,41 @@ class MediaEngineSeam:
         return self.engine.attach(call_info)
 
 
+    def attach_pc_media(self, record):
+        """Attach a `PcMediaEngine` for a transport started by
+        `media_endpoints` (phase 2, stage 2). `record` is the
+        memory-only dict from `MediaEndpoints.active_record`
+        ({"transport", ...}). Best-effort: returns True when the
+        engine is attached and its PCM callback registered, False
+        otherwise — never raises, so a media failure cannot break
+        signaling. The transport keeps running (handshake /
+        relay) even when this returns False; voice just stays
+        unwired until hooks are available."""
+        if not record or record.get("transport") is None:
+            return False
+        try:
+            from . import pc_media
+            engine = pc_media.PcMediaEngine(record["transport"])
+            engine.attach({"call_id": record.get("call_id"),
+                           "callee_id": record.get("callee_id"),
+                           "codec": record.get("codec")})
+            engine.start()
+            self.engine = engine
+            return True
+        except Exception:  # noqa: BLE001 - media must not break calls
+            return False
+
+    def stop_media(self):
+        """Stop the attached media engine, if any. Best-effort,
+        never raises. Detaches the engine so /api/engine/status
+        reports "no engine" again after the call ends."""
+        engine = self.engine
+        self.engine = None
+        if engine is not None:
+            try:
+                engine.stop()
+            except Exception:  # noqa: BLE001 - stop is best-effort
+                pass
+
+
 SEAM = MediaEngineSeam()
