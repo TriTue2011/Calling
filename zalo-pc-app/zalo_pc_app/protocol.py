@@ -73,6 +73,25 @@ VOICECALL = {
     "unholdresp": 11310,
 }
 
+# Group voicecall uses SEPARATE endpoints + codes (native bridge
+# dispatch: case 12433 -> requestCallGroup, 12434 -> sendRequestCall
+# Group, ...; command table maps 12433 -> /api/voicecall/group/
+# requestcall). A group call is NOT a 1-1 requestcall with a group id
+# as calleeId: the endpoint, the body shape and the identifier are
+# all different. The target is identified by threadID, exactly like
+# the addon (zca-js ThreadType: User=0, Group=1; HA sendMessage
+# passes threadId + type): 1-1 threadId = userId, group threadId =
+# groupId (raw, no "group" prefix).
+VOICECALL_GROUP = {
+    "requestcall": 12433,
+    "request": 12434,
+    "adduser": 12435,
+    "answer": 12436,
+    "cancel": 12437,
+    "endcall": 12438,
+    "ringring": 12439,
+}
+
 
 def common_params(api_version=API_VERSION, api_type=API_TYPE):
     return {"zpw_ver": api_version, "zpw_type": api_type}
@@ -185,6 +204,22 @@ def vc_requestcall(callee_id, call_id, codec, type_request, device_id):
     return {"calleeId": callee_id, "callId": call_id,
             "codec": codec if codec is not None else "[]",
             "typeRequest": type_request, "imei": device_id}
+
+
+def vc_requestcall_group(group_id, call_id, type_request=0, data=None,
+                         partners=None):
+    """Body of group/requestcall (code 12433), exactly as the PC
+    client sends it: {groupId, callId, typeRequest, data, partners}
+    to /api/voicecall/group/requestcall. NOTE: no imei field (unlike
+    the 1-1 requestcall). groupId is the RAW group id = the threadId
+    of the group thread (addon/zca-js ThreadType Group=1). `partners`
+    is the member userIds to ring; the client passes the group's
+    members — this build sends [] when the members are not loaded
+    yet (fetching members via getgi/v2 is the follow-up if the
+    server rejects an empty partners list)."""
+    return {"groupId": group_id, "callId": call_id,
+            "typeRequest": type_request, "data": data,
+            "partners": partners if partners is not None else []}
 
 
 def vc_request(callee_id, rtcp_address, rtp_address, codec, session,

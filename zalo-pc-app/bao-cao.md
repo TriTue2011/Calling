@@ -631,15 +631,20 @@ trích tên còn sót.
 
 ### 7g. Danh bạ vẫn 0/0 dù tài khoản có 60 bạn / 6 nhóm: response là envelope HAI LỚP có mã hóa
 
-**Ground truth CHỐT (user xác nhận 17:00 ngày 05/11, đối chiếu app
-Zalo thật trên điện thoại — chuẩn «zalo cũ», số liệu điện thoại
-thắng nếu mâu thuẫn với phân tích bundle):** tài khoản phụ có
-«Bạn bè (60)» và «Nhóm đang tham gia (6)». App PC đăng nhập cùng
-tài khoản phải hiện đúng 60/6. Giả thuyết «tài khoản trống» ở 7f là
-SAI. Ảnh gọi cho «BenBap» là tài khoản phụ trên điện thoại gọi đi
-tới một người bạn trong 60 bạn đó — KHÔNG liên quan tới lỗi số
-đếm; và app PC không đổ chuông/hiện gì khi có cuộc gọi đến là ĐÚNG
-với bản hiện tại, vì nhận cuộc gọi đến là O3/giai đoạn 2, chưa làm.
+**Chuẩn đối chiếu — ĐÍNH CHÍNH (17:03 ngày 05/11):** «zalo cũ»
+mà user nhắc tới là ZALO ADDON (tích hợp Zalo trong HA / zalobot,
+chạy zca-js), KHÔNG phải app Zalo trên điện thoại như đã hiểu lúc
+đầu. Hai ảnh điện thoại hiện «Bạn bè (60)» / «Nhóm đang tham gia
+(6)» CHƯA RÕ là tài khoản nào — KHÔNG lấy 60/6 làm ground truth
+nữa. Số chuẩn là số addon hiện cho tài khoản phụ (đang chờ user trả
+lời). Điều CHẮC CHẮN bất kể số chuẩn là bao nhiêu: tài khoản phụ CÓ
+bạn bè (user 16:58: «bạn bè tôi cũng có mà») và CÓ nhóm (user
+16:57: nhóm là 1 theo addon) — nên app hiện 0/0 là sai cả hai. Giả
+thuyết «tài khoản trống» ở 7f là SAI. Ảnh gọi cho «BenBap» là tài
+khoản phụ trên điện thoại gọi đi tới một người bạn — KHÔNG liên
+quan tới lỗi số đếm; và app PC không đổ chuông/hiện gì khi có cuộc
+gọi đến là ĐÚNG với bản hiện tại, vì nhận cuộc gọi đến là O3/giai
+đoạn 2, chưa làm.
 
 **Nguyên nhân gốc — envelope HAI LỚP, đã xác nhận từ bundle:**
 mọi API sau login đều trả response bọc hai lớp, và lớp ngoài KHÔNG
@@ -735,9 +740,72 @@ hóa thay vì kết quả.
 
 **Kiểm chứng cuối:** user pull image mới, up lại stack cũ (giữ
 volume `/opt/zalo`, không chown, không quét lại trừ khi trang hiện
-lại QR) — tab phải hiện «Bạn bè (60)» / «Nhóm (6)» như trên điện
-thoại. Nếu vẫn sai, gửi lại 2 dòng log `[contacts-shape]` (xem
-trên) — không cần gửi tên hay id nào.
+lại QR) — tab phải hiện đúng số addon hiện cho tài khoản phụ (số
+chuẩn đang chờ user trả lời; chắc chắn lớn hơn 0 ở cả hai tab). Nếu
+vẫn sai, gửi lại 2 dòng log `[contacts-shape]` (xem trên) — không
+cần gửi tên hay id nào.
+
+### 7h. Lấy addon Y NGUYÊN làm chuẩn, chỉ thêm calling — gọi theo threadID
+
+**Chỉ đạo sản phẩm (user 17:05 ngày 05/11):** «xem lấy y nguyên và
+chỉ thêm calling, vì khi gọi có thể phải gọi theo threadID» — lấy
+Zalo addon (tích hợp Zalo trong HA / zalobot, chạy zca-js 2.1.2) Y
+NGUYÊN làm chuẩn, chỉ THÊM calling lên trên, không tự vẽ lại mô
+hình danh bạ riêng.
+
+**Mô hình thread của addon (đối chiếu trực tiếp từ code addon):**
+- zca-js `ThreadType`: User=0, Group=1 (`dist/models/Enum.d.ts`).
+  HA `sendMessage` gửi `threadId` + `type` (1=nhóm, 0=1-1) —
+  threadId CHÍNH LÀ định danh đích: 1-1 threadId = userId, nhóm
+  threadId = groupId (thô, không tiền tố).
+- Bạn bè: addon gọi `getAllFriends` (zca-js) → cùng endpoint +
+  body với app PC (`{profile}/api/social/friend/getfriends`,
+  `{incInvalid:1, page:1, count:20000, avatar_size, actiontime:0,
+  imei}`) → mảng trần `User[]`. Nguồn dữ liệu KHỚP Y NGUYÊN, không
+  lệch.
+- Nhóm: addon gọi `getAllGroups` (zca-js) → `{group_poll}/api/
+  group/getlg/v4` → chỉ trả `{version, gridVerMap: {groupId:
+  version}}` (tập id + version, KHÔNG có tên/avatar); chi tiết từng
+  nhóm lấy sau bằng `getGroupInfo` → POST `{group}/api/group/
+  getmg-v2` với `{gridVerMap: {id: 0}}`. App PC lấy danh sách nhóm
+  từ getlg/v3 (phân trang, item đầy đủ `{groupId, name, avt, ...}`).
+  Hai đường KHÁC API nhưng cùng một tập nhóm của cùng một tài khoản
+  (v3 là đường client PC thật dùng; v4+getmg-v2 là đường client web
+  dùng). Số nhóm chuẩn để đối chiếu là số key trong `gridVerMap`
+  của addon — tức số addon hiện cho tài khoản phụ.
+- Envelope response: zca-js `handleZaloResponse` (`dist/utils.js`)
+  giải mã `jsonData.data` bằng `ctx.secretKey` (khóa phiên zpw_enk)
+  rồi mới kiểm inner `error_code` và lấy inner `data` — ĐỘC LẬP
+  xác nhận đúng dạng hai lớp ở 7g, từ phía addon chứ không chỉ từ
+  bundle PC.
+
+**Lệch đã tìm thấy và đã sửa — đường gọi nhóm:** app PC trước đây
+gửi MỌI lần bấm gọi (kể cả bấm vào nhóm) qua endpoint 1-1
+`requestcall` (11300) với `calleeId` = id của hàng được bấm. Với
+nhóm thì SAI hoàn toàn: client PC thật gọi nhóm qua endpoint riêng
+`group/requestcall` (code 12433) với body `{groupId, callId,
+typeRequest, data, partners}` (KHÔNG có imei) — bằng chứng:
+command table map 12433 → `/api/voicecall/group/requestcall`, và
+native bridge dispatch `case 12433: requestCallGroup(groupId,
+callId, typeRequest, data, partners)`. Đã sửa: `protocol.py`
+(`vc_requestcall_group`, `VOICECALL_GROUP`), `signaling.py`
+(`request_call_group`), `server.py` (`/api/call/request` rẽ theo
+`type`: "user" → 11300, "group" → 12433), `app.js` (`startCall`
+gửi `type` theo tab đang mở + `partners: []`). Hàng trong danh bạ
+giờ đúng nghĩa là một thread: id của hàng = threadId (userId hoặc
+groupId thô), tab quyết định endpoint.
+- Giới hạn còn lại (nói rõ, chưa sửa trong lần này): `partners`
+  (danh sách userId thành viên cần đổ chuông) hiện gửi `[]` vì app
+  chưa tải thành viên nhóm. Nếu server từ chối partners rỗng, bước
+  tiếp theo là tải thành viên qua getgi/v2 rồi điền vào — lần gọi
+  nhóm thật đầu tiên sẽ cho biết (lỗi trả về nêu rõ). Giai đoạn 2
+  (tiếng + nhận cuộc gọi đến) vẫn chưa làm.
+
+**Test mới:** `test_group_call_uses_group_endpoint` (nhóm đi đúng
+`group/requestcall` với `groupId`, không có `imei`; 1-1 vẫn đi
+`requestcall` với `calleeId`); smoke test e2e thêm lần gọi nhóm
+qua `/api/call/request` với `type: "group"`. Toàn bộ suite xanh
+6/6 (xem mục 7).
 
 ### Không cần chown tay nữa — cách đã chọn
 

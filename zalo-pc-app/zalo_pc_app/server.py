@@ -340,11 +340,24 @@ class Handler(BaseHTTPRequestHandler):
                 transport = make_transport(sess["zpw_sek"])
                 sig = signaling_mod.Signaling(transport, sess["device_id"],
                                               sess["zpw_enk"])
-                data = sig.request_call(
-                    body.get("callee_id", ""),
-                    body.get("call_id", ""),
-                    body.get("codec"),
-                    body.get("type_request", 0))
+                # Calls are addressed by threadID (addon/zca-js model):
+                # type "user"  -> 1-1 requestcall (11300), calleeId is
+                #   the user threadId; type "group" -> group/requestcall
+                #   (12433), groupId is the group threadId. Sending a
+                #   group id through the 1-1 endpoint is wrong.
+                if body.get("type") == "group":
+                    data = sig.request_call_group(
+                        body.get("callee_id", ""),
+                        body.get("call_id", ""),
+                        body.get("type_request", 0),
+                        body.get("data"),
+                        body.get("partners"))
+                else:
+                    data = sig.request_call(
+                        body.get("callee_id", ""),
+                        body.get("call_id", ""),
+                        body.get("codec"),
+                        body.get("type_request", 0))
                 return self._send_json({"ok": True, "data": data})
             except Exception as e:  # noqa: BLE001
                 return self._send_json({"error": str(e)}, status=502)

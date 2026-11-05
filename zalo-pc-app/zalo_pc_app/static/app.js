@@ -91,8 +91,15 @@ async function startCall(peer) {
   $("call-peer").textContent = "Gọi tới: " + (peer.name || peer.id);
   $("call-state").textContent = "Đang gửi yêu cầu gọi...";
   show("view-call");
+  // Calls are addressed by threadID (addon model): the row's id IS
+  // the threadId (userId for a friend, groupId for a group), and
+  // the tab decides which endpoint the server uses (1-1 requestcall
+  // vs group/requestcall). `partners` (group members to ring) is not
+  // loaded yet — the server sends [] for now.
   const r = await api("/api/call/request", "POST",
-    { callee_id: peer.id, call_id: callId, type_request: 0 });
+    { callee_id: peer.id, call_id: callId, type_request: 0,
+      type: currentTab === "groups" ? "group" : "user",
+      partners: [] });
   $("call-state").textContent = r.error
     ? ("Lỗi gọi: " + r.error)
     : "Đã gửi yêu cầu gọi. Tiếng sẽ có khi engine giai đoạn 2 gắn vào.";

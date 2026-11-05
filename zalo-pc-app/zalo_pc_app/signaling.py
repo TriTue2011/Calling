@@ -49,6 +49,17 @@ class Signaling:
         return self._call("requestcall", protocol.vc_requestcall(
             callee_id, call_id, codec, type_request, self.device_id))
 
+    def request_call_group(self, group_id, call_id, type_request=0,
+                           data=None, partners=None):
+        """Group call request (code 12433): POST-equivalent GET to
+        /api/voicecall/group/requestcall with {groupId, callId,
+        typeRequest, data, partners}. group_id is the group's
+        threadId (raw group id)."""
+        return self._call("group/requestcall",
+                          protocol.vc_requestcall_group(
+                              group_id, call_id, type_request, data,
+                              partners))
+
     def send_request(self, callee_id, rtcp_address, rtp_address, codec,
                      session, call_id, extend_data=None):
         return self._call("request", protocol.vc_request(

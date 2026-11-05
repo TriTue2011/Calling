@@ -80,6 +80,36 @@ def test_full_flow_encrypted():
         mock.stop()
 
 
+def test_group_call_uses_group_endpoint():
+    """Calls are addressed by threadID (addon/zca-js model): a group
+    tap must go to /api/voicecall/group/requestcall (code 12433)
+    with {groupId, callId, typeRequest, data, partners} — NOT to the
+    1-1 /api/voicecall/requestcall (11300) with the group id as
+    calleeId. The 1-1 path keeps working unchanged (calleeId is the
+    user threadId)."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        t2 = make_transport("sek-test")
+        sig = signaling.Signaling(t2, "dev-1", TEST_SESSION_KEY)
+        data = sig.request_call_group("30001", "call-g1", 0, None, [])
+        assert data["body"]["groupId"] == "30001", data
+        assert data["body"]["callId"] == "call-g1", data
+        assert data["body"]["partners"] == [], data
+        assert "imei" not in data["body"], data  # bundle: no imei
+        gpaths = [p for p, _, _ in mock.seen
+                  if p == "/api/voicecall/group/requestcall"]
+        assert len(gpaths) == 1, gpaths
+        # 1-1 still uses its own endpoint with calleeId = user threadId.
+        data = sig.request_call("20001", "call-1", None, 0)
+        assert data["body"]["calleeId"] == "20001", data
+        upaths = [p for p, _, _ in mock.seen
+                  if p == "/api/voicecall/requestcall"]
+        assert len(upaths) == 1, upaths
+    finally:
+        mock.stop()
+
+
 def test_full_flow_plaintext():
     mock = MockZalo().start()
     try:

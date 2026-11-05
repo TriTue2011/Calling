@@ -106,6 +106,13 @@ def test_server_e2e():
                            {"callee_id": "20001", "call_id": "c9"})
         assert body["ok"] is True, body
 
+        # A group tap goes to the group endpoint (12433), addressed
+        # by the group threadId — not to the 1-1 requestcall.
+        status, body = api("POST", "/api/call/request",
+                           {"callee_id": "30001", "call_id": "g9",
+                            "type": "group", "partners": []})
+        assert body["ok"] is True, body
+
         status, body = api("POST", "/api/logout", {})
         assert body["ok"] is True
         assert not os.path.exists(sess_path)

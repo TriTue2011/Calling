@@ -338,7 +338,11 @@ class MockZalo:
         plain = _openssl_aes(key, base64.b64decode(qs["params"]),
                              decrypt=True)
         body = json.loads(plain.decode("utf-8"))
-        assert body.get("imei") or "toId" in body, body
+        # 1-1 requestcall carries imei; group/requestcall carries
+        # groupId instead (bundle: {groupId, callId, typeRequest,
+        # data, partners}, no imei) — both are valid voicecall bodies.
+        assert (body.get("imei") or "toId" in body
+                or "groupId" in body), body
         return self._postlogin_envelope(
             {"ok": True, "path": path, "body": body})
 

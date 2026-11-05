@@ -44,8 +44,8 @@ Logs). Dòng này chỉ ghi DẠNG dữ liệu (kiểu, độ dài, tên key) �
 nguyên dòng gửi lại khi cần chẩn đoán:
 
 ```text
-[contacts-shape] friends raw=list len=60 first_item_keys=['avatar', 'displayName', 'userId'] rows=60
-[contacts-shape] groups page=1 raw=dict keys=['groups', 'hasMore', 'total'] groups len=6 first_item_keys=['avt', 'creatorId', 'fullAvt', 'groupId', 'name'] total=6 hasMore=False rows=6
+[contacts-shape] friends raw=list len=3 first_item_keys=['avatar', 'displayName', 'userId'] rows=3
+[contacts-shape] groups page=1 raw=dict keys=['groups', 'hasMore', 'total'] groups len=2 first_item_keys=['avt', 'creatorId', 'fullAvt', 'groupId', 'name'] total=2 hasMore=False rows=2
 ```
 
 Nếu số `rows=` khác số trên tab (hoặc khác số trên app Zalo điện
