@@ -21,13 +21,29 @@ Real response shapes (bundle compact-app-pc, see _extract_rows):
     {userId, displayName|zaloName, avatar};
   groups:  data is {groups: [...raw {groupId, name, avt, ...}...],
     hasMore, total}.
+
+Post-login responses are a TWO-LAYER envelope (bundle kCOK unwrap):
+outer {error_code: 0, data: "<AES base64 string>"} — the data field
+is ciphertext, NOT the payload. Decrypt it with the session key
+(zpw_enk) and JSON-parse the inner {error_code, data}; the inner
+data is the real payload above. Contacts._get decodes this via
+crypto.decode_postlogin_data. Returning payload["data"] directly was
+the 0/0 bug of 2026-11-05: a string parses as "no items" for both
+endpoints while the outer error_code stays 0, so the UI showed empty
+tabs with no error — exactly what the live server did (60 friends /
+6 groups on the phone, 0/0 in our app).
+
+Diagnostic logging: friends()/groups() print one shape-only line
+per endpoint to stdout (see describe_shape) — types, lengths and
+key names only, never personal values — so a redeploy's log shows
+what the server really returned.
 """
 
 import json
 import urllib.parse
 
 from . import protocol
-from .crypto import session_aes_encrypt
+from .crypto import decode_postlogin_data, session_aes_encrypt
 
 FRIENDS_PATH = "/api/social/friend/getfriends"
 GROUPS_PATH = "/api/group/getlg/v3"
@@ -97,6 +113,46 @@ def _extract_rows(data):
     return rows
 
 
+def describe_shape(data):
+    """Shape-only description of a response payload: value TYPES,
+    lengths, and KEY NAMES only. Never includes names, ids, phone
+    numbers, message content, or any other personal VALUE — only
+    keys and counts — so the line is safe to paste into a log or a
+    chat message for diagnosis. Examples:
+      list len=60 first_item_keys=['avatar', 'displayName', 'userId']
+      dict keys=['groups', 'hasMore', 'total'] groups len=6
+        first_item_keys=['avt', 'creatorId', 'groupId', 'name']
+        total=6 hasMore=False
+    """
+    if data is None:
+        return "null"
+    if isinstance(data, list):
+        first_keys = sorted({k for it in data[:1]
+                             if isinstance(it, dict) for k in it})
+        return "list len=%d first_item_keys=%s" % (len(data), first_keys)
+    if isinstance(data, dict):
+        parts = ["dict keys=%s" % sorted(data.keys())]
+        for key in ("groups", "friends", "items", "list", "data", "rows"):
+            val = data.get(key)
+            if isinstance(val, list):
+                first_keys = sorted({k for it in val[:1]
+                                     if isinstance(it, dict) for k in it})
+                parts.append("%s len=%d first_item_keys=%s"
+                             % (key, len(val), first_keys))
+                break
+        if isinstance(data.get("total"), int):
+            parts.append("total=%d" % data["total"])
+        if isinstance(data.get("hasMore"), bool):
+            parts.append("hasMore=%s" % data["hasMore"])
+        return " ".join(parts)
+    return type(data).__name__
+
+
+def _log_shape(tag, raw, rows):
+    print("[contacts-shape] %s raw=%s rows=%d"
+          % (tag, describe_shape(raw), rows), flush=True)
+
+
 class Contacts:
     def __init__(self, http_get, device_id, zpw_enk):
         self.http_get = http_get
@@ -110,7 +166,10 @@ class Contacts:
         if payload.get("error_code") != 0:
             raise RuntimeError("contacts: error_code=%s %s" % (
                 payload.get("error_code"), payload.get("error_message", "")))
-        return payload.get("data")
+        # Two-layer envelope (bundle kCOK unwrap): the outer data
+        # field is an AES-encrypted STRING. Returning it directly
+        # made _extract_rows see "no items" for every endpoint.
+        return decode_postlogin_data(payload, self.zpw_enk)
 
     def friends(self, init=False):
         """getfriends. init=True on the first load only (real client sends
@@ -120,7 +179,9 @@ class Contacts:
         url = _url_with_params(protocol.PROFILE_DOMAIN, FRIENDS_PATH,
                                body, self.zpw_enk, extra)
         data = self._get(url)
-        return {"rows": _extract_rows(data), "raw": data}
+        rows = _extract_rows(data)
+        _log_shape("friends", data, len(rows))
+        return {"rows": rows, "raw": data}
 
     def groups(self, count=100):
         """getlg/v3, paginated exactly like the real client: page 1, 2,
@@ -137,7 +198,9 @@ class Contacts:
             data = self._get(url)
             if not isinstance(data, dict):
                 data = {}
-            rows.extend(_extract_rows(data))
+            page_rows = _extract_rows(data)
+            rows.extend(page_rows)
+            _log_shape("groups page=%d" % page, data, len(rows))
             total = data.get("total", total)
             if not data.get("hasMore"):
                 break

@@ -35,6 +35,23 @@ nối trước khi gửi request; server vẫn chạy bình thường. Từ bả
 `2026-11-05-groups-zpwtype30` trở đi, server tắt tiếng đúng loại
 lỗi này (mọi lỗi khác vẫn in ra như cũ).
 
+## Log chẩn đoán danh bạ (`[contacts-shape]`)
+
+Mỗi lần mở trang danh bạ, server in một dòng cho mỗi endpoint vào
+log (stdout — xem bằng `docker logs <container>` hoặc Portainer →
+Logs). Dòng này chỉ ghi DẠNG dữ liệu (kiểu, độ dài, tên key) — tuyệt
+đối không ghi tên, id, số điện thoại hay nội dung, nên cứ copy
+nguyên dòng gửi lại khi cần chẩn đoán:
+
+```text
+[contacts-shape] friends raw=list len=60 first_item_keys=['avatar', 'displayName', 'userId'] rows=60
+[contacts-shape] groups page=1 raw=dict keys=['groups', 'hasMore', 'total'] groups len=6 first_item_keys=['avt', 'creatorId', 'fullAvt', 'groupId', 'name'] total=6 hasMore=False rows=6
+```
+
+Nếu số `rows=` khác số trên tab (hoặc khác số trên app Zalo điện
+thoại cùng tài khoản), hai dòng này cho biết server thật trả về
+dạng gì.
+
 Chạy trực tiếp (không Docker):
 
 ```sh

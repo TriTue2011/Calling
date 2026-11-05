@@ -18,6 +18,16 @@ details were wrong:
      "embed": friends passed because profile-wpa tolerates it, but
      group-wpa validates it strictly and answered 602 — twice, for
      both getlg v1 and getlg/v3 (found live after 7bc97bf).
+  5. Post-login responses are a TWO-LAYER envelope (bundle kCOK
+     unwrap): outer {error_code: 0, data: "<AES base64 string>"} —
+     the data field is ciphertext; the inner {error_code, data}
+     only appears after AES-decrypting it with the session key.
+     The old client returned payload["data"] directly, so both
+     endpoints silently parsed an encrypted STRING as "no items"
+     while the outer error_code stayed 0: the UI showed empty tabs
+     with no error (live: 60 friends / 6 groups on the phone, 0/0
+     in our app — see bao-cao.md 7g). The mock now returns the real
+     double-enveloped shape, and these tests pin the decryption.
 These tests pin the corrected contract and prove the strict mock
 rejects the old (pre-fix) requests.
 """
@@ -172,6 +182,124 @@ def test_empty_account():
         mock.stop()
 
 
+def _stub_transport(payload):
+    def http_get_stub(url, timeout=30):
+        return 200, payload
+    return http_get_stub
+
+
+def test_double_envelope_decrypted():
+    """Regression test for the live 0/0 bug: the server's outer data
+    is an AES-encrypted STRING. A client that returns payload["data"]
+    directly parses a string as "no items" and reports 0 friends /
+    0 groups with no error (outer error_code stays 0). The fixed
+    client decrypts the inner envelope and returns the real rows."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        book = contacts_mod.Contacts(
+            partial(http_get, cookie="sek-test"), "dev-1", TEST_SESSION_KEY)
+        friends = book.friends(init=True)
+        assert [r["name"] for r in friends["rows"]] == \
+            ["Ban A", "Ban B", "Ban C"]
+        # The decrypted inner data is a bare list, not a string.
+        assert isinstance(friends["raw"], list), friends["raw"]
+        groups = book.groups()
+        assert [r["name"] for r in groups["rows"]] == ["Nhom X", "Nhom Y"]
+        assert isinstance(groups["raw"], dict), groups["raw"]
+        # And the wire shape itself: the mock's outer data is an
+        # encrypted string (second friends load sends no init=1).
+        body = {"incInvalid": 1, "page": 1, "count": 20000,
+                "avatar_size": 160, "actiontime": 0, "imei": "dev-1"}
+        enc = session_aes_encrypt(
+            TEST_SESSION_KEY,
+            json.dumps(body, separators=(",", ":"), ensure_ascii=False))
+        qs = {"zpw_ver": "695", "zpw_type": "30", "params": enc}
+        raw_qs = ("zpw_ver=695&zpw_type=30&params="
+                  + urllib.parse.quote(enc, safe=""))
+        # _friends returns the body dict itself (route() wraps it
+        # in a (status, body) tuple — do not unpack it here).
+        payload = mock._friends(qs, {"Cookie": "sek-test"}, raw_qs)
+        assert payload["error_code"] == 0, payload
+        assert isinstance(payload["data"], str), payload
+        inner = json.loads(session_aes_decrypt(
+            TEST_SESSION_KEY, payload["data"]))
+        assert inner["error_code"] == 0 and len(inner["data"]) == 3, inner
+    finally:
+        mock.stop()
+
+
+def test_inner_error_raises():
+    """An inner error_code != 0 (inside the encrypted envelope) must
+    raise, naming the inner code — the outer error_code is 0 here."""
+    inner = {"error_code": 1234, "error_message": "inner boom",
+             "data": {}}
+    payload = {"error_code": 0,
+               "data": session_aes_encrypt(
+                   TEST_SESSION_KEY, json.dumps(inner))}
+    book = contacts_mod.Contacts(_stub_transport(payload), "dev-1",
+                                 TEST_SESSION_KEY)
+    try:
+        book.friends(init=True)
+        raise AssertionError("expected RuntimeError for inner error")
+    except RuntimeError as e:
+        assert "1234" in str(e), e
+
+
+def test_missing_outer_data_empty():
+    """Outer error_code 0 with no data field resolves to empty rows,
+    not a crash (the client's unwrap resolves undefined here)."""
+    book = contacts_mod.Contacts(
+        _stub_transport({"error_code": 0}), "dev-1", TEST_SESSION_KEY)
+    assert book.friends(init=True)["rows"] == []
+    assert book.groups()["rows"] == []
+
+
+def test_describe_shape_no_values():
+    """describe_shape logs only types, lengths and key names — never
+    a name, id, phone number or any other personal value."""
+    desc = contacts_mod.describe_shape([
+        {"userId": "20001", "displayName": "Ban A", "avatar": "a1"},
+        {"userId": "20002", "zaloName": "Ban B", "avatar": ""}])
+    assert "len=2" in desc and "userId" in desc and "displayName" in desc
+    for secret in ("Ban A", "Ban B", "20001", "20002", "a1"):
+        assert secret not in desc, desc
+    desc = contacts_mod.describe_shape({
+        "groups": [{"groupId": "30001", "name": "Nhom X", "avt": "x"}],
+        "hasMore": False, "total": 1})
+    assert "groups len=1" in desc and "total=1" in desc
+    assert "hasMore=False" in desc and "groupId" in desc
+    for secret in ("Nhom X", "30001", "x"):
+        assert secret not in desc, desc
+    assert contacts_mod.describe_shape(None) == "null"
+    assert contacts_mod.describe_shape("ciphertext...") == "str"
+
+
+def test_shape_log_printed():
+    """friends()/groups() print one shape-only line each to stdout;
+    the lines carry counts/keys but no personal values."""
+    import contextlib
+    import io
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        book = contacts_mod.Contacts(
+            partial(http_get, cookie="sek-test"), "dev-1", TEST_SESSION_KEY)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            book.friends(init=True)
+            book.groups()
+        out = buf.getvalue()
+        assert "[contacts-shape] friends" in out, out
+        assert "[contacts-shape] groups page=1" in out, out
+        assert "rows=3" in out and "rows=2" in out, out
+        for secret in ("Ban A", "Ban B", "Ban C", "Nhom X", "Nhom Y",
+                       "20001", "30001"):
+            assert secret not in out, out
+    finally:
+        mock.stop()
+
+
 def test_params_encoding_round_trip():
     # friends URL: no raw '/' or '+' in the params value, decrypts back.
     body, enc = find_body_with_slash(
@@ -266,8 +394,14 @@ def test_friends_zpwtype_embed_accepted():
         status, payload = http_get(url, cookie="sek-test")
         assert status == 200, (status, payload)
         assert payload.get("error_code") == 0, payload
-        # Real friends shape: data is a bare array (not {"friends": [...]}).
-        assert isinstance(payload["data"], list) and payload["data"], payload
+        # Real friends shape: outer data is an AES-encrypted STRING
+        # (double envelope); decrypting it gives the inner data,
+        # a bare array (not {"friends": [...]}).
+        assert isinstance(payload["data"], str), payload
+        inner = json.loads(session_aes_decrypt(
+            TEST_SESSION_KEY, payload["data"]))
+        assert inner["error_code"] == 0, inner
+        assert isinstance(inner["data"], list) and inner["data"], inner
     finally:
         mock.stop()
 

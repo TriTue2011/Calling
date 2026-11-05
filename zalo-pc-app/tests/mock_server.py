@@ -22,6 +22,17 @@ server sends and hid the _extract_rows gaps):
     {userId, displayName|zaloName, avatar};
   groups:  data is {groups: [...], hasMore, total} with RAW group
     items {groupId, name, avt, fullAvt, creatorId, ...}.
+
+Post-login responses are a TWO-LAYER envelope (bundle kCOK unwrap,
+verified 2026-11-05 — the previous mock returned the inner data
+directly, which hid the 0/0 bug: the client returned
+payload["data"] without decrypting, so both endpoints silently
+parsed an encrypted STRING as "no items"):
+  outer: {error_code: 0, data: "<AES-256-CBC base64>"}
+  inner: AES-decrypt data with the session key, JSON-parse ->
+    {error_code: 0, data: <payload above>}.
+  _postlogin_envelope() builds this shape; error paths (602 etc.)
+  stay plain outer errors, as the real server sends them.
 """
 
 import base64
@@ -310,6 +321,17 @@ class MockZalo:
             "needSyncMsg": False, "cptch_cert": "cert",
             "zpw_sek": "sek-test", "zpw_kt": "kt-test", "devices": []}}
 
+    def _postlogin_envelope(self, payload):
+        """Wrap a payload in the real two-layer post-login envelope:
+        outer {error_code: 0, data} where data is the inner
+        {error_code: 0, data: payload} AES-256-CBC encrypted with the
+        session key (TEST_SESSION_KEY) — exactly what the real server
+        sends for friends/groups/voicecall (bundle kCOK unwrap)."""
+        inner = json.dumps({"error_code": 0, "data": payload})
+        key = base64.b64decode(TEST_SESSION_KEY)
+        enc = _openssl_aes(key, inner.encode("utf-8"))
+        return {"error_code": 0, "data": base64.b64encode(enc).decode()}
+
     def _voicecall(self, path, qs, headers, raw_qs=""):
         self._check_postlogin(qs, headers, raw_qs, "voicecall")
         key = base64.b64decode(TEST_SESSION_KEY)
@@ -317,8 +339,8 @@ class MockZalo:
                              decrypt=True)
         body = json.loads(plain.decode("utf-8"))
         assert body.get("imei") or "toId" in body, body
-        return {"error_code": 0, "data": {"ok": True, "path": path,
-                                          "body": body}}
+        return self._postlogin_envelope(
+            {"ok": True, "path": path, "body": body})
 
     def _friends(self, qs, headers, raw_qs=""):
         if self.friends_mode == "error602":
@@ -347,18 +369,18 @@ class MockZalo:
             "friends body needs avatar_size=160: %s" % body
         assert body.get("actiontime") == 0 and body.get("imei"), body
         if self.friends_mode == "empty":
-            return {"error_code": 0, "data": []}
+            return self._postlogin_envelope([])
         # Real shape: data is a BARE ARRAY of profile items (the
         # client's FriendListManager checks Array.isArray(data)).
         # "Ban B" carries only zaloName (no displayName) and "Ban C"
         # only snake_case fields — both must still resolve to a name
         # (UI fallback: displayName || zaloName; the reformatter also
         # accepts zalo_name / display_name / uid).
-        return {"error_code": 0, "data": [
+        return self._postlogin_envelope([
             {"userId": "20001", "displayName": "Ban A", "avatar": ""},
             {"userId": "20002", "zaloName": "Ban B", "avatar": ""},
             {"userId": "20003", "display_name": "Ban C",
-             "zalo_name": "Ban C", "avatar": ""}]}
+             "zalo_name": "Ban C", "avatar": ""}])
 
     def _groups(self, qs, headers, raw_qs=""):
         if self.groups_mode == "error602":
@@ -394,8 +416,8 @@ class MockZalo:
         assert body.get("imei"), \
             "groups v3 body needs imei: %s" % body
         if self.groups_mode == "empty":
-            return {"error_code": 0, "data": {
-                "groups": [], "hasMore": False, "total": 0}}
+            return self._postlogin_envelope(
+                {"groups": [], "hasMore": False, "total": 0})
         page = body["page"]
         # Real shape: RAW group items {groupId, name, avt, fullAvt,
         # creatorId, ...} — the client's _preFormatItemGroup maps
@@ -403,16 +425,16 @@ class MockZalo:
         # (The old mock returned pre-formatted {userId, displayName}
         # items, which the server never sends.)
         if page == 1:
-            return {"error_code": 0, "data": {
+            return self._postlogin_envelope({
                 "groups": [{"groupId": "30001", "name": "Nhom X",
                             "avt": "avt-x", "fullAvt": "",
                             "creatorId": "20001"}],
-                "hasMore": True, "total": 2}}
+                "hasMore": True, "total": 2})
         if page == 2:
-            return {"error_code": 0, "data": {
+            return self._postlogin_envelope({
                 "groups": [{"groupId": "30002", "name": "Nhom Y",
                             "avt": "", "fullAvt": "",
                             "creatorId": "20001"}],
-                "hasMore": False, "total": 2}}
-        return {"error_code": 0, "data": {
-            "groups": [], "hasMore": False, "total": 2}}
+                "hasMore": False, "total": 2})
+        return self._postlogin_envelope({
+            "groups": [], "hasMore": False, "total": 2})

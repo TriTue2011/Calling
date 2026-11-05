@@ -8,10 +8,17 @@ getLoginInfo), AES-CBC zero IV, base64 output.
 The transport is the same `http_get(url, timeout)` callable shape as
 qr_login, plus an optional Cookie header value (zpw_sek) carried by
 the caller via the `cookie` argument of each method.
+
+Responses use the same two-layer envelope as contacts (bundle kCOK
+unwrap): outer {error_code: 0, data: "<AES base64>"} — the data
+field is ciphertext; the inner {error_code, data} only appears after
+AES-decrypting it with the session key. _call decodes it via
+crypto.decode_postlogin_data; returning payload["data"] directly
+would hand the caller an encrypted string instead of the result.
 """
 
 from . import protocol
-from .crypto import session_aes_encrypt
+from .crypto import decode_postlogin_data, session_aes_encrypt
 
 
 class Signaling:
@@ -34,7 +41,9 @@ class Signaling:
             raise RuntimeError("voicecall %s: error_code=%s %s" % (
                 path, payload.get("error_code"),
                 payload.get("error_message", "")))
-        return payload.get("data")
+        # Two-layer envelope: outer data is an AES-encrypted string;
+        # decode it to the inner {error_code, data} first.
+        return decode_postlogin_data(payload, self.zpw_enk)
 
     def request_call(self, callee_id, call_id, codec=None, type_request=0):
         return self._call("requestcall", protocol.vc_requestcall(

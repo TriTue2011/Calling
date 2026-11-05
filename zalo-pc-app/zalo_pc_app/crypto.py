@@ -30,6 +30,22 @@ Three independent pieces — do not confuse them:
      params = AES-CBC(key=base64decode(zpw_enk), iv=0, json) as base64
    zpw_enk is delivered per session by getLoginInfo after QR login,
    so no embedded key is needed here at all.
+
+4. Post-login RESPONSE envelope — TWO layers (bundle compact-app-pc,
+   response handler module kCOK, offset ~16575942; decodeAES /
+   getSecretKey / setDecryptKey in the crypto util, offsets
+   ~20698147/~20698975; config secretKey:"zpw_enk" at ~8055993;
+   getLoginInfo stores it as decryptKey from zpw_enk, ~11816399):
+     outer: {error_code: 0, data: "<AES base64 string>"}
+     inner: AES-decrypt data with the session key (same AES-CBC,
+       zero IV, PKCS7 as the request params) -> JSON
+       {error_code, data} -> the inner data is the real payload
+       (friends: bare array; groups: {groups, hasMore, total}).
+   The outer `data` field is an ENCRYPTED STRING, never the payload
+   itself. Code that returns payload["data"] directly reads
+   ciphertext as data (and silently gets zero rows, because a string
+   parses as "no items"). decode_postlogin_data() below implements
+   the client's unwrap exactly.
 """
 
 import hashlib
@@ -133,6 +149,33 @@ def session_aes_decrypt(zpw_enk_b64, data_b64):
     key = base64.b64decode(zpw_enk_b64)
     raw = base64.b64decode(data_b64)
     return cbc_decrypt(key, ZERO_IV, raw).decode("utf-8")
+
+
+def decode_postlogin_data(payload, zpw_enk_b64):
+    """Decode the two-layer post-login response envelope (client
+    unwrap in bundle module kCOK): outer {error_code: 0, data} where
+    data is an AES-256-CBC base64 STRING encrypted with the session
+    key; decrypt it (zero IV, PKCS7) and JSON-parse the inner
+    {error_code, data}, returning the inner data. An inner
+    error_code != 0 raises. A plain dict/list data is returned as-is
+    (defensive: some responses may already be decoded); a missing
+    data field resolves to None, like the client's `else t()`."""
+    data = payload.get("data")
+    if isinstance(data, str):
+        if not data:
+            return None
+        try:
+            inner = json.loads(session_aes_decrypt(zpw_enk_b64, data))
+        except Exception as exc:
+            raise RuntimeError("response decrypt failed: %s" % exc)
+        if isinstance(inner, dict):
+            if inner.get("error_code") not in (0, None):
+                raise RuntimeError("response inner error_code=%s %s" % (
+                    inner.get("error_code"),
+                    inner.get("error_message", "")))
+            return inner.get("data")
+        return inner
+    return data
 
 
 def make_device_id(app_ua="zalo-pc-qr/1.0"):

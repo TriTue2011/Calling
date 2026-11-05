@@ -629,6 +629,116 @@ thật (cần thêm bạn cho nó mới thử gọi được); nếu số > 0 th
 hiện; nếu số > 0 mà vẫn không thấy tên thì báo lại — đó mới là lỗi
 trích tên còn sót.
 
+### 7g. Danh bạ vẫn 0/0 dù tài khoản có 60 bạn / 6 nhóm: response là envelope HAI LỚP có mã hóa
+
+**Ground truth CHỐT (user xác nhận 17:00 ngày 05/11, đối chiếu app
+Zalo thật trên điện thoại — chuẩn «zalo cũ», số liệu điện thoại
+thắng nếu mâu thuẫn với phân tích bundle):** tài khoản phụ có
+«Bạn bè (60)» và «Nhóm đang tham gia (6)». App PC đăng nhập cùng
+tài khoản phải hiện đúng 60/6. Giả thuyết «tài khoản trống» ở 7f là
+SAI. Ảnh gọi cho «BenBap» là tài khoản phụ trên điện thoại gọi đi
+tới một người bạn trong 60 bạn đó — KHÔNG liên quan tới lỗi số
+đếm; và app PC không đổ chuông/hiện gì khi có cuộc gọi đến là ĐÚNG
+với bản hiện tại, vì nhận cuộc gọi đến là O3/giai đoạn 2, chưa làm.
+
+**Nguyên nhân gốc — envelope HAI LỚP, đã xác nhận từ bundle:**
+mọi API sau login đều trả response bọc hai lớp, và lớp ngoài KHÔNG
+phải payload:
+- Lớp ngoài: HTTP 200, JSON `{error_code: 0, data: "<chuỗi base64>"}`
+  — `data` là CHUỖI đã mã hóa AES, không phải dữ liệu.
+- Lớp trong: AES-giải mã `data` bằng khóa phiên (zpw_enk, AES-CBC,
+  IV 0, PKCS7 — hàm `decodeAES` của client, khóa lấy từ
+  `getSecretKey()`, được `setDecryptKey()` gán từ `zpw_enk` của
+  getLoginInfo), rồi JSON-parse thành `{error_code, data}` — `data`
+  trong mới là payload thật (friends: mảng trần; groups:
+  `{groups, hasMore, total}`).
+- Bằng chứng bundle (`compact-app-pc`, Zalo PC 26.11.10): hàm unwrap
+  `o` ở module `kCOK` — `if(200==e.status&&e.data){
+  0==e.data.error_code && e.data.data && (a=decodeAES(e.data.data),
+  r=JSON.parse(a), 0==r.error_code ? t(r.data) : n(r)) }`;
+  `decodeAES`/`encodeAES`/`getSecretKey`/`setDecryptKey` ở crypto
+  util (`decodeAES`: `AES.decrypt(Base64.parse(e),
+  Base64.parse(this.getSecretKey()), {iv: 0, mode: CBC, padding:
+  Pkcs7})`); config `secretKey:"zpw_enk"`; getLoginInfo lưu
+  `decryptKey: e.data.data.zpw_enk`. Cùng mẫu
+  `JSON.parse(decodeAES(e.data.data))` + kiểm `error_code` trong rồi
+  mới lấy `.data` xuất hiện ở hàng chục chỗ khác (getMe,
+  getUserByPhone, sendChunk, ...). `s.a` (chính là hàm unwrap này)
+  được gọi sau cả getFriendsList lẫn getGroupListV3.
+
+**Vì sao cả hai endpoint cùng 0 mà không báo lỗi:** code cũ
+(`contacts.py::_get`) trả `payload["data"]` thẳng — tức trả CHUỖI
+mã hóa. `_extract_rows(chuỗi)` không phải list/dict nên ra `[]`;
+`groups()` ép chuỗi thành `{}` nên ra 0 rows; outer `error_code`
+vẫn là 0 nên không exception nào được ném — UI hiện tab trống mà
+không báo lỗi, khớp đúng hiện tượng chạy thật. Cùng lỗi này có
+trong `signaling.py::_call` (voicecall cũng dùng envelope hai lớp)
+— đã sửa luôn, nếu không lần gọi thật đầu tiên sẽ trả về chuỗi mã
+hóa thay vì kết quả.
+
+**Các hướng khác đã kiểm và loại trừ trong lần này:**
+- (a) Key parse của V3: `r.groups`/`r.hasMore`/`r.total` là đúng
+  (đọc trong `_fetchAllGroups` và `_callApi` của GroupListManager).
+- (b) Tab Nhóm đọc từ cache GroupWorker nạp bằng V3 lúc khởi động
+  (`_callApi` → `_handleSucess` → `_preFormatItemGroup` →
+  `_signalCallback`) — V3 đúng là nguồn danh sách, không phải danh
+  sách hội thoại.
+- (c) V3 KHÔNG phải API đồng bộ tăng dần: `getGroupListV3(page,
+  count)` không có tham số version nào; API đồng bộ theo version là
+  V4 (`getlg/v4`, code 12027, không body).
+- (d) Page bắt đầu từ 1 (`i(1)` trong cả `_fetchAllGroups` và
+  `_callApi`), count mặc định 100, vòng lặp dừng ở `++e>=100 ||
+  !hasMore || collected>=total` — khớp vòng lặp trong
+  `contacts.py::groups()`, không bỏ sót trang.
+- (e) Item nhóm dạng thô `{groupId, name, avt, fullAvt, creatorId}`
+  — đã khớp từ 7f, không có dạng lồng khác trong hai manager này.
+
+**Đã sửa:**
+- `crypto.py`: thêm `decode_postlogin_data(payload, zpw_enk)` —
+  giải mã đúng unwrap của client (chuỗi → giải mã AES → JSON →
+  kiểm inner error_code → trả inner data; data đã là dict/list thì
+  giữ nguyên; thiếu data → None).
+- `contacts.py::_get` và `signaling.py::_call`: dùng hàm trên thay
+  cho `payload.get("data")`.
+- `contacts.py`: thêm `describe_shape(data)` + log chẩn đoán
+  `[contacts-shape]` — MỘT dòng cho mỗi endpoint mỗi lần tải
+  (friends: 1 dòng; groups: 1 dòng cho mỗi trang), chỉ ghi SHAPE:
+  kiểu dữ liệu, độ dài/số lượng, tên key tầng ngoài, tên key của
+  item đầu tiên, `total`/`hasMore`. TUYỆT ĐỐI KHÔNG ghi tên, id,
+  số điện thoại hay nội dung. Ví dụ dòng log thật (từ test):
+  `[contacts-shape] friends raw=list len=3
+  first_item_keys=['avatar', 'displayName', 'userId'] rows=3` và
+  `[contacts-shape] groups page=1 raw=dict keys=['groups',
+  'hasMore', 'total'] groups len=1 first_item_keys=['avt',
+  'creatorId', 'fullAvt', 'groupId', 'name'] total=2 hasMore=True
+  rows=1`. Sau redeploy, user copy 2 dòng `[contacts-shape]` trong
+  log container (`docker logs <container>` / Portainer → Logs) gửi
+  lại nếu số đếm vẫn sai — hai dòng đó cho biết server thật trả về
+  dạng gì mà không lộ dữ liệu cá nhân.
+- `tests/mock_server.py`: thêm `_postlogin_envelope()` — mock giờ
+  trả đúng dạng hai lớp cho friends/groups/voicecall (outer data là
+  chuỗi AES của inner `{error_code:0, data:...}` bằng openssl +
+  TEST_SESSION_KEY); đường lỗi 602 vẫn là outer error thuần như
+  server thật. Mock cũ trả inner data trực tiếp nên test offline
+  không bắt được lỗi 0/0 — đó là lý do bug này lọt qua 6 suite
+  xanh trước đó.
+- Test mới trong `test_contacts.py`: `test_double_envelope_decrypted`
+  (outer data là chuỗi mã hóa; client giải mã ra đủ rows — test này
+  FAIL ở code cũ), `test_inner_error_raises` (inner error_code != 0
+  phải raise kèm mã), `test_missing_outer_data_empty` (thiếu data →
+  rows rỗng, không crash), `test_describe_shape_no_values` (log
+  shape không chứa tên/id nào), `test_shape_log_printed` (mỗi
+  endpoint in đúng một dòng shape, không lộ giá trị cá nhân);
+  `test_friends_zpwtype_embed_accepted` sửa theo dạng hai lớp.
+  Toàn bộ suite `tests/run_tests.py` xanh 6/6.
+- `VERSION` bump thành `2026-11-05-contacts-double-envelope`.
+
+**Kiểm chứng cuối:** user pull image mới, up lại stack cũ (giữ
+volume `/opt/zalo`, không chown, không quét lại trừ khi trang hiện
+lại QR) — tab phải hiện «Bạn bè (60)» / «Nhóm (6)» như trên điện
+thoại. Nếu vẫn sai, gửi lại 2 dòng log `[contacts-shape]` (xem
+trên) — không cần gửi tên hay id nào.
+
 ### Không cần chown tay nữa — cách đã chọn
 
 Image cũ chạy bằng user `app` (UID 1000) nên mount host path thuộc
