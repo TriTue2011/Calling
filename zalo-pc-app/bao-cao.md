@@ -1177,7 +1177,7 @@ Zalo PC 26.11.10, renderer `compact-app-pc.*.js`:
   rtpAddress, rtcpAddress, extendData, session}` (strings còn liệt kê
   `rtpAddressIPv6`, `rtcpAddressIPv6`, `rtcpIP`). Engine cấp các địa chỉ
   relay này từ máy chủ relay ZRTP lúc bắt đầu gọi — pcap 2026-11-04 cho
-  thấy máy gọi bắt đầu setup media tới relay ~0,5 giây sau khi bấm gọi;
+  thấy máy gọi bắt đầu setup media tới relay 20–40 ms sau gói TCP cuối của server (pcap không chứa thời điểm bấm gọi nên không đo được độ trễ sau khi bấm gọi);
   client mang cả cấu hình `timeoutMakeCall2ZRtp` cho bước này. Mobile
   khớp 1-1: opcode 416 `voiceRequestCallZRTPWithExtendData` (`g4 g4` rồi
   7 blob nhị phân — nội dung blob vẫn CHƯA BIẾT, xem giai-ma-packet.md).
@@ -1257,6 +1257,129 @@ trên: lần 17:54 Đại ca gọi lại hay cuộc gọi PC tới muộn.
 
 ---
 
+## 7m. Nút «Kết thúc» bấm không được — cuộc gọi kẹt ở «đang đổ chuông» (2026-11-05 18:06, chạy thật)
+
+**Triệu chứng thật (ảnh user 18:06):** bản 4f40c7e đang chạy; cuộc gọi
+1-1 đổ chuông tới 00:52 (từ 18:05); bấm nút «Kết thúc» KHÔNG có tác
+dụng — cuộc gọi vẫn ở trạng thái đang đổ chuông, pill topbar vẫn
+hiện, đồng hồ vẫn chạy. Đến 18:09 lịch sử mới ghi «Đã kết thúc» —
+nút không hẳn hỏng hoàn toàn mà **CHẬM/trễ**: bấm nhiều lần mới ăn,
+hoặc UI chỉ cập nhật sau lần poll sau, hoặc request endcall chậm.
+
+**Hai chỗ gãy (đều có bằng chứng code):**
+
+(A) **Server — `/api/call/end` chỉ đánh dấu ended khi endcall Zalo
+thành công.** Handler cũ (server.py, bản 4f40c7e):
+`sig.endcall(...)` trước, `record_end(...)` sau, lỗi thì trả 502 —
+`record_end` không bao giờ chạy khi endcall lỗi/chậm. Cuộc gọi ở
+lại `"sent"` trong log → UI poll `/api/calls` thấy nó vẫn active
+mãi. UI lại bỏ qua lỗi trả về (`endCall` không kiểm `r.error`).
+Đây là chỗ gãy chính cho triệu chứng 18:06.
+
+(B) **UI — `endCall()` chỉ lấy mục tiêu từ `currentCall ||
+detailCall`, là biến của phiên trang.** Sau khi load lại trang, cả
+hai đều null → nút Kết thúc ở rail KHÔNG GỬI request nào (no-op),
+dù server vẫn giữ cuộc gọi active. Ngoài ra `call_id` từ màn hình
+chi tiết là CHUỖI (log lưu `str(call_id)`) — gửi dạng chuỗi thì
+server thật có thể trả 114 như requestcall (§7k). Và UI không có
+phản hồi ngay trong lúc POST đang bay (đồng hồ vẫn chạy, pill vẫn
+hiện) nên người dùng tưởng nút hỏng.
+
+**Bằng chứng bundle cho body endcall (không đoán):** renderer
+`compact-app-pc.*.js`, native bridge `case 409:
+a=s.default.sendEndCall(n.toId,n.callId)` → lớp wZ `static
+sendEndCall(e,t){...a={uidTo:e,callId:t,status:3,imei:D.a.getZaloClientID()};...this._get(l,null,11306)}`
+— body 1-1 là `{uidTo, callId, status:3, imei}`, code 11306, đúng
+như `vc_endcall` đã viết (không sửa body này). Nhóm:
+`sendEndCallGroup` → `{calleeId, callId, callType, hostCall, data,
+partners}`, `/api/voicecall/group/endcall`, code 12438; `hostCall`
+chỉ có tên field trong bundle, không có ngữ nghĩa giá trị — app gửi
+`True` (bên gọi là host của cuộc gọi đi), ghi UNCONFIRMED.
+
+**Timeout đổ chuông (đã kiểm, KHÔNG bịa):** trong bundle chỉ có
+một cấu hình timeout liên quan gọi điện là `timeoutMakeCall2ZRtp`
+— cấu hình server đẩy xuống engine (`ZaloCall.exe` nhận
+`timeoutMakeCall2ZRtp` lúc khởi tạo), mặc định `0` (tắt), là
+timeout cho quá trình bắt tay media sau makeCall, KHÔNG phải timeout
+«đổ chuông không trả lời thì tự kết thúc». Không tìm thấy timeout
+đổ chuông nào ở phía renderer (engine giữ máy trạng thái cuộc gọi).
+Vì vậy bản này KHÔNG thêm timeout đổ chuông bịa ra — thuốc chữa cho
+cuộc kẹt là nút Kết thúc phải luôn ăn (local-first) + phản hồi ngay.
+
+**Đã sửa (workdir, chưa push — xem cuối mục):**
+- `server.py` `/api/call/end` — **local-first**: xác định mục tiêu
+  (call_id ép về số uint32 bằng `_coerce_call_id`, không hợp lệ thì
+  lấy cuộc đang live — tối đa một cuộc live nên ý định nút Kết thúc
+  là không mơ hồ), `record_end` TRƯỚC, rồi mới thử endcall Zalo
+  (best-effort); lỗi Zalo ghi vào `detail` của entry + trả về
+  (`zalo_endcall_ok` / `zalo_error`). Response luôn ok khi đã kết
+  thúc cục bộ (`ended_call_id`, `data` giữ như cũ). Nhóm đi
+  `group/endcall` (12438), 1-1 đi `endcall` (11306).
+- `call_log.py` — `record_end(call_id, detail="")`,
+  `end_active(detail="")` (kết thúc cuộc đang live),
+  `record_end_error(call_id, detail)` (gắn lỗi Zalo vào entry đã
+  kết thúc).
+- `protocol.py` — thêm `vc_endcall_group` đúng dạng bundle;
+  `signaling.py` — thêm `endcall_group`.
+- `static/app.js` — viết lại `endCall()`: lấy mục tiêu từ
+  `currentCall || detailCall || callsData.active` (rail vẫn ăn sau
+  khi load lại trang); ép call_id chuỗi số về Number; chặn bấm đôi
+  (`ending`); **xóa trạng thái ngay trên UI** (optimistic: active →
+  ended, pill biến mất) rồi mới POST + poll đối chiếu; bỏ
+  `loadMain()` cuối hàm (không cần tải lại danh bạ sau khi kết thúc
+  — vừa chậm vừa dính 429); khi Zalo không xác nhận thì ở lại màn
+  hình chi tiết với cảnh báo thay vì về danh bạ im lặng.
+  `showCallDetail` giữ `type` + `requestSent`/`requestError` trong
+  `detailCall`; mới `renderCallDetail()`; `startCall` lưu kết quả
+  bước 2 (`request_sent`/`request_error`) lên `currentCall` và làm
+  mới dòng chẩn đoán sau `loadCalls()`.
+- `static/app.html` — thêm `<p id="call-request">` ở màn hình chi
+  tiết: hiện «Bước 2 (11301): đã gửi…» / «KHÔNG gửi được — <mã lỗi>.
+  Máy bên kia có thể chưa đổ chuông.» / «chưa có thông tin.» — BẮT
+  BUỘC theo bằng chứng 18:09 (màn hình cũ chỉ có câu chung nên bước
+  2 bị từ chối cũng không nhìn thấy).
+- Mock `tests/mock_server.py` — thêm `endcall_mode`
+  ("ok"|"error"|"slow"); nhánh `endcall`/`group/endcall` kiểm đúng
+  contract bundle (uidTo + callId số uint32 + status 3 + imei;
+  nhóm: calleeId + callId số + callType 5/6 + có hostCall);
+  "error" trả inner 500 mô phỏng server từ chối; "slow" ngủ 2 giây
+  mô phỏng endcall ì.
+- Mới `tests/test_call_end.py` 8 test + `tests/test_app_js_end.js`
+  (harness Node vm, stub DOM/fetch — kiểm `endCall()` khi
+  currentCall/detailCall null và dòng chẩn đoán ở màn hình chi
+  tiết); `run_tests.py` nối thêm 2 lệnh node (`--check app.js` +
+  harness). Test PHAI FAIL ở code cũ (chạy trên code 4f40c7e: 1/8 —
+  chỉ test bấm đôi qua) và PASS ở code mới (8/8 + harness + toàn
+  suite xanh). Các ca: end khi Zalo từ chối → vẫn kết thúc cục bộ
+  + detail ghi lỗi; end call_id chuỗi → body Zalo mang số; end id
+  sai → kết thúc cuộc live; end chậm → log đã xóa active trước khi
+  POST trả về; end 2 lần an toàn; end nhóm → đúng 12438.
+- Phiên bản mới: `2026-11-05-call-end-fix`.
+
+**CHƯA ĐẨY — LÝ DO (ghi rõ, không giấu):** lúc làm xong bản này,
+checkout `~/workspace/calling-push` đang giữ bản merge lớn CHƯA
+COMMIT của điều phối viên UI (chat/services/đăng nhập/webhook/cache
+— server.py 65KB so với 28KB ở workdir), và điều phối viên vẫn đang
+ghi file (protocol.py sửa cách đây vài giây lúc kiểm tra). Đẩy từ
+checkout lúc này sẽ cuốn cả merge chưa xong của người khác; đẩy từ
+workdir thì workdir không phải repo git. Fix nằm ở workdir
+`~/workspace/zalo-pc-qr/` (đã test xanh toàn suite) + file patch
+`fix-call-end.patch` (diff so với 4f40c7e, xem dưới). Trình tự đúng:
+điều phối viên commit/push merge trước → áp patch này lên trên (lưu
+ý 1 điểm giao nhau: handler `/api/call/end` trong merge có thêm
+webhook hook `dispatch_call_event(..., ended_entry, ...)` — khi áp
+patch phải giữ lại hook đó, gọi với entry `ended` sau bước
+`record_end` local-first; `endCall()` trong merge vẫn là bản cũ nên
+patch cho app.js áp thẳng được).
+
+**Kiểm tra sau redeploy:** pull + up (giữ volume `/opt/zalo`,
+không quét lại); footer phải hiện `2026-11-05-call-end-fix` (hoặc
+sha mới); gọi lại, bấm Kết thúc → cuộc gọi tắt NGAY, pill biến mất,
+lịch sử ghi «Đã kết thúc»; màn hình chi tiết hiện dòng «Bước 2
+(11301): …» cho biết bước 2 có được server chấp nhận không.
+
+---
+
 ## 8. Những gì CHƯA kiểm bằng chạy thật (ghi rõ, không suy đoán)
 
 - Danh bạ trống sau bản bd380d1 (xem 7f) — lỗi 602 đã hết nhưng
@@ -1323,7 +1446,9 @@ zalo_pc_app/
 tests/
   test_aes.py  test_crypto.py  test_flow_mock.py  test_server_smoke.py
   test_calls.py  test_call_114.py  test_call_11301.py
+  test_call_end.py  test_app_js_end.js
   mock_server.py  run_tests.py
+fix-call-end.patch  (patch của §7m so với 4f40c7e, áp sau merge UI)
 .taste-skill/  direction.json  notes.md
 ```
 

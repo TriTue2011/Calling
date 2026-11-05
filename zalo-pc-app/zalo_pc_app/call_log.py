@@ -80,15 +80,44 @@ class CallLog:
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
 
-    def record_end(self, call_id):
+    def record_end(self, call_id, detail=""):
         """Mark a live call ended. Unknown ids are ignored (the end
-        endpoint still answers ok — ending is best-effort)."""
+        endpoint still answers ok — ending is best-effort). `detail`
+        carries the Zalo endcall error, if the server-side endcall
+        failed — the call is ended locally either way (§7m)."""
         now = time.time()
         with self._lock:
             for c in self._calls:
                 if c["call_id"] == str(call_id) and c["status"] == "sent":
                     c["status"] = "ended"
                     c["ended_at"] = now
+                    c["detail"] = detail or ""
+                    return dict(c)
+            return None
+
+    def end_active(self, detail=""):
+        """End the live call, if any (there is at most one:
+        starting a new call closes the earlier live one). Used when
+        the end request carries no usable call_id — the End button's
+        intent is unambiguous then."""
+        now = time.time()
+        with self._lock:
+            for c in self._calls:
+                if c["status"] == "sent":
+                    c["status"] = "ended"
+                    c["ended_at"] = now
+                    c["detail"] = detail or ""
+                    return dict(c)
+            return None
+
+    def record_end_error(self, call_id, detail):
+        """Attach a Zalo endcall failure to an entry (already ended
+        locally), so the history/detail can show why the
+        server-side end failed even though the call ended (§7m)."""
+        with self._lock:
+            for c in self._calls:
+                if c["call_id"] == str(call_id):
+                    c["detail"] = detail or ""
                     return dict(c)
             return None
 

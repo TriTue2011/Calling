@@ -188,6 +188,22 @@ def _normalize_call_id(value):
     return n
 
 
+def _coerce_call_id(value):
+    """Coerce a UI-supplied call_id to the JSON NUMBER the real
+    client sends (native engine: callId is uint32), or None when it
+    is missing/non-numeric/out of range. Unlike _normalize_call_id
+    this invents NO id: an end with no usable id must not mint a
+    fresh callId — it falls back to the live call instead (see
+    /api/call/end)."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    if not 1 <= n <= 2 ** 32 - 1:
+        return None
+    return n
+
+
 def _type_request_for(call_type):
     """typeRequest for an AUDIO call of this thread type: 1 for a
     1-1 call, 5 for a group call (bundle makeCall enum
@@ -1233,21 +1249,64 @@ class Handler(BaseHTTPRequestHandler):
             if sess is None:
                 return self._send_json({"error": "chua_dang_nhap"},
                                        status=401)
+            # End is LOCAL-FIRST (§7m). The live 18:06 bug: the old
+            # handler only marked the log ended when the Zalo
+            # endcall succeeded — a slow or failing endcall left
+            # the call stuck on "ringing" in the UI (and the UI
+            # ignored the 502). Mark it ended first, then attempt
+            # the Zalo endcall (best-effort); a failure is recorded
+            # in the log entry's detail and returned, never leaves
+            # the call stuck. The response is always ok when a call
+            # was ended locally, even if Zalo rejected the endcall.
+            # Resolve the target: the body's call_id (coerced to a
+            # uint32 number — the detail view builds it from the
+            # log record, where it is a STRING; sending it as a
+            # string can draw inner 114, same lesson as
+            # requestcall §7k), else the live call (there is at
+            # most one; the End button's intent is unambiguous).
+            raw_id = body.get("call_id", "")
+            call_id = _coerce_call_id(raw_id)
+            live = STATE.calls.snapshot()["active"]
+            ended = None
+            if call_id is not None:
+                ended = STATE.calls.record_end(call_id)
+            if ended is None and live is not None:
+                ended = STATE.calls.end_active()
+            if ended is None:
+                return self._send_json(
+                    {"ok": True, "ended_call_id": None,
+                     "zalo_endcall_ok": False,
+                     "zalo_error": "no_live_call"})
+            # WEBHOOK HOOK (webhooks.py): call.ended — kept from
+            # the merge; dispatch with the ended entry, after the
+            # local-first record_end, only when a live call record
+            # existed (ended is not None here).
+            webhooks_mod.dispatch_call_event(
+                STATE.webhook_dispatcher, ended,
+                sess.get("uid", ""))
+            ended_id = int(ended["call_id"])
+            uid_to = body.get("uid_to") or ended["thread_id"]
+            call_type = (body.get("type") or ended.get("type")
+                         or "user")
+            zalo_ok, zalo_error, data = True, "", {}
             try:
                 transport = make_transport(sess["zpw_sek"])
                 sig = signaling_mod.Signaling(transport, sess["device_id"],
                                               sess["zpw_enk"])
-                data = sig.endcall(body.get("uid_to", ""),
-                                   body.get("call_id", ""))
-                ended_entry = STATE.calls.record_end(body.get("call_id", ""))
-                # WEBHOOK HOOK (webhooks.py): call.ended (only when a
-                # live call record existed; unknown ids stay silent).
-                webhooks_mod.dispatch_call_event(
-                    STATE.webhook_dispatcher, ended_entry,
-                    sess.get("uid", ""))
-                return self._send_json({"ok": True, "data": data})
-            except Exception as e:  # noqa: BLE001
-                return self._send_json({"error": str(e)}, status=502)
+                if call_type == "group":
+                    data = sig.endcall_group(
+                        ended["thread_id"], ended_id,
+                        protocol.CALL_TYPE_AUDIO_GROUP, True,
+                        body.get("data"), body.get("partners"))
+                else:
+                    data = sig.endcall(uid_to, ended_id)
+            except Exception as e:  # noqa: BLE001 - best-effort
+                zalo_ok, zalo_error = False, str(e)
+                STATE.calls.record_end_error(ended_id, zalo_error)
+            return self._send_json(
+                {"ok": True, "ended_call_id": ended_id,
+                 "zalo_endcall_ok": zalo_ok, "zalo_error": zalo_error,
+                 "data": data})
         # WEBHOOK HOOK (webhooks.py): save the webhook config. Auth is
         # the same _require_login() as /api/calls. Bad URL -> 400,
         # nothing written. Unknown keys are dropped by normalize.

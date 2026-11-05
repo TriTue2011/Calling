@@ -15,8 +15,10 @@ rtpAddress, rtcpAddress, extendData, session} (ZaloCall.exe strings
 also list rtpAddressIPv6 / rtcpAddressIPv6 / rtcpIP). The engine
 allocates those relay addresses from the ZRTP relay server at call
 start — the 2026-11-04 pcap shows the caller's media setup packets
-to the relay starting ~0.5 s after the call starts, and the client
-carries a `timeoutMakeCall2ZRtp` setting for this step.
+to the relay starting 20–40 ms after the server's last TCP packet
+(the pcap contains no timestamp of the tap, so no claim can be made
+about delay after the user pressed call), and the client carries a
+`timeoutMakeCall2ZRtp` setting for this step.
 
 What this provider returns in phase 1: EMPTY strings for the
 addresses/session and no extendData, because there is no media

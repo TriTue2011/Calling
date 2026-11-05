@@ -102,6 +102,16 @@ class MockZalo:
         # | "rate429" (HTTP 429, the live 2026-11-05 rate limit).
         self.friends_mode = "ok"
         self.groups_mode = "ok"
+        # Endcall simulation (§7m): "ok" | "error" | "slow".
+        # "error" makes `endcall` (11306) / `group/endcall`
+        # (12438) fail with an inner error, so tests can prove the
+        # app still ends the call locally (the live 18:06 symptom:
+        # End pressed, the call stayed "ringing" because
+        # /api/call/end only marked the log ended when the Zalo
+        # endcall succeeded). "slow" sleeps 2s before answering,
+        # so tests can prove the log clears before the Zalo
+        # round-trip finishes (the "End is slow/delayed" symptom).
+        self.endcall_mode = "ok"
         # Voicecall request-step simulation (§7l): "ok" | "error114".
         # "error114" makes the follow-up `request` (11301) /
         # `group/request` (12434) step fail with the real server's
@@ -618,6 +628,38 @@ class MockZalo:
                 return self._postlogin_envelope_error(
                     114, "Tham số không hợp lệ")
             self._record_voice_step(call_id, sub)
+            return self._postlogin_envelope(
+                {"ok": True, "path": path, "body": body})
+        if sub in ("endcall", "group/endcall"):
+            # End a call (bundle wZ sendEndCall / sendEndCallGroup):
+            # 1-1 {uidTo, callId, status:3, imei} (code 11306);
+            # group {calleeId, callId, callType, hostCall, data,
+            # partners} (code 12438). callId must be a JSON NUMBER
+            # in uint32 range — a string callId drew inner 114 for
+            # requestcall (§7k) and endcall carries the same engine
+            # type (%u). endcall_mode="error" simulates the real
+            # server rejecting the end; "slow" simulates a sluggish
+            # endcall round-trip.
+            call_id = body.get("callId")
+            id_ok = (isinstance(call_id, int)
+                     and not isinstance(call_id, bool)
+                     and 1 <= call_id <= 2 ** 32 - 1)
+            if sub == "endcall":
+                shape_ok = (bool(body.get("uidTo")) and id_ok
+                            and body.get("status") == 3
+                            and body.get("imei"))
+            else:
+                shape_ok = (bool(body.get("calleeId")) and id_ok
+                            and body.get("callType") in (5, 6)
+                            and "hostCall" in body)
+            if not shape_ok:
+                return self._postlogin_envelope_error(
+                    114, "Tham số không hợp lệ")
+            if self.endcall_mode == "error":
+                return self._postlogin_envelope_error(
+                    500, "mock endcall rejected")
+            if self.endcall_mode == "slow":
+                time.sleep(2)
             return self._postlogin_envelope(
                 {"ok": True, "path": path, "body": body})
         if sub in ("request", "group/request"):

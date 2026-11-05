@@ -361,6 +361,24 @@ def vc_endcall(uid_to, call_id, device_id):
             "imei": device_id}
 
 
+def vc_endcall_group(callee_id, call_id, call_type, host_call, data,
+                     partners):
+    """Body of group/endcall (code 12438), exactly as the PC client
+    sends it (bundle class wZ: static sendEndCallGroup(e,t,n,a,i,r)
+    -> {calleeId:e, callId:t, callType:n, hostCall:a, data:i,
+    partners:r}; native bridge case 12438 destructures the same
+    fields from the engine signal). No imei, no uidTo. hostCall is
+    the engine signal's flag for whether this side hosts the call —
+    the bundle only gives the field NAME, not the value's meaning;
+    for an outgoing call this side is the host, so the app sends
+    True (UNCONFIRMED — if the real server rejects it, the end is
+    still local best-effort and the error is logged, §7m)."""
+    return {"calleeId": callee_id, "callId": call_id,
+            "callType": call_type, "hostCall": host_call,
+            "data": data,
+            "partners": partners if partners is not None else []}
+
+
 def vc_hold(to_id):
     return {"toId": to_id}
 

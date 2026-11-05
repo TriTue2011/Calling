@@ -10,6 +10,7 @@ let currentFilter = "all";
 let currentCall = null;
 let detailCall = null; // the call shown in the detail view (may be
 // an active call reloaded from /api/calls, not started here)
+let ending = false; // an End request is in flight — ignore taps.
 let currentThread = null; // the thread open in the chat view
 // ({id, name, type, members}); row click opens chat, the "Goi"
 // button still starts a call (startCall, unchanged).
@@ -1018,8 +1019,8 @@ function startQr() {
 
 // -- calling ---------------------------------------------------------------
 function showCallDetail(c) {
-  // c is a call record ({peer, thread_id, type, started_at, call_id})
-  // or a contact row ({name, id, type}).
+  // c is a call record ({peer, thread_id, type, started_at, call_id,
+  // request_sent, request_detail}) or a contact row ({name, id, type}).
   const peer = c.peer || c.name || c.thread_id || c.id;
   const threadId = c.thread_id || c.id;
   const type = c.type || "user";
@@ -1029,8 +1030,38 @@ function showCallDetail(c) {
   $("call-timer").textContent =
     fmtElapsed(c.started_at || (currentCall && currentCall.started_at) || Date.now() / 1000);
   detailCall = { peer: { id: threadId }, callId: c.call_id || (currentCall && currentCall.callId) || "",
-                 started_at: c.started_at || (currentCall && currentCall.started_at) };
+                 started_at: c.started_at || (currentCall && currentCall.started_at),
+                 type: type, requestSent: c.request_sent,
+                 requestError: c.request_detail || "" };
+  renderCallDetail();
   show("view-call");
+}
+
+function renderCallDetail() {
+  // Fill the detail view's step-2 diagnostic (§7l, §7m) from the
+  // freshest record we have: the /api/calls entry (request_sent /
+  // request_detail live there), falling back to what startCall
+  // stored on currentCall / what showCallDetail carried over. The
+  // 18:09 live test needs this line: it says whether the server
+  // accepted the follow-up `request` (11301/12434) carrying the
+  // media endpoints — the detail view showed only a generic
+  // sentence before, so a rejected step-2 was invisible.
+  const cc = currentCall || detailCall;
+  const el = $("call-request");
+  if (!cc) { el.textContent = ""; return; }
+  const id = String(cc.callId || cc.call_id || "");
+  const rec = id ? callsData.calls.find((c) => String(c.call_id) === id) : null;
+  const sent = rec ? rec.request_sent : cc.requestSent;
+  const detail = rec ? (rec.request_detail || "") : (cc.requestError || "");
+  if (sent === true) {
+    el.textContent = "Bước 2 (11301): đã gửi — server đã nhận đủ lời mời gọi.";
+  } else if (sent === false) {
+    el.textContent = "Bước 2 (11301): KHÔNG gửi được"
+      + (detail ? (" — " + detail) : "")
+      + ". Máy bên kia có thể chưa đổ chuông.";
+  } else {
+    el.textContent = "Bước 2 (11301): chưa có thông tin.";
+  }
 }
 
 async function startCall(peer) {
@@ -1069,22 +1100,74 @@ async function startCall(peer) {
     currentCall.callId = r.call_id;
     detailCall = currentCall;
   }
+  // Keep the step-2 outcome (§7l) on the call, so the detail view
+  // can show it even before the first /api/calls poll returns it.
+  currentCall.requestSent = r.request_sent;
+  currentCall.requestError = r.request_error || "";
   $("call-state").textContent = r.error
     ? ("Lỗi gọi: " + r.error)
     : "Đã gửi yêu cầu gọi. Bên kia đang đổ chuông — tiếng sẽ có khi engine giai đoạn 2 gắn vào.";
   await loadCalls();
+  renderCallDetail();
 }
 
 async function endCall() {
+  if (ending) return; // ignore double taps while an End is in flight.
+  // The target is the live call, from wherever it is known:
+  // currentCall (started in this page session), detailCall (detail
+  // view), or callsData.active (server state — the ONLY source after
+  // a page reload, when both locals are null; the old code sent
+  // nothing at all then, so the rail's End button was dead, §7m).
+  const active = callsData.active;
   const cc = currentCall || detailCall;
-  if (cc) {
-    await api("/api/call/end", "POST",
-      { uid_to: (cc.peer && cc.peer.id) || "", call_id: cc.callId || "" });
-    currentCall = null;
-    detailCall = null;
+  const rawId = (cc && (cc.callId || cc.call_id))
+    || (active && active.call_id) || "";
+  let callId = rawId;
+  if (typeof rawId === "string" && /^\d+$/.test(rawId)) {
+    callId = parseInt(rawId, 10); // the real server wants a uint32
+    // JSON number, like requestcall (§7k) — a string callId can
+    // draw inner 114 from endcall too.
   }
+  const uidTo = (cc && cc.peer && cc.peer.id)
+    || (active && active.thread_id) || "";
+  const callType = (cc && (cc.type || (cc.peer && cc.peer.type)))
+    || (active && active.type) || "user";
+  ending = true;
+  // Optimistic local clear (§7m): the call ends on screen at once.
+  // The 18:06 bug also *looked* like "nothing happens" because the
+  // UI waited for the whole endcall round-trip before re-rendering.
+  // The POST + poll below reconcile with the server afterwards.
+  currentCall = null;
+  detailCall = null;
+  if (active) {
+    active.status = "ended";
+    active.ended_at = Date.now() / 1000;
+    callsData.active = null;
+    const row = callsData.calls.find(
+      (c) => String(c.call_id) === String(rawId));
+    if (row) { row.status = "ended"; row.ended_at = active.ended_at; }
+  }
+  renderCalls();
+  $("call-state").textContent = "Đã kết thúc cuộc gọi.";
+  let endNote = "";
+  try {
+    const r = await api("/api/call/end", "POST",
+      { uid_to: uidTo, call_id: callId, type: callType });
+    if (r && r.zalo_endcall_ok === false) {
+      endNote = "Đã kết thúc cuộc gọi. "
+        + "(Máy chủ Zalo chưa xác nhận kết thúc: "
+        + (r.zalo_error || "?") + ")";
+    }
+  } catch (e) { /* poll below reconciles; the call is ended locally */ }
+  ending = false;
   await loadCalls();
-  loadMain();
+  if (endNote) {
+    // Stay on the detail view so the warning is visible.
+    $("call-state").textContent = endNote;
+    show("view-call");
+  } else {
+    show("view-main");
+  }
 }
 
 // -- webhooks: settings -------------------------------------------------

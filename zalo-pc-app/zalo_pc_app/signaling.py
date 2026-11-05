@@ -108,6 +108,18 @@ class Signaling:
         return self._call("endcall", protocol.vc_endcall(
             uid_to, call_id, self.device_id))
 
+    def endcall_group(self, callee_id, call_id, call_type, host_call=True,
+                      data=None, partners=None):
+        """Group end (code 12438): /api/voicecall/group/endcall with
+        {calleeId, callId, callType, hostCall, data, partners}
+        (bundle class wZ sendEndCallGroup). The 1-1 endcall (11306)
+        carries a user id as uidTo — sending a groupId through it
+        is wrong, same lesson as requestcall (§7i)."""
+        return self._call("group/endcall",
+                          protocol.vc_endcall_group(
+                              callee_id, call_id, call_type, host_call,
+                              data, partners))
+
     def hold_request(self, to_id):
         return self._call("holdreq", protocol.vc_hold(to_id))
 
