@@ -24,6 +24,7 @@ import os
 import socket
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -99,6 +100,49 @@ def make_transport(cookie_value=""):
     """http_get(url, timeout) -> (status, json_dict), callable, with
     .http_post(url, form, timeout) attached (see _Transport)."""
     return _Transport(cookie_value)
+
+
+# Last callId handed out (process-wide). The UI generates epoch
+# seconds, so two taps inside the same second would otherwise
+# reuse one callId — the server would see the second requestcall
+# as a duplicate of the first. The guard below makes every id
+# strictly increasing within this process.
+_LAST_CALL_ID = 0
+
+
+def _normalize_call_id(value):
+    """Coerce a UI-supplied call_id to the JSON NUMBER the real
+    client sends (native engine: callId is uint32 — ZaloCall.exe
+    `_initCallConfig ... callId = %u`). The pre-fix UI sent
+    String(Date.now()) — a 13-digit string, wrong type AND out of
+    uint32 range — one of the two 114 suspects (§7k). Digit
+    strings are kept (int of them); anything else (missing,
+    non-numeric, out of range) falls back to epoch seconds, which
+    fits uint32. Every result is made strictly greater than the
+    previous callId, so rapid successive calls never collide."""
+    global _LAST_CALL_ID
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        n = 0
+    if not 1 <= n <= 2 ** 32 - 1:
+        n = int(time.time())
+    if n <= _LAST_CALL_ID:
+        n = _LAST_CALL_ID + 1
+    _LAST_CALL_ID = n
+    return n
+
+
+def _type_request_for(call_type):
+    """typeRequest for an AUDIO call of this thread type: 1 for a
+    1-1 call, 5 for a group call (bundle makeCall enum
+    1/3/5/6 — see protocol.CALL_TYPE_*). The body's type_request
+    is NOT trusted: the pre-fix UI sent 0, a value that exists
+    nowhere in the client's vocabulary and drew inner 114 from
+    the real server (§7k). Video would be 3/6, but this app only
+    places audio calls."""
+    return (protocol.CALL_TYPE_AUDIO_GROUP if call_type == "group"
+            else protocol.CALL_TYPE_AUDIO_1_1)
 
 
 class AppState:
@@ -377,9 +421,18 @@ class Handler(BaseHTTPRequestHandler):
             # Log the attempt for the calling monitor (GET /api/calls):
             # the UI sends the peer's display name; the log never
             # carries secrets, only who/when/which thread/result.
-            call_id = body.get("call_id", "")
+            # The requestcall body is built to match the real client
+            # (§7k): call_id is normalized to a uint32 JSON number
+            # and type_request is derived from the thread type
+            # (1-1 audio=1, group audio=5) — the body's own
+            # type_request is NOT trusted (the pre-fix UI sent 0).
+            # The effective call_id is returned so the UI uses the
+            # same id for /api/call/end (endcall must carry the same
+            # callId the requestcall used).
+            call_id = _normalize_call_id(body.get("call_id"))
             thread_id = body.get("callee_id", "")
             call_type = body.get("type") or "user"
+            type_request = _type_request_for(call_type)
             peer = body.get("peer_name") or thread_id
             try:
                 transport = make_transport(sess["zpw_sek"])
@@ -394,7 +447,7 @@ class Handler(BaseHTTPRequestHandler):
                     data = sig.request_call_group(
                         thread_id,
                         call_id,
-                        body.get("type_request", 0),
+                        type_request,
                         body.get("data"),
                         body.get("partners"))
                 else:
@@ -402,10 +455,11 @@ class Handler(BaseHTTPRequestHandler):
                         thread_id,
                         call_id,
                         body.get("codec"),
-                        body.get("type_request", 0))
+                        type_request)
                 STATE.calls.record_start(call_id, peer, thread_id,
                                          call_type)
-                return self._send_json({"ok": True, "data": data})
+                return self._send_json({"ok": True, "data": data,
+                                        "call_id": call_id})
             except Exception as e:  # noqa: BLE001
                 STATE.calls.record_error(call_id, peer, thread_id,
                                          call_type, str(e))

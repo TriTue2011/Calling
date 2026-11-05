@@ -102,13 +102,29 @@ def test_server_e2e():
         status, body = api("GET", "/api/contacts")
         assert body["friends"]["rows"][0]["name"] == "Ban A", body
 
+        # The OLD UI payload (string millis call_id + type_request 0,
+        # exactly what the cb57faa build sent) must be NORMALIZED by
+        # the server before it reaches Zalo: callId a uint32 JSON
+        # number, typeRequest 1 for a 1-1 audio call (§7k). The
+        # response carries the effective call_id the UI must reuse
+        # for /api/call/end. Without the fix the mock answers inner
+        # 114 here, like the real server did live.
+        old_millis = str(int(time.time() * 1000))
         status, body = api("POST", "/api/call/request",
-                           {"callee_id": "20001", "call_id": "c9"})
+                           {"callee_id": "20001", "call_id": old_millis,
+                            "type_request": 0})
         assert body["ok"] is True, body
+        cid_user = body["call_id"]
+        assert isinstance(cid_user, int), body
+        assert body["data"]["body"]["callId"] == cid_user, body
+        assert body["data"]["body"]["typeRequest"] == 1, body
+        assert body["data"]["body"]["calleeId"] == "20001", body
 
         # A group tap goes to the group endpoint (12433), addressed
         # by the group threadId — not to the 1-1 requestcall — with
-        # partners = the members loaded with the contacts.
+        # partners = the members loaded with the contacts, and
+        # typeRequest 5 (group audio). A non-numeric call_id ("g9")
+        # is likewise normalized to epoch seconds.
         status, body = api("GET", "/api/contacts")
         members = body["groups"]["rows"][0]["members"]
         assert members == ["20001", "20002"], members
@@ -116,17 +132,22 @@ def test_server_e2e():
                            {"callee_id": "30001", "call_id": "g9",
                             "type": "group", "partners": members})
         assert body["ok"] is True, body
+        cid_group = body["call_id"]
+        assert isinstance(cid_group, int), body
+        assert body["data"]["body"]["typeRequest"] == 5, body
+        assert body["data"]["body"]["groupId"] == "30001", body
 
         # The call log (UI Calls view + rail) records both calls,
         # newest first, with threadId + type, and the live one.
         # Starting the group call already closed the older user
-        # call (a new call replaces the live one).
+        # call (a new call replaces the live one). The log stores
+        # call_ids as strings (CallLog str()s them).
         status, body = api("GET", "/api/calls")
         assert status == 200, body
         assert [c["thread_id"] for c in body["calls"]] == ["30001", "20001"], body
         assert [c["type"] for c in body["calls"]] == ["group", "user"], body
         assert [c["status"] for c in body["calls"]] == ["sent", "ended"], body
-        assert body["active"]["call_id"] == "g9", body
+        assert body["active"]["call_id"] == str(cid_group), body
         blob = json.dumps(body)
         for secret in ("zpw_sek", "zpw_enk", "zpw_kt", "dkey", "sek-test",
                        "enk-test"):
@@ -134,12 +155,12 @@ def test_server_e2e():
 
         # Ending the group call marks it ended and leaves no live call.
         status, body = api("POST", "/api/call/end",
-                           {"uid_to": "30001", "call_id": "g9"})
+                           {"uid_to": "30001", "call_id": cid_group})
         assert body["ok"] is True, body
         status, body = api("GET", "/api/calls")
         by_id = {c["call_id"]: c for c in body["calls"]}
-        assert by_id["g9"]["status"] == "ended", body
-        assert by_id["c9"]["status"] == "ended", body
+        assert by_id[str(cid_group)]["status"] == "ended", body
+        assert by_id[str(cid_user)]["status"] == "ended", body
         assert body["active"] is None, body
 
         status, body = api("POST", "/api/logout", {})

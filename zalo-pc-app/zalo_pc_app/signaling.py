@@ -45,11 +45,17 @@ class Signaling:
         # decode it to the inner {error_code, data} first.
         return decode_postlogin_data(payload, self.zpw_enk)
 
-    def request_call(self, callee_id, call_id, codec=None, type_request=0):
+    def request_call(self, callee_id, call_id, codec=None,
+                     type_request=protocol.CALL_TYPE_AUDIO_1_1):
+        # Default is the 1-1 AUDIO call type (1) — never 0; the
+        # pre-fix default 0 drew inner 114 from the real server
+        # (§7k in bao-cao.md). call_id must be a JSON number in
+        # uint32 range (epoch seconds; see server._normalize_call_id).
         return self._call("requestcall", protocol.vc_requestcall(
             callee_id, call_id, codec, type_request, self.device_id))
 
-    def request_call_group(self, group_id, call_id, type_request=0,
+    def request_call_group(self, group_id, call_id,
+                           type_request=protocol.CALL_TYPE_AUDIO_GROUP,
                            data=None, partners=None):
         """Group call request (code 12433): POST-equivalent GET to
         /api/voicecall/group/requestcall with {groupId, callId,

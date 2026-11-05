@@ -1024,6 +1024,102 @@ chuông» + đồng hồ chạy; rail/mục Cuộc gọi ghi lại lần gọi �
 khi kết thúc. Lưu ý: lịch sử gọi mất khi restart container (chỉ
 bộ nhớ).
 
+### 7k. Lỗi gọi 114 «Tham số không hợp lệ» — body requestcall sai hai chỗ (chạy thật 17:31)
+
+**Bằng chứng chạy thật:** user redeploy đúng bản cb57faa (footer
+khớp), danh bạ hiện đủ, bấm gọi một bạn bè 1-1 → đồng hồ chạy tới
+00:03 rồi báo «Lỗi gọi: response inner error_code=114 Tham số
+không hợp lệ». POST /api/call/request đã gửi requestcall (11300)
+tới server Zalo và server trả inner error 114 — request tới nơi
+nhưng tham số trong body bị chê. Envelope đã đúng (danh bạ 60/6
+chạy thật, giải mã hai lớp hoạt động, lỗi nêu rõ là «inner»),
+nên nghi phạm nằm ở BODY của requestcall.
+
+**Body cũ đang gửi** (`protocol.vc_requestcall` +
+`signaling.request_call` + `server /api/call/request` +
+`app.js startCall`): `{calleeId: peer.id (chuỗi), callId:
+String(Date.now()) (chuỗi 13 chữ số), codec: "[]" (chuỗi),
+typeRequest: 0, imei: device_id}`.
+
+**Bằng chứng bundle — field nào sai:**
+
+1. **`typeRequest: 0` — SAI GIÁ TRỊ (nghi phạm chính).**
+   Bundle PC (`compact-app-pc.*.js`, lớp wZ — call helper):
+   command table `W(11300,"/api/voicecall/requestcall")`;
+   `static requestCall(e,t,n,a)` → body `{calleeId:e, callId:t,
+   codec: n ?? "[]", typeRequest:a, imei: getZaloClientID()}`.
+   Native bridge dispatch: `case 401: requestCall(n.calleeId,
+   n.callId, n.codec, n.type)` — tham số thứ 4 là `n.type`.
+   Renderer `makeCall(e,t,n,a,i)` gửi native
+   `{type:"request", command:"makeCall", data:{partner:s, type:o,
+   groupInfo:i}}` với `o = n?(t?6:5):(t?3:1)` — **1-1 audio=1,
+   1-1 video=3, nhóm audio=5, nhóm video=6**; UI dispatch
+   `DO_CALL` gọi `makeCall(false, conversation)` (audio) nên
+   type=1. Giá trị 0 KHÔNG xuất hiện ở đâu trong từ vựng loại
+   cuộc gọi của client thật. Sửa: 1-1 audio → 1, nhóm audio → 5
+   (video 3/6 đã ghi chú trong code, app này chỉ gọi audio).
+2. **`callId` dạng CHUỖI 13 chữ số — SAI KIỂU + SAI MIỀN
+   (nghi phạm thứ hai).** ZaloCall.exe strings:
+   `_initCallConfig ... callId = %u` (cùng `userId = %u`,
+   `partnerId = %u`, `makeCall isVideo = %d`) — engine native
+   lưu callId dạng uint32; renderer stringify object signal của
+   native nên trên dây callId là JSON NUMBER. `String(Date.now())`
+   vừa sai kiểu vừa vượt uint32 (1,7 nghìn tỷ > 4,29 tỷ). Sửa:
+   epoch seconds (`Math.floor(Date.now()/1000)`, ~1,76 tỷ, vừa
+   uint32); server chuẩn hoá lại (`_normalize_call_id`: chuỗi
+   số → int, thiếu/sai/vượt miền → epoch seconds) và giữ một
+   guard đơn điệu trong process để hai lần bấm trong cùng một
+   giây không trùng callId; server trả `call_id` hiệu lực về để
+   UI dùng đúng id đó cho /api/call/end.
+3. **`codec: "[]"` — GIỮ NGUYÊN (không phải nghi phạm chắc
+   chắn).** Đây chính là fallback có ghi trong code client thật
+   (`codec: n ?? "[]"` khi native không đưa danh sách codec),
+   nên server chấp nhận nó là hợp lý; engine thường gửi danh
+   sách codec thật nhưng chưa biết định dạng chuỗi codec thật
+   nên KHÔNG bịa một danh sách. Nếu 114 vẫn còn sau bản này,
+   codec là nghi phạm còn lại đầu tiên.
+4. **`calleeId` dạng chuỗi — GIỮ NGUYÊN (đúng).** ThreadId thật
+   19 chữ số vượt giới hạn số nguyên an toàn của JS (2^53 ≈
+   9,0×10^15 < 6,6×10^18) nên renderer thật BUỘC phải mang nó
+   dạng chuỗi, nếu không sẽ mất chính xác; native nhận partner
+   id dạng chuỗi JS từ `makeCall data.partner[].id`.
+
+**Đã sửa:** `protocol.py` thêm hằng `CALL_TYPE_*` (1/3/5/6) +
+docstring cho `vc_requestcall`/`vc_requestcall_group` (mặc định
+nhóm 0 → 5); `signaling.py` mặc định 1 / 5; `server.py`
+`_normalize_call_id` + `_type_request_for` (KHÔNG tin
+`type_request` trong body — UI cũ gửi 0) + trả `call_id` hiệu
+lực; `app.js` `startCall` sinh callId số epoch seconds,
+`type_request` 1/5, nhận `call_id` server trả về; `VERSION`
+→ `2026-11-05-call-114-fix`.
+
+**Test:** mock `_voicecall` nay kiểm đúng contract của
+requestcall như server thật — body sai (typeRequest ngoài
+1/3/5/6, callId không phải số uint32, thiếu calleeId/groupId)
+trả về **inner 114** trong envelope hai lớp (không phải
+assertion của mock), đúng dạng lỗi user gặp. Mới
+`tests/test_call_114.py` 7 test: body cũ 1-1 → 114, body mới
+1-1 → qua, riêng typeRequest 0 → 114, riêng callId chuỗi →
+114, body cũ nhóm → 114, body mới nhóm → qua, chuẩn hoá ở
+server (kể cả guard đơn điệu). Cập nhật theo contract mới:
+`test_flow_mock.py` (2 chỗ gọi), `test_server_smoke.py`
+(gửi đúng payload UI cũ — chuỗi mili-giây + type_request 0 —
+qua HTTP, assert server chuẩn hoá thành typeRequest 1/5 +
+callId số), `test_contacts.py` body3. Toàn suite
+`tests/run_tests.py` xanh 8/8; `node --check app.js` + py_compile
+OK.
+
+**Kiểm tra sau redeploy:** pull + up (giữ volume `/opt/zalo`,
+không quét lại); footer phải hiện `2026-11-05-call-114-fix`
+(hoặc commit sha mới); bấm một tên bạn bè → kỳ vọng bên kia
+**đổ chuông** thay vì lỗi 114 (đồng hồ chạy, trạng thái «Đã gửi
+yêu cầu gọi. Bên kia đang đổ chuông»). **Lưu ý trung thực:** qua
+được 114 mới chỉ chứng minh tham số đã đúng — tiếng vẫn chưa có
+(giai đoạn 2) nên bên kia đổ chuông nhưng chưa nói chuyện được;
+nếu server trả mã lỗi KHÁC sau bản này (không phải 114), ghi rõ
+mã mới đó là gì và nghĩa của nó, đừng claim xong. Nghi phạm còn
+lại nếu 114 vẫn còn: codec `"[]"` (xem mục 3 ở trên).
+
 ---
 
 ## 8. Những gì CHƯA kiểm bằng chạy thật (ghi rõ, không suy đoán)
@@ -1041,6 +1137,9 @@ bộ nhớ).
   (O1/O2) — cần probe `reqqr` không tài khoản.
 - Quét thật lại sau bản sửa `getLoginInfo` (lỗi 102 lần đầu) — cần
   user cầm app phụ quét lại với image mới.
+- Gọi đi sau bản sửa 114 (xem 7k) — mock tái hiện 114 với body cũ
+  và qua với body mới, nhưng chỉ redeploy + bấm gọi thật mới chứng
+  minh server đã hết chê tham số (kỳ vọng: bên kia đổ chuông).
 - Nhận cuộc gọi đến, tiếng trực tiếp, độ trễ, độ ổn định — giai đoạn 2.
 - Giao diện mới 7j chưa được nhìn bằng trình duyệt thật ở bất kỳ
   chiều rộng nào: inspector của skill không chạy được trên VM (Chrome

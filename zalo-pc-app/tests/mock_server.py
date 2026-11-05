@@ -364,12 +364,52 @@ class MockZalo:
         enc = _openssl_aes(key, inner.encode("utf-8"))
         return {"error_code": 0, "data": base64.b64encode(enc).decode()}
 
+    def _postlogin_envelope_error(self, code, message):
+        """Same two-layer envelope, but the INNER error_code is
+        non-zero — exactly how the real server answers a bad
+        requestcall (inner 114 "Tham số không hợp lệ", observed live
+        2026-11-05 17:31). The client surfaces it via
+        decode_postlogin_data as "response inner error_code=114 ...".
+        An outer error would be the WRONG shape here: the request
+        reached the server and the envelope was fine."""
+        inner = json.dumps({"error_code": code, "error_message": message,
+                            "data": {}})
+        key = base64.b64decode(TEST_SESSION_KEY)
+        enc = _openssl_aes(key, inner.encode("utf-8"))
+        return {"error_code": 0, "data": base64.b64encode(enc).decode()}
+
     def _voicecall(self, path, qs, headers, raw_qs=""):
         self._check_postlogin(qs, headers, raw_qs, "voicecall")
         key = base64.b64decode(TEST_SESSION_KEY)
         plain = _openssl_aes(key, base64.b64decode(qs["params"]),
                              decrypt=True)
         body = json.loads(plain.decode("utf-8"))
+        # route() passes the FULL path ("/api/voicecall/requestcall");
+        # the contract check below keys on the sub-path.
+        sub = path[len("/api/voicecall/"):]
+        if sub in ("requestcall", "group/requestcall"):
+            # requestcall contract (bundle class wZ + ZaloCall.exe
+            # %u callId; §7k in bao-cao.md): typeRequest must be a
+            # real call type (1-1: 1 audio / 3 video; group: 5
+            # audio / 6 video) and callId must be a JSON NUMBER in
+            # uint32 range. The pre-fix body (typeRequest 0, callId
+            # a 13-digit string) is answered with the real server's
+            # inner 114, so the test reproduces the live failure
+            # instead of hiding it behind a mock assertion.
+            want_types = ((1, 3) if sub == "requestcall"
+                          else (5, 6))
+            call_id = body.get("callId")
+            id_ok = (isinstance(call_id, int)
+                     and not isinstance(call_id, bool)
+                     and 1 <= call_id <= 2 ** 32 - 1)
+            id_field = ("calleeId" if sub == "requestcall"
+                        else "groupId")
+            if (body.get("typeRequest") not in want_types
+                    or not id_ok or not body.get(id_field)):
+                return self._postlogin_envelope_error(
+                    114, "Tham số không hợp lệ")
+            return self._postlogin_envelope(
+                {"ok": True, "path": path, "body": body})
         # 1-1 requestcall carries imei; group/requestcall carries
         # groupId instead (bundle: {groupId, callId, typeRequest,
         # data, partners}, no imei) — both are valid voicecall bodies.

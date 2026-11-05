@@ -384,9 +384,13 @@ def test_params_encoding_round_trip():
             body2, separators=(",", ":"), ensure_ascii=False)
     # voicecall URL: same property (protocol.voicecall_params had the
     # same quote() bug).
+    # Corrected requestcall body (§7k): typeRequest 1 (1-1 audio)
+    # + callId a uint32 JSON number — the old (0, "c%d") drew inner
+    # 114 from the real server. This test only checks URL quoting,
+    # but no example body should carry the invalid values.
     body3, _ = find_body_with_slash(
-        lambda i: {"calleeId": "20001", "callId": "c%d" % i,
-                   "codec": "[]", "typeRequest": 0, "imei": "dev-1"})
+        lambda i: {"calleeId": "20001", "callId": 1762345678 + i,
+                   "codec": "[]", "typeRequest": 1, "imei": "dev-1"})
     url3 = protocol.voicecall_params(
         "requestcall", body3, partial(session_aes_encrypt, TEST_SESSION_KEY))
     val3 = params_value(url3)

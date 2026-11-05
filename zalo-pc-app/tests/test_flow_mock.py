@@ -49,9 +49,14 @@ def test_full_flow_encrypted():
         # Post-login calls with the session cookie + session key.
         t2 = make_transport("sek-test")
         sig = signaling.Signaling(t2, "dev-1", TEST_SESSION_KEY)
-        data = sig.request_call("20001", "call-1", None, 0)
+        # Corrected requestcall contract (§7k): typeRequest 1 (1-1
+        # audio) + callId a uint32 JSON number — the old (0, "call-1")
+        # draws inner 114 from the mock, like the real server.
+        data = sig.request_call("20001", 1762345678, None, 1)
         assert data["body"]["calleeId"] == "20001", data
         assert data["body"]["codec"] == "[]", data
+        assert data["body"]["typeRequest"] == 1, data
+        assert data["body"]["callId"] == 1762345678, data
         book = contacts_mod.Contacts(t2, "dev-1", TEST_SESSION_KEY,
                                      t2.http_post)
         # First friends load sends init=1 (real client _isFirstReq()).
@@ -90,18 +95,20 @@ def test_group_call_uses_group_endpoint():
         sig = signaling.Signaling(t2, "dev-1", TEST_SESSION_KEY)
         # partners are the group's members, loaded via getmg-v2
         # topMember (addon path) — not [].
-        data = sig.request_call_group("30001", "call-g1", 0, None,
+        data = sig.request_call_group("30001", 1762345678, 5, None,
                                       ["20001", "20002"])
         assert data["body"]["groupId"] == "30001", data
-        assert data["body"]["callId"] == "call-g1", data
+        assert data["body"]["callId"] == 1762345678, data
+        assert data["body"]["typeRequest"] == 5, data
         assert data["body"]["partners"] == ["20001", "20002"], data
         assert "imei" not in data["body"], data  # bundle: no imei
         gpaths = [p for p, _, _ in mock.seen
                   if p == "/api/voicecall/group/requestcall"]
         assert len(gpaths) == 1, gpaths
         # 1-1 still uses its own endpoint with calleeId = user threadId.
-        data = sig.request_call("20001", "call-1", None, 0)
+        data = sig.request_call("20001", 1762345679, None, 1)
         assert data["body"]["calleeId"] == "20001", data
+        assert data["body"]["typeRequest"] == 1, data
         upaths = [p for p, _, _ in mock.seen
                   if p == "/api/voicecall/requestcall"]
         assert len(upaths) == 1, upaths

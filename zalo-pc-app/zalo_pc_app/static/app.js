@@ -370,7 +370,13 @@ function showCallDetail(c) {
 }
 
 async function startCall(peer) {
-  const callId = String(Date.now());
+  // callId must be a JSON NUMBER in uint32 range (the native engine
+  // stores it as %u) — epoch seconds. The old code sent
+  // String(Date.now()): a 13-digit string, wrong type AND out of
+  // uint32 range, one of the two 114 suspects (§7k). The server
+  // normalizes again and returns the effective id, which we adopt
+  // so /api/call/end carries the same callId the requestcall used.
+  const callId = Math.floor(Date.now() / 1000);
   currentCall = { peer, callId, started_at: Date.now() / 1000 };
   detailCall = currentCall;
   $("call-peer").textContent = peer.name || peer.id;
@@ -384,11 +390,21 @@ async function startCall(peer) {
   // vs group/requestcall). For a group, `partners` is the member
   // list loaded with the contacts (getmg-v2 topMember) — the server
   // rings those userIds.
+  // type_request follows the real client's makeCall enum
+  // (1-1 audio=1, group audio=5); 0 is not a valid call type and
+  // drew inner 114 from the real server (§7k). The server derives
+  // the same value from `type` and does not trust this field, but
+  // the request is sent self-consistent anyway.
   const r = await api("/api/call/request", "POST",
-    { callee_id: peer.id, call_id: callId, type_request: 0,
+    { callee_id: peer.id, call_id: callId,
+      type_request: peer.type === "group" ? 5 : 1,
       type: peer.type === "group" ? "group" : "user",
       peer_name: peer.name || peer.id,
       partners: peer.members || [] });
+  if (r.call_id != null) {
+    currentCall.callId = r.call_id;
+    detailCall = currentCall;
+  }
   $("call-state").textContent = r.error
     ? ("Lỗi gọi: " + r.error)
     : "Đã gửi yêu cầu gọi. Bên kia đang đổ chuông — tiếng sẽ có khi engine giai đoạn 2 gắn vào.";

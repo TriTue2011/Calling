@@ -104,6 +104,33 @@ VOICECALL_GROUP = {
     "ringring": 12439,
 }
 
+# Call-type values carried by `typeRequest` in requestcall (11300)
+# and group/requestcall (12433). Bundle evidence (compact-app-pc,
+# Zalo PC 26.11.10, renderer class wZ — the call helper):
+#   makeCall(e, t=isVideo, n=isGroup, ...):
+#       o = n ? (t ? 6 : 5) : (t ? 3 : 1)
+#   i.e. 1-1 audio=1, 1-1 video=3, group audio=5, group video=6.
+#   The renderer sends the native engine
+#       {type:"request", command:"makeCall",
+#        data:{partner, type:o, groupInfo}}
+#   and the engine's signal 401 carries that value back as `type`
+#   (native bridge dispatch: case 401 -> requestCall(n.calleeId,
+#   n.callId, n.codec, n.type)), which the renderer forwards as
+#   `typeRequest` in the requestCall body. The UI's DO_CALL action
+#   dispatches makeCall(false, conversation) — audio — so a 1-1
+#   audio call is typeRequest=1, a group audio call is 5. There is
+#   NO 0 anywhere in this vocabulary: the pre-fix code sent
+#   typeRequest=0, which the server answered with inner 114
+#   "Tham số không hợp lệ" on a real 1-1 call (2026-11-05 17:31).
+#   This app only places audio calls, so the server derives 1/5
+#   from the thread type (video 3/6 is documented here, not sent).
+CALL_TYPE_AUDIO_1_1 = 1
+CALL_TYPE_VIDEO_1_1 = 3
+CALL_TYPE_AUDIO_GROUP = 5
+CALL_TYPE_VIDEO_GROUP = 6
+CALL_TYPES_1_1 = (CALL_TYPE_AUDIO_1_1, CALL_TYPE_VIDEO_1_1)
+CALL_TYPES_GROUP = (CALL_TYPE_AUDIO_GROUP, CALL_TYPE_VIDEO_GROUP)
+
 
 def common_params(api_version=API_VERSION, api_type=API_TYPE):
     return {"zpw_ver": api_version, "zpw_type": api_type}
@@ -213,12 +240,38 @@ def voicecall_params(path, body, session_aes):
 
 
 def vc_requestcall(callee_id, call_id, codec, type_request, device_id):
+    """Body of requestcall (code 11300), exactly as the PC client
+    sends it (bundle class wZ: static requestCall(e,t,n,a) ->
+    {calleeId:e, callId:t, codec:n ?? "[]", typeRequest:a,
+    imei:getZaloClientID()}):
+    - calleeId: the callee's userId as a STRING. (The JS renderer
+      must carry it as a string: real threadIds are 19-digit and
+      exceed the JS safe-integer range 2**53, so a JSON number
+      would lose precision. The native engine receives the partner
+      id as a JS string from makeCall data.partner[].id.)
+    - callId: a JSON NUMBER in uint32 range. Native evidence:
+      ZaloCall.exe `_initCallConfig ... callId = %u` (also
+      `userId = %u`, `partnerId = %u`) — the engine stores callId
+      as a uint32, and the renderer stringifies the native signal
+      object, so the wire value is a number. The pre-fix code sent
+      a 13-digit STRING (Date.now() millis) — wrong type AND out
+      of uint32 range. This app sends epoch seconds (fits uint32;
+      see server._normalize_call_id).
+    - codec: "[]" is the client's own documented fallback (n ??
+      "[]") when the native engine supplies no codec list, so it
+      is kept — the engine normally supplies its real list, but
+      no real codec string format is known yet; inventing one
+      would be guessing. If 114 persists after the typeRequest +
+      callId fix, codec is the remaining suspect (§7k).
+    - typeRequest: 1 for a 1-1 AUDIO call (3 video) — never 0.
+      The pre-fix 0 is the primary 114 suspect (§7k)."""
     return {"calleeId": callee_id, "callId": call_id,
             "codec": codec if codec is not None else "[]",
             "typeRequest": type_request, "imei": device_id}
 
 
-def vc_requestcall_group(group_id, call_id, type_request=0, data=None,
+def vc_requestcall_group(group_id, call_id,
+                         type_request=CALL_TYPE_AUDIO_GROUP, data=None,
                          partners=None):
     """Body of group/requestcall (code 12433), exactly as the PC
     client sends it: {groupId, callId, typeRequest, data, partners}
@@ -229,7 +282,11 @@ def vc_requestcall_group(group_id, call_id, type_request=0, data=None,
     topMember list, loaded via getmg-v2 when the contacts were
     fetched (see contacts.groups). topMember may be partial
     (hasMoreMember) — the full member list via getgi/v2 is the
-    follow-up if a large group's call misses members."""
+    follow-up if a large group's call misses members.
+    typeRequest is 5 for a group AUDIO call (6 video) — the makeCall
+    enum (see CALL_TYPE_* above); the pre-fix 0 was invalid here
+    too, same 114 as the 1-1 path. callId is a JSON number in
+    uint32 range, same as vc_requestcall (native `%u`)."""
     return {"groupId": group_id, "callId": call_id,
             "typeRequest": type_request, "data": data,
             "partners": partners if partners is not None else []}
