@@ -2,7 +2,10 @@
 
 Endpoints (PC client, auth/profile/group/convers domains):
   friends: GET {auth}/api/social/friend/getfriends (code 11137)
-  groups:  GET {group}/api/group/getlg              (code 11161)
+  groups:  GET {group}/api/group/getlg/v3           (code 11161,
+           paginated: page/count, hasMore/total — the plain v1
+           /api/group/getlg has no live caller and the real server
+           rejects it with 602, see bao-cao.md 7c)
   convers: GET {convers}/api/conv/...               (list endpoint,
            exact path parameters are a phase-2 detail; the client
            sends the standard common params + session-AES params)
@@ -21,7 +24,7 @@ from . import protocol
 from .crypto import session_aes_encrypt
 
 FRIENDS_PATH = "/api/social/friend/getfriends"
-GROUPS_PATH = "/api/group/getlg"
+GROUPS_PATH = "/api/group/getlg/v3"
 
 
 def _url_with_params(base, path, body, zpw_enk, extra_query=None):
@@ -87,8 +90,28 @@ class Contacts:
         data = self._get(url)
         return {"rows": _extract_rows(data), "raw": data}
 
-    def groups(self):
-        url = _url_with_params(protocol.GROUP_DOMAIN, GROUPS_PATH,
-                               protocol.groups_params(), self.zpw_enk)
-        data = self._get(url)
-        return {"rows": _extract_rows(data), "raw": data}
+    def groups(self, count=100):
+        """getlg/v3, paginated exactly like the real client: page 1, 2,
+        ... while the server says hasMore and fewer than total rows
+        were collected (cap 100 pages, mirroring the client's loop
+        guard `++page >= 100 || !hasMore || collected >= total`)."""
+        rows, total, page = [], None, 1
+        while page <= 100:
+            url = _url_with_params(
+                protocol.GROUP_DOMAIN, GROUPS_PATH,
+                protocol.groups_params(page=page, count=count,
+                                       device_id=self.device_id),
+                self.zpw_enk)
+            data = self._get(url)
+            if not isinstance(data, dict):
+                data = {}
+            rows.extend(_extract_rows(data))
+            total = data.get("total", total)
+            if not data.get("hasMore"):
+                break
+            if total is not None and len(rows) >= total:
+                break
+            page += 1
+        return {"rows": rows,
+                "raw": {"groups": rows, "total": total,
+                        "hasMore": False}}

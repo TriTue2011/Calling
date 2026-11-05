@@ -226,11 +226,18 @@ def friends_params(device_id):
             "avatar_size": AVATAR_SIZE, "actiontime": 0, "imei": device_id}
 
 
-def groups_params():
-    """Body of getlg, exactly as the real PC client sends it.
+def groups_params(page=1, count=100, device_id=""):
+    """Body of getlg/v3, exactly as the real PC client sends it.
 
-    Bundle getGroupList: {avatar_size:160, member_avatar_size:160}.
-    Note: NO imei in this body (the old code wrongly sent {imei}).
+    Bundle getGroupListV3(page, count=100): {page, count,
+    avatar_size:160, member_avatar_size:160, imei} to
+    /api/group/getlg/v3 (command table: 11161 -> getlg/v3). Every live
+    caller (_fetchAllGroups, the fetch-by-page helper,
+    callFetchGroupListByPage) uses V3, paginated. The plain
+    getGroupList() v1 (/api/group/getlg, {avatar_size,
+    member_avatar_size}, no imei) has no live caller for the main
+    list, and the real server rejects it with 602 — that was the
+    remaining groups bug after 8397d18 (friends passed, groups 602).
     """
-    return {"avatar_size": AVATAR_SIZE,
-            "member_avatar_size": AVATAR_SIZE}
+    return {"page": page, "count": count, "avatar_size": AVATAR_SIZE,
+            "member_avatar_size": AVATAR_SIZE, "imei": device_id}
