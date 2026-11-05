@@ -1,7 +1,17 @@
 """App service: stdlib HTTP server + JSON API + static UI.
 
 API (all JSON, never returns session secrets):
-  GET  /api/status        {login, uid, phonenum, engine} (needs app login)
+  GET  /api/status        {login, uid, phonenum, engine, sync,
+                          sync_error} (needs app login) — sync is the
+                          live sync-channel state (running /
+                          no_endpoints / refresh_failed / stopped /
+                          logged_out / kicked_out); sync_error names
+                          only the last failure type/code, never a
+                          value. See AppState.sync_status.
+  POST /api/sync/retry    retry opening the sync channel for the
+                          current session (needs login; 30s cooldown
+                          between attempts, 429 with
+                          retry_after_seconds while cooling down)
   POST /api/qr/new        start a QR login (background thread)
   GET  /api/qr/status     {state, qr_image, countdown, wait_seconds, ...}
   POST /api/logout        clear the stored Zalo session AND the app
@@ -104,6 +114,17 @@ COOKIE_NAME = os.environ.get("ZALO_PC_COOKIE_NAME", "zpw_sek")
 CONTACTS_TTL_SECONDS = 120
 CONTACTS_BACKOFF_BASE_SECONDS = 60
 CONTACTS_BACKOFF_MAX_SECONDS = 300
+
+# Sync retry: a kept session whose one startup refresh failed must
+# not sit at "no_endpoints" for the whole process lifetime (that is
+# issue 2 — the only recovery used to be a QR re-scan or a restart).
+# The background loop retries start_sync() every 5 minutes while
+# the channel is down with a retryable state; the manual retry
+# endpoint is rate-limited to one attempt per 30 seconds so neither
+# path hammers getLoginInfo. Kicked-out sessions are never retried
+# (the server told us to stop).
+SYNC_RETRY_INTERVAL_SECONDS = 300
+SYNC_RETRY_COOLDOWN_SECONDS = 30
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -290,6 +311,17 @@ class AppState:
         # co the goi tu QR worker, main(), logout()).
         self.sync = None
         self._sync_lock = threading.Lock()
+        # Last sync start/refresh failure, as "Type" or "Type
+        # error_code=N" only — never a value (no sek/enk/uid, no
+        # server message text). "" means no failure recorded.
+        # sync_status() uses it to tell a failed getLoginInfo
+        # refresh ("refresh_failed") apart from a session the
+        # server genuinely gave no endpoints to ("no_endpoints").
+        self.sync_error = ""
+        # Background sync-retry loop (main() only) + manual-retry
+        # cooldown for POST /api/sync/retry.
+        self._sync_retry_thread = None
+        self._sync_last_retry_at = 0.0
         self.thread = None
         # Stale-while-revalidate (sửa lỗi load chậm 2026-11-05): khi
         # cache đã hết TTL, GET /api/contacts trả cache cũ NGAY
@@ -303,18 +335,29 @@ class AppState:
 
     # -- session helpers -------------------------------------------------
     def public_status(self, app_user=""):
+        # Read the session fields under self.lock, then call
+        # sync_status() AFTER releasing it: sync_status() takes
+        # _sync_lock, and start_sync() used to take self.lock while
+        # holding _sync_lock (see start_sync) — holding both locks
+        # in opposite orders wedged /api/status whenever a status
+        # request overlapped a sync start. No path now holds one
+        # sync lock while taking the other.
         with self.lock:
-            base = {"version": VERSION,
-                    "engine": engine_seam.SEAM.status(),
-                    "sync": self.sync_status(),
-                    "app_user": app_user}
-            if self.session and self.session.get("zpw_sek"):
-                base.update({"login": True,
-                             "uid": self.session.get("uid", ""),
-                             "phonenum": self.session.get("phonenum", "")})
-                return base
-            base.update({"login": False, "uid": "", "phonenum": ""})
+            sess = self.session
+            logged = bool(sess and sess.get("zpw_sek"))
+            uid = sess.get("uid", "") if sess else ""
+            phonenum = sess.get("phonenum", "") if sess else ""
+        base = {"version": VERSION,
+                "engine": engine_seam.SEAM.status(),
+                "sync": self.sync_status(),
+                "sync_error": self.sync_error,
+                "app_user": app_user}
+        if logged:
+            base.update({"login": True, "uid": uid,
+                         "phonenum": phonenum})
             return base
+        base.update({"login": False, "uid": "", "phonenum": ""})
+        return base
 
     # -- contacts cache + 429 backoff ------------------------------------
     def _contacts_clear_cache(self):
@@ -813,21 +856,48 @@ class AppState:
         except Exception:
             pass
 
+    @staticmethod
+    def _sync_error_text(exc):
+        """Failure label for sync_error: exception type + a
+        getLoginInfo error_code when one is present — never a
+        value (no sek/enk/uid, no server message text)."""
+        msg = str(exc)
+        code = ""
+        marker = "error_code="
+        if marker in msg:
+            tail = msg.split(marker, 1)[1].split()[0].strip(",")
+            if tail:
+                code = " error_code=%s" % tail
+        return "%s%s" % (type(exc).__name__, code)
+
     def _refresh_poll_endpoints(self, sess):
-        """Phien cu (luu truoc khi co poll endpoints): goi lai
-        getLoginInfo mot lan de lay zpw_chts_new/zpw_ctrs_new/
-        zpw_conf tu server, luu vao session.json. Best-effort:
-        loi thi tra False, poller van dung (UI bao sync chua co)."""
+        """Phien cu (luu truoc khi co poll endpoints, hoac thieu
+        zpw_enk): goi lai getLoginInfo mot lan de lay
+        zpw_chts_new/zpw_ctrs_new/zpw_conf + zpw_enk tu server,
+        luu vao session.json. Best-effort: loi thi ghi sync_error
+        (chi kieu/ma loi) va tra False. CHI duoc goi khi khong
+        giu _sync_lock (no lay self.lock de luu — giu ca hai khoa
+        theo thu tu nguoc nhau la deadlock, xem start_sync).
+
+        Tra False trong 2 truong hop phan biet duoc qua sync_error:
+        refresh loi (sync_error = "Type [error_code=N]") va server
+        tra ve nhung khong co endpoint that
+        (sync_error = "no_endpoints_from_server")."""
         try:
             device_id, computer = self._device_and_computer()
             info = self._fetch_login_info(
                 {"zpw_sek": sess.get("zpw_sek", "")},
                 device_id, computer)
         except Exception as e:  # noqa: BLE001 - best-effort
+            self.sync_error = self._sync_error_text(e)
             print("[sync-poll] refresh endpoints loi: %s"
-                  % type(e).__name__, flush=True)
+                  % self.sync_error, flush=True)
             return False
         if not info.get("poll_msg_urls"):
+            self.sync_error = "no_endpoints_from_server"
+            print("[sync-poll] getLoginInfo tra ve khong co "
+                  "zpw_chts_new; can quet QR lai de lay kenh sync",
+                  flush=True)
             return False
         with self.lock:
             cur = self.session
@@ -837,44 +907,118 @@ class AppState:
             cur["poll_ctl_urls"] = info["poll_ctl_urls"]
             cur["poll_msg_timeout"] = info["poll_msg_timeout"]
             cur["poll_ctl_timeout"] = info["poll_ctl_timeout"]
+            # Refresh cung la co hoi sua zpw_enk / service_map /
+            # ws_endpoint cua phien cu: phien thieu zpw_enk khong
+            # bao gio mo duoc poller neu chi luu poll URLs (loi
+            # cu: start_sync chan o zpw_enk truoc ca khi refresh).
+            if info.get("zpw_enk"):
+                cur["zpw_enk"] = info["zpw_enk"]
+            config = info.get("config") or {}
+            if config.get("zpw_service_map_new"):
+                cur["service_map"] = config["zpw_service_map_new"]
+            if config.get("zpw_ws"):
+                cur["ws_endpoint"] = config["zpw_ws"]
+            if info.get("dkey"):
+                cur["dkey"] = info["dkey"]
             self.store.save(cur)
-            return True
+        self.sync_error = ""
+        return True
 
     def start_sync(self):
-        """Mo kenh sync long-poll neu co phien + poll_msg_urls.
-        Tra ve True khi poller chay, False khi chua du dieu kien
-        (chua dang nhap / khong co endpoint — can quet QR lai
-        hoac refresh getLoginInfo). An toan khi goi nhieu lan."""
+        """Mo kenh sync long-poll neu co phien + poll_msg_urls +
+        zpw_enk. Tra ve True khi poller chay, False khi chua du
+        dieu kien. An toan khi goi nhieu lan; co the goi lai sau
+        mot lan refresh loi (vong retry nen / POST /api/sync/retry).
+
+        THU TU KHOA (sua issue 2 — deadlock + phien cu khong bao
+        gio mo duoc): KHONG giu _sync_lock trong luc goi mang.
+        Pha 1 chup nhanh phien duoi _sync_lock; pha 2 refresh
+        getLoginInfo (lay self.lock luc luu, khong giu _sync_lock);
+        pha 3 tao poller duoi _sync_lock (khong goi mang, khong
+        lay self.lock). Ban cu giu _sync_lock xuyen suot ca
+        refresh trong khi _refresh lay self.lock, con
+        public_status lay self.lock truoc roi moi lay _sync_lock
+        — mot request /api/status chen ngang luc dang nhap QR la
+        ket ca hai luong vinh vien.
+        Pha 2 chay khi thieu poll_msg_urls HOAC thieu zpw_enk:
+        ban cu chan o zpw_enk truoc ca khi refresh, nen phien cu
+        thieu enk khong bao gio duoc sua."""
         with self._sync_lock:
             if self.sync is not None:
                 return True
-            sess = self.session
-            if not sess or not sess.get("zpw_sek") \
-                    or not sess.get("zpw_enk"):
+            sess = dict(self.session) if self.session else None
+        if not sess or not sess.get("zpw_sek"):
+            return False
+        if not sess.get("poll_msg_urls") or not sess.get("zpw_enk"):
+            if not self._refresh_poll_endpoints(sess):
+                print("[sync-poll] chua mo duoc kenh nhan tin den; "
+                      "se thu lai (xem sync_error o /api/status)",
+                      flush=True)
                 return False
-            if not sess.get("poll_msg_urls"):
-                if not self._refresh_poll_endpoints(sess):
-                    print("[sync-poll] chua co poll endpoints "
-                          "(zpw_chts_new); tin den chi hien sau khi "
-                          "quet QR lai hoac refresh getLoginInfo",
-                          flush=True)
-                    return False
-                sess = self.session
-            transport = make_transport(sess["zpw_sek"])
+            with self.lock:
+                sess = dict(self.session) if self.session else None
+            if not sess:
+                return False
+        with self._sync_lock:
+            if self.sync is not None:
+                return True
+            cur = self.session
+            if cur is None or cur.get("uid") != sess.get("uid"):
+                return False
+            if not cur.get("zpw_sek") or not cur.get("zpw_enk") \
+                    or not cur.get("poll_msg_urls"):
+                if not cur.get("zpw_enk"):
+                    self.sync_error = "missing_zpw_enk"
+                elif not cur.get("poll_msg_urls"):
+                    self.sync_error = "no_endpoints_from_server"
+                return False
+            transport = make_transport(cur["zpw_sek"])
             try:
                 poller = sync_poll_mod.SyncPoller(
-                    transport, sess.get("poll_msg_urls"),
-                    sess["zpw_enk"], sess.get("uid", ""),
+                    transport, cur.get("poll_msg_urls"),
+                    cur["zpw_enk"], cur.get("uid", ""),
                     on_message=self._on_sync_message,
-                    msg_timeout=sess.get("poll_msg_timeout", 30))
+                    msg_timeout=cur.get("poll_msg_timeout", 30))
             except ValueError as e:
-                print("[sync-poll] %s" % e, flush=True)
+                self.sync_error = self._sync_error_text(e)
+                print("[sync-poll] %s" % self.sync_error, flush=True)
                 return False
             poller.start()
             self.sync = poller
+            self.sync_error = ""
             print("[sync-poll] da mo kenh nhan tin den (%d endpoint)"
                   % len(poller.urls), flush=True)
             return True
+
+    def start_sync_retry_thread(self):
+        """Vong retry nen cho kenh sync (chi main() goi): cu
+        SYNC_RETRY_INTERVAL_SECONDS thu start_sync() mot lan khi
+        phien dang dang nhap ma kenh dang xuong o trang thai thu
+        lai duoc. Khong bao gio thu lai sau kicked_out (server
+        bao dung). An toan khi goi nhieu lan."""
+        with self._sync_lock:
+            if self._sync_retry_thread is not None \
+                    and self._sync_retry_thread.is_alive():
+                return False
+            thread = threading.Thread(target=self._sync_retry_loop,
+                                      daemon=True)
+            self._sync_retry_thread = thread
+            thread.start()
+            return True
+
+    def _sync_retry_loop(self):
+        while True:
+            time.sleep(SYNC_RETRY_INTERVAL_SECONDS)
+            try:
+                sess = self.session
+                if sess and sess.get("zpw_sek") \
+                        and self.sync is None \
+                        and self.sync_status() in (
+                            "no_endpoints", "refresh_failed",
+                            "stopped"):
+                    self.start_sync()
+            except Exception:  # noqa: BLE001 - retry nen khong chet
+                pass
 
     def stop_sync(self):
         """Dung kenh sync (dang xuat)."""
@@ -885,7 +1029,23 @@ class AppState:
 
     def sync_status(self):
         """Trang thai kenh sync cho /api/status (khong lo secret):
-        running / no_endpoints / logged_out / kicked_out."""
+        running / no_endpoints / refresh_failed / stopped /
+        logged_out / kicked_out.
+
+        - running: poller dang chay (tin den se ve).
+        - no_endpoints: phien co that nhung server khong cap
+          endpoint (getLoginInfo tra ve khong co zpw_chts_new) —
+          chi luc nay moi can quet QR lai.
+        - refresh_failed: getLoginInfo refresh loi (sync_error
+          giu kieu/ma loi) — thu lai duoc, chua ket luan la
+          thieu endpoint.
+        - stopped: co endpoint nhung poller chua chay.
+        - logged_out / kicked_out: chua dang nhap / server bao
+          dung poll (-69).
+
+        Chi chup nhanh tham chieu poller duoi _sync_lock roi
+        tha khoa ngay — khong giu khoa trong luc doc session,
+        de khong tao vong khoa cheo voi start_sync()."""
         with self._sync_lock:
             poller = self.sync
         if poller is not None:
@@ -896,6 +1056,9 @@ class AppState:
         if not sess or not sess.get("zpw_sek"):
             return "logged_out"
         if not sess.get("poll_msg_urls"):
+            if self.sync_error \
+                    and self.sync_error != "no_endpoints_from_server":
+                return "refresh_failed"
             return "no_endpoints"
         return "stopped"
 
@@ -1478,6 +1641,34 @@ class Handler(BaseHTTPRequestHandler):
             status, obj = services_mod.handle_svc(
                 STATE, action, body, files=files)
             return self._send_json(obj, status=status)
+        if path == "/api/sync/retry":
+            # Thu mo lai kenh sync cho phien hien tai (nut "Thu ket
+            # noi lai" o UI khi sync dang xuong). Gioi han 1 lan /
+            # 30 giay de khong doi getLoginInfo lien tuc; bi da
+            # (kicked_out) thi khong thu lai — server da bao dung.
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            if STATE.sync_status() == "kicked_out":
+                return self._send_json(
+                    {"ok": False, "sync": "kicked_out",
+                     "sync_error": STATE.sync_error})
+            now = time.time()
+            if now - STATE._sync_last_retry_at \
+                    < SYNC_RETRY_COOLDOWN_SECONDS:
+                wait = int(SYNC_RETRY_COOLDOWN_SECONDS
+                           - (now - STATE._sync_last_retry_at)) + 1
+                return self._send_json(
+                    {"ok": False, "sync": STATE.sync_status(),
+                     "sync_error": STATE.sync_error,
+                     "retry_after_seconds": wait}, status=429)
+            STATE._sync_last_retry_at = now
+            STATE.start_sync()
+            st = STATE.sync_status()
+            return self._send_json(
+                {"ok": st == "running", "sync": st,
+                 "sync_error": STATE.sync_error})
         if path == "/api/logout":
             # Dang xuat: xoa ca phien Zalo (cu) LAN phien app (moi)
             # — nut "Dang xuat" o sidebar goi endpoint nay roi ve
@@ -1770,11 +1961,19 @@ def main():
     # Phien Zalo cu (tu session.json) ma co poll endpoints thi mo
     # kenh sync nhan tin den ngay; thieu endpoints thi start_sync
     # tu refresh getLoginInfo mot lan, hong thi thoi (khong chan
-    # khoi dong — tin den chi ve sau khi quet QR lai).
+    # khoi dong — vong retry nen se thu lai moi 5 phut, va UI co
+    # nut "Thu ket noi lai" goi POST /api/sync/retry; chi khi
+    # server tra ve that su khong co endpoint thi moi can quet QR
+    # lai).
     try:
         STATE.start_sync()
     except Exception as e:  # noqa: BLE001 - best-effort
         print("[sync-poll] khong mo duoc kenh luc khoi dong: %s"
+              % type(e).__name__, flush=True)
+    try:
+        STATE.start_sync_retry_thread()
+    except Exception as e:  # noqa: BLE001 - best-effort
+        print("[sync-poll] khong mo duoc vong retry: %s"
               % type(e).__name__, flush=True)
     try:
         server.serve_forever()

@@ -14,6 +14,7 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
          "test_contacts_cache_429.py", "test_contacts_stale_swr.py",
          "test_view_decision.py", "test_webhooks.py", "test_chat.py",
          "test_incoming.py",
+         "test_sync_start.py",
          "test_voice_transcode.py", "test_voice_112.py",
          "test_services.py", "test_server_smoke.py"]
 
@@ -21,6 +22,7 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
 # (§7m) — the UI fix cannot be covered by the Python suites.
 JS_CHECKS = [["node", "--check", "zalo_pc_app/static/app.js"],
              ["node", "tests/test_app_js_end.js"],
+             ["node", "tests/test_app_js_sync.js"],
              ["node", "tests/test_app_js_feedrow.js"],
              ["node", "tests/test_app_js_attach.js"]]
 

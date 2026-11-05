@@ -79,6 +79,7 @@ KICK_OUT_NOTE: gia tri so cua ERR_KICK_OUT chua lan duoc (export
 
 import base64
 import json
+import sys
 import threading
 import time
 import urllib.parse
@@ -421,8 +422,15 @@ class SyncPoller:
                 return
             except Exception as e:  # noqa: BLE001 - poller khong chet
                 self.last_error = str(e)
-                print("[sync-poll] %s; retry sau %.0fs"
-                      % (self.last_error, backoff), flush=True)
+                # Khong in khi interpreter dang tat: mot daemon
+                # thread ma print() dung luc stdout dang duoc dong
+                # se abort ca tien trinh (_enter_buffered_busy) —
+                # gap khong on dinh o cuoi cac file test mo poller
+                # roi tat mock ma khong stop_sync (8/8 test pass
+                # nhung tien trinh chet 134 luc shutdown).
+                if not sys.is_finalizing():
+                    print("[sync-poll] %s; retry sau %.0fs"
+                          % (self.last_error, backoff), flush=True)
                 if self._stop.wait(backoff):
                     return
                 backoff = min(backoff * 2, RETRY_MAX_SECONDS)

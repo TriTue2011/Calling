@@ -121,6 +121,17 @@ def _calls(base):
 
 
 def _shutdown(httpd, mock):
+    # Dung poller sync TRUOC khi tat mock: poller la daemon thread,
+    # de no chay tiep sau khi mock tat thi no in loi lien tuc va co
+    # the va cham voi stdout luc interpreter tat (abort 134 khong
+    # on dinh o cuoi file — 8/8 test pass nhung tien trinh chet luc
+    # shutdown). Dung khi mock con song thi poller thoat sach
+    # trong ~1 giay (xem them guard sys.is_finalizing() o
+    # sync_poll.run).
+    try:
+        app_server.STATE.stop_sync()
+    except Exception:  # noqa: BLE001 - teardown best-effort
+        pass
     try:
         httpd.shutdown()
     finally:

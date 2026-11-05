@@ -269,6 +269,73 @@ function startInboxTimer() {
   }
 }
 
+// -- trang thai kenh sync o chan khung chat ---------------------------
+// Truoc day dong chu o chan khung chat la text tinh trong app.html
+// ("kenh nhan tin (sync) chua co") — hien mai du poller co dang
+// chay that hay khong, vi khong co dong JS nao doc st.sync tu
+// /api/status. Tu nay updateSyncNote() ve lai dong chu theo dung
+// trang thai that tra ve tu server (xem AppState.sync_status):
+// chi "no_endpoints" that (server khong cap endpoint) moi bao
+// quet QR lai; "refresh_failed" thi bao thu ket noi lai truoc.
+function syncNoteText(sync) {
+  if (sync === "running") {
+    return { text: "Tin nhắn đến tự cập nhật qua kênh sync (đang chạy) — tin mới sẽ tự hiện trong khung chat.",
+             showRetry: false };
+  }
+  if (sync === "no_endpoints") {
+    return { text: "Tin nhắn đến chưa tự cập nhật — máy chủ chưa cấp kênh nhận tin (sync) cho phiên này. Bấm “Thử kết nối lại” để lấy lại kênh; nếu vẫn không được, đăng xuất rồi quét QR lại một lần.",
+             showRetry: true };
+  }
+  if (sync === "refresh_failed") {
+    return { text: "Tin nhắn đến chưa tự cập nhật — không lấy được kênh sync từ Zalo (lỗi làm mới phiên). Bấm “Thử kết nối lại”; nếu vẫn không được, đăng xuất rồi quét QR lại một lần.",
+             showRetry: true };
+  }
+  if (sync === "kicked_out") {
+    return { text: "Kênh nhận tin (sync) đã bị Zalo dừng — cần đăng nhập lại (quét QR) để nhận tin đến.",
+             showRetry: false };
+  }
+  if (sync === "stopped") {
+    return { text: "Kênh nhận tin (sync) đang dừng — bấm “Thử kết nối lại” để mở lại.",
+             showRetry: true };
+  }
+  if (sync === "logged_out") {
+    return { text: "Chưa đăng nhập nên chưa có kênh nhận tin.",
+             showRetry: false };
+  }
+  return { text: "Chưa rõ trạng thái kênh nhận tin — bấm “Tải lại lịch sử” để xem lịch sử nhóm mới nhất.",
+           showRetry: false };
+}
+function updateSyncNote(sync) {
+  const note = syncNoteText(sync);
+  const el = $("chat-sync-note");
+  if (el) el.textContent = note.text;
+  const btn = $("btn-sync-retry");
+  if (btn) btn.hidden = !note.showRetry;
+}
+let syncRetrying = false;
+async function retrySync() {
+  if (syncRetrying) return;
+  syncRetrying = true;
+  const btn = $("btn-sync-retry");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/sync/retry", "POST", {});
+    updateSyncNote(r.sync);
+    if (!r.ok && r.retry_after_seconds) {
+      const n = $("chat-notice");
+      n.hidden = false;
+      n.textContent = "Vừa thử kết nối lại — thử lại sau "
+        + r.retry_after_seconds + " giây.";
+    }
+  } catch (e) {
+    const n = $("chat-notice");
+    n.hidden = false;
+    n.textContent = "Không kết nối lại được: lỗi mạng.";
+  }
+  if (btn) btn.disabled = false;
+  syncRetrying = false;
+}
+
 function fmtClock(epochSec) {
   return new Date(epochSec * 1000).toLocaleTimeString("vi-VN", {
     hour: "2-digit", minute: "2-digit", second: "2-digit",
@@ -363,6 +430,9 @@ async function loadMain(force) {
   }
   $("who").textContent = st.login
     ? ("Đã đăng nhập: " + (st.phonenum || st.uid)) : "Chưa đăng nhập";
+  // Chan khung chat phan anh dung trang thai sync that tu /api/status
+  // (st.sync) — khong de text tinh "chua co" cu hien mai.
+  updateSyncNote(st.sync);
   // Version marker: shows which image/commit the server is really
   // running, so a redeploy can be verified at a glance.
   if (st.version) $("app-version").textContent = "Phiên bản: " + st.version;
@@ -922,6 +992,13 @@ function renderMessages(messages) {
 async function loadThreadHistory() {
   if (!currentThread) return;
   const notice = $("chat-notice");
+  // Mo thread: lay lai trang thai sync that de chan khung chat
+  // khong giu cau cu tu luc load trang (kenh co the vua mo
+  // duoc nho vong retry nen / nut "Thu ket noi lai").
+  try {
+    const st = await api("/api/status");
+    updateSyncNote(st.sync);
+  } catch (e) { /* giu cau hien tai; lich su van tai ben duoi */ }
   try {
     const data = await api("/api/thread/" + encodeURIComponent(currentThread.id)
       + "/history" + chatThreadParam() + "&count=50");
@@ -1448,6 +1525,7 @@ async function testWebhook(kind) {
 $("btn-back-chat").onclick = () => { show("view-main"); };
 $("btn-chat-call").onclick = () => { if (currentThread) startCall(currentThread); };
 $("btn-chat-refresh").onclick = loadThreadHistory;
+$("btn-sync-retry").onclick = retrySync;
 $("btn-chat-send").onclick = sendChatText;
 $("chat-input").onkeydown = (e) => { if (e.key === "Enter") sendChatText(); };
 $("chat-input").oninput = onChatInput;
