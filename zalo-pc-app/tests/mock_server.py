@@ -125,6 +125,14 @@ class MockZalo:
         if path == "/api/social/friend/getfriends":
             return 200, self._friends(qs, headers, raw_qs)
         if path == "/api/group/getlg":
+            # The real server rejects the v1 path with 602 (found live
+            # after 8397d18: friends passed, groups still 602). The
+            # client must use /api/group/getlg/v3.
+            return 200, {"error_code": 602,
+                         "error_message":
+                             "zpw_type bị thiếu hoặc không đúng",
+                         "data": {}}
+        if path == "/api/group/getlg/v3":
             return 200, self._groups(qs, headers, raw_qs)
         return 404, {"error_code": 404, "error_message": "mock no route"}
 
@@ -326,14 +334,31 @@ class MockZalo:
         plain = _openssl_aes(key, base64.b64decode(qs["params"]),
                              decrypt=True)
         body = json.loads(plain.decode("utf-8"))
-        # Real getGroupList body: {avatar_size:160, member_avatar_size:160}
-        # — NO imei. The pre-fix code sent {imei} only.
+        # Real getGroupListV3 body: {page, count, avatar_size:160,
+        # member_avatar_size:160, imei} — paginated, page 1 first.
+        # The v1 body ({avatar_size, member_avatar_size}, no page or
+        # imei) is rejected by the real server; the mock rejects it
+        # here too (bug 102 lesson: strict mock, real contract).
+        assert isinstance(body.get("page"), int) and body["page"] >= 1, \
+            "groups v3 body needs page>=1: %s" % body
+        assert body.get("count") == 100, \
+            "groups v3 body needs count=100: %s" % body
         assert body.get("avatar_size") == 160, \
             "groups body needs avatar_size=160: %s" % body
         assert body.get("member_avatar_size") == 160, \
             "groups body needs member_avatar_size=160: %s" % body
-        assert "imei" not in body, \
-            "groups body must not contain imei: %s" % body
+        assert body.get("imei"), \
+            "groups v3 body needs imei: %s" % body
+        page = body["page"]
+        if page == 1:
+            return {"error_code": 0, "data": {
+                "groups": [{"userId": "30001", "displayName": "Nhom X",
+                            "avatar": ""}],
+                "hasMore": True, "total": 2}}
+        if page == 2:
+            return {"error_code": 0, "data": {
+                "groups": [{"userId": "30002", "displayName": "Nhom Y",
+                            "avatar": ""}],
+                "hasMore": False, "total": 2}}
         return {"error_code": 0, "data": {
-            "groups": [{"userId": "30001", "displayName": "Nhom X",
-                        "avatar": ""}]}}
+            "groups": [], "hasMore": False, "total": 2}}

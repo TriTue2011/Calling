@@ -247,7 +247,9 @@ key = Base64-parse của `zpw_enk`.) Khóa do server cấp theo phiên nên
 không cần khóa nhúng. Cùng một cách mã hóa dùng cho danh bạ
 (`GET profile-wpa.zalo.me/api/social/friend/getfriends`, mã 11137,
 body `{incInvalid:1, page:1, count:20000, actiontime:0, imei}`) và nhóm
-(`GET group-wpa.zalo.me/api/group/getlg`, mã 11161).
+(`GET group-wpa.zalo.me/api/group/getlg/v3`, mã 11161 — xem 7c: bản
+v1 `/api/group/getlg` không có caller thật và server từ chối bằng
+602).
 
 ### 4.4 Quyết định về bí mật (quan trọng, đã áp dụng vào code)
 
@@ -402,7 +404,11 @@ trong 3 khiến server từ chối request, và bản sửa khớp cả 3):
    (`getFriendsList(this._isFirstReq(), ...)`).
 2. **Groups body sai hoàn toàn** — code cũ gửi `{imei}`, client thật
    (`getGroupList`) gửi `{avatar_size:160, member_avatar_size:160}`,
-   cùng path `/api/group/getlg`.
+   cùng path `/api/group/getlg`. — ĐÍNH CHÍNH ở 7c: kết luận này chỉ
+   đúng với hàm `getGroupList()` v1 trong bundle, nhưng không có
+   caller thật nào dùng v1 cho danh sách chính; client thật dùng
+   `getGroupListV3` (`/api/group/getlg/v3`, body có thêm
+   `page`/`count`/`imei`, phân trang).
 3. **`params` không mã hóa URL đầy đủ** — `urllib.parse.quote`
    mặc định giữ `/` thô trong giá trị base64 (đã đo thực tế: giá trị
    `params` có `/` thô), còn client dùng `encodeURIComponent` mã hóa
@@ -422,6 +428,41 @@ body friends/groups đúng contract, `init=1` bắt buộc ở lần đầu.
 Kiểm chứng cuối (chưa làm được ở VM này): user pull image mới,
 deploy lại stack cũ (giữ volume `/opt/zalo`), quét lại bằng tài khoản
 phụ, tải danh bạ phải ra danh sách (không còn 602).
+
+### 7c. Nhóm vẫn 602 sau bản 8397d18: client thật dùng getlg/v3
+
+Sau khi user redeploy bản 8397d18: friends ĐÃ QUA, chỉ groups còn
+`error_code=602 zpw_type` — lỗi nêu tên endpoint (`groups:`) nên biết
+chắc friends qua rồi. Lần lại bundle với con mắt mới, kết luận ở 7b
+mục 2 là **sai chỗ dùng**: hàm `getGroupList()` v1
+(`/api/group/getlg`, body `{avatar_size, member_avatar_size}`, không
+imei) chỉ là định nghĩa trong bundle, không có caller thật nào lần
+được dùng nó cho danh sách chính. Các đường gọi danh sách nhóm lần
+được trong các luồng UI/data của bundle đều dùng `getGroupListV3`:
+
+- `_fetchAllGroups` gọi `getGroupListV3(page, 100)`;
+- helper fetch-by-page (`_callApi`, `callFetchGroupListByPage`) gọi
+  `getGroupListV3(page, 100, ...)` và lặp khi `hasMore` (dừng khi đủ
+  `total` hoặc quá 100 trang);
+- `getGroupListV4` (`/api/group/getlg/v4`, không body) chỉ dùng để
+  kiểm version nhóm, không phải để lấy danh sách;
+- bảng command của bundle: `11161 -> /api/group/getlg/v3`.
+
+Contract đúng của V3 (đã sửa vào code): `GET
+group-wpa.zalo.me/api/group/getlg/v3`, common params
+`zpw_ver=695`/`zpw_type="embed"` + cookie `zpw_sek` như cũ, body
+`{page, count:100, avatar_size:160, member_avatar_size:160, imei}`,
+params AES mã hóa URL đầy đủ; response `{groups, hasMore, total}`,
+client lặp các trang cho tới khi hết `hasMore`. Các tham số `_get`
+thừa trong lời gọi V3 (`0, ae, 0, void 0, {}, n`) chỉ là timeout /
+retry / cancel token nội bộ, không lên dây. Mock siết chặt theo:
+đường v1 cũ trả 602 như server thật (test tái hiện lỗi), đường v3
+bắt buộc đúng body phân trang (test 2 trang gộp lại).
+
+Kiểm chứng cuối (chưa làm được ở VM này): user pull image mới,
+deploy lại stack cũ (giữ volume `/opt/zalo`), mở lại trang — danh
+bạ phải hiện cả bạn bè lẫn nhóm, không còn 602, không cần quét lại
+(phiên cũ còn trong volume).
 
 ### Không cần chown tay nữa — cách đã chọn
 

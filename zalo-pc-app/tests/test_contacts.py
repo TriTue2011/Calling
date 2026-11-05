@@ -4,9 +4,13 @@ The real Zalo server rejected the contacts calls with error_code=602
 "zpw_type bị thiếu hoặc không đúng" after a successful QR login. Static
 comparison against the real PC client showed the request skeleton was
 right (zpw_ver=695, zpw_type="embed", domains, cookie, session key)
-but three wire-format details were wrong:
+but wire-format details were wrong:
   1. friends body missed avatar_size=160 (and init=1 on first load);
-  2. groups body was {imei} instead of {avatar_size, member_avatar_size};
+  2. groups must call getlg/v3 (paginated {page, count:100,
+     avatar_size, member_avatar_size, imei}) — the plain v1
+     /api/group/getlg has no live caller and the real server rejects
+     it with 602 (found live after 8397d18: friends passed, groups
+     still 602);
   3. the params base64 value was not fully percent-encoded (raw '/').
 These tests pin the corrected contract and prove the strict mock
 rejects the old (pre-fix) requests.
@@ -77,7 +81,13 @@ def test_friends_groups_contract():
         friends = book.friends(init=True)
         assert [r["name"] for r in friends["rows"]] == ["Ban A", "Ban B"]
         groups = book.groups()
-        assert groups["rows"][0]["name"] == "Nhom X"
+        assert [r["name"] for r in groups["rows"]] == ["Nhom X", "Nhom Y"]
+        # V3 is paginated: the mock returns 2 pages, both merged, so
+        # the client must have fetched page 1 and page 2 (page/count
+        # live inside the encrypted body, not in the query string).
+        gpaths = [p for p, _, _ in mock.seen
+                  if p == "/api/group/getlg/v3"]
+        assert len(gpaths) == 2, gpaths
         # The mock saw the right common params + init on first load.
         fqs = [qs for p, qs, _ in mock.seen
                if p == "/api/social/friend/getfriends"][0]
@@ -102,9 +112,10 @@ def test_params_encoding_round_trip():
         TEST_SESSION_KEY,
         urllib.parse.unquote(val)) == json.dumps(
             body, separators=(",", ":"), ensure_ascii=False)
-    # groups URL: same property.
+    # groups URL: same property (V3 body shape).
     body2, _ = find_body_with_slash(
-        lambda i: {"avatar_size": 160, "member_avatar_size": 160,
+        lambda i: {"page": 1, "count": 100, "avatar_size": 160,
+                   "member_avatar_size": 160, "imei": "dev-1",
                    "pad": i})
     url2 = contacts_mod._url_with_params(
         "https://group-wpa.zalo.me", contacts_mod.GROUPS_PATH,
@@ -149,16 +160,38 @@ def test_old_friends_body_rejected():
         mock.stop()
 
 
-def test_old_groups_body_rejected():
-    """Pre-fix groups body ({imei} only) must fail the strict mock."""
+def test_old_groups_v1_path_rejected():
+    """Pre-fix groups call (plain /api/group/getlg, v1 body) must be
+    rejected with the real server's 602 — this reproduces the live
+    failure after 8397d18 (friends passed, groups still 602)."""
     mock = MockZalo().start()
     try:
         patch_domains(mock)
         url = _handbuilt_url(mock.base, "/api/group/getlg",
-                             {"imei": "dev-1"}, use_raw_quote=False)
+                             {"avatar_size": 160,
+                              "member_avatar_size": 160},
+                             use_raw_quote=False)
+        status, payload = http_get(url, cookie="sek-test")
+        assert status == 200, (status, payload)
+        assert payload.get("error_code") == 602, payload
+        assert "zpw_type" in payload.get("error_message", ""), payload
+    finally:
+        mock.stop()
+
+
+def test_groups_v3_wrong_body_rejected():
+    """A v3 call whose body lacks page/count/imei (v1-style body on
+    the v3 path) must fail the strict mock."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        url = _handbuilt_url(mock.base, "/api/group/getlg/v3",
+                             {"avatar_size": 160,
+                              "member_avatar_size": 160},
+                             use_raw_quote=False)
         status, payload = http_get(url, cookie="sek-test")
         assert status == 500, (status, payload)
-        assert "avatar_size" in payload.get("error_message", ""), payload
+        assert "page" in payload.get("error_message", ""), payload
     finally:
         mock.stop()
 
