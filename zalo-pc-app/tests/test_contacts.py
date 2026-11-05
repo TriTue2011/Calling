@@ -129,6 +129,10 @@ def test_friends_groups_contract():
         assert [r["avatar"] for r in groups["rows"]] == ["avt-x", ""]
         assert [r["members"] for r in groups["rows"]] == \
             [["20001", "20002"], ["20001"]]
+        # Số thành viên hiển thị: Nhom Y chỉ có 1 topMember nhưng
+        # totalMember=5 (mock) — member_count phải là 5, không phải 1.
+        assert [r["member_count"] for r in groups["rows"]] == [2, 5], \
+            groups["rows"]
         # Addon path: exactly one v4 GET (the version map) and one
         # getmg-v2 POST (the details) — no pagination, no v3.
         v4paths = [p for p, _, _ in mock.seen
@@ -191,15 +195,58 @@ def test_group_row_from_info():
                       {"id": "20002", "displayName": "Ban B"}],
         "totalMember": 2, "type": 1})
     assert row == {"id": "30001", "name": "Nhom X", "avatar": "avt-x",
-                   "members": ["20001", "20002"]}, row
+                   "members": ["20001", "20002"], "member_count": 2}, row
     # Member entries may carry userId instead of id; a missing info
     # dict still yields a row with the id (name empty).
     row = contacts_mod._group_row("30002", {
         "groupId": "30002", "name": "Nhom Y", "avt": "",
         "topMember": [{"userId": "20001"}]})
     assert row["members"] == ["20001"], row
+    assert row["member_count"] == 1, row
     assert contacts_mod._group_row("30003", None) == {
-        "id": "30003", "name": "", "avatar": "", "members": []}
+        "id": "30003", "name": "", "avatar": "", "members": [],
+        "member_count": 0}
+
+
+def test_group_member_count_not_from_topmember():
+    """Số thành viên hiển thị KHÔNG đếm từ topMember (bug "0 thành
+    viên" 2026-11-05 17:45: live topMember rỗng dù nhóm đông).
+    Thứ tự ưu tiên: totalMember (số) > len(memberIds) >
+    len(currentMems) > len(topMember). `members` (partners khi gọi
+    nhóm) không đổi — chỉ số đếm đổi."""
+    grow = contacts_mod._group_row
+    # Trường hợp live: topMember rỗng nhưng nhóm có 7 người.
+    row = grow("30010", {"groupId": "30010", "name": "Nhom Dong",
+                         "avt": "", "topMember": [], "totalMember": 7})
+    assert row["member_count"] == 7, row
+    assert row["members"] == [], row
+    # topMember chỉ 1/5 người, totalMember nói 5.
+    row = grow("30011", {"groupId": "30011", "name": "Nhom Le",
+                         "avt": "",
+                         "topMember": [{"id": "20001"}],
+                         "totalMember": 5})
+    assert row["member_count"] == 5, row
+    assert row["members"] == ["20001"], row
+    # totalMember thiếu: đếm len(memberIds).
+    row = grow("30012", {"groupId": "30012", "name": "Nhom M",
+                         "avt": "", "topMember": [],
+                         "memberIds": ["20001", "20002", "20003"]})
+    assert row["member_count"] == 3, row
+    # totalMember = 0 (không đáng tin) + không có memberIds:
+    # đếm len(currentMems).
+    row = grow("30013", {"groupId": "30013", "name": "Nhom C",
+                         "avt": "", "topMember": [], "totalMember": 0,
+                         "currentMems": ["20001", "20002", "20003",
+                                         "20004"]})
+    assert row["member_count"] == 4, row
+    # totalMember dạng chuỗi số vẫn nhận.
+    row = grow("30014", {"groupId": "30014", "name": "Nhom S",
+                         "avt": "", "topMember": [], "totalMember": "12"})
+    assert row["member_count"] == 12, row
+    # Không có gì cả: 0, không crash.
+    row = grow("30015", {"groupId": "30015", "name": "Nhom Rong",
+                         "avt": "", "topMember": []})
+    assert row["member_count"] == 0, row
 
 
 def test_empty_account():
@@ -384,13 +431,9 @@ def test_params_encoding_round_trip():
             body2, separators=(",", ":"), ensure_ascii=False)
     # voicecall URL: same property (protocol.voicecall_params had the
     # same quote() bug).
-    # Corrected requestcall body (§7k): typeRequest 1 (1-1 audio)
-    # + callId a uint32 JSON number — the old (0, "c%d") drew inner
-    # 114 from the real server. This test only checks URL quoting,
-    # but no example body should carry the invalid values.
     body3, _ = find_body_with_slash(
-        lambda i: {"calleeId": "20001", "callId": 1762345678 + i,
-                   "codec": "[]", "typeRequest": 1, "imei": "dev-1"})
+        lambda i: {"calleeId": "20001", "callId": "c%d" % i,
+                   "codec": "[]", "typeRequest": 0, "imei": "dev-1"})
     url3 = protocol.voicecall_params(
         "requestcall", body3, partial(session_aes_encrypt, TEST_SESSION_KEY))
     val3 = params_value(url3)
@@ -578,7 +621,10 @@ def test_contacts_error_attribution():
         assert status == 200 and body["friends"]["rows"], body
 
         mock.groups_mode = "error602"
-        status, body = _api(base, "GET", "/api/contacts")
+        # The groups failure must be forced: a plain load now returns
+        # the cache from the successful load above (the 429 fix), so
+        # only ?force=1 re-fetches and surfaces the groups error.
+        status, body = _api(base, "GET", "/api/contacts?force=1")
         assert status == 502 and "groups:" in body["error"], body
         assert "602" in body["error"], body
 

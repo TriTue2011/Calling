@@ -196,8 +196,13 @@ button { font-family: var(--font); }
 }
 .sheet-foot .mono { font-size: 12px; word-break: break-all; }
 
-.title-row { margin-bottom: 24px; }
+.title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+.title-row .btn { flex: none; margin-top: 4px; }
 .subline { margin-top: 6px; font-size: 14px; color: var(--muted); }
+/* Contacts cache/429 status line under the subtitle: plain muted text
+   normally; warning colours only while Zalo is rate-limiting (429). */
+.contacts-meta { margin-top: 6px; font-size: 12px; color: var(--muted); min-height: 16px; }
+.contacts-meta.warn { color: var(--pill-warning-ink); }
 
 /* Buttons: one filled primary (near-black) per screen; secondary is
    white with a border; tertiary is text. */
@@ -337,6 +342,29 @@ button { font-family: var(--font); }
 /* Login view: centred column, QR slot is a dashed empty frame. */
 .login-wrap { max-width: 480px; margin: 48px auto; }
 .login-wrap .lede { margin-top: 8px; font-size: 14px; line-height: 22px; }
+
+/* App-login form: same sheet, same controls as the rest of the app
+   (framed-sheet). Labels sit above their fields; the error is one
+   generic line — it never says whether the user or the password
+   was wrong. */
+.login-form { margin-top: 24px; display: flex; flex-direction: column; gap: 16px; }
+.field label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+.field input {
+  width: 100%; height: 36px; padding: 0 12px;
+  border: 1px solid var(--control); border-radius: 6px;
+  background: #fff; color: var(--text);
+  font-family: var(--font); font-size: 14px;
+}
+.login-error {
+  background: var(--pill-negative-bg); color: var(--pill-negative-ink);
+  border-radius: 8px; padding: 12px 16px; font-size: 14px;
+}
+.login-note { margin-top: 24px; font-size: 12px; color: var(--muted); line-height: 18px; }
+/* Màn hình chờ trung tính lúc tải trang (sửa lỗi nháy QR): cùng
+   khung với trang đăng nhập, nhưng không chứa mã QR và không khẳng
+   định "chưa đăng nhập" — chỉ báo đang kiểm tra phiên. */
+.loading-wrap { max-width: 480px; margin: 48px auto; }
+.loading-wrap .lede { margin-top: 8px; font-size: 14px; line-height: 22px; color: var(--muted); }
 #qr-box {
   min-height: 220px; margin: 16px 0;
   display: flex; align-items: center; justify-content: center;
@@ -353,6 +381,122 @@ button { font-family: var(--font); }
 .call-state { margin: 16px 0; font-size: 16px; }
 .detail-actions { display: flex; gap: 8px; }
 
+/* Webhook settings view (app-screens §8: label above the field,
+   16px between fields, 16px to the Save button; one primary per
+   screen — here it is Luu cai dat). One card per event family:
+   title + description left, toggle right, URL field, test row. */
+.note-box {
+  background: var(--accent-pale-bg);
+  border: 1px solid #bcd8f2; border-radius: 8px;
+  padding: 12px 16px; margin-bottom: 24px;
+  font-size: 14px; color: var(--text);
+}
+.saved-box {
+  background: var(--pill-positive-bg);
+  border: 1px solid #a7e8c0; border-radius: 8px;
+  padding: 12px 16px; margin-bottom: 16px;
+  font-size: 14px; color: var(--pill-positive-ink);
+}
+.webhook-card {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; margin-bottom: 16px;
+}
+.webhook-head {
+  display: flex; justify-content: space-between; gap: 16px;
+  align-items: flex-start; margin-bottom: 16px;
+}
+.webhook-head h2 { margin-bottom: 4px; }
+.field-help { font-size: 14px; color: var(--muted); }
+.field-label {
+  display: block; font-size: 14px; font-weight: 500;
+  margin-bottom: 8px;
+}
+.field-input {
+  width: 100%; height: 40px; padding: 0 12px;
+  border: 1px solid var(--control); border-radius: 6px;
+  background: #fff; color: var(--text);
+  font-family: var(--font); font-size: 14px;
+}
+.field-input.mono { font-family: var(--font-mono); font-size: 13px; }
+.webhook-actions {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 12px;
+}
+.test-result { font-size: 14px; color: var(--muted); }
+.test-result.ok { color: var(--positive); }
+.test-result.bad { color: var(--negative); }
+.toggle {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.toggle input { width: 18px; height: 18px; accent-color: var(--primary); }
+.form-actions {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 16px;
+}
+/* Chat theo thread (view-chat): khung chat kieu Zalo PC trong sheet.
+   Grid: head 1 dong, history co dinh chieu cao, composer o duoi.
+   Bong tin: gui di = nen accent nhat, can phai; nhan ve = trang
+   vien 1px, can trai. */
+.chat-wrap { display: flex; flex-direction: column; }
+.chat-head {
+  display: flex; align-items: center; gap: 12px;
+  padding-bottom: 16px; border-bottom: 1px solid var(--rule);
+}
+.chat-head-main { flex: 1; min-width: 0; }
+.chat-head-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.chat-head-title h1 {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.chat-head .detail-meta { margin-top: 4px; }
+.chat-head .btn { flex: none; }
+.notice-box {
+  background: var(--pill-warning-bg);
+  border: 1px solid #fde68a; border-radius: 8px;
+  padding: 12px 16px; margin-top: 16px;
+  font-size: 14px; color: var(--pill-warning-ink);
+}
+.chat-history {
+  display: flex; flex-direction: column; gap: 8px;
+  min-height: 320px; max-height: 56vh; overflow-y: auto;
+  padding: 16px 4px;
+}
+.bubble {
+  max-width: 72%; padding: 10px 12px; border-radius: 8px;
+  font-size: 14px; line-height: 20px;
+  word-break: break-word; white-space: pre-wrap;
+}
+.bubble-in {
+  align-self: flex-start; background: #fff;
+  border: 1px solid var(--border);
+}
+.bubble-out {
+  align-self: flex-end; background: var(--accent-pale-bg);
+}
+.bubble-who { font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
+.bubble-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.bubble-out .bubble-meta { text-align: right; }
+.composer {
+  display: flex; align-items: center; gap: 8px;
+  padding-top: 16px; border-top: 1px solid var(--rule);
+}
+.composer input[type="text"] {
+  flex: 1; min-width: 0; height: 36px;
+  padding: 0 12px; border: 1px solid var(--control); border-radius: 6px;
+  background: #fff; color: var(--text);
+  font-family: var(--font); font-size: 14px;
+}
+.composer .btn { flex: none; }
+.rec-state { margin-top: 8px; font-size: 14px; color: var(--negative); }
+.chat-foot-note { margin-top: 12px; font-size: 12px; color: var(--muted); }
+
+/* Phone (<=640px): bong tin rong hon, composer xuong 2 hang. */
+@media (max-width: 640px) {
+  .bubble { max-width: 88%; }
+  .composer { flex-wrap: wrap; }
+  .composer input[type="text"] { flex: 1 1 100%; order: 3; }
+}
+
 /* Tablet (641-1100px): the sidebar folds to the top bar; the rail
    stacks under the contacts; tables keep their columns. */
 @media (max-width: 1100px) {
@@ -368,9 +512,63 @@ button { font-family: var(--font); }
   .sheet { padding: 16px; }
 }
 
-/* Phone (<=640px): the sheet becomes the screen; count cards scroll
-   sideways; rows keep 44px+ touch targets; the table scrolls in its
-   own frame, the page never scrolls sideways. */
+/* Services view: the 96 addon services, grouped. One row per
+   service: name + PC endpoint, status pill, and a real form only
+   when the op is supported — unsupported / chat / zalobot rows
+   carry their reason in plain text and NO fake button. */
+.svc-counts { font-size: 14px; color: var(--muted); margin-bottom: 16px; }
+.svc-thread {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.svc-thread label { font-size: 14px; font-weight: 600; }
+.svc-thread select, .svc-thread input {
+  height: 32px; padding: 0 10px;
+  border: 1px solid var(--control); border-radius: 6px;
+  background: #fff; color: var(--text);
+  font-family: var(--font); font-size: 14px;
+}
+.svc-thread input { width: 220px; }
+.svc-result {
+  padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;
+  font-size: 14px; word-break: break-word; white-space: pre-wrap;
+}
+.svc-result.svc-ok { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+.svc-result.svc-err { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+.svc-group { margin-bottom: 24px; }
+.svc-group-title { margin-bottom: 8px; }
+.svc-list { list-style: none; margin: 0; padding: 0; }
+.svc-row {
+  display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;
+  padding: 12px 4px; border-bottom: 1px solid var(--rule);
+}
+.svc-row:last-child { border-bottom: 0; }
+.svc-main { flex: 1; min-width: 240px; }
+.svc-name { font-size: 14px; font-weight: 600; }
+.svc-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.svc-warn { font-size: 12px; color: var(--pill-warning-ink); margin-top: 4px; }
+.svc-reason { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.svc-form {
+  display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap;
+  flex-basis: 100%;
+}
+.svc-field { display: flex; flex-direction: column; gap: 4px; }
+.svc-field span { font-size: 12px; color: var(--muted); }
+.svc-field input {
+  height: 32px; padding: 0 10px; min-width: 180px;
+  border: 1px solid var(--control); border-radius: 6px;
+  background: #fff; color: var(--text);
+  font-family: var(--font); font-size: 14px;
+}
+.svc-run { flex: none; }
+.svc-danger .svc-name { color: var(--negative); }
+.row-svc { flex: none; }
+
+@media (max-width: 640px) {
+  .svc-thread input { width: 100%; }
+  .svc-field input { min-width: 0; width: 100%; }
+  .svc-field { flex: 1 1 140px; }
+}
 @media (max-width: 640px) {
   .sheet { margin: 0; border: 0; border-radius: 0; }
   .topbar { padding: 0 16px; }

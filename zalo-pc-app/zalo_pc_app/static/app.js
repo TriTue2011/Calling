@@ -1,5 +1,5 @@
 // App UI logic: login view -> main view (contacts + calls rail) ->
-// calls view (full history) -> call detail view.
+// calls view (full history) -> call detail view -> services view.
 // The page never sees session secrets; it only gets states + rows.
 // Contacts are threads (addon model): a row's id IS the threadId
 // (userId for a friend, groupId for a group); calls go by threadID.
@@ -10,20 +10,69 @@ let currentFilter = "all";
 let currentCall = null;
 let detailCall = null; // the call shown in the detail view (may be
 // an active call reloaded from /api/calls, not started here)
+let currentThread = null; // the thread open in the chat view
+// ({id, name, type, members}); row click opens chat, the "Goi"
+// button still starts a call (startCall, unchanged).
+let mediaRecorder = null;
+let recChunks = [];
+let recTimer = null;
+let lastTypingAt = 0;
 let pollTimer = null;
 let callsTimer = null;
 let clockTimer = null;
+let svcCatalog = null; // /api/svc/catalog, loaded on first open
+let svcThread = null; // {id, type, name} — thread the service panel acts on
+
+// Contacts cache/429 state (mirror of server CONTACTS_TTL_SECONDS):
+// the server caches contacts for 120s and backs off 60s after a 429.
+// The reload button stays disabled until contactsBackoffUntil, and
+// the meta line under "Danh bạ" shows cache/429 state + countdown.
+const CONTACTS_TTL_SECONDS = 120;
+let contactsBackoffUntil = 0;
+let lastContactsMeta = null;
+// Stale-while-revalidate follow-up (sửa lỗi load chậm 2026-11-05):
+// khi /api/contacts trả cache cũ (stale=true), UI hiện danh bạ
+// cũ ngay rồi hẹn loadMain() lại sau 3 giây để lấy dữ liệu mới
+// mà lần làm mới nền vừa ghi vào cache. Timer bị hủy mỗi lần
+// loadMain() chạy lại / đăng xuất, để không load chồng nhau.
+let staleRefreshTimer = null;
+function clearStaleRefresh() {
+  if (staleRefreshTimer) {
+    clearTimeout(staleRefreshTimer);
+    staleRefreshTimer = null;
+  }
+}
+function scheduleStaleRefresh() {
+  clearStaleRefresh();
+  staleRefreshTimer = setTimeout(() => {
+    staleRefreshTimer = null;
+    loadMain();
+  }, 3000);
+}
 
 // -- views ---------------------------------------------------------------
-const VIEWS = ["view-login", "view-main", "view-calls", "view-call"];
+// View quyết định theo phiên, KHÔNG theo mặc định lúc tải trang:
+// lúc tải chỉ có view-loading (trung tính) hiện; view-login chỉ
+// hiện khi /api/status chứng minh là chưa đăng nhập, view-main
+// chỉ hiện khi đã đăng nhập (xem loadMain). Trước sửa này,
+// view-login hiện sẵn trong HTML rồi loadMain mới đổi view sau
+// khi await /api/status — nên mỗi lần làm mới trang đều nháy
+// trang QR dù phiên vẫn còn (lỗi 2026-11-05).
+const VIEWS = ["view-loading", "view-login", "view-main", "view-calls", "view-call",
+               "view-chat", "view-webhooks", "view-services"];
 function show(view) {
   VIEWS.forEach((v) => { $(v).style.display = (v === view ? "" : "none"); });
   // No contacts to search before login — hide the search box there.
-  $("search").style.display = (view === "view-login" ? "none" : "");
+  $("search").style.display =
+    (view === "view-login" || view === "view-loading" ? "none" : "");
   $("nav-contacts").className =
-    "nav-item" + ((view === "view-main" || view === "view-call") ? " on" : "");
+    "nav-item" + ((view === "view-main" || view === "view-call" || view === "view-chat") ? " on" : "");
   $("nav-calls").className =
     "nav-item" + (view === "view-calls" ? " on" : "");
+  $("nav-webhooks").className =
+    "nav-item" + (view === "view-webhooks" ? " on" : "");
+  $("nav-services").className =
+    "nav-item" + (view === "view-services" ? " on" : "");
   closeMenu();
 }
 
@@ -33,6 +82,18 @@ async function api(path, method, body) {
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
+  // Het phien dang nhap app (hoac chua dang nhap): ve trang dang nhap.
+  // Trang /login la cong ngoai; QR Zalo nam sau no.
+  if (r.status === 401) {
+    window.location.href = "/login";
+    throw new Error("chua_dang_nhap_app");
+  }
+  return r.json();
+}
+
+// POST multipart (file/photo/voice): FormData, no JSON header.
+async function apiForm(path, form) {
+  const r = await fetch(path, { method: "POST", body: form });
   return r.json();
 }
 
@@ -105,8 +166,15 @@ function renderList() {
     tid.textContent = r.id;
     sub.appendChild(document.createTextNode(typePill(r.type) + " · "));
     sub.appendChild(tid);
-    if (r.type === "group" && r.members) {
-      sub.appendChild(document.createTextNode(" · " + r.members.length + " thành viên"));
+    if (r.type === "group") {
+      // Số thành viên HIỂN THỊ lấy từ r.member_count (totalMember /
+      // memberIds / currentMems phía server) — KHÔNG đếm
+      // r.members.length: members chỉ là topMember (danh sách hiển
+      // thị, có thể rỗng dù nhóm đông) và chỉ dùng cho partners khi
+      // gọi nhóm. Trước sửa này mọi nhóm đều hiện "0 thành viên".
+      const n = (typeof r.member_count === "number")
+        ? r.member_count : (r.members ? r.members.length : 0);
+      sub.appendChild(document.createTextNode(" · " + n + " thành viên"));
     }
     main.appendChild(name);
     main.appendChild(sub);
@@ -118,11 +186,20 @@ function renderList() {
     call.className = "btn btn-secondary row-call";
     call.textContent = "Gọi";
     call.onclick = (e) => { e.stopPropagation(); startCall(r); };
+    const svc = document.createElement("button");
+    svc.type = "button";
+    svc.className = "btn btn-text row-svc";
+    svc.textContent = "Dịch vụ";
+    svc.title = "Mở panel Dịch vụ cho thread này";
+    svc.onclick = (e) => { e.stopPropagation(); openServices(r); };
     li.appendChild(av);
     li.appendChild(main);
     li.appendChild(pill);
+    li.appendChild(svc);
     li.appendChild(call);
-    li.onclick = () => startCall(r);
+    // Row tap opens the thread's chat (Zalo PC style); the "Goi"
+    // button beside it still starts a call by threadID.
+    li.onclick = () => openThread(r);
     ul.appendChild(li);
   });
   const empty = $("list-empty");
@@ -138,8 +215,98 @@ function renderList() {
   }
 }
 
-async function loadMain() {
-  const st = await api("/api/status");
+function fmtClock(epochSec) {
+  return new Date(epochSec * 1000).toLocaleTimeString("vi-VN", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}
+// How many seconds of server backoff are left (0 when none).
+function backoffLeft() {
+  return Math.max(0, Math.ceil((contactsBackoffUntil - Date.now()) / 1000));
+}
+function setContactsBackoff(seconds) {
+  if (seconds > 0) {
+    contactsBackoffUntil = Date.now() + seconds * 1000;
+  }
+  updateReloadButton();
+}
+// The reload button respects the server backoff: while it lasts the
+// button is disabled and counts down — tapping it again would only
+// hammer Zalo harder (that is how the 7x burst happened). The retry
+// button in the error box follows the same rule.
+function updateReloadButton() {
+  const left = backoffLeft();
+  const reload = $("btn-reload-contacts");
+  if (reload) {
+    reload.disabled = left > 0;
+    reload.textContent = left > 0 ? ("Tải lại (" + left + " giây)") : "Tải lại";
+  }
+  const retry = $("btn-retry-contacts");
+  if (retry) {
+    retry.disabled = left > 0;
+    retry.textContent = left > 0 ? ("Tải lại (" + left + " giây)") : "Tải lại";
+  }
+}
+// Meta line under "Danh bạ": fresh / cached / 429 state, in plain
+// Vietnamese. The 429 countdown ticks via the 1s clock timer.
+function updateContactsMeta(data) {
+  if (data) lastContactsMeta = data;
+  const el = $("contacts-meta");
+  if (!el) return;
+  const d = lastContactsMeta;
+  if (!d || d.fetched_at === undefined) { el.textContent = ""; el.className = "contacts-meta"; return; }
+  const when = fmtClock(d.fetched_at);
+  const left = backoffLeft();
+  // rate_limited alone is stale history once the wait has passed —
+  // only a live countdown (left > 0) keeps the warning up.
+  if (left > 0) {
+    el.textContent = "Zalo đang giới hạn (429) — đang hiển thị danh bạ đã lưu lúc "
+      + when + ", thử lại sau " + Math.max(left, d.retry_after_seconds || 0) + " giây.";
+    el.className = "contacts-meta warn";
+    return;
+  }
+  if (d.source === "cache-after-429") {
+    el.textContent = "Danh bạ đã lưu lúc " + when + " (Zalo vừa giới hạn, đã qua cơn).";
+    el.className = "contacts-meta";
+    return;
+  }
+  if (d.stale) {
+    // Cache cũ đã hết TTL, vừa trả ngay trong lúc chờ làm mới nền:
+    // hiện rõ là đang tải bản mới (loadMain sẽ tự tải lại sau
+    // 3 giây để lấy dữ liệu mới).
+    el.textContent = "Danh bạ đã lưu lúc " + when + " — đang tải bản mới…";
+    el.className = "contacts-meta";
+    return;
+  }
+  if (d.source === "cache") {
+    const freshIn = Math.max(0, CONTACTS_TTL_SECONDS - (d.age_seconds || 0));
+    el.textContent = "Danh bạ đã lưu lúc " + when + " — sẽ tải mới sau "
+      + freshIn + " giây (bấm “Tải lại” để lấy mới ngay).";
+    el.className = "contacts-meta";
+    return;
+  }
+  el.textContent = "Vừa cập nhật lúc " + when + ".";
+  el.className = "contacts-meta";
+}
+
+async function loadMain(force) {
+  clearStaleRefresh();
+  // Quyết định view theo phiên TRƯỚC khi vẽ view chính: chỉ khi
+  // /api/status trả về mới biết đã đăng nhập hay chưa. Trong lúc
+  // chờ, view-loading (trung tính) vẫn hiện — tuyệt đối không vẽ
+  // trang QR khi chưa chứng minh được là chưa đăng nhập (lỗi nháy
+  // QR 2026-11-05). Nếu không kết nối được máy chủ thì ở lại màn
+  // hình chờ với câu báo lỗi, cũng không hiện trang QR.
+  let st;
+  try {
+    st = await api("/api/status");
+  } catch (e) {
+    $("loading-text").textContent =
+      "Không kết nối được máy chủ. Thử tải lại trang.";
+    show("view-loading");
+    stopCallsTimers();
+    return;
+  }
   $("who").textContent = st.login
     ? ("Đã đăng nhập: " + (st.phonenum || st.uid)) : "Chưa đăng nhập";
   // Version marker: shows which image/commit the server is really
@@ -148,19 +315,274 @@ async function loadMain() {
   $("engine-note").textContent = st.engine && st.engine.detail
     ? ("Tiếng: " + st.engine.detail) : "";
   if (!st.login) { show("view-login"); stopCallsTimers(); return; }
-  const data = await api("/api/contacts");
+  // force=true only from an intentional "Tải lại" tap: the server
+  // skips the TTL then, but still honours the 429 backoff. Every
+  // other loadMain() call (tab switch, back from a call, end call)
+  // is a plain load and is served from the server cache in TTL.
+  const data = await api("/api/contacts" + (force ? "?force=1" : ""));
   const err = $("contacts-error");
   if (data.error) {
+    // 429 with no cache to serve: a dry error, but with the wait
+    // stated and the reload button locked until it passes.
+    if (data.retry_after_seconds) setContactsBackoff(data.retry_after_seconds);
     err.hidden = false;
     $("contacts-error-text").textContent = "Lỗi tải danh bạ: " + data.error;
+    updateContactsMeta(null);
   } else {
+    // A 429 WITH cache still returns rows (source cache-after-429):
+    // show the list, not an error — plus the wait, in the meta line.
+    if (data.rate_limited && data.retry_after_seconds) {
+      setContactsBackoff(data.retry_after_seconds);
+    }
     err.hidden = true;
     contacts = data;
+    updateContactsMeta(data);
+    // Stale-while-revalidate: danh bạ cũ vừa hiện ngay; hẹn tải
+    // lại sau 3 giây để lấy bản mới mà lần làm mới nền vừa ghi
+    // vào cache (xem scheduleStaleRefresh). Không hẹn khi dữ liệu
+    // đã tươi / còn trong TTL — chỉ khi stale mới cần lần tải nữa.
+    if (data.stale) scheduleStaleRefresh();
   }
+  updateReloadButton();
   renderList();
+  renderSvcThreadOptions();
   await loadCalls();
   startCallsTimers();
   show("view-main");
+}
+
+// -- services: the 96 addon services, grouped, acting on the
+// selected thread. Supported ops get a real form + Run button;
+// anything else shows its status + reason and NO fake button.
+const SVC_STATUS_LABEL = {
+  supported: "Thao tác được",
+  chat: "Thuộc khung chat",
+  zalobot: "Thuộc máy chủ zalobot",
+  view: "Đã xem được",
+  unsupported: "Chưa hỗ trợ",
+};
+const SVC_STATUS_PILL = {
+  supported: "pill pill-positive",
+  chat: "pill pill-neutral",
+  zalobot: "pill pill-neutral",
+  view: "pill pill-accent",
+  unsupported: "pill pill-negative",
+};
+
+function svcCurrentThread() {
+  const typed = $("svc-thread-id").value.trim();
+  if (typed) {
+    return { id: typed, type: $("svc-thread-type").value,
+             name: svcThread && svcThread.id === typed
+               ? svcThread.name : "" };
+  }
+  if (svcThread) return svcThread;
+  const sel = $("svc-thread");
+  if (sel && sel.value) {
+    const opt = sel.options[sel.selectedIndex];
+    return { id: sel.value, type: opt.dataset.type || "user",
+             name: opt.textContent.split(" · ")[0] };
+  }
+  return null;
+}
+
+function renderSvcThreadOptions() {
+  const sel = $("svc-thread");
+  if (!sel) return;
+  const keep = svcThread ? svcThread.id : sel.value;
+  sel.innerHTML = "";
+  const { f, g, all } = allRows();
+  all.forEach((r) => {
+    const o = document.createElement("option");
+    o.value = r.id;
+    o.dataset.type = r.type;
+    o.textContent = (r.name || r.id) + " · " + r.id;
+    sel.appendChild(o);
+  });
+  if (keep) sel.value = keep;
+  if (sel.value && !svcThread) {
+    const opt = sel.options[sel.selectedIndex];
+    svcThread = { id: sel.value, type: opt.dataset.type || "user",
+                  name: (opt.textContent || "").split(" · ")[0] };
+  }
+  syncSvcThreadBox();
+}
+
+function syncSvcThreadBox() {
+  const t = svcCurrentThread();
+  const name = $("svc-thread-name");
+  if (!t) { name.textContent = "Chưa chọn thread nào."; return; }
+  $("svc-thread-type").value = t.type;
+  name.textContent = (t.name ? t.name + " · " : "")
+    + t.id + " · " + typePill(t.type);
+}
+
+function openServices(row) {
+  svcThread = { id: row.id, type: row.type, name: row.name || row.id };
+  $("svc-thread-id").value = "";
+  renderSvcThreadOptions();
+  if ($("svc-thread")) $("svc-thread").value = row.id;
+  syncSvcThreadBox();
+  loadServices().then(() => show("view-services"));
+}
+
+async function loadServices() {
+  if (!svcCatalog) {
+    try {
+      svcCatalog = await api("/api/svc/catalog");
+    } catch (e) {
+      $("svc-counts").textContent =
+        "Không tải được danh mục dịch vụ: " + e;
+      return;
+    }
+  }
+  renderServices();
+}
+
+function renderServices() {
+  const cat = svcCatalog;
+  if (!cat || !cat.services) return;
+  const c = cat.counts || {};
+  const done = (c.supported || 0) + (c.view || 0);
+  $("svc-counts").textContent =
+    done + "/96 thao tác được trên UI (trong đó "
+    + (c.supported || 0) + " qua panel Dịch vụ, "
+    + (c.view || 0) + " đã xem được ở Danh bạ) · "
+    + (c.chat || 0) + " thuộc khung chat · "
+    + (c.zalobot || 0) + " thuộc máy chủ zalobot · "
+    + (c.unsupported || 0) + " chưa hỗ trợ (chưa có đường PC).";
+  const box = $("svc-groups");
+  box.innerHTML = "";
+  (cat.groups || []).forEach((g) => {
+    const items = cat.services.filter((s) => s.group === g.id);
+    if (!items.length) return;
+    const sec = document.createElement("section");
+    sec.className = "svc-group";
+    const h = document.createElement("h2");
+    h.className = "svc-group-title";
+    h.textContent = g.label;
+    sec.appendChild(h);
+    const ul = document.createElement("ul");
+    ul.className = "svc-list";
+    items.forEach((s) => ul.appendChild(svcRow(s)));
+    sec.appendChild(ul);
+    box.appendChild(sec);
+  });
+  syncSvcThreadBox();
+}
+
+function svcRow(s) {
+  const li = document.createElement("li");
+  li.className = "svc-row" + (s.danger ? " svc-danger" : "");
+  const main = document.createElement("div");
+  main.className = "svc-main";
+  const name = document.createElement("div");
+  name.className = "svc-name";
+  name.textContent = s.label;
+  const sub = document.createElement("div");
+  sub.className = "row-sub";
+  sub.textContent = s.addon + (s.pc ? " · " + s.pc : "");
+  main.appendChild(name);
+  main.appendChild(sub);
+  if (s.desc) {
+    const d = document.createElement("div");
+    d.className = "svc-desc";
+    d.textContent = s.desc;
+    main.appendChild(d);
+  }
+  if (s.status === "supported" && s.body_unverified) {
+    const w = document.createElement("div");
+    w.className = "svc-warn";
+    w.textContent = "Body chưa xác minh thật — path và mã có trong "
+      + "bundle, body dùng tham số addon.";
+    main.appendChild(w);
+  }
+  if (s.status !== "supported" && s.reason) {
+    const r = document.createElement("div");
+    r.className = "svc-reason";
+    r.textContent = s.reason;
+    main.appendChild(r);
+  }
+  const pill = document.createElement("span");
+  pill.className = SVC_STATUS_PILL[s.status] || "pill pill-neutral";
+  pill.textContent = SVC_STATUS_LABEL[s.status] || s.status;
+  li.appendChild(main);
+  li.appendChild(pill);
+  if (s.status === "supported" && s.action) {
+    const form = document.createElement("div");
+    form.className = "svc-form";
+    const inputs = {};
+    (s.fields || []).forEach((f) => {
+      const lab = document.createElement("label");
+      lab.className = "svc-field";
+      const cap = document.createElement("span");
+      cap.textContent = f.label + (f.required ? " *" : "");
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.placeholder = f.label;
+      inp.setAttribute("aria-label", f.label);
+      lab.appendChild(cap);
+      lab.appendChild(inp);
+      form.appendChild(lab);
+      inputs[f.key] = inp;
+    });
+    const run = document.createElement("button");
+    run.type = "button";
+    run.className = "btn " + (s.danger ? "btn-danger-outline svc-run"
+      : "btn-secondary svc-run");
+    run.textContent = "Chạy";
+    run.onclick = () => runSvc(s, inputs, run);
+    form.appendChild(run);
+    li.appendChild(form);
+  }
+  return li;
+}
+
+function svcResult(text, ok) {
+  const box = $("svc-result");
+  box.hidden = false;
+  box.className = "svc-result" + (ok ? " svc-ok" : " svc-err");
+  box.textContent = text;
+}
+
+async function runSvc(s, inputs, btn) {
+  const t = svcCurrentThread();
+  if (s.thread !== "none" && !t) {
+    svcResult("Chọn một thread trước (ở ô Thread thao tác).", false);
+    return;
+  }
+  if (s.danger && !window.confirm(
+      "Thao tác “" + s.label + "” không hoàn tác được. Chạy tiếp?")) {
+    return;
+  }
+  const body = {};
+  if (t) { body.thread_id = t.id; body.type = t.type; }
+  let missing = null;
+  (s.fields || []).forEach((f) => {
+    const v = inputs[f.key] ? inputs[f.key].value.trim() : "";
+    if (v) body[f.key] = v;
+    else if (f.required) missing = f.label;
+  });
+  if (missing) {
+    svcResult("Thiếu: " + missing + ".", false);
+    return;
+  }
+  btn.disabled = true;
+  svcResult("Đang chạy “" + s.label + "”…", true);
+  try {
+    const r = await api("/api/svc/" + s.action, "POST", body);
+    if (r.ok) {
+      svcResult("Xong “" + s.label + "”: "
+        + JSON.stringify(r.data), true);
+    } else {
+      svcResult("Lỗi “" + s.label + "”: "
+        + (r.error || JSON.stringify(r)), false);
+    }
+  } catch (e) {
+    svcResult("Lỗi mạng khi chạy “" + s.label + "”: " + e, false);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // -- calls: active + history ----------------------------------------------
@@ -317,12 +739,254 @@ function startCallsTimers() {
       });
       const t = $("call-timer");
       if (currentCall) t.textContent = fmtElapsed(currentCall.started_at);
+      // 1s tick for the contacts reload countdown + 429 meta line.
+      if (contactsBackoffUntil) {
+        updateReloadButton();
+        if (lastContactsMeta) updateContactsMeta();
+        if (backoffLeft() === 0) contactsBackoffUntil = 0;
+      }
     }, 1000);
   }
 }
 function stopCallsTimers() {
   if (callsTimer) { clearInterval(callsTimer); callsTimer = null; }
   if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+}
+
+// -- chat theo thread -------------------------------------------------
+function chatThreadParam() {
+  return "?type=" + (currentThread.type === "group" ? "group" : "user");
+}
+
+function openThread(row) {
+  currentThread = row;
+  const av = $("chat-avatar");
+  av.className = "avatar " + tintFor(row.id);
+  av.textContent = initials(row.name, row.id);
+  $("chat-name").textContent = row.name || row.id;
+  $("chat-type").textContent = typePill(row.type || "user");
+  $("chat-thread").textContent = row.id;
+  // Member count: only show when known (>0). The group rows' member
+  // list can be empty while the real count is not (topMember is
+  // partial) — showing "0 thanh vien" would be wrong.
+  $("chat-members").textContent =
+    (row.type === "group" && row.members && row.members.length > 0)
+      ? (" · " + row.members.length + " thành viên") : "";
+  $("chat-input").value = "";
+  show("view-chat");
+  loadThreadHistory();
+}
+
+function bubbleText(m) {
+  if (m.kind === "file") return "Đã gửi file: " + (m.file_name || m.text || "");
+  if (m.kind === "photo") return "Đã gửi ảnh" + (m.file_name ? ": " + m.file_name : "");
+  if (m.kind === "voice") return "Đã gửi tin nhắn thoại" + (m.file_name ? ": " + m.file_name : "") + " (thu tại trình duyệt)";
+  return m.text || "";
+}
+
+function renderMessages(messages) {
+  const box = $("chat-history");
+  box.innerHTML = "";
+  (messages || []).forEach((m) => {
+    const out = m.direction === "out" || m.sender_id === "me";
+    const div = document.createElement("div");
+    div.className = "bubble " + (out ? "bubble-out" : "bubble-in");
+    if (!out && currentThread.type === "group" && m.sender_id) {
+      const who = document.createElement("div");
+      who.className = "bubble-who";
+      who.textContent = m.sender_id;
+      div.appendChild(who);
+    }
+    const text = document.createElement("div");
+    text.className = "bubble-text";
+    text.textContent = bubbleText(m);
+    div.appendChild(text);
+    if (m.time) {
+      const meta = document.createElement("div");
+      meta.className = "bubble-meta";
+      meta.textContent = fmtTime(m.time);
+      div.appendChild(meta);
+    }
+    box.appendChild(div);
+  });
+  box.scrollTop = box.scrollHeight;
+  const empty = $("chat-empty");
+  if (!messages || messages.length === 0) {
+    empty.hidden = false;
+    empty.textContent = currentThread.type === "group"
+      ? "Chưa có tin nhắn nào trong nhóm này."
+      : "Chưa có tin nhắn nào trong phiên này. Lịch sử 1-1 cũ chưa lấy được qua HTTPS (xem ghi chú trên).";
+  } else {
+    empty.hidden = true;
+  }
+}
+
+async function loadThreadHistory() {
+  if (!currentThread) return;
+  const notice = $("chat-notice");
+  try {
+    const data = await api("/api/thread/" + encodeURIComponent(currentThread.id)
+      + "/history" + chatThreadParam() + "&count=50");
+    if (data.error) {
+      notice.hidden = false;
+      notice.textContent = "Lỗi tải lịch sử: " + data.error;
+      renderMessages([]);
+      return;
+    }
+    if (data.notice) {
+      notice.hidden = false;
+      notice.textContent = data.notice;
+    } else {
+      notice.hidden = true;
+    }
+    renderMessages(data.messages || []);
+    // Mark read (best effort): only ids we actually saw, never "me".
+    const ids = (data.messages || [])
+      .map((m) => m.id).filter((id) => id && id !== "me");
+    if (ids.length) {
+      api("/api/thread/" + encodeURIComponent(currentThread.id) + "/seen",
+        "POST", { type: currentThread.type === "group" ? "group" : "user", msg_ids: ids })
+        .catch(() => {});
+    }
+  } catch (e) {
+    notice.hidden = false;
+    notice.textContent = "Lỗi tải lịch sử: " + (e && e.message ? e.message : e);
+    renderMessages([]);
+  }
+}
+
+async function sendChatText() {
+  if (!currentThread) return;
+  const input = $("chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  const r = await api("/api/thread/" + encodeURIComponent(currentThread.id) + "/send",
+    "POST", { type: currentThread.type === "group" ? "group" : "user", message: text });
+  if (r.error) {
+    $("chat-notice").hidden = false;
+    $("chat-notice").textContent = "Lỗi gửi tin: " + r.error;
+    input.value = text;
+    return;
+  }
+  // The message just sent shows at once (local echo from the server).
+  if (r.message) {
+    const box = $("chat-history");
+    const cur = Array.from(box.querySelectorAll(".bubble")).length;
+    if (cur === 0) $("chat-empty").hidden = true;
+    renderMessages([...chatRenderedMessages(), r.message]);
+  }
+}
+
+let _rendered = [];
+function chatRenderedMessages() { return _rendered; }
+// Keep the rendered list so a just-sent message can be appended
+// without refetching history (refetching group history on every
+// send would cost a Zalo call each time).
+const _renderMessagesOrig = renderMessages;
+renderMessages = function (messages) {
+  _rendered = messages || [];
+  _renderMessagesOrig(messages);
+};
+
+async function sendChatFile(file) {
+  if (!currentThread || !file) return;
+  const form = new FormData();
+  form.append("type", currentThread.type === "group" ? "group" : "user");
+  const isPhoto = (file.type || "").startsWith("image/");
+  form.append("kind", isPhoto ? "photo" : "file");
+  if (isPhoto) {
+    // Real photo send carries width/height (11152/11164 params).
+    const dims = await new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => resolve({ w: 0, h: 0 });
+      img.src = URL.createObjectURL(file);
+    });
+    form.append("width", String(dims.w));
+    form.append("height", String(dims.h));
+  }
+  form.append("file", file, file.name);
+  const r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendfile", form);
+  if (r.error) {
+    $("chat-notice").hidden = false;
+    $("chat-notice").textContent = "Lỗi gửi file: " + r.error;
+    return;
+  }
+  if (r.message) renderMessages([...chatRenderedMessages(), r.message]);
+}
+
+// -- ghi am: MediaRecorder cua trinh duyet (khong phai ghi am native
+// cua Zalo PC) -> gui file da ghi qua voicemp3/sendmp3. Chrome thuong
+// cho webm/opus, khong phai mp3 — server gui dung file nhan duoc va
+// ghi ro trong bao cao; muon chac mp3 can bo ma hoa mp3 o buoc sau.
+async function toggleRecord() {
+  const btn = $("btn-chat-record");
+  const state = $("chat-rec-state");
+  if (mediaRecorder && mediaRecorder.state === "recording") {
+    mediaRecorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    state.hidden = false;
+    state.textContent = "Trình duyệt này không hỗ trợ ghi âm (cần micro + HTTPS/localhost).";
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+    mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recChunks = [];
+    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      clearInterval(recTimer);
+      recTimer = null;
+      stream.getTracks().forEach((t) => t.stop());
+      btn.textContent = "● Ghi âm";
+      state.hidden = true;
+      const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+      if (!blob.size) return;
+      const ext = (blob.type || "").includes("mp4") ? "mp4" : "webm";
+      const file = new File([blob], "voice." + ext, { type: blob.type || "audio/webm" });
+      const form = new FormData();
+      form.append("type", currentThread.type === "group" ? "group" : "user");
+      form.append("file", file, file.name);
+      const r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendvoice", form);
+      if (r.error) {
+        $("chat-notice").hidden = false;
+        $("chat-notice").textContent = "Lỗi gửi tin nhắn thoại: " + r.error;
+        return;
+      }
+      if (r.message) renderMessages([...chatRenderedMessages(), r.message]);
+    };
+    mediaRecorder.start();
+    btn.textContent = "■ Dừng";
+    state.hidden = false;
+    const started = Date.now();
+    state.textContent = "Đang ghi âm… 00:00";
+    recTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - started) / 1000);
+      state.textContent = "Đang ghi âm… " + String(Math.floor(s / 60)).padStart(2, "0")
+        + ":" + String(s % 60).padStart(2, "0") + " — bấm “■ Dừng” để gửi.";
+    }, 1000);
+  } catch (e) {
+    state.hidden = false;
+    state.textContent = "Không mở được micro: " + (e && e.message ? e.message : e);
+  }
+}
+
+function onChatInput() {
+  // Typing event (11144/11196), throttled: at most once per 4 s
+  // while typing, fire-and-forget.
+  if (!currentThread) return;
+  const now = Date.now();
+  if (now - lastTypingAt < 4000) return;
+  lastTypingAt = now;
+  api("/api/thread/" + encodeURIComponent(currentThread.id) + "/typing",
+    "POST", { type: currentThread.type === "group" ? "group" : "user" })
+    .catch(() => {});
 }
 
 // -- QR flow ---------------------------------------------------------------
@@ -423,6 +1087,93 @@ async function endCall() {
   loadMain();
 }
 
+// -- webhooks: settings -------------------------------------------------
+// Four families, same names as the addon (set_account_webhook) plus
+// the new call family. GET/POST /api/webhooks, POST /api/webhooks/test.
+const WEBHOOK_KINDS = ["message", "group_event", "reaction", "call"];
+function webhookForm() {
+  const cfg = {};
+  WEBHOOK_KINDS.forEach((k) => {
+    cfg[k + "_webhook_url"] = $(`wh-${k}-url`).value.trim();
+    cfg[k + "_enabled"] = $(`wh-${k}-enabled`).checked;
+  });
+  return cfg;
+}
+function fillWebhookForm(cfg) {
+  WEBHOOK_KINDS.forEach((k) => {
+    $(`wh-${k}-url`).value = cfg[k + "_webhook_url"] || "";
+    $(`wh-${k}-enabled`).checked = cfg[k + "_enabled"] !== false;
+    $(`wh-${k}-result`).textContent = "";
+  });
+  $("webhooks-error").hidden = true;
+  $("webhooks-saved").hidden = true;
+  $("wh-save-result").textContent = "";
+}
+async function loadWebhooks() {
+  const cfg = await api("/api/webhooks");
+  if (cfg.error) { show("view-login"); stopCallsTimers(); return; }
+  fillWebhookForm(cfg);
+  show("view-webhooks");
+}
+async function saveWebhooks(e) {
+  if (e) e.preventDefault();
+  $("webhooks-saved").hidden = true;
+  const r = await api("/api/webhooks", "POST", webhookForm());
+  const err = $("webhooks-error");
+  if (r.error) {
+    err.hidden = false;
+    $("webhooks-error-text").textContent = "Không lưu được: " + r.error;
+    return;
+  }
+  err.hidden = true;
+  if (r.config) fillWebhookForm(r.config);
+  $("webhooks-saved").hidden = false;
+}
+async function testWebhook(kind) {
+  const out = $(`wh-${kind}-result`);
+  const btn = $(`wh-${kind}-test`);
+  btn.disabled = true;
+  out.className = "test-result";
+  out.textContent = "Đang gửi thử…";
+  try {
+    const r = await api("/api/webhooks/test", "POST", { kind });
+    if (r.error) {
+      out.className = "test-result bad";
+      out.textContent = "Không gửi được: " + r.error;
+    } else if (r.dispatched) {
+      out.className = "test-result ok";
+      out.textContent = "Đã gửi, bên nhận trả HTTP " + r.status + ".";
+    } else if (r.reason === "no_url") {
+      out.className = "test-result bad";
+      out.textContent = "Chưa có địa chỉ cho loại này — dán URL rồi bấm Lưu trước.";
+    } else if (r.reason === "disabled") {
+      out.className = "test-result bad";
+      out.textContent = "Loại này đang tắt — bật công tắc rồi bấm Lưu trước.";
+    } else {
+      out.className = "test-result bad";
+      out.textContent = "Gửi thất bại" + (r.status ? (" (HTTP " + r.status + ")") : "") + ".";
+    }
+  } catch (e) {
+    out.className = "test-result bad";
+    out.textContent = "Không gửi được: lỗi mạng.";
+  }
+  btn.disabled = false;
+}
+// -- chat theo thread -------------------------------------------------
+$("btn-back-chat").onclick = () => { show("view-main"); };
+$("btn-chat-call").onclick = () => { if (currentThread) startCall(currentThread); };
+$("btn-chat-refresh").onclick = loadThreadHistory;
+$("btn-chat-send").onclick = sendChatText;
+$("chat-input").onkeydown = (e) => { if (e.key === "Enter") sendChatText(); };
+$("chat-input").oninput = onChatInput;
+$("btn-chat-attach").onclick = () => $("chat-file").click();
+$("chat-file").onchange = (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (f) sendChatFile(f);
+};
+$("btn-chat-record").onclick = toggleRecord;
+
 // -- menu (phones/tablets) -------------------------------------------------
 function closeMenu() {
   $("sidebar").classList.remove("open");
@@ -432,10 +1183,20 @@ function closeMenu() {
 // -- wiring ---------------------------------------------------------------
 $("btn-qr").onclick = startQr;
 $("btn-qr-again").onclick = startQr;
-$("btn-logout").onclick = () => api("/api/logout", "POST").then(loadMain);
+$("btn-logout").onclick = () =>
+  api("/api/logout", "POST").then(() => { window.location.href = "/login"; })
+    .catch(() => { window.location.href = "/login"; });
 $("btn-end").onclick = endCall;
-$("btn-back").onclick = loadMain;
-$("btn-retry-contacts").onclick = loadMain;
+$("btn-back").onclick = () => loadMain();
+$("btn-retry-contacts").onclick = () => {
+  // Guard as well as disabled state: never fire during backoff.
+  if (backoffLeft() > 0) return;
+  loadMain(true);
+};
+$("btn-reload-contacts").onclick = () => {
+  if (backoffLeft() > 0) return;
+  loadMain(true);
+};
 $("search").oninput = () => { renderList(); renderCalls(); };
 $("rail-view-all").onclick = () => { show("view-calls"); };
 $("topbar-call").onclick = () => {
@@ -444,6 +1205,26 @@ $("topbar-call").onclick = () => {
 };
 $("nav-contacts").onclick = () => { show("view-main"); loadMain(); };
 $("nav-calls").onclick = async () => { await loadCalls(); show("view-calls"); };
+$("nav-webhooks").onclick = loadWebhooks;
+$("webhooks-form").onsubmit = saveWebhooks;
+WEBHOOK_KINDS.forEach((k) => {
+  $(`wh-${k}-test`).onclick = () => testWebhook(k);
+});
+$("nav-services").onclick = async () => {
+  renderSvcThreadOptions();
+  await loadServices();
+  show("view-services");
+};
+$("svc-thread").onchange = () => {
+  const sel = $("svc-thread");
+  const opt = sel.options[sel.selectedIndex];
+  svcThread = { id: sel.value, type: opt.dataset.type || "user",
+                name: (opt.textContent || "").split(" · ")[0] };
+  $("svc-thread-id").value = "";
+  syncSvcThreadBox();
+};
+$("svc-thread-id").oninput = () => syncSvcThreadBox();
+$("svc-thread-type").onchange = () => syncSvcThreadBox();
 $("btn-menu").onclick = () => {
   const open = $("sidebar").classList.toggle("open");
   $("btn-menu").setAttribute("aria-expanded", String(open));
@@ -460,4 +1241,9 @@ $("filter-all").onclick = () => setFilter("all");
 $("filter-friends").onclick = () => setFilter("friends");
 $("filter-groups").onclick = () => setFilter("groups");
 
+// Khởi động: hiện màn hình chờ trung tính TRƯỚC khi biết phiên,
+// rồi loadMain() mới quyết định view theo /api/status — trang QR
+// chỉ hiện khi status chứng minh là chưa đăng nhập, không bao giờ
+// là view mặc định lúc tải trang (lỗi nháy QR 2026-11-05).
+show("view-loading");
 loadMain();

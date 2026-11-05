@@ -24,9 +24,15 @@
         <span class="nav-label">Cuộc gọi</span>
         <span id="nav-call-dot" class="nav-dot" hidden></span>
       </button>
+      <button id="nav-webhooks" class="nav-item" type="button">
+        <span class="nav-label">Webhook</span>
+      </button>
+      <button id="nav-services" class="nav-item" type="button">
+        <span class="nav-label">Dịch vụ</span>
+      </button>
     </nav>
     <div class="sidebar-foot">
-      <div id="who" class="who">Chưa đăng nhập</div>
+      <div id="who" class="who">Đang kiểm tra…</div>
       <button id="btn-logout" class="btn btn-danger-outline" type="button">Đăng xuất</button>
     </div>
   </aside>
@@ -44,8 +50,21 @@
 
     <!-- White sheet: the work. Inset 8px from the right/bottom edges. -->
     <main class="sheet">
-      <!-- View 1: đăng nhập bằng QR -->
-      <section id="view-login" class="view">
+      <!-- View 0: chờ kiểm tra phiên — view DUY NHẤT hiện lúc tải
+           trang. Trung tính: không phải trang QR, không khẳng định
+           "chưa đăng nhập"; app.js đổi sang đúng view sau khi
+           /api/status trả về (sửa lỗi nháy trang QR 2026-11-05:
+           trước đây view-login hiện sẵn rồi mới kiểm tra phiên). -->
+      <section id="view-loading" class="view">
+        <div class="loading-wrap">
+          <h1>Đang mở Zalo PC…</h1>
+          <p class="lede" id="loading-text">Đang kiểm tra phiên đăng nhập…</p>
+        </div>
+      </section>
+
+      <!-- View 1: đăng nhập bằng QR — CHỈ hiện khi /api/status
+           chứng minh là chưa đăng nhập; lúc tải trang nó đang ẩn. -->
+      <section id="view-login" class="view" style="display:none">
         <div class="login-wrap">
           <h1>Đăng nhập bằng mã QR</h1>
           <p class="lede">Mở app Zalo trên điện thoại, quét mã dưới đây là xong.
@@ -67,8 +86,10 @@
         <div class="title-row">
           <div>
             <h1>Danh bạ</h1>
-            <p class="subline">Danh bạ lấy y nguyên từ addon — bấm một hàng để gọi theo threadID.</p>
+            <p class="subline">Danh bạ lấy y nguyên từ addon — bấm một hàng để mở chat, nút “Gọi” để gọi theo threadID.</p>
+            <p id="contacts-meta" class="contacts-meta" role="status"></p>
           </div>
+          <button id="btn-reload-contacts" class="btn btn-secondary" type="button">Tải lại</button>
         </div>
         <div class="count-cards" role="group" aria-label="Lọc theo loại">
           <button id="filter-all" class="count-card on" type="button">
@@ -121,7 +142,88 @@
         <p id="calls-empty" class="empty-note">Chưa có cuộc gọi nào. Bấm một hàng trong Danh bạ để gọi.</p>
       </section>
 
-      <!-- View 4: chi tiết cuộc gọi đang diễn ra -->
+      <!-- View 4: cài đặt webhook -->
+      <section id="view-webhooks" class="view" style="display:none">
+        <div class="title-row">
+          <div>
+            <h1>Cài đặt webhook</h1>
+            <p class="subline">App tự gửi sự kiện tới địa chỉ của bạn khi có chuyện xảy ra — giống như addon Zalo Bot gửi về Home Assistant. Dán địa chỉ webhook của bạn (n8n, Home Assistant, máy chủ riêng) vào từng loại, bật công tắc rồi bấm Lưu.</p>
+          </div>
+        </div>
+        <p id="webhooks-note" class="note-box">Sự kiện gọi đi gửi được ngay sau khi bạn lưu. Tin nhắn đến, sự kiện nhóm và cảm xúc cần kênh đồng bộ tin nhắn (đang làm) nên hiện chỉ lưu cấu hình và gửi thử — chưa có tin thật để gửi.</p>
+        <div id="webhooks-error" class="error-box" hidden>
+          <span id="webhooks-error-text"></span>
+        </div>
+        <div id="webhooks-saved" class="saved-box" hidden>Đã lưu cài đặt webhook.</div>
+        <form id="webhooks-form">
+          <div class="webhook-card">
+            <div class="webhook-head">
+              <div>
+                <h2>Tin nhắn đến</h2>
+                <p class="field-help">Tin nhắn người khác gửi tới tài khoản này. Tin do chính mình gửi không đẩy ra, để khỏi lặp.</p>
+              </div>
+              <label class="toggle"><input id="wh-message-enabled" type="checkbox" checked><span>Bật</span></label>
+            </div>
+            <label class="field-label" for="wh-message-url">Địa chỉ nhận tin nhắn</label>
+            <input id="wh-message-url" class="field-input mono" type="url" placeholder="https://…" autocomplete="off" inputmode="url">
+            <div class="webhook-actions">
+              <button id="wh-message-test" class="btn btn-secondary" type="button">Gửi thử</button>
+              <span id="wh-message-result" class="test-result" role="status"></span>
+            </div>
+          </div>
+          <div class="webhook-card">
+            <div class="webhook-head">
+              <div>
+                <h2>Sự kiện nhóm</h2>
+                <p class="field-help">Đổi tên nhóm, thêm/xóa thành viên, đổi ảnh nhóm và các sự kiện nhóm khác.</p>
+              </div>
+              <label class="toggle"><input id="wh-group_event-enabled" type="checkbox" checked><span>Bật</span></label>
+            </div>
+            <label class="field-label" for="wh-group_event-url">Địa chỉ nhận sự kiện nhóm</label>
+            <input id="wh-group_event-url" class="field-input mono" type="url" placeholder="https://…" autocomplete="off" inputmode="url">
+            <div class="webhook-actions">
+              <button id="wh-group_event-test" class="btn btn-secondary" type="button">Gửi thử</button>
+              <span id="wh-group_event-result" class="test-result" role="status"></span>
+            </div>
+          </div>
+          <div class="webhook-card">
+            <div class="webhook-head">
+              <div>
+                <h2>Cảm xúc</h2>
+                <p class="field-help">Ai đó thả cảm xúc (thích, tim, haha…) vào một tin nhắn.</p>
+              </div>
+              <label class="toggle"><input id="wh-reaction-enabled" type="checkbox" checked><span>Bật</span></label>
+            </div>
+            <label class="field-label" for="wh-reaction-url">Địa chỉ nhận cảm xúc</label>
+            <input id="wh-reaction-url" class="field-input mono" type="url" placeholder="https://…" autocomplete="off" inputmode="url">
+            <div class="webhook-actions">
+              <button id="wh-reaction-test" class="btn btn-secondary" type="button">Gửi thử</button>
+              <span id="wh-reaction-result" class="test-result" role="status"></span>
+            </div>
+          </div>
+          <div class="webhook-card">
+            <div class="webhook-head">
+              <div>
+                <h2>Cuộc gọi</h2>
+                <p class="field-help">Cuộc gọi đi đã gửi, gọi lỗi, hoặc đã kết thúc. Loại này gửi được ngay, không cần chờ kênh đồng bộ.</p>
+              </div>
+              <label class="toggle"><input id="wh-call-enabled" type="checkbox" checked><span>Bật</span></label>
+            </div>
+            <label class="field-label" for="wh-call-url">Địa chỉ nhận sự kiện gọi</label>
+            <input id="wh-call-url" class="field-input mono" type="url" placeholder="https://…" autocomplete="off" inputmode="url">
+            <div class="webhook-actions">
+              <button id="wh-call-test" class="btn btn-secondary" type="button">Gửi thử</button>
+              <span id="wh-call-result" class="test-result" role="status"></span>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button id="wh-save" class="btn btn-primary" type="submit">Lưu cài đặt</button>
+            <span id="wh-save-result" class="test-result" role="status"></span>
+          </div>
+        </form>
+      </section>
+
+      <!-- View 5: chi tiết cuộc gọi đang diễn ra -->
       <section id="view-call" class="view" style="display:none">
         <div class="crumbs">
           <button id="btn-back" class="btn btn-text" type="button">← Danh bạ</button>
@@ -138,6 +240,61 @@
         <div class="detail-actions">
           <button id="btn-end" class="btn btn-primary" type="button">Kết thúc</button>
         </div>
+      </section>
+
+      <!-- View 5: chat theo thread — khung chat kieu Zalo PC -->
+      <section id="view-chat" class="view" style="display:none">
+        <div class="crumbs">
+          <button id="btn-back-chat" class="btn btn-text" type="button">← Danh bạ</button>
+        </div>
+        <div class="chat-wrap">
+          <div class="chat-head">
+            <span id="chat-avatar" class="avatar t0">?</span>
+            <div class="chat-head-main">
+              <div class="chat-head-title">
+                <h1 id="chat-name">Trò chuyện</h1>
+                <span id="chat-type" class="pill pill-neutral"></span>
+              </div>
+              <p class="detail-meta">ThreadID <span id="chat-thread" class="mono"></span><span id="chat-members"></span></p>
+            </div>
+            <button id="btn-chat-call" class="btn btn-secondary" type="button">Gọi</button>
+          </div>
+          <div id="chat-notice" class="notice-box" hidden></div>
+          <div id="chat-history" class="chat-history" aria-live="polite"></div>
+          <p id="chat-empty" class="empty-note" hidden></p>
+          <div class="composer">
+            <input id="chat-file" type="file" hidden>
+            <button id="btn-chat-attach" class="btn btn-secondary" type="button" title="Đính kèm file hoặc ảnh">Đính kèm</button>
+            <button id="btn-chat-record" class="btn btn-secondary" type="button" title="Ghi âm bằng micro của trình duyệt rồi gửi file">● Ghi âm</button>
+            <input id="chat-input" type="text" placeholder="Nhắn tin…" aria-label="Nhắn tin" autocomplete="off">
+            <button id="btn-chat-send" class="btn btn-primary" type="button">Gửi</button>
+          </div>
+          <p id="chat-rec-state" class="rec-state" role="status" hidden></p>
+          <p class="chat-foot-note">Tin nhắn đến chưa tự cập nhật — kênh nhận tin (sync) chưa có; bấm “Tải lại lịch sử” để xem lịch sử nhóm mới nhất. <button id="btn-chat-refresh" class="btn btn-text" type="button">Tải lại lịch sử</button></p>
+        </div>
+      </section>
+
+      <!-- View 6: dịch vụ — toàn bộ 96 service addon, theo nhóm -->
+      <section id="view-services" class="view" style="display:none">
+        <div class="title-row">
+          <div>
+            <h1>Dịch vụ</h1>
+            <p class="subline">Đầy đủ 96 service của addon, thao tác trên thread đang chọn. Service nào chưa có đường PC thì chỉ hiện trạng thái, không có nút bấm giả.</p>
+          </div>
+        </div>
+        <p id="svc-counts" class="svc-counts" role="status">Đang tải danh mục dịch vụ…</p>
+        <div class="svc-thread">
+          <label for="svc-thread">Thread thao tác</label>
+          <select id="svc-thread"></select>
+          <input id="svc-thread-id" type="text" placeholder="Hoặc nhập threadID…" aria-label="Nhập threadID" autocomplete="off">
+          <select id="svc-thread-type" aria-label="Loại thread">
+            <option value="user">Cá nhân</option>
+            <option value="group">Nhóm</option>
+          </select>
+          <span id="svc-thread-name" class="row-sub"></span>
+        </div>
+        <div id="svc-result" class="svc-result" hidden></div>
+        <div id="svc-groups"></div>
       </section>
 
       <footer class="sheet-foot">

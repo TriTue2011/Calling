@@ -28,6 +28,7 @@ import time
 import urllib.parse
 
 AUTH_DOMAIN = "https://wpa.zalo.me"
+CHAT_DOMAIN = "https://chat-wpa.zalo.me"
 VOICECALL_DOMAIN = "https://voicecall-wpa.zalo.me"
 CONVERS_DOMAIN = "https://convers-wpa.api.zalo.me"
 PROFILE_DOMAIN = "https://profile-wpa.zalo.me"

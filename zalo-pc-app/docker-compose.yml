@@ -12,6 +12,20 @@ services:
       # privileges and runs the server as app.
       - zalo-pc-data:/data
     environment:
+      # BAT BUOC — dang nhap app (cong ngoai, truoc QR Zalo). Dat gia
+      # tri that luc deploy (Portainer: Stack -> Environment variables
+      # hoac bien moi truong cua stack); KHONG ghi mat khau that vao
+      # file nay. Thieu 2 bien nay server tu choi khoi dong.
+      # Cach 1 (don gian): user + mat khau dang plain text; server
+      # hash PBKDF2 luc khoi dong, salt+hash luu vao /data/app_auth.json.
+      ZALO_PC_APP_USER: "${ZALO_PC_APP_USER}"
+      ZALO_PC_APP_PASSWORD: "${ZALO_PC_APP_PASSWORD}"
+      # Cach 2 (thay cho PASSWORD): hash da tinh san —
+      #   python3 -m zalo_pc_app.app_auth
+      # roi dat ket qua vao ZALO_PC_APP_PASSWORD_HASH, bo trong PASSWORD.
+      # ZALO_PC_APP_PASSWORD_HASH: "${ZALO_PC_APP_PASSWORD_HASH}"
+      # Tuy chon: phien dang nhap app het han sau so gio nay (mac dinh 8).
+      # ZALO_PC_APP_SESSION_HOURS: "8"
       # Optional. Probe 2026-11-05 verified plaintext + signkey is
       # accepted for reqqr, so no key is needed for the QR step.
       # ZALO_PC_PARAM_CIPHER_KEY: ""

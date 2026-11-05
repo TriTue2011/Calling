@@ -11,7 +11,8 @@ Endpoints (PC client, auth/profile/group/convers domains):
               body params=<AES {gridVerMap: "{groupId: 0}"}>) ->
               {removedsGroup, unchangedsGroup, gridInfoMap:
               {groupId: {groupId, name, avt, fullAvt, creatorId,
-              topMember: [{id, ...}], totalMember, type, ...}}}.
+              topMember: [{id, ...}], totalMember, memberIds,
+              currentMems, type, ...}}}.
            The old getlg/v3 list path was the PC client's list path,
            not the addon's; per the user's "lấy y nguyên" direction
            the app follows the addon path ONLY. Both endpoints exist
@@ -119,6 +120,34 @@ def _extract_rows(data):
     return rows
 
 
+def _member_count(info, members):
+    """True member count of a group (gridInfoMap item).
+
+    BUG 2026-11-05 17:45 (ảnh user): tab Nhóm hiện đủ 6 nhóm có tên
+    đúng nhưng mỗi nhóm đều ghi "0 thành viên". Nguyên nhân: hàng
+    nhóm đếm len(topMember) — mà topMember là danh sách THÀNH VIÊN
+    HIỂN THỊ, server có thể trả rỗng (hoặc chỉ một phần) dù nhóm
+    đông. Số thật nằm ở các trường khác của cùng item đó:
+      1. totalMember (số) — tổng số thành viên, đáng tin nhất;
+      2. memberIds (danh sách id) — đếm len khi totalMember thiếu/0;
+      3. currentMems (danh sách) — đếm len khi cả hai trên đều thiếu;
+      4. len(members) từ topMember — đường lui cuối cùng.
+    `members` (topMember userIds) CHỈ dùng cho partners khi gọi
+    nhóm, không dùng để đếm nữa."""
+    total = info.get("totalMember")
+    try:
+        total = int(total)
+    except (TypeError, ValueError):
+        total = 0
+    if total and total > 0:
+        return total
+    for key in ("memberIds", "currentMems"):
+        val = info.get(key)
+        if isinstance(val, list) and val:
+            return len(val)
+    return len(members)
+
+
 def _group_row(group_id, info):
     """One group row from a gridInfoMap item (getmg-v2): the bundle's
     _preFormatData maps name -> displayName, avt -> avatar,
@@ -126,7 +155,8 @@ def _group_row(group_id, info):
     an object with id). `members` feeds the group call's `partners`
     (who to ring); topMember may be PARTIAL when hasMoreMember is
     set — the full member list via getgi/v2 is the follow-up if a
-    large group's call misses members."""
+    large group's call misses members. `member_count` is the
+    DISPLAYED count (see _member_count): never len(members)."""
     if not isinstance(info, dict):
         info = {}
     name = (info.get("name") or info.get("groupName")
@@ -142,7 +172,7 @@ def _group_row(group_id, info):
         elif isinstance(m, str):
             members.append(m)
     return {"id": str(group_id), "name": name, "avatar": avatar,
-            "members": members}
+            "members": members, "member_count": _member_count(info, members)}
 
 
 def describe_shape(data):

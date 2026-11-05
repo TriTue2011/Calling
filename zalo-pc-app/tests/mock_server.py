@@ -9,10 +9,14 @@ Scenarios are switched via flags on the MockZalo instance:
   confirm_mode: "ok" | "reject" | "no_sek"
   reqqr_mode:   "ok" | "rate_limit" | "force_plaintext_once"
   logininfo_mode: "ok" | "error102"
-  friends_mode / groups_mode: "ok" | "error602" | "empty"
+  friends_mode / groups_mode: "ok" | "error602" | "empty" | "rate429"
     "empty" simulates an account with no friends / no groups:
     friends data is [], groups data is {groups: [], hasMore: False,
     total: 0} — the client must report empty rows, not an error.
+    "rate429" simulates Zalo rate-limiting the endpoint with a real
+    HTTP 429 (the shape in the live 2026-11-05 log: "GET ...
+    getfriends network status=429") — the client must serve cache
+    + backoff instead of hammering again.
 
 Response shapes returned by the mock are the REAL server shapes
 (bundle compact-app-pc, verified 2026-11-05 — the old mock returned
@@ -49,6 +53,7 @@ import json
 import re
 import subprocess
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -93,7 +98,8 @@ class MockZalo:
         self.reqqr_mode = "ok"
         self.logininfo_mode = "ok"
         # Contacts error simulation: "ok" | "error602" (server rejects
-        # the call with the real 602 message, as in the 2026-11-05 bug).
+        # the call with the real 602 message, as in the 2026-11-05 bug)
+        # | "rate429" (HTTP 429, the live 2026-11-05 rate limit).
         self.friends_mode = "ok"
         self.groups_mode = "ok"
         # Voicecall request-step simulation (§7l): "ok" | "error114".
@@ -110,6 +116,11 @@ class MockZalo:
         # which holds an invitation with no media endpoints instead
         # of ringing the far end (observed live 2026-11-05 17:51).
         self.voice_calls = {}
+        # slow_seconds: làm Zalo trả chậm từng đó giây trên các
+        # endpoint danh bạ (friends / getlg/v4 / getmg-v2) — để pin
+        # stale-while-revalidate: load có cache cũ phải trả NGAY
+        # thay vì chờ Zalo chậm; chỉ load chưa có cache mới chờ.
+        self.slow_seconds = 0
         self._friends_first = True  # first friends call must send init=1
         self.seen = []  # (path, query, headers) log
         self._plaintext_forced = False
@@ -202,6 +213,9 @@ class MockZalo:
 
     # -- routes ------------------------------------------------------------
     def route(self, path, qs, headers, raw_qs=""):
+        if path in ("/api/social/friend/getfriends",
+                    "/api/group/getlg/v4") and self.slow_seconds:
+            time.sleep(self.slow_seconds)
         if path == "/api/login/reqqr":
             return 200, self._reqqr(qs)
         if path == "/scan":
@@ -213,15 +227,173 @@ class MockZalo:
         if path.startswith("/api/voicecall/"):
             return 200, self._voicecall(path, qs, headers, raw_qs)
         if path == "/api/social/friend/getfriends":
+            if self.friends_mode == "rate429":
+                return 429, {"error_code": 429,
+                             "error_message": "Too Many Requests",
+                             "data": {}}
             return 200, self._friends(qs, headers, raw_qs)
         if path == "/api/group/getlg/v4":
+            if self.groups_mode == "rate429":
+                return 429, {"error_code": 429,
+                             "error_message": "Too Many Requests",
+                             "data": {}}
             return 200, self._groups_v4(qs, headers)
+        if path in ("/api/message/sms", "/api/group/sendmsg"):
+            return 200, self._chat_send_text(path, qs, headers, raw_qs)
+        if path == "/api/group/history":
+            return 200, self._group_history(qs, headers, raw_qs)
+        if path in ("/api/message/typing", "/api/group/typing",
+                    "/api/message/seen", "/api/group/seen"):
+            return 200, self._chat_event(path, qs, headers, raw_qs)
+        if path.startswith(("/api/message/", "/api/group/",
+                            "/api/social/", "/api/conv/",
+                            "/api/convlabel/", "/api/board/",
+                            "/api/setting/",
+                            "/api/update/")):
+            return 200, self._svc_get(path, qs, headers, raw_qs)
         return 404, {"error_code": 404, "error_message": "mock no route"}
 
+    def _chat_send_text(self, path, qs, headers, raw_qs=""):
+        """Gui text 1-1 (11151) / nhom (11163): GET, params AES.
+        1-1 body {message, clientId, imei, toid}; nhom {message,
+        clientId, imei, visibility, grid}."""
+        self._check_postlogin(qs, headers, raw_qs, "chat send")
+        key = base64.b64decode(TEST_SESSION_KEY)
+        plain = _openssl_aes(key, base64.b64decode(qs["params"]),
+                             decrypt=True)
+        body = json.loads(plain.decode("utf-8"))
+        assert body.get("message"), body
+        assert body.get("clientId"), body
+        assert body.get("imei"), body
+        if path == "/api/message/sms":
+            assert body.get("toid"), body
+        else:
+            assert body.get("grid"), body
+            assert isinstance(body.get("visibility"), int), body
+        return self._postlogin_envelope(
+            {"msgId": "msg-1", "clientId": body["clientId"]})
+
+    def _group_history(self, qs, headers, raw_qs=""):
+        """Lich su nhom (11240): GET, params AES {grid, count}."""
+        self._check_postlogin(qs, headers, raw_qs, "group history")
+        key = base64.b64decode(TEST_SESSION_KEY)
+        plain = _openssl_aes(key, base64.b64decode(qs["params"]),
+                             decrypt=True)
+        body = json.loads(plain.decode("utf-8"))
+        assert body.get("grid"), body
+        assert isinstance(body.get("count"), int) and body["count"] > 0, body
+        return self._postlogin_envelope({
+            # "path"/"body" echo (nhu _svc_get) de test dispatch cua
+            # services kiem tra duoc routing; endpoint that chi tra
+            # messages/hasMore.
+            "path": "/api/group/history", "body": body,
+            "messages": [
+                {"msgId": "m1", "fromId": "20001",
+                 "message": "Chao ca nhom", "timestamp": 1762345600},
+                {"msgId": "m2", "fromId": "20002",
+                 "message": "Chao Ban A", "timestamp": 1762345660}],
+            "hasMore": False})
+
+    def _chat_event(self, path, qs, headers, raw_qs=""):
+        """typing (11144/11196) / seen (11150/11167): GET, params AES."""
+        self._check_postlogin(qs, headers, raw_qs, "chat event")
+        key = base64.b64decode(TEST_SESSION_KEY)
+        plain = _openssl_aes(key, base64.b64decode(qs["params"]),
+                             decrypt=True)
+        body = json.loads(plain.decode("utf-8"))
+        if "typing" in path:
+            assert body.get("toid") or body.get("grid"), body
+            assert body.get("imei"), body
+        else:
+            assert isinstance(body.get("msg_ids"), list), body
+        return self._postlogin_envelope({"ok": True})
+
+    def _chat_upload(self, path, qs, headers, raw_body=""):
+        """Gui file/anh/voice (11146/11191/11148/11169/11152/11164):
+        POST multipart, fileContent + query params=<AES {toid|grid,
+        clientId}> & type=2 (1-1) / 11 (nhom). raw_body o day la
+        str (mock do_POST decode utf-8) — test chi gui file ASCII."""
+        assert headers.get("Cookie"), "chat upload needs Cookie"
+        assert qs.get("zpw_ver") == "695", qs
+        assert qs.get("zpw_type") == "30", qs
+        ctype = headers.get("Content-Type") or ""
+        assert "multipart/form-data" in ctype, ctype
+        assert 'name="fileContent"' in raw_body, "needs fileContent"
+        assert "filename=" in raw_body, "needs filename"
+        key = base64.b64decode(TEST_SESSION_KEY)
+        plain = _openssl_aes(key, base64.b64decode(qs["params"]),
+                             decrypt=True)
+        body = json.loads(plain.decode("utf-8"))
+        assert body.get("clientId"), body
+        is_group = path.startswith("/api/group/")
+        if is_group:
+            assert body.get("grid"), body
+            assert qs.get("type") == "11", qs
+        else:
+            assert body.get("toid"), body
+            assert qs.get("type") == "2", qs
+        if path in ("/api/message/photo", "/api/group/sendpt"):
+            assert body.get("desc"), body
+            assert isinstance(body.get("width"), int), body
+            assert isinstance(body.get("height"), int), body
+        return self._postlogin_envelope(
+            {"msgId": "msg-file-1", "clientId": body["clientId"]})
+
     def route_post(self, path, qs, headers, raw_body=""):
+        if path == "/api/group/getmg-v2" and self.slow_seconds:
+            time.sleep(self.slow_seconds)
         if path == "/api/group/getmg-v2":
+            if self.groups_mode == "rate429":
+                return 429, {"error_code": 429,
+                             "error_message": "Too Many Requests",
+                             "data": {}}
             return 200, self._group_info_multi(qs, headers, raw_body)
+        if path in ("/api/message/sharefile_full",
+                    "/api/group/sharefile_full",
+                    "/api/message/voicemp3", "/api/group/sendmp3",
+                    "/api/message/photo", "/api/group/sendpt"):
+            return 200, self._chat_upload(path, qs, headers, raw_body)
+        if path.startswith(("/api/message/", "/api/group/",
+                            "/api/social/", "/api/conv/",
+                            "/api/convlabel/", "/api/board/",
+                            "/api/setting/",
+                            "/api/update/")):
+            return 200, self._svc_post(path, qs, headers, raw_body)
         return 404, {"error_code": 404, "error_message": "mock no route"}
+
+    def _svc_get(self, path, qs, headers, raw_qs=""):
+        """Generic post-login GET for the services module: strict
+        common params + fully percent-encoded params, decrypt the
+        body, echo it back inside the two-layer envelope. The mock
+        does NOT validate per-endpoint body shapes (those are the
+        audit's 'body chưa lần hết' — the test pins the wire
+        contract, not an invented body)."""
+        self._check_postlogin(qs, headers, raw_qs, "svc GET %s" % path)
+        key = base64.b64decode(TEST_SESSION_KEY)
+        plain = _openssl_aes(key, base64.b64decode(qs["params"]),
+                             decrypt=True)
+        body = json.loads(plain.decode("utf-8"))
+        return self._postlogin_envelope(
+            {"ok": True, "path": path, "body": body})
+
+    def _svc_post(self, path, qs, headers, raw_body=""):
+        """Generic post-login POST (form params=<AES JSON>) for the
+        services module: same contract as getmg-v2 (common params +
+        fully percent-encoded form value), echo in two-layer
+        envelope."""
+        self._check_common(qs, headers, "svc POST %s" % path)
+        m = re.search(r"(?:^|&)params=([^&]*)", raw_body or "")
+        assert m, "svc POST %s needs params form body" % path
+        assert "/" not in m.group(1) and "+" not in m.group(1), \
+            "svc POST %s params not fully percent-encoded" % path
+        form = dict(urllib.parse.parse_qsl(raw_body or ""))
+        assert "params" in form, "svc POST %s needs params" % path
+        key = base64.b64decode(TEST_SESSION_KEY)
+        plain = _openssl_aes(key, base64.b64decode(form["params"]),
+                             decrypt=True)
+        body = json.loads(plain.decode("utf-8"))
+        return self._postlogin_envelope(
+            {"ok": True, "path": path, "body": body})
 
     def _check_common(self, qs, headers, name, strict_type=True):
         """Cookie + zpw_ver=695/zpw_type=30 (strict) or "30"/"embed"
@@ -423,7 +595,6 @@ class MockZalo:
                              decrypt=True)
         body = json.loads(plain.decode("utf-8"))
         # route() passes the FULL path ("/api/voicecall/requestcall");
-        # the contract check below keys on the sub-path.
         sub = path[len("/api/voicecall/"):]
         if sub in ("requestcall", "group/requestcall"):
             # requestcall contract (bundle class wZ + ZaloCall.exe
@@ -552,7 +723,12 @@ class MockZalo:
         with {gridVerMap: "<JSON string of {groupId: 0}>"}.
         Returns {removedsGroup, unchangedsGroup, gridInfoMap} with
         one group info per requested id (name, avt, creatorId,
-        topMember [{id, ...}], totalMember)."""
+        topMember [{id, ...}], totalMember, memberIds, currentMems).
+        Nhom Y is the discriminating case for the 2026-11-05 "0 thành
+        viên" bug: topMember carries only 1 of its 5 members, so a
+        client that counts topMember shows 1 (live: 0 when topMember
+        is empty) while the true count is totalMember=5 — memberIds
+        and currentMems (5 ids each) agree with totalMember here."""
         if self.groups_mode == "error602":
             return {"error_code": 602,
                     "error_message": "zpw_type bị thiếu hoặc không đúng",
@@ -590,11 +766,17 @@ class MockZalo:
                       "avt": "avt-x", "fullAvt": "", "creatorId": "20001",
                       "topMember": [{"id": "20001", "displayName": "Ban A"},
                                     {"id": "20002", "displayName": "Ban B"}],
-                      "totalMember": 2, "type": 1},
+                      "totalMember": 2,
+                      "memberIds": ["20001", "20002"],
+                      "currentMems": ["20001", "20002"], "type": 1},
             "30002": {"groupId": "30002", "name": "Nhom Y",
                       "avt": "", "fullAvt": "", "creatorId": "20001",
                       "topMember": [{"id": "20001", "displayName": "Ban A"}],
-                      "totalMember": 1, "type": 1},
+                      "totalMember": 5,
+                      "memberIds": ["20001", "20002", "20003", "20004",
+                                    "20005"],
+                      "currentMems": ["20001", "20002", "20003", "20004",
+                                      "20005"], "type": 1},
         }
         grid_info = {gid: infos[gid] for gid in ver_map if gid in infos}
         return self._postlogin_envelope(

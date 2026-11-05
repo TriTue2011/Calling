@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đăng nhập — Zalo PC</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="shell">
+  <!-- Chi co thuong hieu o day: chua dang nhap app thi khong co
+       dieu huong Danh ba / Cuoc goi. -->
+  <aside class="sidebar" aria-label="Điều hướng">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">Z</span>
+      <span class="brand-name">Zalo PC</span>
+      <span class="brand-scope">Bản chạy trên server</span>
+    </div>
+  </aside>
+
+  <div class="main-col">
+    <header class="topbar"></header>
+
+    <!-- White sheet: form dang nhap app (cong ngoai). Dang nhap xong
+         moi toi QR Zalo (cong trong) o trang chinh. -->
+    <main class="sheet">
+      <section class="login-wrap">
+        <h1>Đăng nhập</h1>
+        <p class="lede">Nhập tài khoản do người quản trị cấp để mở app.
+          Đăng nhập xong mới tới bước quét mã QR Zalo.</p>
+        <form id="login-form" class="login-form" method="post" action="/api/app/login">
+          <div class="field">
+            <label for="username">Tên đăng nhập</label>
+            <input id="username" name="username" type="text" autocomplete="username"
+                   required autofocus>
+          </div>
+          <div class="field">
+            <label for="password">Mật khẩu</label>
+            <input id="password" name="password" type="password"
+                   autocomplete="current-password" required>
+          </div>
+          <p id="login-error" class="login-error" role="alert" hidden></p>
+          <div class="login-actions">
+            <button class="btn btn-primary" type="submit">Đăng nhập</button>
+          </div>
+        </form>
+        <p class="login-note">Phiên đăng nhập có hiệu lực 8 giờ, hết hạn
+          phải đăng nhập lại. Quên mật khẩu thì nhờ người quản trị đặt
+          lại lúc deploy — app không có chức năng tự đặt lại.</p>
+      </section>
+
+      <footer class="sheet-foot">
+        <span>Zalo PC — bản chạy trên server</span>
+        <span>Đăng nhập app trước, quét QR Zalo sau.</span>
+      </footer>
+    </main>
+  </div>
+</div>
+<script>
+(function () {
+  var form = document.getElementById("login-form");
+  var err = document.getElementById("login-error");
+  // Da dang nhap app roi thi ve thang trang chinh.
+  fetch("/api/app/status").then(function (r) { return r.json(); })
+    .then(function (s) { if (s.logged_in) window.location.href = "/"; })
+    .catch(function () { /* o lai trang dang nhap */ });
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    err.hidden = true;
+    var btn = form.querySelector("button[type=submit]");
+    btn.disabled = true;
+    fetch("/api/app/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: document.getElementById("username").value,
+        password: document.getElementById("password").value,
+      }),
+    }).then(function (r) {
+      btn.disabled = false;
+      if (r.ok) { window.location.href = "/"; return; }
+      // Loi chung: khong lo la sai user hay sai mat khau.
+      err.textContent = "Tên đăng nhập hoặc mật khẩu không đúng.";
+      err.hidden = false;
+      document.getElementById("password").value = "";
+      document.getElementById("password").focus();
+    }).catch(function () {
+      btn.disabled = false;
+      err.textContent = "Không kết nối được tới server. Thử lại sau.";
+      err.hidden = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>

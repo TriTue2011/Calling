@@ -7,6 +7,55 @@ Không chạy binary PC, không Wine, không QEMU.
 Báo cáo đầy đủ (luồng QR, verdict, câu hỏi mở, quy trình test thật):
 xem [bao-cao.md](bao-cao.md).
 
+## Đăng nhập app (user / mật khẩu) — cổng ngoài
+
+Mở app phải đăng nhập bằng tài khoản do người quản trị cấp, rồi mới
+tới bước quét mã QR Zalo (cổng trong). Trang đăng nhập ở `/login`
+(kiểu framed-sheet, tiếng Việt, cùng font/chủ đề với app); sai thì
+chỉ báo chung «Tên đăng nhập hoặc mật khẩu không đúng» — không lộ
+user có tồn tại hay không. Nút «Đăng xuất» ở sidebar gọi
+`POST /api/logout`: xóa cả phiên Zalo lẫn phiên app, rồi về `/login`.
+
+**Đặt tài khoản lúc deploy (Portainer):** vào Stack → mục
+Environment variables, thêm 2 biến rồi redeploy (không ghi mật khẩu
+thật vào `docker-compose.yml` hay bất cứ file nào trong repo):
+
+| Biến | Giá trị |
+|---|---|
+| `ZALO_PC_APP_USER` | tên đăng nhập, ví dụ `viet` |
+| `ZALO_PC_APP_PASSWORD` | mật khẩu (plain text, chỉ nằm trong env lúc deploy) |
+
+Cách khác: thay `ZALO_PC_APP_PASSWORD` bằng
+`ZALO_PC_APP_PASSWORD_HASH` — hash đã tính sẵn, để mật khẩu không
+đi qua env dạng plain text. Tính hash trên máy của bạn (mật khẩu gõ
+qua `getpass`, không lưu vào shell history):
+
+```sh
+python3 -m zalo_pc_app.app_auth
+# in ra: ZALO_PC_APP_PASSWORD_HASH=$pbkdf2-sha256$210000$...
+```
+
+**Cách hash/phiên hoạt động:** mật khẩu lưu dạng hash PBKDF2-HMAC-SHA256
+(210.000 vòng, salt 16 byte, hash 32 byte) — xem
+`zalo_pc_app/app_auth.py`. Dùng `ZALO_PC_APP_PASSWORD`: salt + hash
+được lưu vào `/data/app_auth.json` (mode 0600, cùng volume với
+`session.json`); đổi mật khẩu qua env thì file này được ghi đè bằng
+salt/hash mới. Dùng `ZALO_PC_APP_PASSWORD_HASH`: dùng thẳng hash đó,
+không ghi file. Phiên là token ngẫu nhiên (`secrets.token_urlsafe`),
+lưu phía server trong bộ nhớ (mất khi restart container), hạn 8 giờ
+(đổi qua `ZALO_PC_APP_SESSION_HOURS`); cookie tên `zalo_pc_app`,
+HttpOnly, SameSite=Lax, Path=/ (`Secure` chỉ khi
+`ZALO_PC_APP_COOKIE_SECURE=1`, tức chạy sau HTTPS). Thiếu user hoặc
+thiếu cả hai biến mật khẩu thì server từ chối khởi động (exit 2, báo
+rõ biến nào thiếu) — không bao giờ tự chạy không mật khẩu. Quên mật
+khẩu: đặt lại 2 biến env rồi redeploy; app không có tự đặt lại mật khẩu.
+
+**Phạm vi bảo vệ:** mọi route `/api/*` (trừ `POST /api/app/login`
+và `GET /api/app/status`) trả 401 khi chưa đăng nhập app; trang
+`/` chuyển về `/login` khi chưa đăng nhập; `/app.js` cũng yêu cầu
+đăng nhập. Ngoại lệ duy nhất: trang `/login` và tài nguyên của nó
+(`/style.css`, `/fonts/*`) — vì trang đăng nhập cần chúng để hiển thị.
+
 ## Chạy
 
 ```sh
@@ -37,6 +86,24 @@ Cá nhân/Nhóm, kết quả: Đang đổ chuông / Đã kết thúc / Lỗi). L
 lưu trong bộ nhớ server (tối đa 50 lần gọi gần nhất, mất khi restart
 container) — xem qua `GET /api/calls` (cần đăng nhập). Không lưu bí
 mật, không lưu nội dung thoại.
+
+## Cài đặt webhook
+
+Sidebar → **Webhook**: 4 địa chỉ nhận sự kiện (theo đúng mẫu addon
+`set_account_webhook`, thêm loại gọi mới) — tin nhắn đến, sự kiện
+nhóm, cảm xúc, cuộc gọi — mỗi loại có công tắc bật/tắt riêng, nút
+«Gửi thử» (báo HTTP status trả về) và nút Lưu chung. Cấu hình lưu
+tại `<DATA_DIR>/webhooks.json` (mode 0600, cùng chỗ `session.json`).
+
+- **Sự kiện gọi gửi được ngay:** mỗi lần gọi đi (đã gửi / lỗi / kết
+  thúc) server POST JSON tới `call_webhook_url` — không chặn cuộc
+  gọi, lỗi webhook không phá thao tác gốc.
+- **Tin nhắn / nhóm / cảm xúc:** đã có cấu hình + điểm móc sẵn
+  (`dispatch_message` / `dispatch_group_event` / `dispatch_reaction`
+  trong `zalo_pc_app/webhooks.py`), nhưng **chưa gửi được tin thật**
+  vì app PC chưa có kênh đồng bộ tin nhắn đến (O3, giai đoạn 2).
+  Chi tiết định dạng payload + giới hạn: xem
+  [bao-cao-webhook.md](bao-cao-webhook.md).
 
 ## Kiểm tra phiên bản đang chạy
 
@@ -88,6 +155,11 @@ python3 tests/run_tests.py
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
+| `ZALO_PC_APP_USER` | (không có — bắt buộc) | Tên đăng nhập app; thiếu thì server từ chối khởi động |
+| `ZALO_PC_APP_PASSWORD` | (không có — bắt buộc nếu không dùng HASH) | Mật khẩu app dạng plain text lúc deploy; server hash PBKDF2 rồi lưu salt+hash vào `/data/app_auth.json` (0600) |
+| `ZALO_PC_APP_PASSWORD_HASH` | (không có) | Thay cho PASSWORD: hash `$pbkdf2-sha256$...` tính bằng `python3 -m zalo_pc_app.app_auth`; ưu tiên hơn PASSWORD nếu cả hai cùng có |
+| `ZALO_PC_APP_SESSION_HOURS` | `8` | Hạn phiên đăng nhập app (giờ, số > 0) |
+| `ZALO_PC_APP_COOKIE_SECURE` | (trống = 0) | Đặt `1` khi chạy sau HTTPS để cookie có cờ Secure |
 | `ZALO_PC_DATA_DIR` | `./data` | Thư mục volume chứa `session.json` (mode 0600) |
 | `ZALO_PC_HOST` / `ZALO_PC_PORT` | `127.0.0.1` / `8080` | Bind của app server |
 | `ZALO_PC_PARAM_CIPHER_KEY` | (trống) | Khóa mã hóa tham số API login, cấp lúc deploy, KHÔNG đưa vào repo. Không có nó, client dùng tham số trần + signkey (server chỉ chấp nhận nếu đã tắt mã hóa tham số) |

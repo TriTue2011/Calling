@@ -1326,3 +1326,58 @@ tests/
   mock_server.py  run_tests.py
 .taste-skill/  direction.json  notes.md
 ```
+
+---
+
+## Bản gộp 2026-11-05 — app đúng chuẩn addon + docker cũ (VERSION 2026-11-05-addon-day-du)
+
+Gộp từ base `4f40c7e` (sửa 114 + bước request 11301/12434) với 6 phần làm
+song song trong các bản copy riêng (điều phối viên tự gộp tay bằng merge
+3 chiều, ancestor `01f7ee7`; không lấy file nào đè file nào). Chi tiết
+từng phần xem các báo cáo đi kèm trong cùng thư mục:
+`bao-cao-doi-chieu-addon.md` (bảng đối chiếu), `bao-cao-429.md`,
+`bao-cao-view.md`, `bao-cao-webhook.md`, `BAO-CAO-CHAT.md`.
+
+- **Đăng nhập app** (`app_auth.py`, `static/login.html`): cổng ngoài
+  user/mật khẩu qua env `ZALO_PC_APP_USER` + `ZALO_PC_APP_PASSWORD`
+  (hoặc `ZALO_PC_APP_PASSWORD_HASH`, hash PBKDF2 210k vòng); mọi
+  `/api/*` (trừ login/status) và mọi trang (trừ /login) đều 401/302 khi
+  chưa đăng nhập app; phiên cookie 8 giờ. `POST /api/logout` xóa cả
+  phiên Zalo lẫn phiên app.
+- **Chat theo thread** (`chat.py`): bấm hàng danh bạ mở khung chat kiểu
+  Zalo PC — gửi text (11151/11163), file (11146/11191), ảnh
+  (11152/11164), ghi âm MediaRecorder rồi gửi mp3 (11148/11169), lịch
+  sử nhóm (11240), typing/seen, nút Gọi dùng sẵn signaling.
+- **Phủ service** (`services.py`): panel «Dịch vụ» — 50/96 service thao
+  tác được (48 qua panel + 2 danh bạ); 25 service chưa có đường PC hiện
+  «Chưa hỗ trợ» (409 + lý do, không nút giả); 10 service chỉ thuộc máy
+  chủ zalobot phiên web (ghi rõ); 11 service thuộc khung chat.
+- **Webhook** (`webhooks.py`): trang cài đặt 4 URL
+  (message/group_event/reaction/call) + công tắc + «Gửi thử»; lưu
+  `<DATA_DIR>/webhooks.json` (0600); dispatch `call.sent/error/ended`
+  bắn ngay; tin nhắn/nhóm/reaction đã có cấu hình + dispatch sẵn nhưng
+  chưa có nguồn sự kiện (cần kênh sync O3).
+- **429 + số thành viên + load chậm** (`server.py` cache/SWR,
+  `contacts.py` member_count): cache contacts TTL 120s; backoff sau 429
+  60s (gấp đôi mỗi lần, tối đa 300s); gặp 429 trả cache kèm thời gian
+  chờ; nút «Tải lại» khóa tạm + đếm ngược; stale-while-revalidate (trả
+  cache cũ ngay + làm mới nền); số thành viên lấy từ
+  totalMember/memberIds/currentMems (không đếm topMember); UI giữ danh
+  sách cũ khi tải lại lỗi, không để trống 0/0/0. `view-loading` trung
+  tính lúc tải trang — không nháy trang QR khi đã đăng nhập.
+- **Build trên server** (`docker-compose.build.yml`,
+  `HUONG-DAN-BUILD-TREN-SERVER.md`): build image từ source ngay trên
+  server (`zalo-pc-app:local`), sau mỗi push chỉ cần pull + up -d
+  --build; Portainer KHÔNG build được từ source (có bằng chứng lỗi thật
+  18:13 trong hướng dẫn) nên dùng lệnh trực tiếp.
+
+Giới hạn còn lại (nói rõ, không claim đã xong): lịch sử 1-1 không có
+endpoint HTTPS; tin đến chưa tự cập nhật (cần sync O3); E2EE nhánh
+riêng; ghi âm webm/opus (Zalo thật có thể từ chối vì không phải mp3);
+nhiều thao tác service gắn cờ `body_unverified` (path + mã lệnh có
+trong bundle thật, body dùng tham số addon); webhook tin nhắn/nhóm/
+reaction chưa có nguồn sự kiện; địa chỉ media ở bước 11301 vẫn là
+chuỗi rỗng (engine giai đoạn 2 kết luận NO-GO 18:17 — cần disassembly
+ZaloCall.exe + capture cuộc gọi PC thật); một tài khoản app duy nhất;
+chưa chống brute-force ở `/api/app/login`; chưa kiểm trực quan bằng
+trình duyệt thật (Chrome trên VM không khởi động được).

@@ -20,7 +20,7 @@ from .crypto import make_device_id
 # server really running the new image?"). Bump the tag on every fix
 # that changes behaviour; the Docker build may override it with the
 # exact commit sha via env ZALO_PC_VERSION (see Dockerfile).
-VERSION = "2026-11-05-call-11301"
+VERSION = "2026-11-05-addon-day-du"
 
 __all__ = ["protocol", "qr_login", "session_mod", "signaling_mod",
            "contacts_mod", "engine_seam", "media_endpoints",

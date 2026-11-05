@@ -1,0 +1,51 @@
+# Build image TRÊN SERVER từ source nhánh muse/calling-test, thay vì chờ
+# image từ GitHub Actions rồi pull về.
+#
+# Vị trí trong repo: zalo-pc-app/docker-compose.build.yml
+# (build context = chính thư mục này, chứa Dockerfile + zalo_pc_app/ +
+# docker-entrypoint.py — không cần file nào ngoài thư mục này.)
+#
+# Cách dùng (trên server): xem HUONG-DAN-BUILD-TREN-SERVER.md cùng thư mục.
+#   cd ~/calling/Calling/zalo-pc-app
+#   APP_VERSION=$(git rev-parse HEAD) docker compose -f docker-compose.build.yml up -d --build
+#
+# Đường image-based cũ (docker-compose.yml + ghcr.io/...:test) VẪN GIỮ NGUYÊN,
+# không bị thay thế — hai đường cùng tồn tại, dùng đường nào tùy lúc.
+# LƯU Ý: đừng chạy hai đường cùng lúc (trùng cổng 8080 + trùng container).
+
+# Cùng project name với stack Portainer hiện tại ("zalo") để lệnh này quản lý
+# ĐÚNG container đang chạy (zalo-zalo-pc-1), không tạo container thứ hai
+# rồi đụng cổng 8080. Hệ quả: Portainer sẽ hiện stack này ở dạng "Limited"
+# (quản lý hạn chế) vì file compose nó lưu khác file này — đó là bình thường,
+# đường build này cập nhật bằng lệnh trực tiếp (xem hướng dẫn).
+# Nếu compose trên server quá cũ và báo lỗi ở dòng `name:` thì bỏ dòng này
+# và thêm cờ `-p zalo` vào mọi lệnh docker compose.
+name: zalo
+
+services:
+  zalo-pc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Ghi commit sha vào image (footer app hiện đúng sha, kiểm chứng
+        # được bản đang chạy là code nào — giống CI). Lệnh chạy truyền
+        # APP_VERSION=$(git rev-parse HEAD); để trống thì dùng VERSION
+        # mặc định trong code.
+        APP_VERSION: ${APP_VERSION:-}
+    # Tên image riêng cho đường build local — KHÔNG đè tag test của CI.
+    image: zalo-pc-app:local
+    ports:
+      # Khớp đúng stack đang chạy trên server (mở tất cả interface trong
+      # LAN, giống Portainer stack hiện tại). Chỉ dùng trong LAN, đừng
+      # forward cổng này ra Internet (trang QR không có mật khẩu riêng).
+      - "8080:8080"
+    volumes:
+      # GIỮ NGUYÊN host path chứa phiên đăng nhập — KHÔNG đổi, KHÔNG xóa.
+      # Không cần chown tay: entrypoint tự chown thư mục data về app:app
+      # lúc khởi động rồi mới hạ quyền chạy server.
+      - /opt/zalo:/data
+    environment:
+      ZALO_PC_HOST: "0.0.0.0"
+      ZALO_PC_PORT: "8080"
+    restart: unless-stopped
