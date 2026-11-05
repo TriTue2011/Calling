@@ -152,6 +152,8 @@ function renderList() {
   ul.innerHTML = "";
   shown.forEach((r) => {
     const li = document.createElement("li");
+    li.dataset.threadId = r.id;
+    li.dataset.threadType = r.type;
     const av = document.createElement("span");
     av.className = "avatar " + tintFor(r.id);
     av.textContent = initials(r.name, r.id);
@@ -179,6 +181,26 @@ function renderList() {
     }
     main.appendChild(name);
     main.appendChild(sub);
+    // Tin den tu kenh sync: xem truoc tin moi nhat + huy hieu so
+    // tin chua doc (xem refreshInboxSummary). Khong co tin den thi
+    // hang trong nhu cu.
+    const info = inboxSummary[r.id + "|" + r.type];
+    if (info && info.last && info.last.text) {
+      const last = document.createElement("div");
+      last.className = "row-last";
+      const who = info.last.sender_name || info.last.sender_id || "";
+      last.textContent = (who ? who + ": " : "")
+        + info.last.text
+        + (info.last.time ? " · " + fmtTime(info.last.time) : "");
+      main.appendChild(last);
+    }
+    let badgeEl = null;
+    if (info && info.unread > 0) {
+      badgeEl = document.createElement("span");
+      badgeEl.className = "unread-badge";
+      badgeEl.textContent = info.unread > 99 ? "99+" : String(info.unread);
+      badgeEl.title = info.unread + " tin chưa đọc";
+    }
     const pill = document.createElement("span");
     pill.className = "pill " + (r.type === "group" ? "pill-accent" : "pill-neutral");
     pill.textContent = typePill(r.type);
@@ -195,6 +217,7 @@ function renderList() {
     svc.onclick = (e) => { e.stopPropagation(); openServices(r); };
     li.appendChild(av);
     li.appendChild(main);
+    if (badgeEl) li.appendChild(badgeEl);
     li.appendChild(pill);
     li.appendChild(svc);
     li.appendChild(call);
@@ -213,6 +236,36 @@ function renderList() {
       : "Chưa có bạn bè hay nhóm nào.";
   } else {
     empty.hidden = true;
+  }
+}
+
+// -- tin den (kenh sync) ------------------------------------------------
+// Map "threadId|type" -> {unread, last} tu /api/inbox/summary; renderList
+// dung de gan huy hieu + xem truoc tin moi nhat o thread list. Chi
+// goi API nay (khong goi Zalo): tin den do server day vao Inbox qua
+// kenh sync long-poll 99100 (xem sync_poll.py). Timer 15 giay, chi
+// ve lai list khi summary that su doi (tranh nhap nhay khi cuon/tim).
+let inboxSummary = {};
+let inboxSummaryJson = "";
+let inboxTimer = null;
+async function refreshInboxSummary() {
+  try {
+    const data = await api("/api/inbox/summary");
+    const map = {};
+    (data.threads || []).forEach((t) => {
+      map[t.thread_id + "|" + t.type] = t;
+    });
+    const json = JSON.stringify(map);
+    if (json === inboxSummaryJson) return;
+    inboxSummary = map;
+    inboxSummaryJson = json;
+    renderList();
+  } catch (e) { /* lan sau thu lai; list cu van dung duoc */ }
+}
+function startInboxTimer() {
+  if (!inboxTimer) {
+    inboxTimer = setInterval(refreshInboxSummary, 15000);
+    refreshInboxSummary();
   }
 }
 
@@ -349,6 +402,7 @@ async function loadMain(force) {
   renderSvcThreadOptions();
   await loadCalls();
   startCallsTimers();
+  startInboxTimer();
   show("view-main");
 }
 
@@ -782,8 +836,43 @@ function openThread(row) {
     (row.type === "group" && row.members && row.members.length > 0)
       ? (" · " + row.members.length + " thành viên") : "";
   $("chat-input").value = "";
+  chatLastTime = 0;
   show("view-chat");
   loadThreadHistory();
+  startChatPoll();
+}
+
+// -- tin den tu hien trong thread dang mo ---------------------------------
+// UI hoi /api/thread/<id>/updates moi 5 giay (chi doc Inbox o RAM,
+// khong goi Zalo — tranh 429 khi tai lai lich su lien tuc). Tin moi
+// duoc noi vao list da ve, dedup theo id. Roi khoi view-chat thi
+// tick tu dung (khong can hook them vao nav).
+let chatPollTimer = null;
+let chatLastTime = 0;
+function stopChatPoll() {
+  if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
+}
+function startChatPoll() {
+  stopChatPoll();
+  chatPollTimer = setInterval(async () => {
+    if (!currentThread || $("view-chat").style.display === "none") {
+      stopChatPoll();
+      return;
+    }
+    try {
+      // after = moc moi nhat - 1 giay: tin den cung giay voi tin
+      // moi nhat da ve van khong lot (dedup theo id o duoi lo
+      // trung lap).
+      const data = await api("/api/thread/" + encodeURIComponent(currentThread.id)
+        + "/updates" + chatThreadParam() + "&after=" + Math.max(0, chatLastTime - 1));
+      if (data.error || !data.messages || !data.messages.length) return;
+      const cur = chatRenderedMessages();
+      const seen = new Set(cur.map((m) => String(m.id || m.client_id || "")));
+      const fresh = data.messages.filter(
+        (m) => !seen.has(String(m.id || m.client_id || "")));
+      if (fresh.length) renderMessages([...cur, ...fresh]);
+    } catch (e) { /* tick sau thu lai; khong bao gio pha khung chat */ }
+  }, 5000);
 }
 
 function bubbleText(m) {
@@ -800,10 +889,10 @@ function renderMessages(messages) {
     const out = m.direction === "out" || m.sender_id === "me";
     const div = document.createElement("div");
     div.className = "bubble " + (out ? "bubble-out" : "bubble-in");
-    if (!out && currentThread.type === "group" && m.sender_id) {
+    if (!out && currentThread.type === "group" && (m.sender_name || m.sender_id)) {
       const who = document.createElement("div");
       who.className = "bubble-who";
-      who.textContent = m.sender_id;
+      who.textContent = m.sender_name || m.sender_id;
       div.appendChild(who);
     }
     const text = document.createElement("div");
@@ -824,7 +913,7 @@ function renderMessages(messages) {
     empty.hidden = false;
     empty.textContent = currentThread.type === "group"
       ? "Chưa có tin nhắn nào trong nhóm này."
-      : "Chưa có tin nhắn nào trong phiên này. Lịch sử 1-1 cũ chưa lấy được qua HTTPS (xem ghi chú trên).";
+      : "Chưa có tin nhắn nào trong phiên này. Lịch sử 1-1 cũ chưa lấy được qua HTTPS — tin nhắn mới đến sẽ tự hiện khi có.";
   } else {
     empty.hidden = true;
   }
@@ -849,6 +938,9 @@ async function loadThreadHistory() {
       notice.hidden = true;
     }
     renderMessages(data.messages || []);
+    // Mo thread = da doc: server da xoa unread; cap nhat lai huy
+    // hieu o thread list (khong doi lan refresh 15 giay).
+    refreshInboxSummary();
     // Mark read (best effort): only ids we actually saw, never "me".
     const ids = (data.messages || [])
       .map((m) => m.id).filter((id) => id && id !== "me");
@@ -891,10 +983,14 @@ let _rendered = [];
 function chatRenderedMessages() { return _rendered; }
 // Keep the rendered list so a just-sent message can be appended
 // without refetching history (refetching group history on every
-// send would cost a Zalo call each time).
+// send would cost a Zalo call each time). Also tracks the newest
+// rendered timestamp — the /updates poll asks only for newer.
 const _renderMessagesOrig = renderMessages;
 renderMessages = function (messages) {
   _rendered = messages || [];
+  for (const m of _rendered) {
+    if (m.time && m.time > chatLastTime) chatLastTime = m.time;
+  }
   _renderMessagesOrig(messages);
 };
 

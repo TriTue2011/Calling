@@ -284,6 +284,11 @@ def login_via_mock():
 def test_server_thread_routes():
     global BASE
     mock = MockZalo().start()
+    # Kenh sync tu mo sau login (sync_poll): khoa poll o che do
+    # "empty" TRUOC login de test nay khong bi tin den chen vao
+    # lich su (tin den duoc kiem o test_incoming.py, ca don le
+    # lan e2e). Poller van chay nen nhung khong giao tin nao.
+    mock.poll_mode = "empty"
     tmp = tempfile.mkdtemp(prefix="zalo-pc-chat-test-")
     try:
         patch_domains(mock)
@@ -302,6 +307,8 @@ def test_server_thread_routes():
         assert status == 401, body
 
         login_via_mock()
+
+        # (poll_mode "empty" da dat truoc login — xem dau test.)
 
         # Lich su nhom: tin mock + chua co tin gui trong phien.
         status, body = api("GET",

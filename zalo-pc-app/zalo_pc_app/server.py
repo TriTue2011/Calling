@@ -69,6 +69,7 @@ from . import qr_login
 from . import services as services_mod
 from . import session as session_mod
 from . import signaling as signaling_mod
+from . import sync_poll as sync_poll_mod
 from . import webhooks as webhooks_mod
 from .crypto import make_device_id
 
@@ -278,6 +279,16 @@ class AppState:
         # Chat: tin da gui trong phien (RAM, mat khi restart) de hien
         # ngay tin vua gui + lam lich su tam cho 1-1 (chat.ChatStore).
         self.chat_store = chat_mod.ChatStore()
+        # INBOX (sync_poll.Inbox): tin DEN qua kenh sync long-poll
+        # 99100 (tin 1-1 + nhom, ca hai chieu) — nguon cho lich su
+        # ghep + /api/thread/*/updates + /api/inbox/summary.
+        self.inbox = sync_poll_mod.Inbox()
+        # Sync poller (long-poll 99100): chay nen khi co phien +
+        # poll_msg_urls; None khi chua co endpoint (phien cu) hoac
+        # chua dang nhap. Duoc bao ve boi _sync_lock (start/stop
+        # co the goi tu QR worker, main(), logout()).
+        self.sync = None
+        self._sync_lock = threading.Lock()
         self.thread = None
         # Stale-while-revalidate (sửa lỗi load chậm 2026-11-05): khi
         # cache đã hết TTL, GET /api/contacts trả cache cũ NGAY
@@ -294,6 +305,7 @@ class AppState:
         with self.lock:
             base = {"version": VERSION,
                     "engine": engine_seam.SEAM.status(),
+                    "sync": self.sync_status(),
                     "app_user": app_user}
             if self.session and self.session.get("zpw_sek"):
                 base.update({"login": True,
@@ -653,6 +665,10 @@ class AppState:
                 "service_map": login_info.get("config", {}).get(
                     "zpw_service_map_new", {}),
                 "ws_endpoint": login_info.get("config", {}).get("zpw_ws", ""),
+                "poll_msg_urls": login_info.get("poll_msg_urls", []),
+                "poll_ctl_urls": login_info.get("poll_ctl_urls", []),
+                "poll_msg_timeout": login_info.get("poll_msg_timeout", 30),
+                "poll_ctl_timeout": login_info.get("poll_ctl_timeout", 30),
                 "status": session_mod.STATUS_LOGGED_IN,
             })
             self.store.save(sess)
@@ -664,6 +680,8 @@ class AppState:
                 self._contacts_init_pending = True
             # New session: the old session's contacts cache is stale.
             self._contacts_clear_cache()
+            # Phien moi co poll endpoints -> mo kenh sync nhan tin den.
+            self.start_sync()
         except qr_login.RateLimited as e:
             with self.lock:
                 self.qr_state = "rate_limited"
@@ -717,9 +735,31 @@ class AppState:
         data = qr_login.decode_response(payload, enk)
         if not isinstance(data, dict):
             data = {}
+        config = data.get("config", {}) or {}
+        # Kenh sync long-poll (bundle setEndpoints): W = zpw_chts_new
+        # (tin nhan, 99100), q = zpw_ctrs_new (dieu khien, 99101),
+        # X/Q = zpw_conf lp_msg_timeout / lp_ctl_timeout (giay).
+        # Chi luu DANG list URL + so timeout — khong hard-code host.
+        conf = config.get("zpw_conf", {}) or {}
+        try:
+            msg_timeout = int(conf.get("lp_msg_timeout") or 30)
+        except (TypeError, ValueError):
+            msg_timeout = 30
+        try:
+            ctl_timeout = int(conf.get("lp_ctl_timeout") or 30)
+        except (TypeError, ValueError):
+            ctl_timeout = 30
         return {"zpw_enk": data.get("zpw_enk", ""),
-                "config": data.get("config", {}),
-                "dkey": data.get("dkey", "")}
+                "config": config,
+                "dkey": data.get("dkey", ""),
+                "poll_msg_urls": [u for u in
+                                  (config.get("zpw_chts_new") or [])
+                                  if isinstance(u, str) and u],
+                "poll_ctl_urls": [u for u in
+                                  (config.get("zpw_ctrs_new") or [])
+                                  if isinstance(u, str) and u],
+                "poll_msg_timeout": msg_timeout if msg_timeout > 0 else 30,
+                "poll_ctl_timeout": ctl_timeout if ctl_timeout > 0 else 30}
 
     def qr_status(self):
         with self.lock:
@@ -742,6 +782,149 @@ class AppState:
             self.qr_state = "idle"
         # Logged out: the session's contacts cache must go too.
         self._contacts_clear_cache()
+        # Dang xuat: dung kenh sync + xoa tin den trong phien.
+        self.stop_sync()
+        self.inbox.clear()
+
+    # -- sync long-poll (tin den) --------------------------------------
+    def _on_sync_message(self, thread_type, thread_id, msg):
+        """Callback moi tin den tu SyncPoller: ghi Inbox + day
+        webhook message (dispatch_message tu choi tin tu gui, theo
+        quy tac chong lap cua addon — xem webhooks.py). Chi log
+        so luong, khong log noi dung tin."""
+        try:
+            is_new = self.inbox.record(thread_type, thread_id, msg)
+        except Exception:
+            return
+        if not is_new:
+            return
+        try:
+            account_id = (self.session or {}).get("uid", "")
+            webhooks_mod.dispatch_message(
+                self.webhook_dispatcher,
+                {"threadId": str(thread_id),
+                 "type": 1 if thread_type == "group" else 0,
+                 "senderId": msg.get("sender_id", ""),
+                 "msgId": msg.get("id", ""),
+                 "content": msg.get("text", ""),
+                 "isSelf": bool(msg.get("is_self", False))},
+                account_id)
+        except Exception:
+            pass
+
+    def _refresh_poll_endpoints(self, sess):
+        """Phien cu (luu truoc khi co poll endpoints): goi lai
+        getLoginInfo mot lan de lay zpw_chts_new/zpw_ctrs_new/
+        zpw_conf tu server, luu vao session.json. Best-effort:
+        loi thi tra False, poller van dung (UI bao sync chua co)."""
+        try:
+            device_id, computer = self._device_and_computer()
+            info = self._fetch_login_info(
+                {"zpw_sek": sess.get("zpw_sek", "")},
+                device_id, computer)
+        except Exception as e:  # noqa: BLE001 - best-effort
+            print("[sync-poll] refresh endpoints loi: %s"
+                  % type(e).__name__, flush=True)
+            return False
+        if not info.get("poll_msg_urls"):
+            return False
+        with self.lock:
+            cur = self.session
+            if cur is None or cur.get("uid") != sess.get("uid"):
+                return False
+            cur["poll_msg_urls"] = info["poll_msg_urls"]
+            cur["poll_ctl_urls"] = info["poll_ctl_urls"]
+            cur["poll_msg_timeout"] = info["poll_msg_timeout"]
+            cur["poll_ctl_timeout"] = info["poll_ctl_timeout"]
+            self.store.save(cur)
+            return True
+
+    def start_sync(self):
+        """Mo kenh sync long-poll neu co phien + poll_msg_urls.
+        Tra ve True khi poller chay, False khi chua du dieu kien
+        (chua dang nhap / khong co endpoint — can quet QR lai
+        hoac refresh getLoginInfo). An toan khi goi nhieu lan."""
+        with self._sync_lock:
+            if self.sync is not None:
+                return True
+            sess = self.session
+            if not sess or not sess.get("zpw_sek") \
+                    or not sess.get("zpw_enk"):
+                return False
+            if not sess.get("poll_msg_urls"):
+                if not self._refresh_poll_endpoints(sess):
+                    print("[sync-poll] chua co poll endpoints "
+                          "(zpw_chts_new); tin den chi hien sau khi "
+                          "quet QR lai hoac refresh getLoginInfo",
+                          flush=True)
+                    return False
+                sess = self.session
+            transport = make_transport(sess["zpw_sek"])
+            try:
+                poller = sync_poll_mod.SyncPoller(
+                    transport, sess.get("poll_msg_urls"),
+                    sess["zpw_enk"], sess.get("uid", ""),
+                    on_message=self._on_sync_message,
+                    msg_timeout=sess.get("poll_msg_timeout", 30))
+            except ValueError as e:
+                print("[sync-poll] %s" % e, flush=True)
+                return False
+            poller.start()
+            self.sync = poller
+            print("[sync-poll] da mo kenh nhan tin den (%d endpoint)"
+                  % len(poller.urls), flush=True)
+            return True
+
+    def stop_sync(self):
+        """Dung kenh sync (dang xuat)."""
+        with self._sync_lock:
+            poller, self.sync = self.sync, None
+        if poller is not None:
+            poller.stop()
+
+    def sync_status(self):
+        """Trang thai kenh sync cho /api/status (khong lo secret):
+        running / no_endpoints / logged_out / kicked_out."""
+        with self._sync_lock:
+            poller = self.sync
+        if poller is not None:
+            if poller.kicked_out:
+                return "kicked_out"
+            return "running"
+        sess = self.session
+        if not sess or not sess.get("zpw_sek"):
+            return "logged_out"
+        if not sess.get("poll_msg_urls"):
+            return "no_endpoints"
+        return "stopped"
+
+    def _sender_names(self):
+        """Map userId -> ten hien thi tu cache danh ba (friends
+        rows) — lam giau sender_name cho tin lich su/inbox ma
+        khong can goi getUserInfo (body 11140 chua xac minh).
+        Node.js lam giau bang getUserInfo (changed_profiles);
+        native dot nay dung cache local co san, thieu thi de
+        trong chu khong doan."""
+        names = {}
+        with self._contacts_lock:
+            cache = self._contacts_cache
+            rows = []
+            if cache is not None:
+                friends = cache.get("friends") or {}
+                rows = friends.get("rows") or []
+        for row in rows:
+            if isinstance(row, dict) and row.get("id"):
+                names[str(row["id"])] = row.get("name") or ""
+        return names
+
+    @staticmethod
+    def _enrich_sender_names(messages, names):
+        """Dien sender_name cho tin chua co (tu map danh ba)."""
+        for msg in messages:
+            if not msg.get("sender_name"):
+                msg["sender_name"] = names.get(
+                    str(msg.get("sender_id") or ""), "")
+        return messages
 
 
 STATE = AppState(DATA_DIR)
@@ -902,13 +1085,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(payload, status=status)
         # -- CHAT HOOK (module chat.py; diem moc duy nhat o do_GET) --
         # GET /api/thread/<id>/history?type=user|group&count=50
-        # Nhom: GET group/history (11240) that + tin da gui trong
-        # phien. 1-1: KHONG co endpoint HTTPS — tra thong bao gioi
-        # han trung thuc + tin da gui trong phien (chat.py).
-        # Auth: _require_login (phien Zalo). Dang nhap app
-        # (user/mat khau) chua co trong ban copy nay — integrator
-        # phai gan them kiem tra dang nhap app o day khi phan do
-        # xong (xem BAO-CAO-CHAT.md).
+        # Nhom: GET group/history (11240) that + tin den trong
+        # phien (Inbox qua kenh sync) + tin da gui trong phien,
+        # ghep theo kieu Node.js (chat.merge_messages: trung khoa
+        # thi ban Zalo thang, sap theo ts, cat N tin cuoi).
+        # 1-1: KHONG co endpoint HTTPS (ca Node.js cung khong co)
+        # — tra thong bao gioi han trung thuc + tin den trong
+        # phien (Inbox) + tin da gui trong phien (chat.py).
+        # count theo Node.js (routes/api.js): so nguyen 1..1000,
+        # ngoai khoang -> 400 (khong clamp lam nhu cu).
+        # Mo thread = da doc: xoa unread cua thread do o Inbox.
         if path.startswith("/api/thread/") and path.endswith("/history"):
             sess = self._require_login()
             if sess is None:
@@ -925,29 +1111,93 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 count = int(qs.get("count") or 50)
             except ValueError:
-                count = 50
-            count = max(1, min(count, 200))
+                return self._send_json(
+                    {"error": "count phai la so nguyen tu 1 den 1000"},
+                    status=400)
+            if count < 1 or count > 1000:
+                return self._send_json(
+                    {"error": "count phai la so nguyen tu 1 den 1000"},
+                    status=400)
             try:
                 transport = make_transport(sess["zpw_sek"])
                 chat = chat_mod.Chat(transport, sess["device_id"],
                                      sess["zpw_enk"])
                 if thread_type == "group":
                     result = chat.history_group(thread_id, count)
+                    source = "zalo"
                 else:
                     result = chat.history_user_unavailable()
-                sent = STATE.chat_store.sent_for(thread_type, thread_id)
-                seen_ids = {m.get("id") for m in result["messages"]}
-                merged = list(result["messages"]) + [
-                    m for m in sent
-                    if m.get("id") not in seen_ids
-                    and m.get("client_id") not in seen_ids]
+                    source = "inbox+session"
+                cached = (STATE.inbox.messages_for(thread_type, thread_id)
+                          + STATE.chat_store.sent_for(thread_type,
+                                                      thread_id))
+                merged, from_cached = chat_mod.merge_messages(
+                    result["messages"], cached, count)
+                if from_cached > 0 and thread_type == "group":
+                    source = "zalo+inbox"
+                STATE._enrich_sender_names(
+                    merged, STATE._sender_names())
+                STATE.inbox.mark_read(thread_type, thread_id)
                 result = dict(result)
                 result["messages"] = merged
                 result["thread_id"] = thread_id
                 result["type"] = thread_type
+                result["source"] = source
+                result["requested"] = count
+                result["returned"] = len(merged)
+                result["fromCache"] = from_cached
                 return self._send_json(result)
             except Exception as e:  # noqa: BLE001
                 return self._send_json({"error": str(e)}, status=502)
+        # -- INBOX HOOK (sync_poll.Inbox) --
+        # GET /api/thread/<id>/updates?type=user|group&after=<epoch>
+        # Tin MOI cua thread tu Inbox (chi RAM, khong goi Zalo):
+        # UI goi moi 5 giay khi thread dang mo de tin den tu hien
+        # ma khong phai tai lai toan bo lich su (tranh 429).
+        # after = epoch giay (float); tra tin co time > after.
+        # Lay updates cua thread dang mo cung la da doc.
+        if path.startswith("/api/thread/") and path.endswith("/updates"):
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            import urllib.parse as _up
+            thread_id = path[len("/api/thread/"):-len("/updates")]
+            thread_id = _up.unquote(thread_id.strip("/"))
+            qs = dict(_up.parse_qsl(_up.urlparse(self.path).query))
+            thread_type = qs.get("type") or "user"
+            if thread_type not in ("user", "group"):
+                return self._send_json({"error": "type phai la user|group"},
+                                       status=400)
+            try:
+                after = float(qs.get("after") or 0)
+            except ValueError:
+                after = 0.0
+            messages = STATE.inbox.since(thread_type, thread_id, after)
+            STATE._enrich_sender_names(messages, STATE._sender_names())
+            if messages:
+                STATE.inbox.mark_read(thread_type, thread_id)
+            return self._send_json({
+                "messages": messages,
+                "thread_id": thread_id, "type": thread_type,
+                "server_time": time.time(),
+                "has_new": bool(messages)})
+        # GET /api/inbox/summary — moi thread co tin trong Inbox:
+        # unread + tin moi nhat (de UI gan huy hieu / xem truoc o
+        # thread list). Khong goi Zalo.
+        if path == "/api/inbox/summary":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            rows = STATE.inbox.summary()
+            names = STATE._sender_names()
+            for row in rows:
+                last = row.get("last") or {}
+                if not last.get("sender_name"):
+                    last["sender_name"] = names.get(
+                        str(last.get("sender_id") or ""), "")
+            return self._send_json({"threads": rows})
         return self._send_json({"error": "not_found"}, status=404)
 
     def _chat_client(self, sess):
@@ -1458,6 +1708,15 @@ def main():
           % (VERSION, HOST, PORT, DATA_DIR))
     print("Dang nhap app: bat buoc (user %s, phien %s gio)"
           % (STATE.auth.username, STATE.auth.session_hours))
+    # Phien Zalo cu (tu session.json) ma co poll endpoints thi mo
+    # kenh sync nhan tin den ngay; thieu endpoints thi start_sync
+    # tu refresh getLoginInfo mot lan, hong thi thoi (khong chan
+    # khoi dong — tin den chi ve sau khi quet QR lai).
+    try:
+        STATE.start_sync()
+    except Exception as e:  # noqa: BLE001 - best-effort
+        print("[sync-poll] khong mo duoc kenh luc khoi dong: %s"
+              % type(e).__name__, flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -12,6 +12,13 @@ It holds everything a restart needs to resume without re-scanning:
   zpw_enk     per-session AES key for post-login params (getLoginInfo)
   service_map domain overrides from getLoginInfo config (may be empty)
   ws_endpoint sync/control WebSocket endpoint from getLoginInfo config
+  poll_msg_urls  long-poll tin den (99100) URL list = config
+                 zpw_chts_new (server tra ve o getLoginInfo); rong
+                 khi phien cu chua co (can refresh getLoginInfo)
+  poll_ctl_urls  long-poll dieu khien (99101) URL list = config
+                 zpw_ctrs_new (chua dung o dot nay)
+  poll_msg_timeout / poll_ctl_timeout  config zpw_conf lp_* (giay,
+                 mac dinh 30)
   trusted_device flags (self_g / qr_format_trust_device / logo_qr)
   login_type  "qr" for QR logins
   status      see STATUS_* below
@@ -78,6 +85,10 @@ def new_session(device_id, computer):
         "zpw_enk": "",
         "service_map": {},
         "ws_endpoint": "",
+        "poll_msg_urls": [],
+        "poll_ctl_urls": [],
+        "poll_msg_timeout": 30,
+        "poll_ctl_timeout": 30,
         "trusted_device": {"self_g": False,
                            "qr_format_trust_device": False,
                            "logo_qr": True},

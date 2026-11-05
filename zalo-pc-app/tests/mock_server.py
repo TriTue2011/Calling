@@ -136,6 +136,11 @@ class MockZalo:
         # danh sach ghim — PinDataManager dat version 0 + day cache
         # client len; xem services._set_pinned).
         self.pin_list_mode = "ok"
+        # Sync long-poll simulation (99100): "messages" (tra 1 tin
+        # 1-1 + 1 tin nhom, kieu shape that) | "empty" (data "" —
+        # long-poll het han, khong co tin) | "error69" (error -69,
+        # server bao dung retry). Mac dinh "messages".
+        self.poll_mode = "messages"
         self.seen = []  # (path, query, headers) log
         self.seen_post = []  # (path, query) log — chi cac POST
         self._plaintext_forced = False
@@ -259,6 +264,8 @@ class MockZalo:
             return 200, self._chat_send_text(path, qs, headers, raw_qs)
         if path == "/api/group/history":
             return 200, self._group_history(qs, headers, raw_qs)
+        if path == "/lp-msg/":
+            return 200, self._poll(qs, headers, raw_qs)
         if path in ("/api/message/typing", "/api/group/typing",
                     "/api/message/seen", "/api/group/seen"):
             return 200, self._chat_event(path, qs, headers, raw_qs)
@@ -358,6 +365,39 @@ class MockZalo:
                 {"msgId": "m2", "fromId": "20002",
                  "message": "Chao Ban A", "timestamp": 1762345660}],
             "hasMore": False})
+
+    def _poll(self, qs, headers, raw_qs=""):
+        """Sync long-poll tin den (99100 getChatFromPolling): GET
+        <poll-url>/?zpw_ver&zpw_type&params=<cursor>&ts=<unix>.
+        params la chuoi con tro "last,other,<b64(json)+',1'>" (khong
+        phai AES — xem sync_poll.PollCursor). Tra envelope hai lop
+        giong moi response post-login; mode "empty" tra data "" (het
+        han long-poll, khong co tin); mode "error69" tra -69."""
+        self._check_postlogin(qs, headers, raw_qs, "sync poll")
+        assert qs.get("params"), "poll can params (con tro)"
+        assert qs.get("ts", "").isdigit(), "poll can ts (unix)"
+        if self.poll_mode == "empty":
+            return {"error_code": 0, "data": ""}
+        if self.poll_mode == "error69":
+            return {"error_code": -69,
+                    "error_message": "stop retry", "data": {}}
+        return self._postlogin_envelope({
+            "msgs": [
+                {"msgId": "pm1", "globalMsgId": "g1",
+                 "uidFrom": "20001", "idTo": "10001",
+                 "content": "Chao ban, toi la BenBap",
+                 "ts": 1762345700, "dName": "BenBap",
+                 "msgType": 0}],
+            "groupMsgs": [
+                {"msgId": "gm1", "globalMsgId": "g2",
+                 "uidFrom": "20002", "idTo": "30001",
+                 "content": {"msg": "Chao ca nhom"},
+                 "ts": 1762345710, "dName": "Ban B",
+                 "msgType": 0}],
+            "pageMsgs": [],
+            "lastActionId": "100",
+            "lastActionIdOther": "50",
+            "queueStatus": {}})
 
     def _chat_event(self, path, qs, headers, raw_qs=""):
         """typing (11144/11196) / seen (11150/11167): GET, params AES."""
@@ -652,7 +692,15 @@ class MockZalo:
             "config": {"zpw_service_map_new": {
                            "reaction": self.base,
                            "quick_message": self.base},
-                       "zpw_ws": "wss://mock.invalid/ws"}}
+                       "zpw_ws": "wss://mock.invalid/ws",
+                       # Sync long-poll endpoints (bundle
+                       # setEndpoints): zpw_chts_new = W (tin nhan,
+                       # 99100), zpw_ctrs_new = q (dieu khien,
+                       # 99101); zpw_conf lp_* timeout (giay).
+                       "zpw_chts_new": [self.base + "/lp-msg"],
+                       "zpw_ctrs_new": [self.base + "/lp-ctl"],
+                       "zpw_conf": {"lp_msg_timeout": 30,
+                                    "lp_ctl_timeout": 30}}}
         if "zcid" in qs:
             assert qs.get("type") == "30", qs
             assert qs.get("client_version") == "695", qs

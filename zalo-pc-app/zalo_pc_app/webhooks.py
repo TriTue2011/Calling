@@ -241,14 +241,19 @@ def build_message_event(msg, account_id):
     if not isinstance(content, str):
         content = (content.get("msg") or content.get("title") or ""
                    if isinstance(content, dict) else "")
+    if not content:
+        content = msg.get("text", "") or ""
     payload = _base("message", "message.received", account_id)
     payload.update({
         "thread_id": str(msg.get("threadId", msg.get("thread_id", ""))),
-        "thread_type": msg.get("type", data.get("type", 0)),
-        "sender_id": str(msg.get("senderId", msg.get("uidFrom", ""))),
-        "message_id": str(msg.get("msgId", msg.get("message_id", ""))),
+        "thread_type": msg.get("type", msg.get("thread_type",
+                                              data.get("type", 0))),
+        "sender_id": str(msg.get("senderId", msg.get("sender_id",
+                                                     msg.get("uidFrom", "")))),
+        "message_id": str(msg.get("msgId", msg.get("message_id",
+                                                   msg.get("id", "")))),
         "content": content,
-        "is_self": bool(msg.get("isSelf", False)),
+        "is_self": bool(msg.get("isSelf", msg.get("is_self", False))),
     })
     if msg.get("self_reply"):
         payload["self_reply"] = True
@@ -440,7 +445,8 @@ def dispatch_message(dispatcher, msg, account_id):
     self_reply=true (owner keyword command) is forwarded."""
     if dispatcher is None:
         return False
-    if msg and msg.get("isSelf") and not msg.get("self_reply"):
+    if msg and (msg.get("isSelf") or msg.get("is_self")) \
+            and not msg.get("self_reply"):
         return False
     return dispatcher.dispatch(
         "message", build_message_event(msg, account_id))

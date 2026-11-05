@@ -52,8 +52,9 @@ KHONG CO endpoint HTTPS (dung bia — xem Bang 3):
     (12096) / get_crossdb (12412). history_user() o day TRA VE
     thong bao gioi han chu khong goi endpoint khong ton tai; tin
     vua gui trong phien thi hien ngay nho ChatStore (bo nho RAM).
-  - Nhan tin den: khong co endpoint polling; kenh sync/control
-    chua lan het (diem mu lon nhat, can dot lan rieng / webhook O3).
+  - Nhan tin den: kenh sync long-poll 99100 (xem sync_poll.py) —
+    tin den vao Inbox, lich su 1-1/nhom ghep tu Inbox (merge_messages).
+    Kenh ctrl 99101 (group_event/reaction) chua co.
   - Gui reaction: xem services.add_reaction (REACTION domain,
     /api/message/reaction 12410 / /api/group/reaction 12411).
   - Gui video: chi co buoc upload (12058-12062), buoc send sau
@@ -96,10 +97,13 @@ TYPE_FILE_USER = 2
 TYPE_FILE_GROUP = 11
 
 # Thong bao trung thuc khi khong lay duoc lich su 1-1 qua HTTPS.
+# (Cau dau giu nguyen de test cu van bat duoc; phan sau noi ro
+# tin den van ve qua kenh sync — xem sync_poll.py.)
 HISTORY_USER_UNAVAILABLE = (
     "Lich su 1-1 chua lay duoc qua HTTPS: client Zalo PC that doc "
     "tin 1-1 tu DB local + dong bo tu dien thoai, khong co endpoint "
-    "/api/message/history. Chi hien tin da gui/nhan trong phien nay."
+    "/api/message/history. Tin den moi van hien truc tiep qua kenh "
+    "sync; chi lich su cu truoc phien nay la chua co."
 )
 
 # E2EE: hoi thoai 1-1 bat E2EE co the khong di duong sms thuong.
@@ -227,21 +231,31 @@ def _norm_time(value):
 def normalize_message(item, thread_type="user"):
     """Chuan hoa 1 tin (best-effort — shape lich su nhom that chua
     duoc thay truc tiep): {id, sender_id, text, time, kind, file_name,
-    raw}. Cac key that co the gap: msgId/messageId/id; fromId/
-    uidFrom/senderId; message/text/content/body; timestamp/
-    createdAt/time/sentAt."""
+    sender_name, raw}. Cac key that co the gap: msgId/messageId/id;
+    fromId/uidFrom/senderId; message/text/content/body; timestamp/
+    createdAt/time/sentAt/ts. Shape poll/zca-js (sync_poll): content
+    co the la dict {msg, title} (lay msg, khong thi title); dName la
+    ten hien thi cua nguoi gui; cliMsgId la id client."""
     if not isinstance(item, dict):
         return {"id": "", "sender_id": "", "text": str(item),
                 "time": None, "kind": "text", "file_name": "",
-                "raw": item}
-    text = (item.get("message") or item.get("text")
-            or item.get("content") or item.get("body") or "")
+                "sender_name": "", "raw": item}
+    content = item.get("content")
+    if isinstance(content, dict):
+        text = (content.get("msg") or content.get("title") or "")
+    else:
+        text = (item.get("message") or content
+                or item.get("text") or item.get("body") or "")
     sender = (item.get("fromId") or item.get("uidFrom")
-              or item.get("senderId") or item.get("sender") or "")
-    msg_id = (item.get("msgId") or item.get("messageId")
+              or item.get("senderId") or item.get("sender")
+              or item.get("uid") or "")
+    msg_id = (item.get("msgId") or item.get("msgID")
+              or item.get("messageId")
+              or item.get("cliMsgId") or item.get("cliMsgID")
               or item.get("id") or item.get("msg_id") or "")
     when = _norm_time(item.get("timestamp") or item.get("createdAt")
-                      or item.get("time") or item.get("sentAt"))
+                      or item.get("time") or item.get("sentAt")
+                      or item.get("ts"))
     kind = "text"
     file_name = (item.get("fileName") or item.get("file_name")
                  or item.get("title") or "")
@@ -254,7 +268,54 @@ def normalize_message(item, thread_type="user"):
         kind = "voice"
     return {"id": str(msg_id), "sender_id": str(sender),
             "text": str(text), "time": when, "kind": kind,
-            "file_name": str(file_name), "raw": item}
+            "file_name": str(file_name),
+            "sender_name": str(item.get("dName") or ""),
+            "raw": item}
+
+
+def _merge_key(msg):
+    """Khoa dedup giong Node.js (groupHistoryStore.messageKey +
+    zalo.js khoa ghep): msgId/msgID/cliMsgId/cliMsgID, roi id/
+    client_id; khong co thi sender:time:text."""
+    raw = msg.get("raw") if isinstance(msg.get("raw"), dict) else {}
+    mid = (raw.get("msgId") or raw.get("msgID")
+           or raw.get("cliMsgId") or raw.get("cliMsgID")
+           or msg.get("id") or msg.get("client_id") or "")
+    if mid:
+        return "id:%s" % mid
+    return "ct:%s:%s:%s" % (msg.get("sender_id") or "",
+                            msg.get("time") or "",
+                            msg.get("text") or "")
+
+
+def merge_messages(fresh, cached, count):
+    """Ghep lich su giong Node.js (zalo.js getGroupChatHistoryByAccount
+    + groupHistoryStore): cache truoc, ban tuoi cua Zalo sau — trung
+    khoa thi ban Zalo thang (moi hon); sap theo time tang dan; cat
+    N tin cuoi. Tra ve (merged, from_cached): from_cached la so tin
+    trong merged chi co tu cache."""
+    merged_map = {}
+    cached_keys = set()
+    for msg in (cached or []):
+        key = _merge_key(msg)
+        cached_keys.add(key)
+        merged_map[key] = msg
+    fresh_keys = set()
+    for msg in (fresh or []):
+        key = _merge_key(msg)
+        fresh_keys.add(key)
+        merged_map[key] = msg
+    merged = sorted(merged_map.values(),
+                    key=lambda m: (m.get("time") or 0))
+    try:
+        n = int(count)
+    except (TypeError, ValueError):
+        n = len(merged)
+    merged = merged[-n:] if n > 0 else []
+    from_cached = sum(1 for m in merged
+                      if _merge_key(m) in cached_keys
+                      and _merge_key(m) not in fresh_keys)
+    return merged, from_cached
 
 
 class ChatStore:
