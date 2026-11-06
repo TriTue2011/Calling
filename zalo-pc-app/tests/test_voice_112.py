@@ -24,12 +24,36 @@ Zalo PC 26.11.10) — doc truc tiep tu bundle, khong phai suy doan:
   chunk cuoi tra data {finished: 1, fileId} (handleSendChunkResp:
   hoan tat <=> finished && fileId); getFileAsyncItem(Voice) ->
   {fileId, checksum (md5 hex), checksumSha: "", totalSize, clientId,
-  fType, toid|grid}; async event tra {aac, amr, secureKey} ->
-  fileUrl = amr||aac (mapVoiceResponse + __waitAsyncFileInfo).
+  fType, toid|grid} — nhung fType = extData.fType, ma extData cua
+  task upload Voice duy nhat lan duoc trong bundle (main-startup
+  lazy chunk, dich vu khoi phuc voice-to-text _upload) la
+  {uploadMainType: Voice, e2ee: false}, KHONG co fType, nen
+  JSON.stringify loai truong do: item voice that KHONG co fType.
+  Async event tra {aac, amr, secureKey} -> fileUrl = amr||aac,
+  aacUrl = aac chi khi co amr, secureKey neu event co
+  (__waitAsyncFileInfo); cac URL nay KHONG BAO GIO lay tu
+  chunk-response (handleSendChunkResp chi doc finished/fileId).
 - Dinh dang that la AAC (khong phai MP3): fileType aac/amr; tin
   thoai that do duoc la AAC-LC 16 kHz mono 64 kbps ADTS .aac
   (Node.js voiceAac.js + voiceMessage.test.js); ten file tai ve
   cua tin thoai ket bang .aac; forward-voice dung m4aUrl/voiceUrl.
+
+KET LUAN LOI 114 (kiem toan tham so 2026-11-06, live retest
+09:46 +07: 112 het, nay 114 "Tham so khong hop le"):
+- Buoc 1 khop bundle tren moi tham so chung minh duoc (xem
+  test_voice_two_step_params_match_bundle).
+- Buoc 2: fType LOAI TRU (chung minh o tren). Nghi pham chinh la
+  buoc 2 THIEU fileUrl (va secureKey): client that CHI gui item
+  sau khi cho async event voice_aac_success qua waitAsyncFileInfo;
+  app gui ngay sau chunk cuoi nen item khong co URL tin thoai nao
+  — do la khoang trong async-event, agent khac dang lam, KHONG
+  lam o day. Phan tham so sua duoc o day: bo viec gui kem
+  fileUrl/aacUrl lay tu chunk-response (nguon sai — xem
+  test_voice_114_step2_ignores_chunk_response_urls).
+- Chua lan duoc: ten file ghi am that cua recorder native (app
+  dung "voice.aac") va chunk_size_file that (app dung 256000 theo
+  default cua bundle khi setting < 64000) — neu live retest van
+  114 sau khi co event thi kiem 2 diem nay.
 
 BUOC GUI SAU UPLOAD — DA XAC NHAN DUNG (vong 114, 2026-11-06):
 asyncfile/msg (11777/13001, sendMsgFileAsync) la endpoint dung
@@ -43,12 +67,11 @@ buildParams/transform. GIOI HAN CON LAI: khong co caller Voice
 truc tiep nao quan sat duoc trong JS — sendMsgAsync chi xu ly
 Photo/File, sendFileByChunkV2 tra thang urlRes cho Voice/Video
 (2 call site trong JS chi la File/Photo), buoc gui sau upload nam
-o lop native ngoai JS. fType CO trong item Voice cua
-getFileAsyncItem (gia tri tu extData lop native, khong lan duoc
-tu JS) — app hien chua gui (vong tham so, agent khac lam).
-Neu live retest van loi thi diem can kiem dau tien la viec cho
-async event {aac,amr} qua kenh sync, hien chua implement — xem
-ghi chu o chat.send_voice.
+o lop native ngoai JS. fType LOAI TRU (xem chung minh o tren):
+extData Voice duy nhat lan duoc khong co fType — app khong gui
+fType la dung. Neu live retest van loi thi diem can kiem dau tien
+la viec cho async event {aac,amr} qua kenh ctrl 99101, hien chua
+implement — xem ghi chu o chat.send_voice.
 
 112: van la loi chung (STR_ERROR_CODE_UNKNOWN), bundle coi la tam
 thoi va thu lai sau 1-5 giay — app thu lai gioi han (2 lan, cach
@@ -247,6 +270,63 @@ def test_voice_two_step_amr_filename():
         assert res["data"]["msgId"] == "msg-voice-1", res
         assert mock.upload_bodies[0]["body"]["fileType"] == "amr", \
             mock.upload_bodies[0]["body"]
+    finally:
+        mock.stop()
+
+
+def test_voice_114_step2_ignores_chunk_response_urls():
+    """LOI 114 — buoc 2 KHONG duoc lay fileUrl/aacUrl tu response
+    cua chunk cuoi. Bundle: fileUrl/aacUrl/secureKey cua item voice
+    chi den tu async event voice_aac_success {aac, amr, secureKey}
+    qua __waitAsyncFileInfo (fileUrl = amr||aac; aacUrl = aac chi
+    khi co amr) — KHONG BAO GIO tu chunk-response (handleSendChunk-
+    Resp chi doc finished/fileId; nhung truong url/amr/aac neu co
+    trong chunk-response la nguon khac, khong phai URL tin thoai).
+    Gui kem URL lay tu nguon sai la tham so khong hop le (114).
+    Mock tra chunk cuoi kem cac truong moi url/amr/aac; item buoc
+    2 phai KHONG co fileUrl/aacUrl (cho toi khi agent async-event
+    cap URL that tu event — xem ghi chu o chat.send_voice)."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        mock.voice_upload_extra = {
+            "url": "https://example.invalid/chunk-url",
+            "amr": "https://example.invalid/decoy.amr",
+            "aac": "https://example.invalid/decoy.aac",
+        }
+        chat = make_chat(mock)
+        res = chat.send_voice("user", "20001", "voice.aac",
+                              FAKE_AAC, "audio/aac")
+        assert res["data"]["msgId"] == "msg-voice-1", res
+        sent = mock.voice_send_bodies[0]["body"]
+        assert "fileUrl" not in sent, sent
+        assert "aacUrl" not in sent, sent
+        assert set(sent.keys()) == {"fileId", "checksum",
+                                    "checksumSha", "totalSize",
+                                    "clientId", "toid", "imei",
+                                    "zsource"}, sent
+    finally:
+        mock.stop()
+
+
+def test_voice_114_step2_item_has_no_ftype():
+    """LOI 114 — fType KHONG co trong item voice (khong phai nguyen
+    nhan 114, ma la bang chung loai tru). getFileAsyncItem(Voice)
+    gui fType = extData.fType; extData cua task upload Voice duy
+    nhat lan duoc trong bundle (main-startup lazy chunk, dich vu
+    khoi phuc voice-to-text _upload) la {uploadMainType: Voice,
+    e2ee: false} — KHONG co fType, nen JSON.stringify loai truong
+    do. Item buoc 2 vi vay khong co fType (khac voi File, extData
+    .fType = FILE = 1)."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        chat = make_chat(mock)
+        res = chat.send_voice("user", "20001", "voice.aac",
+                              FAKE_AAC, "audio/aac")
+        assert res["data"]["msgId"] == "msg-voice-1", res
+        sent = mock.voice_send_bodies[0]["body"]
+        assert "fType" not in sent, sent
     finally:
         mock.stop()
 

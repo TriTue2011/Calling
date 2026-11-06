@@ -44,7 +44,8 @@ Endpoint da dung (ma lenh trong ngoac):
     / /api/group/asyncfile/msg (13001), params AES la item
     getFileAsyncItem: {fileId, checksum (md5 hex), checksumSha: "",
     totalSize, clientId NUMBER, toid|grid, imei (chi 1-1),
-    zsource: -1} (+ fileUrl/aacUrl neu buoc 1 tra ve).
+    zsource: -1} (KHONG fileUrl/aacUrl/secureKey/fType o day —
+    xem ket luan loi 114 o send_voice).
     File ghi am la AAC-LC 16 kHz mono 64 kbps ADTS (xem
     voice_transcode.ensure_voice_aac) — KHONG phai MP3.
   DUONG TRUC TIEP CU (voicemp3 11148 / sendmp3 11169) DA BO:
@@ -798,7 +799,8 @@ class Chat:
         11777 (1-1) / 13001 (nhom), body la item getFileAsyncItem:
         {fileId, checksum (md5 hex cua toan file), checksumSha: "",
         totalSize, clientId NUMBER, toid|grid, imei (chi 1-1),
-        zsource: -1} (+ fileUrl/aacUrl neu buoc 1 tra ve).
+        zsource: -1} (KHONG fileUrl/aacUrl/secureKey/fType o day —
+        xem ket luan loi 114 ben duoi).
         Ghi am la viec cua trinh duyet (MediaRecorder) + server doi
         sang AAC truoc (voice_transcode.ensure_voice_aac) — ham nay
         chi gui file AAC ADTS da chuan bi. File rong bi tu choi
@@ -825,16 +827,38 @@ class Chat:
         lop native gui sau upload); 2 call site cua
         sendFileByChunkV2 trong JS chi la File va Photo. Viec ghi
         am + gui sau upload nam o lop native ngoai JS, nen buoc
-        gui cuoi cua lop do khong doc duoc tu bundle JS. Neu live
-        retest van 114, diem can kiem tiep la: (a) bundle cho doi
-        event async {aac, amr, secureKey} qua waitAsyncFileInfo
-        truoc khi gui — app hien chi gui khi chunk-response tra ve
-        URL; (b) fType cua voice: CO trong item Voice cua
-        getFileAsyncItem (gia tri tu extData lop native, khong lan
-        duoc tu JS) — app hien chua gui fType (vong tham so, agent
-        khac lam). Duong truc tiep voicemp3/sendmp3 cu DA BO (code
-        chet, 0 caller; live 2026-11-06 08:36 +07 van 112) — khong
-        giu lam fallback."""
+        gui cuoi cua lop do khong doc duoc tu bundle JS.
+        fType LOAI TRU (kiem toan tham so vong 114): extData cua
+        task upload Voice duy nhat lan duoc ({uploadMainType:
+        Voice, e2ee: false}) khong co fType nen JSON.stringify
+        loai truong do — item voice that khong co fType, app bo
+        qua la dung. Duong truc tiep voicemp3/sendmp3 cu DA BO
+        (code chet, 0 caller; live 2026-11-06 08:36 +07 van 112)
+        — khong giu lam fallback.
+
+        KET LUAN LOI 114 (kiem toan tham so 2026-11-06, xem
+        tests/test_voice_112.py::test_voice_114_*): buoc 1 khop
+        bundle tren MOI tham so chung minh duoc (totalChunk,
+        fileName, clientId NUMBER, totalSize, imei, chunkId 1..N,
+        toid|grid, fileType aac|amr; khong checksum; khong
+        isE2EE tren duong thuong). Nghi pham chinh la buoc 2
+        THIEU fileUrl (va secureKey): client that CHI gui item
+        sau khi cho async event voice_aac_success {aac, amr,
+        secureKey} qua waitAsyncFileInfo (__waitAsyncFileInfo:
+        fileUrl = amr||aac, aacUrl = aac chi khi co amr,
+        secureKey neu event co) roi moi gui; app hien gui ngay
+        sau chunk cuoi, khong co URL tin thoai nao trong item —
+        server tu choi bang 114 "Tham so khong hop le" (thieu
+        tham so bat buoc). Sua dung can cho event do (agent khac
+        dang lam, qua kenh ctrl 99101 — KHONG phai kenh tin nhan
+        99100); o day chi sua phan tham so: KHONG gui
+        fileUrl/aacUrl lay tu response chunk (nguon sai — bundle
+        khong bao gio lay URL tu do), va ghi ro rang buoc 2 hien
+        chua du tham so cho toi khi co event. Neu live retest
+        van 114 sau khi co event, diem can kiem tiep la ten file
+        ghi am that (app dung "voice.aac"; ten cua recorder
+        native chua lan duoc) va chunk_size_file that (app dung
+        256000 theo default cua bundle khi setting < 64000)."""
         if not data:
             raise ValueError("chat: file ghi am rong (0 byte) — Zalo "
                              "khong nhan tin thoai rong, hay ghi am lai")
@@ -889,6 +913,18 @@ class Chat:
                         % (upload_data,), error_code=0)
                 file_id = upload_data["fileId"]
         # -- buoc 2: gui bang fileId -----------------------------------
+        # Item DUNG nhu getFileAsyncItem(Voice) tra ve + sendMsgFile-
+        # Async bo sung (toid|grid, imei chi 1-1, zsource -1): KHONG
+        # co fileUrl/aacUrl/secureKey/fType o day. Cac truong do
+        # chi den tu async event voice_aac_success {aac, amr,
+        # secureKey} qua __waitAsyncFileInfo (fileUrl = amr||aac;
+        # aacUrl = aac chi khi co amr; secureKey neu event co) —
+        # KHONG BAO GIO lay tu response cua chunk cuoi (bundle chi
+        # doc finished/fileId o do). Lay URL tu chunk-response la
+        # gui tham so tu nguon sai — mot dang cua loi 114 — nen
+        # khong gui kem gi ca; cho event (agent khac) se bo sung
+        # fileUrl/aacUrl/secureKey truoc khi gui. Xem ket luan
+        # loi 114 o docstring.
         item = {"fileId": file_id,
                 "checksum": hashlib.md5(data).hexdigest(),
                 "checksumSha": "",
@@ -900,18 +936,6 @@ class Chat:
         else:
             item["toid"] = str(thread_id)
             item["imei"] = self.device_id
-        # Neu chunk-response tra ve URL (kieu mapVoiceResponse:
-        # {amr, aac, secureKey}), gui kem de server khoi phai doi
-        # event async {aac, amr} — xem ghi chu o docstring.
-        file_url = (upload_data.get("fileUrl")
-                    or upload_data.get("url")
-                    or upload_data.get("amr")
-                    or upload_data.get("aac"))
-        if file_url:
-            item["fileUrl"] = file_url
-        aac_url = upload_data.get("aacUrl") or upload_data.get("aac")
-        if aac_url:
-            item["aacUrl"] = aac_url
         send_data = self._post_form_retry(
             FILES_DOMAIN, send_path, item, "POST %s" % send_path)
         return {"data": send_data, "client_id": client_id,

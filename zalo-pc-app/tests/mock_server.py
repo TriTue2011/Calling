@@ -167,6 +167,13 @@ class MockZalo:
         # _chat_upload de tai lieu hoa loi that 2026-11-05).
         self.voice_upload_mode = "ok"
         self.voice_upload_calls = 0
+        # voice_upload_extra: truong phu THEM vao data cua chunk
+        # cuoi (vd. {"url": ..., "amr": ..., "aac": ...}) — de pin
+        # rang buoc 2 KHONG duoc lay fileUrl/aacUrl tu response
+        # chunk (loi 114): bundle chi lay cac URL do tu async event
+        # voice_aac_success qua waitAsyncFileInfo, khong bao gio tu
+        # chunk-response (xem test_voice_112.py).
+        self.voice_upload_extra = {}
         self.voice_send_mode = "ok"
         self.voice_send_calls = 0
         self.voice_send_bodies = []
@@ -586,8 +593,9 @@ class MockZalo:
                 112, "Lỗi không xác định")
         if body["chunkId"] < body["totalChunk"]:
             return self._postlogin_envelope({"finished": 0})
-        return self._postlogin_envelope(
-            {"finished": 1, "fileId": "file-voice-1"})
+        last = {"finished": 1, "fileId": "file-voice-1"}
+        last.update(self.voice_upload_extra)
+        return self._postlogin_envelope(last)
 
     def _chat_asyncfile_msg(self, path, qs, headers, raw_body="",
                             raw_qs=""):
