@@ -411,10 +411,12 @@ def test_real_11300_shape_delivered_e2e():
     tra data_shape (ten key + so luong), KHONG tra raw data
     (co the chua srtpKey/token).
     GIOI HAN HONEST cua test nay: local_session van lay tu
-    default cua provider gia (nhu test_allocated_flow) vi
-    nguon that cua no (SSRC hang muc thiet bi) chua biet —
-    test nay chung minh PHAN TICH RELAY qua duong that, khong
-    chung minh cuoc goi that chay tron ven tren production."""
+    default cua provider gia (nhu test_allocated_flow) — NGUON
+    THAT DA BIET (2026-11-06: int(uid) tai khoan dang dang nhap,
+    xem tests/test_call_local_session.py) nhung test nay van dung
+    default gia lam stand-in; test nay chung minh PHAN TICH RELAY
+    qua duong that, khong chung minh cuoc goi that chay tron ven
+    tren production."""
     from test_media_provider import REAL_SHAPE_SERVERS  # noqa: E402
     mock = MockZalo().start()
     mock.requestcall_data = {
@@ -458,7 +460,8 @@ def test_real_11300_shape_delivered_e2e():
 def _bare_endpoints():
     """Provider KHONG co default token/session/srtp_key — moi
     thu phai den tu response 11300 (chi local_session van lay
-    tu default gia, vi nguon that cua no chua biet)."""
+    tu default gia o test nay; nguon that da biet 2026-11-06
+    la int(uid) — xem tests/test_call_local_session.py)."""
     return media_endpoints.MediaEndpoints(
         transport_factory=lambda cfg: FakeTransport(cfg),
         default_local_session=FAKE_LOCAL_SESSION)
@@ -474,7 +477,9 @@ def test_real_11300_shape_2026_11_06_delivered_e2e():
     11301 VAN DUOC GUI voi token = sessId (mock thay du 2 buoc
     dung thu tu, delivered) va request_sent=true; data_shape
     chi ghi ten key + do dai sessId, KHONG tra gia tri nao.
-    GIOI HAN HONEST: local_session van lay tu default gia;
+    GIOI HAN HONEST: local_session van lay tu default gia
+    (nguon that da biet 2026-11-06: int(uid) — xem
+    tests/test_call_local_session.py);
     srtp "not-wired" (khong co srtpKey that) nen test nay chung
     minh SIGNALING (11301 duoc gui, ben kia co the do chuong),
     KHONG chung minh co tieng — nguon khoa SRTP van mo."""

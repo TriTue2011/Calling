@@ -239,6 +239,48 @@ def _type_request_for(call_type):
             else protocol.CALL_TYPE_AUDIO_1_1)
 
 
+def _local_session_from_uid(sess):
+    """`local_session` (u32 RTP SSRC) cua cuoc goi di: `int(uid)`
+    cua chinh tai khoan dang dang nhap. Disassembly ZaloCall.exe
+    2026-11-06 (disasm-local-session-source.md): `CallConfig+0x0`
+    = userId -> `[CallController+0x60]` -> goi Init `[pkt+0x10]`
+    -> SSRC tren day; pcap 3 cuoc goi: gia tri nay GIONG nhau ca
+    3 (dung tinh chat userId cua minh). App da co uid tu luc dang
+    nhap (`session["uid"]`, QR grant). Uid thieu / khong phai so /
+    ngoai u32 -> `MissingTransportParam` neu ro `local_session`
+    (uid): KHONG random, KHONG dung gia tri da bat."""
+    raw = (sess or {}).get("uid")
+    try:
+        n = int(raw) if not isinstance(raw, bool) else None
+    except (TypeError, ValueError):
+        n = None
+    if n is None or not 1 <= n <= 2 ** 32 - 1:
+        raise media_endpoints.MissingTransportParam(
+            "local_session: missing (need the logged-in account "
+            "uid as a u32 int — session uid is missing/not a "
+            "positive uint32, got %r)" % (raw,))
+    return n
+
+
+def _peer_session_for_call(call_type, thread_id):
+    """`peer_session` (u32, SSRC cua peer) cua cuoc goi di:
+    `int(threadId)` CHI cho goi 1-1 — threadId 1-1 = userId cua
+    peer (`CallConfig+0x4` = partnerId -> `[CallController+0x64]`
+    -> goi Init `[pkt+0x38]`; pcap: KHAC nhau theo peer). Goi
+    nhom: threadId la groupId, KHONG phai userId -> None. Id
+    khong phai so / ngoai u32 -> None (`peer_session` la
+    optional: `TransportConfig` gui 0 khi None, nhu cu)."""
+    if call_type == "group":
+        return None
+    try:
+        n = int(thread_id) if not isinstance(thread_id, bool) else None
+    except (TypeError, ValueError):
+        return None
+    if n is None or not 1 <= n <= 2 ** 32 - 1:
+        return None
+    return n
+
+
 class AppState:
     def __init__(self, data_dir, auth=None):
         self.data_dir = data_dir
@@ -1771,9 +1813,23 @@ class Handler(BaseHTTPRequestHandler):
                                 _alloc["srtp_key"])
                         except Exception:  # noqa: BLE001 - optional
                             hooks = {}
+                    # §7o — local_session / peer_session (2026-11-06):
+                    # `local_session` = int(uid) cua chinh tai khoan
+                    # dang dang nhap (disassembly: CallConfig+0x0 =
+                    # userId -> SSRC); `peer_session` = int(threadId)
+                    # chi cho goi 1-1 (CallConfig+0x4 = partnerId),
+                    # None cho goi nhom. Day la cho duy nhat noi
+                    # hai gia tri nay vao `for_call` (`ENDPOINTS`
+                    # la global, khong dat default theo uid — uid
+                    # thay doi theo phien dang nhap). Uid thieu ->
+                    # MissingTransportParam neu ro local_session
+                    # (uid), buoc 2 bao request_sent=false.
                     endpoints = media_endpoints.ENDPOINTS.for_call(
                         call_id=call_id, callee_id=thread_id,
                         call_type=call_type, codec=body.get("codec"),
+                        local_session=_local_session_from_uid(sess),
+                        peer_session=_peer_session_for_call(
+                            call_type, thread_id),
                         requestcall_data=data, **hooks)
                 except Exception as exc:  # noqa: BLE001 - best-effort
                     request_sent, request_error = False, str(exc)

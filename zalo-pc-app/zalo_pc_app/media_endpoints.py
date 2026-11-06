@@ -87,15 +87,28 @@ Parameter sources (all UNCONFIRMED where noted — see
                bytes). UNCONFIRMED as the session, like the token
                it is the only candidate among the real keys.
   local_session  u32, the same value as the RTP SSRC (setup packet
-               offset 10-13 LE = RTP SSRC BE). A per-device value
-               whose source is UNKNOWN — it is NOT the captured
-               `0x15cbea3f` (that is one device's SSRC, never baked
-               in as a default). Must be supplied by the caller.
+               offset 10-13 LE = RTP SSRC BE). SOURCE KNOWN
+               (disassembly ZaloCall.exe, 2026-11-06,
+               disasm-local-session-source.md): `CallConfig+0x0` =
+               userId of the LOGGED-IN account -> `[CallController
+               +0x60]` -> setup `[pkt+0x10]` -> SSRC; the 3-call
+               pcap shows it CONSTANT per account. The caller
+               supplies `int(session["uid"])` (server.py
+               `_local_session_from_uid`); it is NEVER the captured
+               `0x15cbea3f`, NEVER randomised, NEVER defaulted.
   call_session   the 4-byte value at setup offset 21-24 / P2P
                offset 3-6. Optional: `Udp4200Transport` generates
                random bytes with last byte 0x2b when omitted.
-  peer_session   u32 or None (not yet known before the callee's
-               416); optional.
+  peer_session   u32 or None. SOURCE (same disassembly):
+               `CallConfig+0x4` = partnerId -> `[CallController
+               +0x64]` -> setup `[pkt+0x38]`; the pcap shows it
+               DIFFERS per peer. The caller supplies
+               `int(callee threadId)` for 1-1 calls only (1-1
+               threadId = peer userId); for group calls the
+               threadId is a groupId, NOT a userId, so it stays
+               None — and None is still allowed (not yet known
+               before the callee's 416): the transport sends 0 at
+               setup offset 25-28 until then.
   srtp_key     from `zrtc_config.srtpKey` (a STRING of unknown
                format/length). LIVE 2026-11-06: the real 11300
                `zrtc_config` carries NO `srtpKey` (nor `srtpNoSeq`
@@ -690,7 +703,10 @@ class MediaEndpoints:
         Raises `MissingTransportParam` naming the missing
         parameter when any of these is absent: `call_id`,
         `callee_id`, `relays`/`servers`, `token`, `session`,
-        `local_session`. (`token` comes from an explicit `token`
+        `local_session` (the logged-in account's uid as a u32 —
+        supplied by the caller, see `server.py`
+        `_local_session_from_uid`; never randomised, never the
+        captured value). (`token` comes from an explicit `token`
         key or from 11300 `sessId` when it validates as 115
         bytes / 154 chars — LIVE 2026-11-06; see
         `allocation_from_requestcall_data`.)
@@ -794,10 +810,12 @@ class MediaEndpoints:
         if local_session is None:
             raise MissingTransportParam(
                 "local_session: missing (need a u32 — the same value "
-                "as the RTP SSRC; the captures show it CONSTANT per "
-                "device, so it is NOT generated fresh per call and "
-                "never defaulted to the captured 0x15cbea3f — its "
-                "source is still unknown, it must be supplied%s)"
+                "as the RTP SSRC; per disassembly 2026-11-06 it is "
+                "the LOGGED-IN account uid (CallConfig+0x0 = "
+                "userId), supplied by the caller as "
+                "int(session[\"uid\"]) — it is NOT generated fresh "
+                "per call and never defaulted to the captured "
+                "0x15cbea3f%s)"
                 % (("; " + shape_note) if shape_note else ""))
         local_session = _as_int(local_session)
         if local_session is None or not 0 <= local_session <= 2 ** 32 - 1:
