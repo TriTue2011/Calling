@@ -17,6 +17,7 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
          "test_incoming.py",
          "test_sync_start.py",
          "test_voice_transcode.py", "test_voice_112.py",
+         "test_voice_async_114.py",
          "test_services.py", "test_server_smoke.py"]
 
 # Node checks: app.js syntax + the vm harness for the End button

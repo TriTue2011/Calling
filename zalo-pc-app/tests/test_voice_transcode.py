@@ -383,6 +383,14 @@ def test_server_transcodes_webm_before_upload():
         BASE = "http://127.0.0.1:%d" % port
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         login_via_mock()
+        # Event ctrl voice_aac_success da den truoc (registry cua
+        # AppState) — neu khong, send_voice doi het timeout roi loi
+        # thay vi gui buoc 2 khong co fileUrl (loi 114); mock tra
+        # fileId "file-voice-1" dinh san nen deliver truoc duoc.
+        state.voice_async.deliver(
+            "file-voice-1",
+            "https://f1-voice-aac-dl.zdn.vn/test.amr",
+            "https://f1-voice-aac-dl.zdn.vn/test.aac")
         webm = make_fixture("rec.webm",
                             ["-c:a", "libopus", "-b:a", "32k"])
         assert webm and not voice_mod.is_aac(webm)
@@ -424,6 +432,14 @@ def test_server_aac_passthrough():
         BASE = "http://127.0.0.1:%d" % port
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         login_via_mock()
+        # Event ctrl voice_aac_success da den truoc (registry cua
+        # AppState) — neu khong, send_voice doi het timeout roi loi
+        # thay vi gui buoc 2 khong co fileUrl (loi 114); mock tra
+        # fileId "file-voice-1" dinh san nen deliver truoc duoc.
+        state.voice_async.deliver(
+            "file-voice-1",
+            "https://f1-voice-aac-dl.zdn.vn/test.amr",
+            "https://f1-voice-aac-dl.zdn.vn/test.aac")
         aac = make_fixture("rec.aac", ["-c:a", "aac", "-b:a", "64k"])
         assert aac and voice_mod.is_aac(aac)
         mbody, mctype = chat_mod.build_multipart(

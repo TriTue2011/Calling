@@ -46,8 +46,9 @@ KET LUAN LOI 114 (kiem toan tham so 2026-11-06, live retest
   buoc 2 THIEU fileUrl (va secureKey): client that CHI gui item
   sau khi cho async event voice_aac_success qua waitAsyncFileInfo;
   app gui ngay sau chunk cuoi nen item khong co URL tin thoai nao
-  — do la khoang trong async-event, agent khac dang lam, KHONG
-  lam o day. Phan tham so sua duoc o day: bo viec gui kem
+  — khoang trong async-event nay da duoc lap bang viec DOI event
+  ctrl 99101 truoc buoc 2 (xem test_voice_async_114.py +
+  ctrl_poll.py). Phan tham so sua duoc o day: bo viec gui kem
   fileUrl/aacUrl lay tu chunk-response (nguon sai — xem
   test_voice_114_step2_ignores_chunk_response_urls).
 - Chua lan duoc: ten file ghi am that cua recorder native (app
@@ -69,9 +70,11 @@ Photo/File, sendFileByChunkV2 tra thang urlRes cho Voice/Video
 (2 call site trong JS chi la File/Photo), buoc gui sau upload nam
 o lop native ngoai JS. fType LOAI TRU (xem chung minh o tren):
 extData Voice duy nhat lan duoc khong co fType — app khong gui
-fType la dung. Neu live retest van loi thi diem can kiem dau tien
-la viec cho async event {aac,amr} qua kenh ctrl 99101, hien chua
-implement — xem ghi chu o chat.send_voice.
+fType la dung. CHO EVENT ASYNC (loi 114): bundle DOI event ctrl
+`voice_aac_success` qua waitAsyncFileInfo truoc buoc 2 de lay URL
+(amr/aac) — xem test_voice_async_114.py + ctrl_poll.py; cac test
+o file nay dung waiter gia tra URL ngay (cache-hit), con truong
+hop doi that / het gio duoc pin o file do.
 
 112: van la loi chung (STR_ERROR_CODE_UNKNOWN), bundle coi la tam
 thoi va thu lai sau 1-5 giay — app thu lai gioi han (2 lan, cach
@@ -106,6 +109,21 @@ from zalo_pc_app import voice_transcode as voice_mod  # noqa: E402
 # kiem tra chunk bytes; file that duoc server route doi bang ffmpeg.
 FAKE_AAC = b"\xff\xf1\x50\x80\x00\x1f\xfc" + b"\x00" * 100
 
+# URL ghi am gia ma event ctrl voice_aac_success mang ve (xem
+# test_voice_async_114.py): waiter gia tra ngay (cache-hit).
+VOICE_AMR_URL = "https://f1-voice-aac-dl.zdn.vn/test.amr"
+VOICE_AAC_URL = "https://f1-voice-aac-dl.zdn.vn/test.aac"
+
+
+class _ImmediateVoiceWaiter:
+    """Waiter gia cho test o file nay: event ctrl da den truoc
+    (cache-hit cua bundle) — tra ngay {amr, aac}."""
+
+    feeder_running = True
+
+    def wait(self, file_id, timeout_s):
+        return {"amr": VOICE_AMR_URL, "aac": VOICE_AAC_URL}
+
 
 def patch_domains(mock):
     protocol.AUTH_DOMAIN = mock.base
@@ -129,7 +147,9 @@ class SleepRecorder:
 
 def make_chat(mock, sleep=None):
     t = app_server.make_transport("sek-test")
-    return chat_mod.Chat(t, "dev-1", TEST_SESSION_KEY, sleep=sleep)
+    return chat_mod.Chat(t, "dev-1", TEST_SESSION_KEY,
+                         voice_async=_ImmediateVoiceWaiter(),
+                         voice_async_timeout=5.0, sleep=sleep)
 
 
 def _uploaded_chunk(mock, path, occurrence=0):
@@ -158,7 +178,8 @@ def test_voice_two_step_params_match_bundle():
     imei, chunkId, toid, fileType "aac"} (khong checksum, khong ttl/
     duration/desc); chunkContent = toan bo file; roi asyncfile/msg
     voi body {fileId, checksum=md5, checksumSha "", totalSize,
-    clientId NUMBER, toid, imei, zsource}."""
+    clientId NUMBER, toid, imei, zsource, fileUrl=amr, aacUrl=aac}
+    (fileUrl/aacUrl tu event async ctrl — loi 114)."""
     mock = MockZalo().start()
     try:
         patch_domains(mock)
@@ -197,7 +218,8 @@ def test_voice_two_step_params_match_bundle():
         assert set(sent.keys()) == {"fileId", "checksum",
                                     "checksumSha", "totalSize",
                                     "clientId", "toid", "imei",
-                                    "zsource"}, sent
+                                    "zsource", "fileUrl",
+                                    "aacUrl"}, sent
         assert sent["fileId"] == "file-voice-1", sent
         assert sent["checksum"] == \
             hashlib.md5(FAKE_AAC).hexdigest(), sent
@@ -206,6 +228,8 @@ def test_voice_two_step_params_match_bundle():
         assert sent["clientId"] == res["client_id"], sent
         assert sent["toid"] == "20001" and sent["imei"] == "dev-1", sent
         assert sent["zsource"] == -1, sent
+        assert sent["fileUrl"] == VOICE_AMR_URL, sent
+        assert sent["aacUrl"] == VOICE_AAC_URL, sent
         paths = [p for p, _q, _h in mock.seen
                  if p in ("/api/message/voice/upload",
                           "/api/message/asyncfile/msg")]
@@ -254,6 +278,8 @@ def test_voice_two_step_group_multi_chunk():
         assert "toid" not in sent and "imei" not in sent, sent
         assert sent["checksum"] == hashlib.md5(data).hexdigest(), sent
         assert sent["totalSize"] == 600000, sent
+        assert sent["fileUrl"] == VOICE_AMR_URL, sent
+        assert sent["aacUrl"] == VOICE_AAC_URL, sent
     finally:
         mock.stop()
 
@@ -283,9 +309,9 @@ def test_voice_114_step2_ignores_chunk_response_urls():
     Resp chi doc finished/fileId; nhung truong url/amr/aac neu co
     trong chunk-response la nguon khac, khong phai URL tin thoai).
     Gui kem URL lay tu nguon sai la tham so khong hop le (114).
-    Mock tra chunk cuoi kem cac truong moi url/amr/aac; item buoc
-    2 phai KHONG co fileUrl/aacUrl (cho toi khi agent async-event
-    cap URL that tu event — xem ghi chu o chat.send_voice)."""
+    Mock tra chunk cuoi kem cac truong moi url/amr/aac; buoc 2
+    phai mang URL cua EVENT (waiter gia tra ngay), KHONG phai URL
+    moi trong chunk-response."""
     mock = MockZalo().start()
     try:
         patch_domains(mock)
@@ -299,12 +325,10 @@ def test_voice_114_step2_ignores_chunk_response_urls():
                               FAKE_AAC, "audio/aac")
         assert res["data"]["msgId"] == "msg-voice-1", res
         sent = mock.voice_send_bodies[0]["body"]
-        assert "fileUrl" not in sent, sent
-        assert "aacUrl" not in sent, sent
-        assert set(sent.keys()) == {"fileId", "checksum",
-                                    "checksumSha", "totalSize",
-                                    "clientId", "toid", "imei",
-                                    "zsource"}, sent
+        assert sent["fileUrl"] == VOICE_AMR_URL, sent
+        assert sent["aacUrl"] == VOICE_AAC_URL, sent
+        assert "https://example.invalid" not in json.dumps(sent), sent
+        assert "fType" not in sent, sent
     finally:
         mock.stop()
 
@@ -496,6 +520,12 @@ def _run_server(mock):
     BASE = "http://127.0.0.1:%d" % port
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     login_via_mock()
+    # Event ctrl voice_aac_success da den truoc (registry cua
+    # AppState) — neu khong, send_voice doi het timeout roi loi
+    # thay vi gui buoc 2 khong co fileUrl (loi 114); mock tra
+    # fileId "file-voice-1" dinh san nen deliver truoc duoc.
+    state.voice_async.deliver("file-voice-1", VOICE_AMR_URL,
+                              VOICE_AAC_URL)
     return httpd
 
 
@@ -580,7 +610,8 @@ def test_server_voice_webm_browser_shape_arrives_as_aac():
     params CHI {totalChunk, fileName, clientId NUMBER, totalSize,
     imei, chunkId, toid, fileType "aac"}; roi 1 lan asyncfile/msg
     voi body {fileId, checksum=md5(AAC), checksumSha "", totalSize,
-    clientId NUMBER, toid, imei, zsource -1}; route tra 200 ok +
+    clientId NUMBER, toid, imei, zsource -1, fileUrl=amr,
+    aacUrl=aac}; route tra 200 ok +
     converted_to_aac=true."""
     webm = _webm_fixture()
     if webm is None:
@@ -630,7 +661,8 @@ def test_server_voice_webm_browser_shape_arrives_as_aac():
             assert set(sent.keys()) == {"fileId", "checksum",
                                         "checksumSha", "totalSize",
                                         "clientId", "toid", "imei",
-                                        "zsource"}, sent
+                                        "zsource", "fileUrl",
+                                        "aacUrl"}, sent
             assert sent["fileId"] == "file-voice-1", sent
             assert sent["checksum"] == \
                 hashlib.md5(data).hexdigest(), sent
@@ -640,6 +672,8 @@ def test_server_voice_webm_browser_shape_arrives_as_aac():
             assert sent["toid"] == "20001" and \
                 sent["imei"] == chunk["imei"], sent
             assert sent["zsource"] == -1, sent
+            assert sent["fileUrl"] == VOICE_AMR_URL, sent
+            assert sent["aacUrl"] == VOICE_AAC_URL, sent
         finally:
             httpd.shutdown()
     finally:
@@ -786,11 +820,12 @@ def test_voice_step2_endpoint_confirmed_asyncfile_msg():
 def test_voice_step2_group_item_keys_match_bundle():
     """Nhom: item buoc 2 co DUNG cac key cua getFileAsyncItem(Voice)
     + buildParams: {fileId, checksum, checksumSha, totalSize,
-    clientId NUMBER, grid, zsource -1} — khong toid, khong imei
+    clientId NUMBER, grid, zsource -1} + fileUrl (= amr tu event
+    async ctrl) + aacUrl (khi co amr) — khong toid, khong imei
     (imei chi 1-1: sendMsgFileAsync them imei khi khong phai nhom).
-    fType: bundle CO trong item Voice (gia tri tu extData cua lop
-    native, khong lan duoc tu JS) — app hien chua gui; thuoc vong
-    tham so (agent khac lam), test nay KHONG doi fType."""
+    fType LOAI TRU (kiem toan tham so vong 114): extData Voice duy
+    nhat lan duoc khong co fType nen item voice that khong co
+    fType — test nay KHONG doi fType."""
     mock = MockZalo().start()
     try:
         patch_domains(mock)
@@ -806,7 +841,10 @@ def test_voice_step2_group_item_keys_match_bundle():
         assert set(sent.keys()) == {"fileId", "checksum",
                                     "checksumSha", "totalSize",
                                     "clientId", "grid",
-                                    "zsource"}, sent
+                                    "zsource", "fileUrl",
+                                    "aacUrl"}, sent
+        assert sent["fileUrl"] == VOICE_AMR_URL, sent
+        assert sent["aacUrl"] == VOICE_AAC_URL, sent
         assert sent["checksum"] == hashlib.md5(data).hexdigest(), sent
         assert sent["checksumSha"] == "", sent
         assert sent["totalSize"] == len(data), sent

@@ -44,8 +44,9 @@ Endpoint da dung (ma lenh trong ngoac):
     / /api/group/asyncfile/msg (13001), params AES la item
     getFileAsyncItem: {fileId, checksum (md5 hex), checksumSha: "",
     totalSize, clientId NUMBER, toid|grid, imei (chi 1-1),
-    zsource: -1} (KHONG fileUrl/aacUrl/secureKey/fType o day —
-    xem ket luan loi 114 o send_voice).
+    zsource: -1} + fileUrl (= amr||aac tu event async ctrl
+    voice_aac_success — DOI truoc buoc 2, xem ctrl_poll.py) +
+    aacUrl (chi khi co amr) + secureKey (chi khi async data co no).
     File ghi am la AAC-LC 16 kHz mono 64 kbps ADTS (xem
     voice_transcode.ensure_voice_aac) — KHONG phai MP3.
   DUONG TRUC TIEP CU (voicemp3 11148 / sendmp3 11169) DA BO:
@@ -63,8 +64,8 @@ Endpoint da dung (ma lenh trong ngoac):
     zsource -1 la mac dinh cua buildParams/transform. Xem ghi chu
     o send_voice (gioi han con lai: khong co caller Voice truc
     tiep nao quan sat duoc trong JS — buoc gui sau upload nam o
-    lop native; fType cua Voice nam trong item nhung gia tri tu
-    extData lop native, chua lan duoc tu JS).
+    lop native; fType LOAI TRU — extData Voice duy nhat lan duoc
+    khong co fType nen app khong gui).
   Dang go 1-1:   GET {chat-wpa}/api/message/typing (11144)
                  body {toid, destType, imei}
   Dang go nhom:  GET {group-wpa}/api/group/typing (11196)
@@ -82,7 +83,9 @@ KHONG CO endpoint HTTPS (dung bia — xem Bang 3):
     vua gui trong phien thi hien ngay nho ChatStore (bo nho RAM).
   - Nhan tin den: kenh sync long-poll 99100 (xem sync_poll.py) —
     tin den vao Inbox, lich su 1-1/nhom ghep tu Inbox (merge_messages).
-    Kenh ctrl 99101 (group_event/reaction) chua co.
+    Kenh ctrl 99101 (xem ctrl_poll.py) chi mo cho event async voice
+    (voice_aac_success, phuc vu send_voice); group_event/reaction
+    van cho kenh ctrl day du.
   - Gui reaction: xem services.add_reaction (REACTION domain,
     /api/message/reaction 12410 / /api/group/reaction 12411).
   - Gui video: chi co buoc upload (12058-12062), buoc send sau
@@ -145,6 +148,50 @@ TYPE_FILE_GROUP = 11
 # nen duong hai buoc moi la duong that (xem send_voice).
 VOICE_112_MAX_RETRIES = 2
 VOICE_112_RETRY_DELAY_SECONDS = 2.0
+
+# -- doi event async ctrl voice (loi 114) ------------------------------
+# Sau chunk cuoi, bundle KHONG gui buoc 2 ngay: upload-manager DOI
+# event ctrl `voice_aac_success` qua waitAsyncFileInfo (kenh ctrl
+# long-poll 99101, zpw_ctrs_new — xem ctrl_poll.py) truoc khi gui.
+# Timeout mac dinh cua bundle: upload_file_timeout_wait_ctrl_event
+# = 12e4 ms (120 giay); het gio thi TIMEOUT_WAIT, khong gui buoc 2.
+# Live 2026-11-06 09:46 +07: 112 da het (duong hai buoc toi duoc
+# server) nhung buoc 2 tra 114 "Tham so khong hop le" — vi app cu
+# gui buoc 2 ngay sau chunk-response (chi co {finished:1, fileId})
+# nen body thieu fileUrl ma event async moi mang ve (amr/aac).
+VOICE_ASYNC_WAIT_SECONDS = 120.0
+
+
+def _voice_urls_from_async_data(data):
+    """(file_url, aac_url, secure_key) tu du lieu async cua tin
+    thoai — CHI tu event ctrl voice_aac_success (handler cua
+    __waitAsyncFileInfo), KHONG BAO GIO tu chunk-response (xem
+    buoc 1.5 o send_voice). Quy tac giong handler cua bundle:
+    fileUrl = amr||aac; aacUrl CHI khi co amr; secureKey CHI khi
+    du lieu co no (event ctrl voice khong co secureKey — chi dung
+    cho E2EE/pcloud — nen thuong la None, khong phai loi). Tra
+    None cho phan thieu."""
+    if not isinstance(data, dict):
+        return None, None, None
+    amr = data.get("amr")
+    amr = amr if isinstance(amr, str) and amr else None
+    aac = data.get("aac")
+    aac = aac if isinstance(aac, str) and aac else None
+    file_url = amr or aac
+    aac_url = aac if amr else None
+    secure_key = _voice_secure_key(data)
+    return file_url, aac_url, secure_key
+
+
+def _voice_secure_key(data):
+    """secureKey (neu co) tu chunk-response (mapVoiceResponse)
+    hoac event ctrl — chi dung cho E2EE/pcloud, thuong vang;
+    KHONG phai nguyen nhan 114 cho tin thoai thuong."""
+    if not isinstance(data, dict):
+        return None
+    secure_key = data.get("secureKey")
+    return (secure_key if isinstance(secure_key, str)
+            and secure_key else None)
 
 # -- upload ghi am theo chunk (duong hai buoc) -------------------------
 # getDefaultChunkSize cua bundle: settings.sharefile.chunk_size_file
@@ -529,7 +576,8 @@ class Chat:
     .http_post (url, form, timeout) cho POST form (send_link)."""
 
     def __init__(self, http_get, device_id, zpw_enk,
-                 http_post_multipart=None, http_post=None, sleep=None):
+                 http_post_multipart=None, http_post=None, sleep=None,
+                 voice_async=None, voice_async_timeout=None):
         self.http_get = http_get
         self.device_id = device_id
         self.zpw_enk = zpw_enk
@@ -543,6 +591,21 @@ class Chat:
         # sleep cho khoang cho giua cac lan thu lai 112 (mac dinh
         # time.sleep; test inject ham ghi lai de khong cho that).
         self._sleep = sleep or time.sleep
+        # Doi event async ctrl voice (loi 114 — xem send_voice):
+        # voice_async la object co .wait(file_id, timeout_s) ->
+        # {"amr", "aac"} | None va .feeder_running (True khi kenh
+        # ctrl 99101 dang chay); server nap bang
+        # ctrl_poll.VoiceAsyncRegistry + CtrlPoller. None = khong
+        # co kenh cho event — send_voice loi ro thay vi gui mu.
+        self.voice_async = voice_async
+        try:
+            timeout = float(voice_async_timeout
+                            if voice_async_timeout is not None
+                            else VOICE_ASYNC_WAIT_SECONDS)
+        except (TypeError, ValueError):
+            timeout = VOICE_ASYNC_WAIT_SECONDS
+        self.voice_async_timeout = (timeout if timeout > 0
+                                    else VOICE_ASYNC_WAIT_SECONDS)
 
     # -- co so -----------------------------------------------------------
     def _unwrap(self, status, payload, where):
@@ -799,8 +862,10 @@ class Chat:
         11777 (1-1) / 13001 (nhom), body la item getFileAsyncItem:
         {fileId, checksum (md5 hex cua toan file), checksumSha: "",
         totalSize, clientId NUMBER, toid|grid, imei (chi 1-1),
-        zsource: -1} (KHONG fileUrl/aacUrl/secureKey/fType o day —
-        xem ket luan loi 114 ben duoi).
+        zsource: -1} + fileUrl (= amr||aac tu event async ctrl
+        voice_aac_success — DOI truoc buoc 2, xem ctrl_poll.py) +
+        aacUrl (chi khi co amr) + secureKey (chi khi async data
+        co no).
         Ghi am la viec cua trinh duyet (MediaRecorder) + server doi
         sang AAC truoc (voice_transcode.ensure_voice_aac) — ham nay
         chi gui file AAC ADTS da chuan bi. File rong bi tu choi
@@ -842,23 +907,47 @@ class Chat:
         fileName, clientId NUMBER, totalSize, imei, chunkId 1..N,
         toid|grid, fileType aac|amr; khong checksum; khong
         isE2EE tren duong thuong). Nghi pham chinh la buoc 2
-        THIEU fileUrl (va secureKey): client that CHI gui item
-        sau khi cho async event voice_aac_success {aac, amr,
-        secureKey} qua waitAsyncFileInfo (__waitAsyncFileInfo:
-        fileUrl = amr||aac, aacUrl = aac chi khi co amr,
-        secureKey neu event co) roi moi gui; app hien gui ngay
-        sau chunk cuoi, khong co URL tin thoai nao trong item —
-        server tu choi bang 114 "Tham so khong hop le" (thieu
-        tham so bat buoc). Sua dung can cho event do (agent khac
-        dang lam, qua kenh ctrl 99101 — KHONG phai kenh tin nhan
-        99100); o day chi sua phan tham so: KHONG gui
-        fileUrl/aacUrl lay tu response chunk (nguon sai — bundle
-        khong bao gio lay URL tu do), va ghi ro rang buoc 2 hien
-        chua du tham so cho toi khi co event. Neu live retest
+        THIEU fileUrl: client that CHI gui item sau khi cho async
+        event voice_aac_success {aac, amr, secureKey} qua
+        waitAsyncFileInfo (__waitAsyncFileInfo: fileUrl = amr||
+        aac, aacUrl = aac chi khi co amr, secureKey neu event co)
+        roi moi gui; app gui ngay sau chunk cuoi, khong co URL
+        tin thoai nao trong item — server tu choi bang 114 "Tham
+        so khong hop le" (thieu tham so bat buoc). Da sua: KHONG
+        gui fileUrl/aacUrl lay tu response chunk (nguon sai —
+        bundle khong bao gio lay URL tu do) va DOI event truoc
+        buoc 2 (xem DOI EVENT ASYNC ben duoi). Neu live retest
         van 114 sau khi co event, diem can kiem tiep la ten file
         ghi am that (app dung "voice.aac"; ten cua recorder
         native chua lan duoc) va chunk_size_file that (app dung
-        256000 theo default cua bundle khi setting < 64000)."""
+        256000 theo default cua bundle khi setting < 64000).
+
+        DOI EVENT ASYNC (loi 114, 2026-11-06 09:46 +07 — DA
+        IMPLEMENT): truoc buoc 2, bundle DOI event ctrl
+        `voice_aac_success` qua waitAsyncFileInfo (kenh ctrl 99101,
+        xem ctrl_poll.py) — event mang {amr, aac} (key so "5"/"6");
+        handler dien fileUrl=amr||aac (+ aacUrl khi co amr) vao
+        fileAsync, roi API sendMsgFileAsync moi POST {...fileAsync}.
+        Ham nay lam dung vay: LUON doi waiter (VoiceAsyncRegistry
+        do CtrlPoller nap; tra ngay neu event da ve truoc —
+        cache-hit) toi da voice_async_timeout (mac dinh 120 s nhu
+        bundle); het gio / kenh ctrl chua chay / khong co waiter
+        -> loi ro rang, KHONG gui buoc 2 (gui mu chinh la cai gay
+        ra 114 live). URL buoc 2 CHI tu event — KHONG BAO GIO lay
+        tu chunk-response (khac ban goc cua vong async: shortcut
+        "chunk-response co URL thi dung luon" la SAI vi truong url
+        trong chunk-response thuoc nhanh DUPLICATE/cache, khong
+        phai URL tin thoai de gui).
+        secureKey: event ctrl voice KHONG co secureKey (chi co
+        amr/aac) — secureKey chi co trong mapVoiceResponse (tu
+        chunk-response) va chi dung cho E2EE/pcloud; ham nay gui
+        kem secureKey CHI khi chunk-response hoac event co no
+        (thuong vang — KHONG phai nguyen nhan 114 cho tin thoai
+        thuong).
+        Con thieu so voi bundle: khong replay chunk cuoi khi het
+        gio (bundle replay sau 30 s voi file nho) — het timeout thi
+        loi, khong tu replay. fType LOAI TRU (xem o tren) — khong
+        gui fType."""
         if not data:
             raise ValueError("chat: file ghi am rong (0 byte) — Zalo "
                              "khong nhan tin thoai rong, hay ghi am lai")
@@ -912,19 +1001,45 @@ class Chat:
                         "tra fileId (finished/fileId thieu): %r"
                         % (upload_data,), error_code=0)
                 file_id = upload_data["fileId"]
+        # -- buoc 1.5: doi event async ctrl voice_aac_success -------
+        # Bundle DOI event (waitAsyncFileInfo) truoc buoc 2 de lay
+        # URL ghi am (amr/aac); chunk-response chi co
+        # {finished:1, fileId} — bundle KHONG BAO GIO lay URL tu
+        # chunk-response (handleSendChunkResp chi doc finished/
+        # fileId; truong url trong chunk-response thuoc nhanh
+        # DUPLICATE/cache), nen ham nay LUON doi event (wait tra
+        # ngay neu event da ve truoc — cache-hit cua bundle).
+        # secureKey (neu co) lay tu chunk-response hoac event
+        # (chi dung cho E2EE/pcloud; thuong vang). Het gio /
+        # khong co kenh ctrl / khong co waiter -> loi ro, KHONG
+        # gui buoc 2 (gui buoc 2 khong co fileUrl la cai gay ra
+        # 114 live).
+        chunk_key = _voice_secure_key(upload_data)
+        waiter = self.voice_async
+        if waiter is None:
+            raise ZaloChatError(
+                "chat: gui ghi am chua nhan duoc URL ghi am "
+                "(amr/aac) — khong co kenh cho event async ctrl "
+                "voice_aac_success (99101); khong gui buoc 2 "
+                "khong co fileUrl", error_code=0)
+        if not getattr(waiter, "feeder_running", True):
+            raise ZaloChatError(
+                "chat: gui ghi am chua nhan duoc URL ghi am "
+                "(amr/aac) — kenh ctrl (99101) chua chay; "
+                "khong gui buoc 2 khong co fileUrl",
+                error_code=0)
+        got = waiter.wait(file_id, self.voice_async_timeout)
+        file_url, aac_url, event_key = \
+            _voice_urls_from_async_data(got)
+        secure_key = event_key or chunk_key
+        if not file_url:
+            raise ZaloChatError(
+                "chat: gui ghi am het %.0f giay cho event async "
+                "ctrl voice_aac_success ma khong thay URL ghi am "
+                "(amr/aac) cho fileId da upload xong; khong gui "
+                "buoc 2 khong co fileUrl"
+                % self.voice_async_timeout, error_code=0)
         # -- buoc 2: gui bang fileId -----------------------------------
-        # Item DUNG nhu getFileAsyncItem(Voice) tra ve + sendMsgFile-
-        # Async bo sung (toid|grid, imei chi 1-1, zsource -1): KHONG
-        # co fileUrl/aacUrl/secureKey/fType o day. Cac truong do
-        # chi den tu async event voice_aac_success {aac, amr,
-        # secureKey} qua __waitAsyncFileInfo (fileUrl = amr||aac;
-        # aacUrl = aac chi khi co amr; secureKey neu event co) —
-        # KHONG BAO GIO lay tu response cua chunk cuoi (bundle chi
-        # doc finished/fileId o do). Lay URL tu chunk-response la
-        # gui tham so tu nguon sai — mot dang cua loi 114 — nen
-        # khong gui kem gi ca; cho event (agent khac) se bo sung
-        # fileUrl/aacUrl/secureKey truoc khi gui. Xem ket luan
-        # loi 114 o docstring.
         item = {"fileId": file_id,
                 "checksum": hashlib.md5(data).hexdigest(),
                 "checksumSha": "",
@@ -936,6 +1051,15 @@ class Chat:
         else:
             item["toid"] = str(thread_id)
             item["imei"] = self.device_id
+        # URL ghi am tu event async (bundle: fileAsync.fileUrl =
+        # amr||aac, aacUrl chi khi co amr; secureKey chi khi async
+        # data co no). Buoc 2 KHONG bao gio gui khi thieu fileUrl
+        # (xem khoi doi event o tren).
+        item["fileUrl"] = file_url
+        if aac_url:
+            item["aacUrl"] = aac_url
+        if secure_key:
+            item["secureKey"] = secure_key
         send_data = self._post_form_retry(
             FILES_DOMAIN, send_path, item, "POST %s" % send_path)
         return {"data": send_data, "client_id": client_id,

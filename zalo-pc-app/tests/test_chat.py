@@ -37,9 +37,22 @@ def patch_domains(mock):
     chat_mod.GROUP_DOMAIN = mock.base
 
 
+class _ImmediateVoiceWaiter:
+    """Waiter gia: event ctrl voice_aac_success da den truoc
+    (cache-hit cua bundle) — tra ngay {amr, aac} (loi 114)."""
+
+    feeder_running = True
+
+    def wait(self, file_id, timeout_s):
+        return {"amr": "https://f1-voice-aac-dl.zdn.vn/test.amr",
+                "aac": "https://f1-voice-aac-dl.zdn.vn/test.aac"}
+
+
 def make_chat(mock):
     t = app_server.make_transport("sek-test")
-    return chat_mod.Chat(t, "dev-1", TEST_SESSION_KEY)
+    return chat_mod.Chat(t, "dev-1", TEST_SESSION_KEY,
+                         voice_async=_ImmediateVoiceWaiter(),
+                         voice_async_timeout=5.0)
 
 
 def test_send_text_user_and_group():
@@ -326,6 +339,15 @@ def test_server_thread_routes():
         assert status == 401, body
 
         login_via_mock()
+
+        # Event ctrl voice_aac_success da den truoc (registry cua
+        # AppState) — neu khong, send_voice doi het timeout roi loi
+        # thay vi gui buoc 2 khong co fileUrl (loi 114); mock tra
+        # fileId "file-voice-1" dinh san nen deliver truoc duoc.
+        state.voice_async.deliver(
+            "file-voice-1",
+            "https://f1-voice-aac-dl.zdn.vn/test.amr",
+            "https://f1-voice-aac-dl.zdn.vn/test.aac")
 
         # (poll_mode "empty" da dat truoc login — xem dau test.)
 

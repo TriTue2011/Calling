@@ -72,6 +72,7 @@ from . import app_auth
 from . import call_log
 from . import chat as chat_mod
 from . import contacts as contacts_mod
+from . import ctrl_poll as ctrl_poll_mod
 from . import engine_seam
 from . import media_endpoints
 from . import protocol
@@ -311,6 +312,16 @@ class AppState:
         # co the goi tu QR worker, main(), logout()).
         self.sync = None
         self._sync_lock = threading.Lock()
+        # Registry URL ghi am async + poller kenh ctrl (99101):
+        # CtrlPoller nap registry khi event voice_aac_success ve;
+        # Chat.send_voice doi registry truoc khi gui buoc 2 (loi
+        # 114 — xem chat.py / ctrl_poll.py). Registry ton tai ca
+        # khi kenh ctrl chua chay (khi do send_voice loi ro thay
+        # vi gui buoc 2 khong co fileUrl). voice_async_timeout mac
+        # dinh 120 s nhu bundle (upload_file_timeout_wait_ctrl_event).
+        self.voice_async = ctrl_poll_mod.VoiceAsyncRegistry()
+        self.ctrl = None
+        self.voice_async_timeout = chat_mod.VOICE_ASYNC_WAIT_SECONDS
         # Last sync start/refresh failure, as "Type" or "Type
         # error_code=N" only — never a value (no sek/enk/uid, no
         # server message text). "" means no failure recorded.
@@ -988,6 +999,32 @@ class AppState:
             self.sync_error = ""
             print("[sync-poll] da mo kenh nhan tin den (%d endpoint)"
                   % len(poller.urls), flush=True)
+            # Kenh ctrl (99101, zpw_ctrs_new): event
+            # voice_aac_success mang URL ghi am cho send_voice (loi
+            # 114). Mo kem kenh tin nhan, dung chung transport
+            # (cung cookie zpw_sek); thieu endpoint thi chi ghi
+            # log — send_voice se loi ro (khong gui buoc 2 khong
+            # co fileUrl) thay vi im lang.
+            ctl_urls = cur.get("poll_ctl_urls") or []
+            if ctl_urls:
+                try:
+                    ctrl = ctrl_poll_mod.CtrlPoller(
+                        transport, ctl_urls, cur["zpw_enk"],
+                        cur.get("uid", ""), self.voice_async,
+                        ctl_timeout=cur.get("poll_ctl_timeout", 30))
+                except ValueError as e:
+                    print("[sync-poll] kenh ctrl khong mo duoc: %s"
+                          % e, flush=True)
+                    ctrl = None
+                if ctrl is not None:
+                    ctrl.start()
+                    self.ctrl = ctrl
+                    print("[sync-poll] da mo kenh ctrl (99101, %d "
+                          "endpoint)" % len(ctrl.urls), flush=True)
+            else:
+                print("[sync-poll] khong co zpw_ctrs_new — kenh "
+                      "ctrl (99101) chua mo; gui ghi am se loi ro "
+                      "thay vi gui khong URL", flush=True)
             return True
 
     def start_sync_retry_thread(self):
@@ -1021,11 +1058,14 @@ class AppState:
                 pass
 
     def stop_sync(self):
-        """Dung kenh sync (dang xuat)."""
+        """Dung kenh sync + kenh ctrl (dang xuat)."""
         with self._sync_lock:
             poller, self.sync = self.sync, None
+            ctrl, self.ctrl = self.ctrl, None
         if poller is not None:
             poller.stop()
+        if ctrl is not None:
+            ctrl.stop()
 
     def sync_status(self):
         """Trang thai kenh sync cho /api/status (khong lo secret):
@@ -1366,10 +1406,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _chat_client(self, sess):
         """Chat client cho mot phien Zalo (transport mang cookie
-        zpw_sek + http_post_multipart cho upload file)."""
+        zpw_sek + http_post_multipart cho upload file). Nap
+        voice_async registry + timeout cua AppState de send_voice
+        doi event ctrl voice_aac_success truoc buoc 2 (loi 114)."""
         transport = make_transport(sess["zpw_sek"])
         return chat_mod.Chat(transport, sess["device_id"],
-                             sess["zpw_enk"])
+                             sess["zpw_enk"],
+                             voice_async=getattr(STATE, "voice_async",
+                                                 None),
+                             voice_async_timeout=getattr(
+                                 STATE, "voice_async_timeout",
+                                 chat_mod.VOICE_ASYNC_WAIT_SECONDS))
 
     def _read_raw(self):
         try:
@@ -1520,8 +1567,10 @@ class Handler(BaseHTTPRequestHandler):
             # sendvoice: file ghi am cua trinh duyet (MediaRecorder).
             # Chrome cho webm/opus, Safari cho mp4/aac — duong hai
             # buoc (upload chunked 12060/12063 + asyncfile/msg)
-            # doi file AAC (fileType "aac"|"amr", async tra {aac,
-            # amr}), giong het Node.js. Nen doi sang AAC-LC ADTS o
+            # doi file AAC (fileType "aac"|"amr"); buoc 2 chi gui
+            # SAU KHI event ctrl voice_aac_success mang URL ve
+            # (chat.send_voice doi registry — loi 114), khong gui
+            # mu khong co fileUrl.
             # day TRUOC khi gui, theo dung cach Node.js lam
             # (zalobot voiceAac.js: ffmpeg server-side, mono 16 kHz
             # 64 kbps, timeout 60 s) — Y HET tham so, khong con lech

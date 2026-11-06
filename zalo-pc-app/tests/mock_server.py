@@ -596,7 +596,6 @@ class MockZalo:
         last = {"finished": 1, "fileId": "file-voice-1"}
         last.update(self.voice_upload_extra)
         return self._postlogin_envelope(last)
-
     def _chat_asyncfile_msg(self, path, qs, headers, raw_body="",
                             raw_qs=""):
         """Gui tin sau khi upload xong — buoc 2 cua duong hai buoc
@@ -604,10 +603,12 @@ class MockZalo:
         item getFileAsyncItem tra ve): POST form params=<AES JSON
         {fileId, checksum (md5 hex cua file AAC), checksumSha: "",
         totalSize, clientId NUMBER, toid|grid, imei (chi 1-1),
-        zsource}>. fType CO trong item Voice cua getFileAsyncItem
-        (bundle) nhung gia tri tu extData lop native, khong lan
-        duoc tu JS — mock khong doi (vong tham so, agent khac lam).
-        Tra envelope {msgId, clientId, body} nhu _chat_upload."""
+        zsource, fileUrl (BAT BUOC — URL ghi am tu event async
+        ctrl voice_aac_success qua kenh ctrl 99101; gui khong co
+        fileUrl la cai gay ra 114 live 2026-11-06), aacUrl (khi co
+        amr), secureKey (chi khi async data co no)}>. fType LOAI TRU
+        (extData Voice duy nhat lan duoc khong co fType — mock khong
+        doi). Tra envelope {msgId, clientId, body} nhu _chat_upload."""
         self._check_common(qs, headers, "asyncfile msg")
         m = re.search(r"(?:^|&)params=([^&]*)", raw_body or "")
         assert m, "asyncfile msg needs params form body"
@@ -619,6 +620,8 @@ class MockZalo:
                              decrypt=True)
         body = json.loads(plain.decode("utf-8"))
         assert body.get("fileId"), body
+        assert isinstance(body.get("fileUrl"), str) \
+            and body["fileUrl"], body
         assert re.fullmatch(r"[0-9a-f]{32}", body.get("checksum")
                             or ""), body
         assert body.get("checksumSha") == "", body
