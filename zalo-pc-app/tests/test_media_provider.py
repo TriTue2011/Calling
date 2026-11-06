@@ -565,12 +565,12 @@ REAL_11300_2026_11_06_SERVERS = [
 # Toan bo key top-level that — KHONG co "token", KHONG co
 # "srtpKey" (ca top-level lan trong zrtc_config).
 REAL_11300_2026_11_06 = {
-    "changeZRTP": 0, "fec": 0, "fromId": "10001-test",
+    "changeZRTP": 0, "fec": 0, "fromId": 10001,
     "id": "1-test", "msg": "", "protocol": 0,
     "rtcpIP": "127.0.0.1", "rtpIP": "127.0.0.1",
     "servers": REAL_11300_2026_11_06_SERVERS,
     "sessId": SESSID_154, "settings": {}, "showDebugInfo": 0,
-    "status": 0, "toId": "20001-test", "ts": 1762745678,
+    "status": 0, "toId": 20001, "ts": 1762745678,
     "video": 0, "zrtc_config": {"srtpMode": 2}}
 
 

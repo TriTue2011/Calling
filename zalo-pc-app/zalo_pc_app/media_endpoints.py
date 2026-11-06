@@ -87,28 +87,37 @@ Parameter sources (all UNCONFIRMED where noted — see
                bytes). UNCONFIRMED as the session, like the token
                it is the only candidate among the real keys.
   local_session  u32, the same value as the RTP SSRC (setup packet
-               offset 10-13 LE = RTP SSRC BE). SOURCE KNOWN
-               (disassembly ZaloCall.exe, 2026-11-06,
-               disasm-local-session-source.md): `CallConfig+0x0` =
-               userId of the LOGGED-IN account -> `[CallController
-               +0x60]` -> setup `[pkt+0x10]` -> SSRC; the 3-call
-               pcap shows it CONSTANT per account. The caller
-               supplies `int(session["uid"])` (server.py
-               `_local_session_from_uid`); it is NEVER the captured
-               `0x15cbea3f`, NEVER randomised, NEVER defaulted.
+               offset 10-13 LE = RTP SSRC BE). SOURCE CHOT
+               (disassembly ZaloCall.exe 26.11.10, 2026-11-06):
+               parser response 401 (fcn.0071ebd1,
+               zmessagedeseralizer.cpp) doc JSON "fromId" vao
+               struct+0x10, "toId" vao struct+0x14 (JSON-get-int
+               0x4015a5); `_prepareCallConfig, resp` (0x7ed1d0) copy
+               [resp+0x10] -> CallConfig+0x0 (= userId cua minh),
+               [resp+0x14] -> CallConfig+0x4 (= partnerId) —
+               khong co and/shr/mod/hash nao. Goi di: fromId =
+               caller = chinh minh, toId = callee = peer (doi
+               chieu goi den: parser 0x71f670 doc "uidTo" ->
+               CallConfig+0, "uidFrom" -> CallConfig+4). Vay
+               local_session = response 11300 `fromId` — id 32-bit
+               RIENG do server cap, KHONG phai session uid (uid
+               that la 64-bit, live test 09:23 +07 2026-11-06 da
+               bac; low-32 cung bi loai bang pcap 09:27). Thieu
+               fromId (hoac fromId khong vua u32) -> `for_call`
+               loi trung thuc neu ro `local_session` + `fromId`
+               (gui 11301 voi SSRC sai con te hon khong gui).
+               KHONG random, KHONG default, KHONG lay tu uid.
   call_session   the 4-byte value at setup offset 21-24 / P2P
                offset 3-6. Optional: `Udp4200Transport` generates
                random bytes with last byte 0x2b when omitted.
-  peer_session   u32 or None. SOURCE (same disassembly):
+  peer_session   u32 or None. SOURCE (cung disassembly):
                `CallConfig+0x4` = partnerId -> `[CallController
-               +0x64]` -> setup `[pkt+0x38]`; the pcap shows it
-               DIFFERS per peer. The caller supplies
-               `int(callee threadId)` for 1-1 calls only (1-1
-               threadId = peer userId); for group calls the
-               threadId is a groupId, NOT a userId, so it stays
-               None — and None is still allowed (not yet known
-               before the callee's 416): the transport sends 0 at
-               setup offset 25-28 until then.
+               +0x64]` -> setup `[pkt+0x38]`; pcap thay no KHAC
+               nhau theo peer. Lay tu response 11300 `toId` (chi
+               cho goi 1-1; goi nhom toId khong phai userId cua
+               mot peer nen van None). Vang / sai dang -> None
+               trung thuc: transport gui 0 o offset 25-28 cho den
+               khi hoc lai SSRC peer.
   srtp_key     from `zrtc_config.srtpKey` (a STRING of unknown
                format/length). LIVE 2026-11-06: the real 11300
                `zrtc_config` carries NO `srtpKey` (nor `srtpNoSeq`
@@ -184,6 +193,32 @@ def _as_int(value):
         except ValueError:
             return None
     return None
+
+
+def _as_u32(value):
+    """Coerce a digit string / int to a positive u32 int, else
+    None. 0 is rejected: the native JSON-get-int leaves the out
+    param at 0 when the key is absent / unconvertible, so 0 means
+    "no id" here, never a real server-issued id. A 64-bit id
+    (e.g. a session uid) is rejected, NEVER truncated to low-32
+    — no truncation exists in the native client either."""
+    n = _as_int(value)
+    if n is None or not 1 <= n <= 2 ** 32 - 1:
+        return None
+    return n
+
+
+def _describe_id_value(value):
+    """Shape of an id value ONLY (type + length for strings) —
+    never the value itself. Used for `fromId`/`toId` diagnostics
+    so a live failure can be judged from the message alone."""
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, str):
+        return "str[%d chars]" % len(value)
+    return type(value).__name__
 
 
 def _norm_relay_key(key):
@@ -426,6 +461,14 @@ def describe_requestcall_shape(data):
             parts.append("sessId: str[%d chars]" % len(sess))
         else:
             parts.append("sessId: %s" % type(sess).__name__)
+    # fromId/toId shapes (never the values): the 32-bit ids that
+    # feed local_session / peer_session. A fromId that arrives as
+    # a long digit string is the first thing the next live round
+    # needs to see — without its value.
+    for _key in ("fromId", "toId"):
+        _val = _find_in_requestcall_data(data, _key)
+        if _val is not None:
+            parts.append("%s: %s" % (_key, _describe_id_value(_val)))
     return "; ".join(parts)
 
 
@@ -538,6 +581,18 @@ def allocation_from_requestcall_data(data):
     its shape validates via `_looks_like_token`; a wrong-shaped
     sessId leaves `token` absent),
     `session` (from `sessId` — same value as the token),
+    `local_session` (from 11300 `fromId` — the server-issued
+    32-bit id of the logged-in account; disassembly 2026-11-06:
+    parser 0x71ebd1 maps "fromId" -> resp+0x10, and
+    `_prepareCallConfig, resp` 0x7ed1d0 copies [resp+0x10] ->
+    CallConfig+0 -> SSRC. Accepted ONLY as a positive u32 int
+    or digit string (`_as_u32`); a present-but-invalid `fromId`
+    is reported as `local_session_invalid` (SHAPE only, never
+    the value) so `for_call` can name it in the error),
+    `peer_session` (from 11300 `toId` — the server-issued 32-bit
+    id of the peer; parser maps "toId" -> resp+0x14 ->
+    CallConfig+4. Accepted ONLY as a positive u32; absent /
+    invalid -> simply missing, i.e. None downstream),
     `srtp_key` (from `zrtc_config.srtpKey` — LIVE 2026-11-06
     the real response has none; absent keys are simply missing),
     `srtp_mode`, `codec` (from `zrtc_config.g711`), `extend_data`
@@ -575,6 +630,24 @@ def allocation_from_requestcall_data(data):
         sess = _find_in_requestcall_data(data, "session")
     if sess is not None:
         out["session"] = _sessid_to_session_str(sess)
+    # local_session / peer_session: the server-issued 32-bit ids
+    # of the 11300 response (see module docstring). NEVER derived
+    # from the session uid (64-bit) or the callee threadId — those
+    # derivations were removed 2026-11-06: the live test proved
+    # the uid does not fit u32, and the disassembly shows the
+    # ids arrive ready-made in `fromId`/`toId`.
+    from_id = _find_in_requestcall_data(data, "fromId")
+    if from_id is not None:
+        local = _as_u32(from_id)
+        if local is not None:
+            out["local_session"] = local
+        else:
+            out["local_session_invalid"] = _describe_id_value(from_id)
+    to_id = _find_in_requestcall_data(data, "toId")
+    if to_id is not None:
+        peer = _as_u32(to_id)
+        if peer is not None:
+            out["peer_session"] = peer
     srtp_key = cfg.get("srtpKey")
     if srtp_key is None:
         # Fallback: the real 11300 layout is only partly known
@@ -703,13 +776,17 @@ class MediaEndpoints:
         Raises `MissingTransportParam` naming the missing
         parameter when any of these is absent: `call_id`,
         `callee_id`, `relays`/`servers`, `token`, `session`,
-        `local_session` (the logged-in account's uid as a u32 —
-        supplied by the caller, see `server.py`
-        `_local_session_from_uid`; never randomised, never the
-        captured value). (`token` comes from an explicit `token`
-        key or from 11300 `sessId` when it validates as 115
-        bytes / 154 chars — LIVE 2026-11-06; see
-        `allocation_from_requestcall_data`.)
+        `local_session` (the server-issued 32-bit id of the
+        logged-in account, from response 11300 `fromId` — see
+        the module docstring; never derived from the session
+        uid, never randomised, never defaulted). (`token` comes
+        from an explicit `token` key or from 11300 `sessId`
+        when it validates as 115 bytes / 154 chars — LIVE
+        2026-11-06; see `allocation_from_requestcall_data`.)
+        `peer_session` comes from 11300 `toId` for 1-1 calls
+        only (a group response's `toId` is not one peer's id,
+        so group calls keep None); when `toId` is absent or
+        invalid it stays None honestly.
         `srtp_key` is NOT in that list any more: the real 11300
         response (live 2026-11-06) carries NO `srtpKey`, so
         requiring it made 11301 unsendable on every real call.
@@ -746,10 +823,29 @@ class MediaEndpoints:
             token = alloc.get("token", self._defaults["token"])
         if session is None:
             session = alloc.get("session", self._defaults["session"])
+        # call_type is needed for the peer merge below (a group
+        # response's toId is not one peer's id), so normalize it
+        # here, before the merge; section 2 re-checks the value.
+        if isinstance(call_type, str):
+            call_type = 1 if call_type != "group" else 5
+        if call_type not in (1, 5):
+            raise ValueError(
+                "call_type: must be 1 (audio 1-1) or 5 (audio group), "
+                "got %r" % (call_type,))
+        # local_session / peer_session: explicit arg > instance
+        # default > response 11300 (`fromId` / `toId`). The
+        # response is the ONLY live source: the session uid is
+        # 64-bit and is never converted, truncated, or hashed
+        # into a u32 (no such conversion exists in the native
+        # client), and the callee threadId is not a user id.
         if local_session is None:
             local_session = self._defaults["local_session"]
+        if local_session is None:
+            local_session = alloc.get("local_session")
         if peer_session is None:
             peer_session = self._defaults["peer_session"]
+        if peer_session is None and call_type != 5:
+            peer_session = alloc.get("peer_session")
         if call_session is None:
             call_session = self._defaults["call_session"]
         if srtp_key is None:
@@ -770,12 +866,6 @@ class MediaEndpoints:
         if not callee_id or not isinstance(callee_id, str):
             raise MissingTransportParam(
                 "callee_id: missing (need the callee threadId string)")
-        if isinstance(call_type, str):
-            call_type = 1 if call_type != "group" else 5
-        if call_type not in (1, 5):
-            raise ValueError(
-                "call_type: must be 1 (audio 1-1) or 5 (audio group), "
-                "got %r" % (call_type,))
 
         # 3. Relays (never an empty / half-built list).
         relay_list = _normalize_relays(relays, servers)
@@ -811,12 +901,15 @@ class MediaEndpoints:
             raise MissingTransportParam(
                 "local_session: missing (need a u32 — the same value "
                 "as the RTP SSRC; per disassembly 2026-11-06 it is "
-                "the LOGGED-IN account uid (CallConfig+0x0 = "
-                "userId), supplied by the caller as "
-                "int(session[\"uid\"]) — it is NOT generated fresh "
-                "per call and never defaulted to the captured "
-                "0x15cbea3f%s)"
-                % (("; " + shape_note) if shape_note else ""))
+                "the server-issued 32-bit id of the logged-in "
+                "account, carried by response 11300 `fromId` "
+                "(CallConfig+0x0 = userId) — it is NOT derived "
+                "from the session uid (64-bit), NOT generated "
+                "fresh per call, never defaulted%s%s)"
+                % (("; `fromId` was present but is not a u32: %s"
+                    % alloc.get("local_session_invalid"))
+                   if alloc.get("local_session_invalid") else "",
+                   ("; " + shape_note) if shape_note else ""))
         local_session = _as_int(local_session)
         if local_session is None or not 0 <= local_session <= 2 ** 32 - 1:
             raise MissingTransportParam(
