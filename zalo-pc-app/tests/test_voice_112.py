@@ -54,6 +54,8 @@ Mock kiem chung doc lap (khong dang nhap that, khong gui that).
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -69,6 +71,7 @@ from mock_server import MockZalo, TEST_SESSION_KEY  # noqa: E402
 from zalo_pc_app import chat as chat_mod  # noqa: E402
 from zalo_pc_app import protocol  # noqa: E402
 from zalo_pc_app import server as app_server  # noqa: E402
+from zalo_pc_app import voice_transcode as voice_mod  # noqa: E402
 
 # ADTS AAC gia (header sync FF F1 + payload xac dinh) — du de mock
 # kiem tra chunk bytes; file that duoc server route doi bang ffmpeg.
@@ -410,6 +413,17 @@ def _run_server(mock):
     return httpd
 
 
+def _sendvoice_via_app_bytes(filename, mime, data):
+    """Gui giong het trinh duyet (app.js toggleRecord): field type
+    + file la blob MediaRecorder (ten voice.webm, type
+    audio/webm;codecs=opus o Chrome)."""
+    mbody, mctype = chat_mod.build_multipart(
+        {"type": "user"},
+        [("file", filename, mime, data)])
+    return api("POST", "/api/thread/20001/sendvoice",
+               mbody, {"Content-Type": mctype})
+
+
 def _sendvoice_via_app():
     mbody, mctype = chat_mod.build_multipart(
         {"type": "user"},
@@ -433,6 +447,161 @@ def test_server_voice_two_step_succeeds():
             assert mock.voice_upload_calls == 1, \
                 mock.voice_upload_calls
             assert mock.voice_send_calls == 1, mock.voice_send_calls
+        finally:
+            httpd.shutdown()
+    finally:
+        mock.stop()
+
+
+FFMPEG = shutil.which("ffmpeg")
+_TMP = tempfile.mkdtemp(prefix="zalo-voice112c-webm-")
+
+
+def _webm_fixture():
+    """File ghi am that dang webm/opus 0.5 s (sine 440 Hz) nhu
+    Chrome MediaRecorder tao ra — dung de chay het duong that qua
+    route: parse multipart -> doi AAC -> upload chunk + asyncfile.
+    Tra ve bytes, hoac None neu khong co ffmpeg."""
+    if not FFMPEG:
+        return None
+    path = os.path.join(_TMP, "rec.webm")
+    cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+           "-f", "lavfi", "-i", "sine=frequency=440:duration=0.5",
+           "-vn", "-ac", "1", "-ar", "16000",
+           "-c:a", "libopus", "-b:a", "64k", path]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE)
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
+    with open(path, "rb") as f:
+        return f.read()
+
+
+# -- e2e (audit duong (c), 2026-11-06, adapted sang duong hai buoc) --
+# Blob webm cua trinh duyet qua route phai toi Zalo duoi dang AAC
+# dung wire cua bundle (upload chunk 12060 + asyncfile/msg 11777).
+# Khoa duong da kiem chung: khong co buoc nao tren duong nay doi
+# field/ten file/params — neu mot buoc nao doi (vd. bo transcode,
+# gui thang webm), test nay do ngay. (Ban goc cua (c) pin duong
+# truc tiep voicemp3/MP3; duong do da bi (b) bo vi la code chet
+# trong bundle + live van 112 — test duoc viet lai theo duong
+# hai buoc, giu nguyen y dinh e2e.)
+
+def test_server_voice_webm_browser_shape_arrives_as_aac():
+    """Blob webm/opus dang trinh duyet gui (field type + file
+    voice.webm, audio/webm;codecs=opus) qua route phai duoc doi
+    sang AAC that roi gui hai buoc: 1 chunk toi
+    /api/message/voice/upload voi chunkContent = AAC (voice.aac),
+    params CHI {totalChunk, fileName, clientId NUMBER, totalSize,
+    imei, chunkId, toid, fileType "aac"}; roi 1 lan asyncfile/msg
+    voi body {fileId, checksum=md5(AAC), checksumSha "", totalSize,
+    clientId NUMBER, toid, imei, zsource -1}; route tra 200 ok +
+    converted_to_aac=true."""
+    webm = _webm_fixture()
+    if webm is None:
+        print("SKIP test_server_voice_webm_browser_shape_arrives_as_aac "
+              "(no ffmpeg)")
+        return
+    assert not voice_mod.is_mp3(webm), "fixture phai la webm, khong phai mp3"
+    assert not voice_mod.is_aac(webm), "fixture phai la webm, khong phai aac"
+    mock = MockZalo().start()
+    try:
+        httpd = _run_server(mock)
+        try:
+            status, body = _sendvoice_via_app_bytes(
+                "voice.webm", "audio/webm;codecs=opus", webm)
+            assert status == 200 and body["ok"] is True, body
+            assert body["message"]["kind"] == "voice", body
+            assert body["converted_to_aac"] is True, body
+            assert mock.voice_upload_calls == 1, mock.voice_upload_calls
+            assert mock.voice_send_calls == 1, mock.voice_send_calls
+            chunk = mock.upload_bodies[0]["body"]
+            assert mock.upload_bodies[0]["path"] == \
+                "/api/message/voice/upload", mock.upload_bodies
+            assert set(chunk.keys()) == {"totalChunk", "fileName",
+                                         "clientId", "totalSize", "imei",
+                                         "chunkId", "toid",
+                                         "fileType"}, chunk
+            assert chunk["totalChunk"] == 1 and chunk["chunkId"] == 1, chunk
+            assert chunk["fileName"] == "voice.aac", chunk
+            assert chunk["fileType"] == "aac", chunk
+            assert chunk["toid"] == "20001", chunk
+            # Qua route, imei la device id do server sinh (khong
+            # phai "dev-1" cua test chat-layer); chi pin no co
+            # dang chuoi khong rong + khop giua 2 buoc (xem duoi).
+            assert isinstance(chunk["imei"], str) and chunk["imei"], chunk
+            assert isinstance(chunk["clientId"], int) and not \
+                isinstance(chunk["clientId"], bool), chunk
+            fname, mime, data = _uploaded_chunk(
+                mock, "/api/message/voice/upload")
+            assert fname == "voice.aac", fname
+            assert voice_mod.is_aac(data), data[:16]
+            assert data != webm, \
+                "chunkContent phai la AAC da doi, khong phai webm goc"
+            assert chunk["totalSize"] == len(data), chunk
+            sent = mock.voice_send_bodies[0]["body"]
+            assert mock.voice_send_bodies[0]["path"] == \
+                "/api/message/asyncfile/msg", mock.voice_send_bodies
+            assert set(sent.keys()) == {"fileId", "checksum",
+                                        "checksumSha", "totalSize",
+                                        "clientId", "toid", "imei",
+                                        "zsource"}, sent
+            assert sent["fileId"] == "file-voice-1", sent
+            assert sent["checksum"] == \
+                hashlib.md5(data).hexdigest(), sent
+            assert sent["checksumSha"] == "", sent
+            assert sent["totalSize"] == len(data), sent
+            assert sent["clientId"] == chunk["clientId"], sent
+            assert sent["toid"] == "20001" and \
+                sent["imei"] == chunk["imei"], sent
+            assert sent["zsource"] == -1, sent
+        finally:
+            httpd.shutdown()
+    finally:
+        mock.stop()
+
+
+def test_server_voice_webm_112_once_retries_same_aac():
+    """112 mot lan tren duong webm-that (o buoc chunk): thu lai
+    phai chay ngay tren duong nay (2 lan goi chunk, cung clientId
+    NUMBER, cung chunkContent AAC da doi o ca 2 lan; chi 1 lan
+    asyncfile voi checksum cua AAC do) va route tra 200 ok — pin
+    rang co che thu lai khong bi bypass boi buoc transcode."""
+    webm = _webm_fixture()
+    if webm is None:
+        print("SKIP test_server_voice_webm_112_once_retries_same_aac "
+              "(no ffmpeg)")
+        return
+    mock = MockZalo().start()
+    try:
+        mock.voice_upload_mode = "error112_once"
+        httpd = _run_server(mock)
+        try:
+            status, body = _sendvoice_via_app_bytes(
+                "voice.webm", "audio/webm;codecs=opus", webm)
+            assert status == 200 and body["ok"] is True, body
+            assert body["message"]["kind"] == "voice", body
+            assert body["converted_to_aac"] is True, body
+            assert mock.voice_upload_calls == 2, mock.voice_upload_calls
+            assert mock.voice_send_calls == 1, mock.voice_send_calls
+            assert len(mock.upload_bodies) == 2, mock.upload_bodies
+            first = mock.upload_bodies[0]["body"]
+            second = mock.upload_bodies[1]["body"]
+            assert first["clientId"] == second["clientId"], (first, second)
+            assert isinstance(first["clientId"], int), first
+            assert first["chunkId"] == second["chunkId"] == 1, \
+                (first, second)
+            first_chunk = _uploaded_chunk(
+                mock, "/api/message/voice/upload", 0)
+            second_chunk = _uploaded_chunk(
+                mock, "/api/message/voice/upload", 1)
+            assert first_chunk[2] == second_chunk[2], \
+                "thu lai phai gui lai dung AAC da doi"
+            assert voice_mod.is_aac(first_chunk[2]), first_chunk[2][:16]
+            assert first_chunk[0] == "voice.aac", first_chunk
+            sent = mock.voice_send_bodies[0]["body"]
+            assert sent["checksum"] == \
+                hashlib.md5(first_chunk[2]).hexdigest(), sent
+            assert sent["clientId"] == first["clientId"], sent
         finally:
             httpd.shutdown()
     finally:
