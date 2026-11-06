@@ -19,6 +19,7 @@ khong gui tin that.
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -96,10 +97,12 @@ def test_needs_transcode():
                                      b"\x00\x00\x00\x18ftypmp42") is True
 
 
-# -- doi so ffmpeg: pin Y HET Node.js (voiceMessage.test.js) -----
+# -- doi so ffmpeg: pin giong Node.js pin doi so (voiceMessage.test.js)
 # `-ac 1 -ar 16000 -c:a aac -b:a 64k -f adts` — duong upload-manager
 # cua bundle cung doi file AAC (fileType aac/amr), khong con lech
-# codec nhu thoi voicemp3 (libmp3lame/mp3).
+# codec nhu thoi voicemp3 (libmp3lame/mp3); o day MP3 van pin
+# `-ac 1 -ar 16000 -c:a libmp3lame -b:a 64k -f mp3` CONG
+# `-write_xing 1` (loi 112 vong 2, xem ffmpeg_args()).
 
 def test_ffmpeg_args_match_nodejs_params():
     seen = {}
@@ -113,8 +116,8 @@ def test_ffmpeg_args_match_nodejs_params():
         b"\x1a\x45\xdf\xa3" + b"\x00" * 10, run=fake_run)
     assert out == b"ID3FAKEMP3", out
     joined = " ".join(seen["args"])
-    assert "-ac 1 -ar 16000 -c:a libmp3lame -b:a 64k -f mp3" in joined, \
-        joined
+    assert "-ac 1 -ar 16000 -c:a libmp3lame -b:a 64k -write_xing 1 " \
+        "-f mp3" in joined, joined
     assert seen["args"][-1] == "pipe:1", seen["args"]
     assert "-i" in seen["args"] and "pipe:0" in seen["args"], seen
 
@@ -436,6 +439,156 @@ def test_server_aac_passthrough():
         httpd.shutdown()
     finally:
         mock.stop()
+
+
+# -- Xing/Info header: thoi luong MP3 (loi 112, vong 2) ---------------
+# PHAT HIEN 2026-11-06: ffmpeg ghi ra PIPE (code cu) thi file
+# MP3 KHONG co header Xing/Info — ffprobe phai "Estimating duration
+# from bitrate" (2.09 s uoc luong cho file 2.00 s that; doc qua pipe
+# thi Duration: N/A). Cung doi so do nhung ghi ra FILE (seekable)
+# thi CO header Info o frame dau (flags=0xf, frames=58, bytes=16992)
+# va ffprobe doc dung 2.00 s. `-write_xing 1` KHONG cuu duoc pipe
+# (muxer can seek lui de dien so frame/byte; da kiem chung pipe+flag
+# van 16749 byte, khong header) — phai doi sang ghi ra FILE TAM
+# (xoa sau khi doc). Client that ghi am native phai dua mot FILE
+# cho sendVoice (bundle `u.append("fileContent", t)` — t la File
+# tren dia), nen file cua no (ghi qua file, hoac qua lame truc tiep)
+# mang header Xing/Info nhu moi file MP3 ghi ra dia binh thuong;
+# file cua ta (ghi qua pipe) thi khong. Server doc thoi luong tu
+# Xing/Info se thay file ta khong co thoi luong -> 112 chung chung
+# la hop ly. Cac test duoi DO tren code cu (pipe, khong header):
+# test args do ngay bang mock; test header/thoi luong do bang
+# ffmpeg that.
+
+FFPROBE = shutil.which("ffprobe")
+
+
+def make_fixture_seconds(name, seconds, fmt_args):
+    """Nhu make_fixture nhung cho chon do dai (giay)."""
+    if not FFMPEG:
+        return None
+    path = os.path.join(TMP, name)
+    cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+           "-f", "lavfi", "-i",
+           "sine=frequency=440:duration=%s" % seconds,
+           "-vn", "-ac", "1", "-ar", "16000"] + fmt_args + [path]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE)
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def xing_info_header(data):
+    """Header Xing/Info trong frame MP3 dau (sau ID3 neu co):
+    tra ve (offset, flags, frames, bytes) hoac None neu khong co.
+    Header nam trong frame dau tien, tuc < 512 byte dau file."""
+    head = (data or b"")[:1024]
+    for tag in (b"Xing", b"Info"):
+        off = head.find(tag)
+        if off < 0:
+            continue
+        flags, frames, nbytes = struct.unpack(
+            ">III", head[off + 4:off + 16])
+        return off, flags, frames, nbytes
+    return None
+
+
+def ffprobe_report(data):
+    """Chay ffprobe that len bytes MP3, tra ve (stdout+stderr).
+    Ghi ra FILE tam roi moi probe (khong probe qua pipe:0 — doc
+    qua pipe thi ffprobe bao 'Duration: N/A' + 'invalid
+    concatenated file' du file co header Xing/Info; server nhan
+    duoc toan bo file nen probe qua file moi la mo hinh dung)."""
+    path = tempfile.mkstemp(prefix="probe-", suffix=".mp3",
+                            dir=TMP)[1]
+    with open(path, "wb") as f:
+        f.write(data)
+    proc = subprocess.run(
+        [FFPROBE, "-hide_banner", "-i", path],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return (proc.stdout + proc.stderr).decode("utf-8", "replace")
+
+
+def test_ffmpeg_args_include_write_xing():
+    """Pin `-write_xing 1`: pipe output phai mang header Xing/Info
+    (xem ghi chu tren). DO tren code cu (thieu flag)."""
+    seen = {}
+
+    def fake_run(binary, args, data, timeout_s):
+        seen["args"] = args
+        return b"ID3FAKEMP3"
+
+    voice_mod.to_zalo_voice_mp3(
+        b"\x1a\x45\xdf\xa3" + b"\x00" * 10, run=fake_run)
+    joined = " ".join(seen["args"])
+    assert "-write_xing 1" in joined, joined
+    assert "-ac 1 -ar 16000 -c:a libmp3lame -b:a 64k" in joined, joined
+
+
+def test_transcode_mp3_has_xing_info_header_real_ffmpeg():
+    """MP3 doi that phai co header Xing/Info o frame dau, mang so
+    frame dung (do dai that) — DO tren code cu (pipe khong header)."""
+    if not FFMPEG:
+        print("SKIP test_transcode_mp3_has_xing_info_header_real_ffmpeg "
+              "(no ffmpeg)")
+        return
+    webm = make_fixture_seconds("rec2s.webm", 2,
+                                ["-c:a", "libopus", "-b:a", "32k"])
+    assert webm and not voice_mod.is_mp3(webm)
+    mp3 = voice_mod.to_zalo_voice_mp3(webm)
+    assert voice_mod.is_mp3(mp3), mp3[:16]
+    found = xing_info_header(mp3)
+    assert found is not None, \
+        "MP3 gui Zalo phai co header Xing/Info (thoi luong)"
+    off, flags, frames, nbytes = found
+    assert off < 512, off
+    assert flags & 0x1 and frames > 0, (flags, frames)
+    # 58 frame x 576 mau @16 kHz ~= 2.09 s (gom delay/padding cua
+    # LAME); khong pin so tuyet doi, chi can gan 2.0 s that.
+    assert abs(frames * 576 / 16000 - 2.0) < 0.2, frames
+    # Truong bytes cua header Xing/Info dem dung so byte am thanh
+    # (toan bo file tru header ID3): tinh do dai ID3 tu header that
+    # thay vi cung so 45 (tag encoder dai tuy ffmpeg).
+    id3_len = 0
+    if mp3[:3] == b"ID3":
+        id3_len = 10 + (((mp3[6] & 0x7F) << 21)
+                        | ((mp3[7] & 0x7F) << 14)
+                        | ((mp3[8] & 0x7F) << 7)
+                        | (mp3[9] & 0x7F))
+    assert nbytes == len(mp3) - id3_len, (nbytes, len(mp3), id3_len)
+
+
+def test_transcode_duration_exact_not_estimated_real_ffmpeg():
+    """ffprobe phai doc DUOC thoi luong chinh xac (2.00 s), khong
+    uoc luong tu bitrate — DO tren code cu (2.09 s uoc luong)."""
+    if not FFMPEG or not FFPROBE:
+        print("SKIP test_transcode_duration_exact_not_estimated_real_ffmpeg "
+              "(no ffmpeg/ffprobe)")
+        return
+    webm = make_fixture_seconds("rec2s-b.webm", 2,
+                                ["-c:a", "libopus", "-b:a", "32k"])
+    mp3 = voice_mod.to_zalo_voice_mp3(webm)
+    report = ffprobe_report(mp3)
+    assert "Estimating duration from bitrate" not in report, report
+    assert "Duration: 00:00:02.00" in report, report
+    assert "16000 Hz, mono" in report and "64 kb/s" in report, report
+
+
+def test_transcode_short_recording_has_xing_header_real_ffmpeg():
+    """Ghi am ngan (0.2 s) cung phai co header Xing/Info + thoi
+    luong dung — DO tren code cu (pipe khong header)."""
+    if not FFMPEG or not FFPROBE:
+        print("SKIP test_transcode_short_recording_has_xing_header_real_ffmpeg "
+              "(no ffmpeg/ffprobe)")
+        return
+    webm = make_fixture_seconds("rec02s.webm", 0.2,
+                                ["-c:a", "libopus", "-b:a", "32k"])
+    mp3 = voice_mod.to_zalo_voice_mp3(webm)
+    assert xing_info_header(mp3) is not None, mp3[:64]
+    report = ffprobe_report(mp3)
+    assert "Estimating duration from bitrate" not in report, report
+    assert "Duration: 00:00:00.20" in report, report
 
 
 if __name__ == "__main__":

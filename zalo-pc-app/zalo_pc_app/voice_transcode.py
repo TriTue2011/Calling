@@ -11,10 +11,33 @@ lam nhu sau, va module nay GIU NGUYEN cac diem do:
     zalobot Dockerfile cai ffmpeg bang `apk add ffmpeg`.
   * Tham so am thanh: mono, 16 kHz, ~64 kbps
     (`-vn -ac 1 -ar 16000 -b:a 64k`).
+  * Header Xing/Info mang thoi luong (`-write_xing 1` + ghi ra FILE
+    TAM, loi 112 vong 2, 2026-11-06): ffmpeg ghi ra PIPE thi MP3
+    KHONG co header Xing/Info — ffprobe chi doan duoc thoi luong tu
+    bitrate (2.09 s cho file 2.00 s that; doc qua pipe thi
+    Duration: N/A) — va `-write_xing 1` cung KHONG cuu duoc pipe
+    (muxer can seek lui de dien so frame/byte, pipe khong seek
+    duoc; da kiem chung: pipe+flag van 16749 byte, khong header).
+    Cung doi so ghi ra FILE (seekable) thi CO header Info o frame
+    dau (flags=0xf, frames=58, bytes=16992) va doc dung 2.00 s.
+    Client that ghi am native phai dua mot FILE cho sendVoice
+    (bundle `u.append("fileContent", t)`), nen file cua no mang
+    header Xing/Info nhu moi file MP3 ghi ra dia. Vi vay duong that
+    o day ghi ra file tam trong thu muc tam (xoa ngay sau khi doc,
+    TemporaryDirectory) thay vi stdout pipe; input van qua stdin
+    pipe. Output byte-giong-het ban ghi ra file (17037 byte cho
+    cung input 2 s). Tham so am thanh (16 kHz / 64 kbps / mono) thi KHONG co bang chung doi
+    chieu truc tiep tu client PC: bundle khong co code ghi am
+    (khong MediaRecorder/getUserMedia o bat cu chunk JS nao), chi
+    co ffmpeg+LAME o phia native (Lavf58.45.100/Lavc58.91/
+    LAME3.100) ma khong lo ti le lay mau; 16 kHz/64k/mono la lay tu
+    file thoai AAC that tren duong mobile (25/09/2026), chua duoc
+    xac minh cho duong MP3 PC — giu nguyen vi khong co bang chung
+    nguoc, khong doi theo doan.
   * Timeout chuyen doi mac dinh 60 s (env VOICE_CONVERT_TIMEOUT_MS).
   * Loi ro rang, khong gui tin rong khi chuyen doi / tai len that
-    bai; file tam phai duoc xoa (o day khong tao file tam: dung
-    stdin/stdout pipe nen khong co gi de don).
+    bai; file tam (output ffmpeg) duoc xoa ngay sau khi doc xong
+    (TemporaryDirectory).
   * Test mock ffmpeg bang cach inject ham chay (Node.js inject
     execFileAsync; o day inject `run`).
 
@@ -37,6 +60,7 @@ khong con duoc route sendvoice dung.
 import os
 import shutil
 import subprocess
+import tempfile
 
 # Tham so am thanh — GIONG Node.js (voiceAac.js): mono, 16 kHz,
 # ~64 kbps. Cac hang MP3 duoi day la cua duong truc tiep cu
@@ -82,16 +106,27 @@ def find_ffmpeg(ffmpeg_bin=None):
     return shutil.which(name)
 
 
-def ffmpeg_args():
+def ffmpeg_args(output="pipe:1"):
     """Danh sach doi so ffmpeg — test pin giong cach Node.js pin
     `-ac 1 -ar 16000 -c:a aac -b:a 64k -f adts` (voiceMessage.test.js):
-    o day `-ac 1 -ar 16000 -c:a libmp3lame -b:a 64k -f mp3`."""
+    o day `-ac 1 -ar 16000 -c:a libmp3lame -b:a 64k -f mp3`, CONG
+    `-write_xing 1` (loi 112, vong 2, 2026-11-06). `output` la dich
+    ghi MP3: mac dinh "pipe:1" (stdout, cho test inject `run`);
+    duong that truyen duong dan FILE TAM (xem to_zalo_voice_mp3):
+    chi output la file seekable thi ffmpeg moi ghi duoc header
+    Xing/Info mang thoi luong — ghi ra pipe thi khong co header
+    du co `-write_xing 1` (muxer can seek lui de dien so frame),
+    ffprobe chi doan duoc thoi luong tu bitrate (2.09 s cho file
+    2.00 s that; doc qua pipe thi Duration: N/A), trong khi ghi
+    ra file thi CO header Info o frame dau va doc dung 2.00 s.
+    Khong doi tham so am thanh (van mono 16 kHz 64 kbps)."""
     return ["-hide_banner", "-loglevel", "error", "-y",
             "-i", "pipe:0",
             "-vn", "-ac", str(VOICE_CHANNELS),
             "-ar", str(VOICE_SAMPLE_RATE),
             "-c:a", VOICE_CODEC, "-b:a", VOICE_BITRATE,
-            "-f", VOICE_FORMAT, "pipe:1"]
+            "-write_xing", "1",
+            "-f", VOICE_FORMAT, output]
 
 
 def is_mp3(data):
@@ -111,9 +146,12 @@ def is_mp3(data):
 
 
 def _default_run(binary, args, data, timeout_s, label="MP3"):
-    """Chay ffmpeg that: doc stdin, lay file da doi o stdout. Loi
-    tra ve stderr (cat ngan, khong bao gom du lieu am thanh).
-    `label` chi de hien trong loi ("MP3" cu / "AAC" moi)."""
+    """Chay ffmpeg that: doc stdin; lay output o stdout (neu args ket
+    thuc bang "pipe:1") hoac doc lai tu file output (neu args ket
+    thuc bang duong dan file — duong that, de MP3 co header
+    Xing/Info; xem ffmpeg_args). Loi tra ve stderr (cat ngan, khong
+    bao gom du lieu am thanh). `label` chi de hien trong loi
+    ("MP3" cu / "AAC" moi)."""
     try:
         proc = subprocess.run(
             [binary] + args, input=data, timeout=timeout_s,
@@ -132,6 +170,18 @@ def _default_run(binary, args, data, timeout_s, label="MP3"):
             "ffmpeg chuyen sang %s that bai (exit %d)%s"
             % (label, proc.returncode,
                (": " + detail[-300:]) if detail else ""))
+    if args and args[-1] != "pipe:1":
+        # Output la file tam: doc lai; stdout luc nay khong dung.
+        try:
+            with open(args[-1], "rb") as f:
+                out = f.read()
+        except OSError as e:
+            raise VoiceTranscodeError(
+                "ffmpeg khong tao duoc file %s (%s)" % (label, e))
+        if not out:
+            raise VoiceTranscodeError(
+                "ffmpeg tra ve file %s rong" % label)
+        return out
     if not proc.stdout:
         raise VoiceTranscodeError(
             "ffmpeg tra ve file %s rong" % label)
@@ -143,7 +193,11 @@ def to_zalo_voice_mp3(data, ffmpeg_bin=None, timeout_ms=None,
     """Doi bytes am thanh bat ky (webm/opus cua Chrome, mp4/aac cua
     Safari, wav...) sang MP3 mono 16 kHz 64 kbps — dung dinh dang
     voicemp3 chap nhan. `run` de test inject (giong Node.js inject
-    execFileAsync). Tra ve bytes MP3."""
+    execFileAsync). Tra ve bytes MP3. Duong that (khong inject):
+    ffmpeg ghi ra FILE TAM trong thu muc tam (xoa ngay sau khi
+    doc), KHONG ghi ra stdout pipe — chi file seekable moi co
+    header Xing/Info mang thoi luong (xem ffmpeg_args); input van
+    qua stdin pipe nhu cu."""
     if not data:
         raise VoiceTranscodeError("file ghi am rong, khong co gi de gui")
     binary = find_ffmpeg(ffmpeg_bin)
@@ -159,7 +213,13 @@ def to_zalo_voice_mp3(data, ffmpeg_bin=None, timeout_ms=None,
         DEFAULT_TIMEOUT_MS) / 1000.0
     runner = run or _default_run
     try:
-        return runner(binary, ffmpeg_args(), data, timeout_s)
+        if run is not None:
+            return runner(binary, ffmpeg_args(), data, timeout_s)
+        with tempfile.TemporaryDirectory(
+                prefix="zalo-voice-") as tmpd:
+            out_path = os.path.join(tmpd, VOICE_FILENAME)
+            return runner(binary, ffmpeg_args(out_path), data,
+                          timeout_s)
     except VoiceTranscodeError:
         raise
     except subprocess.CalledProcessError as e:
