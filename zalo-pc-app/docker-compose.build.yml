@@ -35,6 +35,13 @@ services:
         APP_VERSION: ${APP_VERSION:-}
     # Tên image riêng cho đường build local — KHÔNG đè tag test của CI.
     image: zalo-pc-app:local
+    # Doc bien moi truong app (user/mat khau) tu file .env CANH FILE NAY.
+    # Duong dan tuong doi o day duoc hieu theo thu muc chua file compose,
+    # nen chay tu bat cu thu muc nao cung doc dung file .env. Neu .env
+    # thieu thi compose bao loi ro rang thay vi de container loi vong lap.
+    # (2 dong ${...} them tay trong environment: van giu — thua nhung vo hai.)
+    env_file:
+      - .env
     ports:
       # Khớp đúng stack đang chạy trên server (mở tất cả interface trong
       # LAN, giống Portainer stack hiện tại). Chỉ dùng trong LAN, đừng
