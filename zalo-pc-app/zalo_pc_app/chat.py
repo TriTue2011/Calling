@@ -54,9 +54,16 @@ Endpoint da dung (ma lenh trong ngoac):
     dispatcher gui tin tu choi MSG_VOICE ("not support send this
     type"), va live 2026-11-06 08:36 +07 tren 965ce96 van tra inner
     112 sau khi da sua clientId STRING — nen duong truc tiep la
-    code chet, khong dung nua. Buoc 2 asyncfile/msg la suy luan
-    theo dung shape (endpoint PC duy nhat nhan item
-    getFileAsyncItem) — xem ghi chu o send_voice.
+    code chet, khong dung nua. Buoc 2 asyncfile/msg DA DUOC XAC
+    NHAN DUNG (vong 114, 2026-11-06): sendMsgFileAsync la API duy
+    nhat (khong E2EE) POST dung item getFileAsyncItem, toi
+    asyncfile/msg 11777/13001; bang lenh khong co endpoint gui-tin-
+    thoai nao khac (khong co /api/message/voice gui bang URL);
+    zsource -1 la mac dinh cua buildParams/transform. Xem ghi chu
+    o send_voice (gioi han con lai: khong co caller Voice truc
+    tiep nao quan sat duoc trong JS — buoc gui sau upload nam o
+    lop native; fType cua Voice nam trong item nhung gia tri tu
+    extData lop native, chua lan duoc tu JS).
   Dang go 1-1:   GET {chat-wpa}/api/message/typing (11144)
                  body {toid, destType, imei}
   Dang go nhom:  GET {group-wpa}/api/group/typing (11196)
@@ -799,21 +806,35 @@ class Chat:
         CA hai buoc (tam thoi theo bundle; dung cung clientId/body
         de server dedup, tranh gui trung).
 
-        GHI CHU TRUNG THUC VE BUOC 2 (suy luan, chua thay truc
-        tiep): trong bundle khong co caller nao xay task upload
-        Voice tu renderer (uploadMainType==Voice = 0 hit) — viec
-        khoi tao ghi am + gui sau upload nam o lop native ngoai
-        JS. asyncfile/msg duoc chon vi no la endpoint PC DUY NHAT
-        nhan dung item getFileAsyncItem ma upload-manager tra ve
-        (sendMsgFileAsync, 15136113); do la khop shape, KHONG phai
-        caller Voice duoc quan sat. Neu live retest van 112, dieu
-        can kiem tiep la: (a) bundle cho doi event async
-        {aac, amr, secureKey} qua waitAsyncFileInfo truoc khi gui
-        — app hien chi gui khi chunk-response tra ve URL; (b)
-        fType cua voice (khong xac dinh duoc tu bundle, dang bo
-        qua). Duong truc tiep voicemp3/sendmp3 cu DA BO (code chet,
-        0 caller; live 2026-11-06 08:36 +07 van 112) — khong giu
-        lam fallback."""
+        GHI CHU TRUNG THUC VE BUOC 2 (DA XAC NHAN DUNG, vong 114
+        2026-11-06 — khong con la suy luan theo shape): trong
+        bundle, sendMsgFileAsync (API class, 15136113) la API duy
+        nhat (khong E2EE) POST dung item getFileAsyncItem, toi
+        {files-wpa}/api/message/asyncfile/msg (11777) / /api/group/
+        asyncfile/msg (13001), POST form params=<AES JSON>; caller
+        duy nhat trong JS la UploadAsyncControl._sendMsgFileAsync
+        (8579214). Bang lenh 231 muc khong co endpoint gui-tin-
+        thoai nao khac: khong co /api/message/voice (gui bang URL);
+        voicemp3/sendmp3 chet (0 caller); dispatcher gui tin tu
+        choi MSG_VOICE. zsource -1 la mac dinh cua buildParams/
+        transform (3955260: khong co src thi zsource=-1).
+        GIOI HAN CON LAI (khong phai bang chung chong lai
+        endpoint): khong co caller Voice TRUC TIEP nao quan sat
+        duoc trong JS — sendMsgAsync chi xu ly Photo/File, va
+        sendFileByChunkV2 tra thang urlRes cho Voice/Video (cho
+        lop native gui sau upload); 2 call site cua
+        sendFileByChunkV2 trong JS chi la File va Photo. Viec ghi
+        am + gui sau upload nam o lop native ngoai JS, nen buoc
+        gui cuoi cua lop do khong doc duoc tu bundle JS. Neu live
+        retest van 114, diem can kiem tiep la: (a) bundle cho doi
+        event async {aac, amr, secureKey} qua waitAsyncFileInfo
+        truoc khi gui — app hien chi gui khi chunk-response tra ve
+        URL; (b) fType cua voice: CO trong item Voice cua
+        getFileAsyncItem (gia tri tu extData lop native, khong lan
+        duoc tu JS) — app hien chua gui fType (vong tham so, agent
+        khac lam). Duong truc tiep voicemp3/sendmp3 cu DA BO (code
+        chet, 0 caller; live 2026-11-06 08:36 +07 van 112) — khong
+        giu lam fallback."""
         if not data:
             raise ValueError("chat: file ghi am rong (0 byte) — Zalo "
                              "khong nhan tin thoai rong, hay ghi am lai")

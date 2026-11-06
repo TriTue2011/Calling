@@ -596,9 +596,10 @@ class MockZalo:
         item getFileAsyncItem tra ve): POST form params=<AES JSON
         {fileId, checksum (md5 hex cua file AAC), checksumSha: "",
         totalSize, clientId NUMBER, toid|grid, imei (chi 1-1),
-        zsource}>. fType khong co trong item voice (extData cua
-        voice khong lan duoc — mock khong doi). Tra envelope
-        {msgId, clientId, body} nhu _chat_upload."""
+        zsource}>. fType CO trong item Voice cua getFileAsyncItem
+        (bundle) nhung gia tri tu extData lop native, khong lan
+        duoc tu JS — mock khong doi (vong tham so, agent khac lam).
+        Tra envelope {msgId, clientId, body} nhu _chat_upload."""
         self._check_common(qs, headers, "asyncfile msg")
         m = re.search(r"(?:^|&)params=([^&]*)", raw_body or "")
         assert m, "asyncfile msg needs params form body"

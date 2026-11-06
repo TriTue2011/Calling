@@ -31,18 +31,24 @@ Zalo PC 26.11.10) — doc truc tiep tu bundle, khong phai suy doan:
   (Node.js voiceAac.js + voiceMessage.test.js); ten file tai ve
   cua tin thoai ket bang .aac; forward-voice dung m4aUrl/voiceUrl.
 
-BUOC GUI SAU UPLOAD — SUY LUAN CO GHI RO, KHONG PHAI BANG CHUNG
-TRUC TIEP: khong co code JS nao trong bundle khoi tao task upload
-Voice (0 lan `uploadMainType: *.c.Voice`), khong co
-sendMsgVoiceAsync, sendMsgAsync chi xu ly Photo/File — viec ghi
-am + gui sau upload nam o lop native (khong co MediaRecorder
-trong JS). Buoc 2 o day dung asyncfile/msg (11777/13001,
-sendMsgFileAsync): endpoint PC DUY NHAT nhan dung item ma
-getFileAsyncItem tra ve (fileId/checksum/checksumSha/totalSize/
-clientId + toid|grid, + imei chi 1-1, + zsource -1 qua buildParams/
-transform). Neu live retest van loi thi day la diem can kiem dau
-tien (kem theo viec cho async event {aac,amr} qua kenh sync, hien
-chua implement — xem ghi chu o chat.send_voice).
+BUOC GUI SAU UPLOAD — DA XAC NHAN DUNG (vong 114, 2026-11-06):
+asyncfile/msg (11777/13001, sendMsgFileAsync) la endpoint dung
+cho Voice. Bang chung moi so voi vong truoc: sendMsgFileAsync la
+API DUY NHAT (khong E2EE) POST dung item getFileAsyncItem
+(caller duy nhat trong JS: UploadAsyncControl._sendMsgFileAsync);
+bang lenh 231 muc khong co endpoint gui-tin-thoai nao khac (khong
+co /api/message/voice gui bang URL; voicemp3/sendmp3 chet, 0
+caller; dispatcher tu choi MSG_VOICE); zsource -1 la mac dinh cua
+buildParams/transform. GIOI HAN CON LAI: khong co caller Voice
+truc tiep nao quan sat duoc trong JS — sendMsgAsync chi xu ly
+Photo/File, sendFileByChunkV2 tra thang urlRes cho Voice/Video
+(2 call site trong JS chi la File/Photo), buoc gui sau upload nam
+o lop native ngoai JS. fType CO trong item Voice cua
+getFileAsyncItem (gia tri tu extData lop native, khong lan duoc
+tu JS) — app hien chua gui (vong tham so, agent khac lam).
+Neu live retest van loi thi diem can kiem dau tien la viec cho
+async event {aac,amr} qua kenh sync, hien chua implement — xem
+ghi chu o chat.send_voice.
 
 112: van la loi chung (STR_ERROR_CODE_UNKNOWN), bundle coi la tam
 thoi va thu lai sau 1-5 giay — app thu lai gioi han (2 lan, cach
@@ -644,6 +650,91 @@ def test_server_voice_chunk_112_once_succeeds_via_retry():
             assert mock.voice_send_calls == 1, mock.voice_send_calls
         finally:
             httpd.shutdown()
+    finally:
+        mock.stop()
+
+
+def test_voice_step2_endpoint_confirmed_asyncfile_msg():
+    """PIN BUOC 2 (vong 114, 2026-11-06): asyncfile/msg la endpoint
+    DUNG cho Voice — khong con la suy luan theo shape.
+    Bang chung bundle (compact-app-pc.5c0110a3a8749b3aacde.js,
+    Zalo PC 26.11.10):
+    - sendMsgFileAsync la API DUY NHAT (khong E2EE) POST dung item
+      getFileAsyncItem, toi {files-wpa}/api/message/asyncfile/msg
+      (11777) / /api/group/asyncfile/msg (13001), POST form
+      params=<AES JSON>; caller duy nhat trong JS la
+      UploadAsyncControl._sendMsgFileAsync.
+    - Bang lenh khong co endpoint gui-tin-thoai nao khac: khong co
+      /api/message/voice (gui bang URL); voicemp3/sendmp3 chet
+      (0 caller); dispatcher gui tin tu choi MSG_VOICE
+      ("not support send this type"); sendMsgAsync chi xu ly
+      Photo/File — Voice/Video duoc tra thang urlRes cho lop
+      native gui sau upload, nen khong co caller Voice truc tiep
+      nao quan sat duoc trong JS (gioi han da biet, khong phai
+      bang chung chong lai endpoint).
+    Test pin hanh vi: send_voice chi goi dung 2 duong
+    (voice/upload + asyncfile/msg), KHONG goi bat cu endpoint gui
+    nao khac (voicemp3/sendmp3/sms/sendmsg/photo/sharefile) — neu
+    ai doi buoc 2 sang duong truc tiep cu hay endpoint khac, test
+    nay do ngay."""
+    dead = {"/api/message/voicemp3", "/api/group/sendmp3",
+            "/api/message/sms", "/api/group/sendmsg",
+            "/api/message/photo", "/api/group/sendpt",
+            "/api/message/sharefile_full",
+            "/api/group/sharefile_full"}
+    for thread_type, thread_id, up, send in (
+            ("user", "20001", "/api/message/voice/upload",
+             "/api/message/asyncfile/msg"),
+            ("group", "30001", "/api/group/voice/upload",
+             "/api/group/asyncfile/msg")):
+        mock = MockZalo().start()
+        try:
+            patch_domains(mock)
+            chat = make_chat(mock)
+            res = chat.send_voice(thread_type, thread_id, "voice.aac",
+                                  FAKE_AAC, "audio/aac")
+            assert res["file_id"] == "file-voice-1", res
+            seen_paths = [p for p, _q, _h in mock.seen]
+            assert not (set(seen_paths) & dead), seen_paths
+            voice_paths = [p for p in seen_paths
+                           if "voice" in p or "asyncfile" in p]
+            assert voice_paths == [up, send], voice_paths
+        finally:
+            mock.stop()
+
+
+def test_voice_step2_group_item_keys_match_bundle():
+    """Nhom: item buoc 2 co DUNG cac key cua getFileAsyncItem(Voice)
+    + buildParams: {fileId, checksum, checksumSha, totalSize,
+    clientId NUMBER, grid, zsource -1} — khong toid, khong imei
+    (imei chi 1-1: sendMsgFileAsync them imei khi khong phai nhom).
+    fType: bundle CO trong item Voice (gia tri tu extData cua lop
+    native, khong lan duoc tu JS) — app hien chua gui; thuoc vong
+    tham so (agent khac lam), test nay KHONG doi fType."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        chat = make_chat(mock)
+        data = b"\xff\xf1\x50\x80\x00\x1f\xfc" + b"\xab" * 99993
+        res = chat.send_voice("group", "30001", "voice.aac",
+                              data, "audio/aac")
+        assert res["file_id"] == "file-voice-1", res
+        assert mock.voice_send_calls == 1, mock.voice_send_calls
+        sent = mock.voice_send_bodies[0]["body"]
+        assert mock.voice_send_bodies[0]["path"] == \
+            "/api/group/asyncfile/msg", mock.voice_send_bodies
+        assert set(sent.keys()) == {"fileId", "checksum",
+                                    "checksumSha", "totalSize",
+                                    "clientId", "grid",
+                                    "zsource"}, sent
+        assert sent["checksum"] == hashlib.md5(data).hexdigest(), sent
+        assert sent["checksumSha"] == "", sent
+        assert sent["totalSize"] == len(data), sent
+        assert isinstance(sent["clientId"], int) and not \
+            isinstance(sent["clientId"], bool), sent
+        assert sent["clientId"] == res["client_id"], sent
+        assert sent["grid"] == "30001", sent
+        assert sent["zsource"] == -1, sent
     finally:
         mock.stop()
 
