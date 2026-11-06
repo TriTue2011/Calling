@@ -33,17 +33,30 @@ Endpoint da dung (ma lenh trong ngoac):
   Gui anh nhom:  POST multipart {group-wpa}/api/group/sendpt (11164)
                  params {clientId, desc, width, height, visibility,
                  grid}, & type=11
-  Gui file ghi am 1-1: POST multipart {files-wpa}/api/message/
-                 voicemp3 (11148), params {toid, clientId STRING},
-                 & type=2
-  Gui file ghi am nhom: POST multipart {files-wpa}/api/group/
-                 sendmp3 (11169), params {grid, clientId STRING},
-                 & type=11
-  clientId tren duong voice/file la STRING (bundle ghep chuoi
-  JSON bang tay: '{"toid":"<id>", "clientId":"<id>"}'), khac voi
-  text/anh/link (NUMBER qua JSON.stringify) — xem send_voice /
-  send_file. Params voice CHI co toid|grid + clientId: khong ttl,
-  khong duration, khong imei, khong desc.
+  Gui file ghi am 1-1 / nhom — DUONG HAI BUOC (upload-manager):
+    Buoc 1: POST multipart {files-wpa}/api/message/voice/upload
+    (12060) / /api/group/voice/upload (12063), moi chunk la FormData
+    chunkContent (chunk 256_000 byte), params AES {totalChunk,
+    fileName, clientId NUMBER, totalSize, imei, chunkId, toid|grid,
+    fileType: "aac"|"amr"} & type=2/11; chunk cuoi tra data
+    {finished: 1, fileId}.
+    Buoc 2: POST form {files-wpa}/api/message/asyncfile/msg (11777)
+    / /api/group/asyncfile/msg (13001), params AES la item
+    getFileAsyncItem: {fileId, checksum (md5 hex), checksumSha: "",
+    totalSize, clientId NUMBER, toid|grid, imei (chi 1-1),
+    zsource: -1} (+ fileUrl/aacUrl neu buoc 1 tra ve).
+    File ghi am la AAC-LC 16 kHz mono 64 kbps ADTS (xem
+    voice_transcode.ensure_voice_aac) — KHONG phai MP3.
+  DUONG TRUC TIEP CU (voicemp3 11148 / sendmp3 11169) DA BO:
+    bundle co dinh nghia sendVoice nhung KHONG CO caller nao trong
+    toan bo app (renderer, lazy chunk, worker, main-dist:
+    "sendVoice(" dung 1 lan/file = dinh nghia; ".sendVoice(" = 0),
+    dispatcher gui tin tu choi MSG_VOICE ("not support send this
+    type"), va live 2026-11-06 08:36 +07 tren 965ce96 van tra inner
+    112 sau khi da sua clientId STRING — nen duong truc tiep la
+    code chet, khong dung nua. Buoc 2 asyncfile/msg la suy luan
+    theo dung shape (endpoint PC duy nhat nhan item
+    getFileAsyncItem) — xem ghi chu o send_voice.
   Dang go 1-1:   GET {chat-wpa}/api/message/typing (11144)
                  body {toid, destType, imei}
   Dang go nhom:  GET {group-wpa}/api/group/typing (11196)
@@ -79,14 +92,17 @@ la nghi pham dau tien can kiem (xem BAO-CAO-CHAT.md).
 
 Ghi chu ve ghi am: KHONG co endpoint HTTPS ghi am — ghi am la
 native. UI thu bang MediaRecorder cua trinh duyet roi gui file
-da ghi qua voicemp3/sendmp3. MediaRecorder cua Chrome/Firefox
-thuong cho webm/opus (khong phai mp3) — server DOI SANG MP3
-TRUOC KHI GUI (voice_transcode.py: ffmpeg, mono 16 kHz 64 kbps,
-theo cach Node.js voiceAac.js lam; chi khac codec vi voicemp3
-bat buoc MP3 — loi that inner 133 ngay 2026-11-05). File da la
-MP3 thi gui thang, khong doi.
+da ghi qua duong hai buoc (upload chunked 12060/12063 +
+asyncfile/msg). MediaRecorder cua Chrome/Firefox thuong cho
+webm/opus — server DOI SANG AAC TRUOC KHI GUI
+(voice_transcode.py: ffmpeg, mono 16 kHz 64 kbps ADTS, theo cach
+Node.js voiceAac.js lam — Y HET tham so). File da la AAC thi gui
+thang, khong doi. Duong truc tiep voicemp3/sendmp3 cu (bat MP3,
+loi that inner 133 ngay 2026-11-05) da bo vi bundle khong goi
+sendVoice — xem send_voice.
 """
 
+import hashlib
 import json
 import re
 import time
@@ -107,18 +123,26 @@ TYPE_FILE_GROUP = 11
 
 # -- loi 112 + thu lai (voice/file) --------------------------------------
 # error_code=112 tren duong voice (gap that tren may chu 2026-11-06
-# 06:35 +07, "Loi khong xac dinh", sau khi 133 da het nho transcode
-# MP3): bundle khong dinh nghia rieng cho 112 — bang loi anh xa 112
+# 06:35 +07, "Loi khong xac dinh", va VAN CON tren 965ce96 luc
+# 08:36 +07 sau khi da sua clientId STRING tren duong truc tiep):
+# bundle khong dinh nghia rieng cho 112 — bang loi anh xa 112
 # -> "STR_ERROR_CODE_UNKNOWN", va moi bo xu ly loi trong bundle deu
 # coi 112 la TAM THOI va thu lai sau 1-5 giay (fetch/mark-unread/
 # clear-unread/reaction/...). Nen app thu lai gioi han khi gap 112,
 # dung cung clientId/body (clientId de server dedup, tranh gui
-# trung). 112 la loi CHUNG, khong phai ma rieng cho mot truong nao —
-# nguyen nhan kha di nhat o day la clientId sai kieu JSON (NUMBER
-# thay vi STRING, xem send_voice), vi do la diem lech wire duy nhat
-# con lai so voi bundle sau khi file da dung MP3.
+# trung). 112 la loi CHUNG, khong phai ma rieng cho mot truong nao.
+# LUU Y: clientId STRING tren duong truc tiep voicemp3 (fix b0e98c2)
+# da bi BAC BO la nguyen nhan (duy nhat) — live 08:36 +07 van 112;
+# doc bundle ky lai thay sendVoice truc tiep khong co caller nao,
+# nen duong hai buoc moi la duong that (xem send_voice).
 VOICE_112_MAX_RETRIES = 2
 VOICE_112_RETRY_DELAY_SECONDS = 2.0
+
+# -- upload ghi am theo chunk (duong hai buoc) -------------------------
+# getDefaultChunkSize cua bundle: settings.sharefile.chunk_size_file
+# neu >= 64_000, khong thi 256e3 byte. Chunk gui tuan tu, chunkId
+# 1..totalChunk; chunk cuoi tra {finished: 1, fileId}.
+VOICE_CHUNK_SIZE = 256000
 
 
 class ZaloChatError(RuntimeError):
@@ -564,6 +588,23 @@ class Chat:
                     raise
                 self._sleep(delay_s)
 
+    def _post_form_retry(self, domain, path, body, where,
+                         retries=VOICE_112_MAX_RETRIES,
+                         delay_s=VOICE_112_RETRY_DELAY_SECONDS):
+        """POST form params=<AES JSON>, thu lai gioi han khi Zalo
+        tra 112 — giong _post_multipart_retry (dung nguyen body,
+        cung clientId de server dedup). Dung cho buoc 2 cua tin
+        thoai (asyncfile/msg)."""
+        attempts = 0
+        while True:
+            try:
+                return self._post_form(domain, path, body, where)
+            except ZaloChatError as e:
+                attempts += 1
+                if e.error_code != 112 or attempts > retries:
+                    raise
+                self._sleep(delay_s)
+
     def _post_form(self, domain, path, body, where):
         """POST form params=<AES JSON> (send_link): common params
         o query, params o form body — giong Services._post."""
@@ -736,48 +777,124 @@ class Chat:
                 "client_id": client_id}
 
     def send_voice(self, thread_type, thread_id, filename, data,
-                   mime="audio/mpeg"):
-        """11148 (1-1) / 11169 (nhom): multipart fileContent = file
-        mp3 DA GHI XONG. Ghi am la viec cua trinh duyet
-        (MediaRecorder) — ham nay chi gui file.
-        Params theo bundle sendVoice (compact-app-pc...js, ham
-        static sendVoice(e,t,n,a) + bao-cao-doi-chieu-addon.md
-        Bang 3 #12): params AES la chuoi JSON ghep tay
-        '{"toid":"<id>", "clientId":"<id>"}' (nhom: grid) — chi
-        2 truong, clientId la STRING (co ngoac kep), KHONG co ttl /
-        duration / imei / desc. Gia tri clientId van la epoch-ms
-        cua protocol.new_client_id (generator next() cua bundle),
-        chi khac kieu JSON. Code cu gui clientId NUMBER — sai wire,
-        la nghi pham so 1 cua loi that 112 ngay 2026-11-06 06:35
-        +07 (sau khi file da dung MP3, het 133). Thu lai gioi han
-        khi gap 112 (tam thoi theo bundle, xem
-        _post_multipart_retry). Duong upload-then-sendVoice bang
-        URL 12060/12063 KHONG dung o day: do la upload chunked cua
-        upload-manager chung (getInfoUploadVoiceFromData), thu tu
-        dung cho tin thoai chua lan duoc; duong truc tiep nay moi
-        la duong sendVoice cua client that. File rong bi tu choi
-        ngay truoc khi goi mang."""
+                   mime="audio/aac"):
+        """Gui tin thoai — DUONG HAI BUOC cua upload-manager
+        (bundle PC 26.11.10; xem ghi chu o dau module):
+        Buoc 1: POST multipart chunkContent len 12060 (1-1) /
+        12063 (nhom), moi chunk 256_000 byte, params AES
+        {totalChunk, fileName, clientId NUMBER, totalSize, imei,
+        chunkId, toid|grid, fileType: "aac"|"amr"} (KHONG checksum
+        trong params — bundle xoa truoc khi gui; checksum chi o
+        client-side), & type=2/11. Chunk cuoi tra data
+        {finished: 1, fileId}.
+        Buoc 2: POST form params=<AES JSON> len asyncfile/msg
+        11777 (1-1) / 13001 (nhom), body la item getFileAsyncItem:
+        {fileId, checksum (md5 hex cua toan file), checksumSha: "",
+        totalSize, clientId NUMBER, toid|grid, imei (chi 1-1),
+        zsource: -1} (+ fileUrl/aacUrl neu buoc 1 tra ve).
+        Ghi am la viec cua trinh duyet (MediaRecorder) + server doi
+        sang AAC truoc (voice_transcode.ensure_voice_aac) — ham nay
+        chi gui file AAC ADTS da chuan bi. File rong bi tu choi
+        ngay truoc khi goi mang. Thu lai gioi han khi gap 112 o
+        CA hai buoc (tam thoi theo bundle; dung cung clientId/body
+        de server dedup, tranh gui trung).
+
+        GHI CHU TRUNG THUC VE BUOC 2 (suy luan, chua thay truc
+        tiep): trong bundle khong co caller nao xay task upload
+        Voice tu renderer (uploadMainType==Voice = 0 hit) — viec
+        khoi tao ghi am + gui sau upload nam o lop native ngoai
+        JS. asyncfile/msg duoc chon vi no la endpoint PC DUY NHAT
+        nhan dung item getFileAsyncItem ma upload-manager tra ve
+        (sendMsgFileAsync, 15136113); do la khop shape, KHONG phai
+        caller Voice duoc quan sat. Neu live retest van 112, dieu
+        can kiem tiep la: (a) bundle cho doi event async
+        {aac, amr, secureKey} qua waitAsyncFileInfo truoc khi gui
+        — app hien chi gui khi chunk-response tra ve URL; (b)
+        fType cua voice (khong xac dinh duoc tu bundle, dang bo
+        qua). Duong truc tiep voicemp3/sendmp3 cu DA BO (code chet,
+        0 caller; live 2026-11-06 08:36 +07 van 112) — khong giu
+        lam fallback."""
         if not data:
             raise ValueError("chat: file ghi am rong (0 byte) — Zalo "
                              "khong nhan tin thoai rong, hay ghi am lai")
+        is_group = thread_type == "group"
         client_id = _new_client_id()
-        if thread_type == "group":
-            url = _multipart_url(
-                FILES_DOMAIN, "/api/group/sendmp3",
-                {"grid": str(thread_id), "clientId": str(client_id)},
-                self.zpw_enk, TYPE_FILE_GROUP)
-            where = "POST /api/group/sendmp3"
+        total_size = len(data)
+        total_chunks = (total_size + VOICE_CHUNK_SIZE - 1) \
+            // VOICE_CHUNK_SIZE
+        file_type = ("amr" if ".amr" in (filename or "").lower()
+                     else "aac")
+        if is_group:
+            upload_path = "/api/group/voice/upload"
+            send_path = "/api/group/asyncfile/msg"
+            type_param = TYPE_FILE_GROUP
         else:
-            url = _multipart_url(
-                FILES_DOMAIN, "/api/message/voicemp3",
-                {"toid": str(thread_id), "clientId": str(client_id)},
-                self.zpw_enk, TYPE_FILE_USER)
-            where = "POST /api/message/voicemp3"
-        body, ctype = build_multipart(
-            {}, [("fileContent", filename, mime, data)])
-        return {"data": self._post_multipart_retry(url, body, ctype,
-                                                   where),
-                "client_id": client_id}
+            upload_path = "/api/message/voice/upload"
+            send_path = "/api/message/asyncfile/msg"
+            type_param = TYPE_FILE_USER
+        # -- buoc 1: upload chunked ------------------------------------
+        file_id = None
+        upload_data = {}
+        for chunk_id in range(1, total_chunks + 1):
+            chunk = data[(chunk_id - 1) * VOICE_CHUNK_SIZE:
+                         chunk_id * VOICE_CHUNK_SIZE]
+            params = {"totalChunk": total_chunks,
+                      "fileName": filename,
+                      "clientId": client_id,
+                      "totalSize": total_size,
+                      "imei": self.device_id,
+                      "chunkId": chunk_id,
+                      "fileType": file_type}
+            if is_group:
+                params["grid"] = str(thread_id)
+            else:
+                params["toid"] = str(thread_id)
+            url = _multipart_url(FILES_DOMAIN, upload_path, params,
+                                 self.zpw_enk, type_param)
+            body, ctype = build_multipart(
+                {}, [("chunkContent", filename,
+                      "application/octet-stream", chunk)])
+            upload_data = self._post_multipart_retry(
+                url, body, ctype,
+                "POST %s chunk %d/%d" % (upload_path, chunk_id,
+                                         total_chunks))
+            if chunk_id == total_chunks:
+                if not isinstance(upload_data, dict) \
+                        or not upload_data.get("finished") \
+                        or not upload_data.get("fileId"):
+                    raise ZaloChatError(
+                        "chat: upload ghi am xong nhung Zalo khong "
+                        "tra fileId (finished/fileId thieu): %r"
+                        % (upload_data,), error_code=0)
+                file_id = upload_data["fileId"]
+        # -- buoc 2: gui bang fileId -----------------------------------
+        item = {"fileId": file_id,
+                "checksum": hashlib.md5(data).hexdigest(),
+                "checksumSha": "",
+                "totalSize": total_size,
+                "clientId": client_id,
+                "zsource": -1}
+        if is_group:
+            item["grid"] = str(thread_id)
+        else:
+            item["toid"] = str(thread_id)
+            item["imei"] = self.device_id
+        # Neu chunk-response tra ve URL (kieu mapVoiceResponse:
+        # {amr, aac, secureKey}), gui kem de server khoi phai doi
+        # event async {aac, amr} — xem ghi chu o docstring.
+        file_url = (upload_data.get("fileUrl")
+                    or upload_data.get("url")
+                    or upload_data.get("amr")
+                    or upload_data.get("aac"))
+        if file_url:
+            item["fileUrl"] = file_url
+        aac_url = upload_data.get("aacUrl") or upload_data.get("aac")
+        if aac_url:
+            item["aacUrl"] = aac_url
+        send_data = self._post_form_retry(
+            FILES_DOMAIN, send_path, item, "POST %s" % send_path)
+        return {"data": send_data, "client_id": client_id,
+                "file_id": file_id}
 
     # -- typing / seen ----------------------------------------------------
     def send_typing(self, thread_type, thread_id):

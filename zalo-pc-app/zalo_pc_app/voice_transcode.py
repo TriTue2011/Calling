@@ -1,5 +1,6 @@
 """Chuyen doi file ghi am cua trinh duyet sang dung dinh dang tin
-thoai truoc khi gui qua voicemp3/sendmp3 (11148/11169).
+thoai truoc khi gui qua duong hai buoc (upload chunked 12060/12063
++ asyncfile/msg 11777/13001).
 
 GOC NODE.JS (tai lieu tham chieu CHINH — chi dao 2026-11-05 23:05):
 zalobot-embedded/utils/voiceAac.js (commit 34ed43b) + test/
@@ -17,22 +18,20 @@ lam nhu sau, va module nay GIU NGUYEN cac diem do:
   * Test mock ffmpeg bang cach inject ham chay (Node.js inject
     execFileAsync; o day inject `run`).
 
-DIEM LECH DUY NHAT — VA LY DO (ghi ro, khong tu doan):
-Node.js dich sang AAC-LC ADTS (.aac) vi duong cua no la zca-js:
-`api.uploadAttachment([file.aac])` roi `api.sendVoice({voiceUrl})`
-— dien thoai nguoi nhan tu tai file tu URL do; tin thoai that cua
-Zalo (do 25/09/2026) la AAC-LC 16 kHz mono ~64 kbps ADTS tren
-f*-voice-aac-dl.zdn.vn. Duong PC thi KHAC: endpoint voicemp3
-(11148) / sendmp3 (11169) nhan truc tiep file multipart va TU
-CHOI bat cu thu gi khong phai MP3 — bang chung truc tiep la loi
-that gap tren may chu 2026-11-05 23:03: inner error_code=133
-"Ban chi co the tai tap tin co dinh dang sau : MP3". Vi vay dich
-o day la MP3 (`-c:a libmp3lame -f mp3`), giu nguyen cac tham so
-am thanh cua Node.js (mono 16 kHz 64 kbps). Neu sau nay duong
-upload-then-sendVoice bang URL (SERVICE-MAP.md #33: upload thoai
-12060/12063, "thu tu dung chua lan") duoc lan tren phien PC thi
-moi xet lai AAC theo Node.js; hien tai MP3 la dinh dang duy nhat
-endpoint nay chap nhan.
+DIEM LECH CU — DA DAO NGUOC (2026-11-06, vong 112c):
+Truoc day dich o day la MP3 (`-c:a libmp3lame -f mp3`) vi endpoint
+voicemp3 (11148) / sendmp3 (11169) tu choi bat cu thu gi khong
+phai MP3 — loi that 2026-11-05 23:03: inner error_code=133 "Ban
+chi co the tai tap tin co dinh dang sau : MP3". NHUNG doc bundle
+PC 26.11.10 ky lai cho thay sendVoice truc tiep KHONG CO caller
+nao trong app (xem chat.send_voice): duong truc tiep la code chet,
+va live 2026-11-06 08:36 +07 van tra 112 sau khi da sua clientId.
+Duong that la upload-manager hai buoc (12060/12063 + asyncfile/
+msg) — no doi file AAC (fileType "aac"|"amr", async tra {aac,
+amr}), giong het Node.js. Nen dich o day BAY GIO LA AAC-LC ADTS
+(`-c:a aac -f adts`), Y HET Node.js, khong con lech codec. Cac ham
+MP3 cu van giu lai (de test + tai lieu hoa loi 133 cu), nhung
+khong con duoc route sendvoice dung.
 """
 
 import os
@@ -40,8 +39,9 @@ import shutil
 import subprocess
 
 # Tham so am thanh — GIONG Node.js (voiceAac.js): mono, 16 kHz,
-# ~64 kbps. Chi codec/container khac (libmp3lame/mp3 thay cho
-# aac/adts) vi voicemp3 bat buoc MP3 (xem docstring module).
+# ~64 kbps. Cac hang MP3 duoi day la cua duong truc tiep cu
+# (voicemp3 bat MP3) — giu lai cho ham MP3 cu + test; duong hai
+# buoc hien tai dung hang AAC o duoi (VOICE_AAC_*).
 VOICE_CHANNELS = 1
 VOICE_SAMPLE_RATE = 16000
 VOICE_BITRATE = "64k"
@@ -50,6 +50,13 @@ VOICE_FORMAT = "mp3"
 VOICE_FILENAME = "voice.mp3"
 VOICE_MIME = "audio/mpeg"
 DEFAULT_TIMEOUT_MS = 60000
+
+# Tham so AAC — DUONG HAI BUOC HIEN TAI (giong het Node.js
+# voiceAac.js: `-ac 1 -ar 16000 -c:a aac -b:a 64k -f adts`).
+VOICE_AAC_CODEC = "aac"
+VOICE_AAC_FORMAT = "adts"
+VOICE_AAC_FILENAME = "voice.aac"
+VOICE_AAC_MIME = "audio/aac"
 
 
 class VoiceTranscodeError(RuntimeError):
@@ -103,9 +110,10 @@ def is_mp3(data):
     return version != 0x01 and layer != 0x00
 
 
-def _default_run(binary, args, data, timeout_s):
-    """Chay ffmpeg that: doc stdin, lay mp3 o stdout. Loi tra ve
-    stderr (cat ngan, khong bao gom du lieu am thanh)."""
+def _default_run(binary, args, data, timeout_s, label="MP3"):
+    """Chay ffmpeg that: doc stdin, lay file da doi o stdout. Loi
+    tra ve stderr (cat ngan, khong bao gom du lieu am thanh).
+    `label` chi de hien trong loi ("MP3" cu / "AAC" moi)."""
     try:
         proc = subprocess.run(
             [binary] + args, input=data, timeout=timeout_s,
@@ -116,17 +124,17 @@ def _default_run(binary, args, data, timeout_s):
             "vao image/server de gui tin nhan thoai" % binary)
     except subprocess.TimeoutExpired:
         raise VoiceTranscodeError(
-            "chuyen file ghi am sang MP3 het thoi gian (>%ds)"
-            % timeout_s)
+            "chuyen file ghi am sang %s het thoi gian (>%ds)"
+            % (label, timeout_s))
     if proc.returncode != 0:
         detail = proc.stderr.decode("utf-8", "replace").strip()
         raise VoiceTranscodeError(
-            "ffmpeg chuyen sang MP3 that bai (exit %d)%s"
-            % (proc.returncode,
+            "ffmpeg chuyen sang %s that bai (exit %d)%s"
+            % (label, proc.returncode,
                (": " + detail[-300:]) if detail else ""))
     if not proc.stdout:
         raise VoiceTranscodeError(
-            "ffmpeg tra ve file MP3 rong")
+            "ffmpeg tra ve file %s rong" % label)
     return proc.stdout
 
 
@@ -198,3 +206,104 @@ def ensure_voice_mp3(filename, mime, data, ffmpeg_bin=None,
     mp3 = to_zalo_voice_mp3(data, ffmpeg_bin=ffmpeg_bin,
                             timeout_ms=timeout_ms, run=run)
     return mp3, VOICE_FILENAME, VOICE_MIME, True
+
+
+# -- AAC (duong hai buoc hien tai) ---------------------------------------
+# Giong het Node.js voiceAac.js: AAC-LC 16 kHz mono 64 kbps ADTS.
+# Duong upload-manager cua bundle doi file AAC (fileType "aac"),
+# async tra {aac, amr} — day la dinh dang tin thoai that cua Zalo.
+
+
+def ffmpeg_args_aac():
+    """Danh sach doi so ffmpeg — Y HET Node.js pin trong
+    voiceMessage.test.js: `-ac 1 -ar 16000 -c:a aac -b:a 64k
+    -f adts`."""
+    return ["-hide_banner", "-loglevel", "error", "-y",
+            "-i", "pipe:0",
+            "-vn", "-ac", str(VOICE_CHANNELS),
+            "-ar", str(VOICE_SAMPLE_RATE),
+            "-c:a", VOICE_AAC_CODEC, "-b:a", VOICE_BITRATE,
+            "-f", VOICE_AAC_FORMAT, "pipe:1"]
+
+
+def is_aac(data):
+    """Nhan AAC ADTS that qua syncword 12 bit (0xFFF) + layer 00.
+    Byte 1: 4 bit cao = 1111 (sync), 2 bit layer phai = 00 — nho
+    do ma phan biet duoc voi frame MP3 (FF FB: layer = 01). Du de
+    phan biet voi webm (EBML), mp4 (ftyp — AAC ben trong nhung
+    khong phai ADTS tho), ogg, wav."""
+    if not data or len(data) < 2:
+        return False
+    if data[0] != 0xFF or (data[1] & 0xF0) != 0xF0:
+        return False
+    layer = (data[1] >> 1) & 0x03
+    return layer == 0x00
+
+
+def to_zalo_voice_aac(data, ffmpeg_bin=None, timeout_ms=None,
+                      run=None):
+    """Doi bytes am thanh bat ky (webm/opus cua Chrome, mp4/aac cua
+    Safari, wav...) sang AAC-LC mono 16 kHz 64 kbps ADTS — dung
+    dinh dang duong upload-manager chap nhan. `run` de test inject
+    (giong Node.js inject execFileAsync). Tra ve bytes AAC."""
+    if not data:
+        raise VoiceTranscodeError("file ghi am rong, khong co gi de gui")
+    binary = find_ffmpeg(ffmpeg_bin)
+    if binary is None:
+        raise VoiceTranscodeError(
+            "khong tim thay ffmpeg (FFMPEG_BIN=%s): cai ffmpeg vao "
+            "image/server de gui tin nhan thoai"
+            % (ffmpeg_bin or os.environ.get("FFMPEG_BIN")
+               or "ffmpeg"))
+    timeout_s = _positive_int(
+        timeout_ms if timeout_ms is not None else
+        os.environ.get("VOICE_CONVERT_TIMEOUT_MS"),
+        DEFAULT_TIMEOUT_MS) / 1000.0
+    runner = run or (lambda b, a, d, t: _default_run(b, a, d, t, "AAC"))
+    try:
+        return runner(binary, ffmpeg_args_aac(), data, timeout_s)
+    except VoiceTranscodeError:
+        raise
+    except subprocess.CalledProcessError as e:
+        raise VoiceTranscodeError(
+            "ffmpeg chuyen sang AAC that bai (exit %s)"
+            % e.returncode)
+    except subprocess.TimeoutExpired:
+        raise VoiceTranscodeError(
+            "chuyen file ghi am sang AAC het thoi gian (>%ds)"
+            % timeout_s)
+    except FileNotFoundError:
+        raise VoiceTranscodeError(
+            "khong tim thay ffmpeg (FFMPEG_BIN=%s): cai ffmpeg vao "
+            "image/server de gui tin nhan thoai" % binary)
+    except OSError as e:
+        raise VoiceTranscodeError(
+            "khong chay duoc ffmpeg: %s" % e)
+
+
+def needs_aac_transcode(filename, mime, data):
+    """File da la AAC ADTS thi gui thang (khong ton ffmpeg); con
+    lai (webm/mp4/wav/mp3...) thi phai doi. Nhan dang theo NOI
+    DUNG truoc (ADTS sync), ten/mime chi la goi y — trinh duyet co
+    the dat ten .aac cho blob webm. MP4 chua AAC ben trong van
+    phai doi vi no khong phai ADTS tho."""
+    if data and is_aac(data):
+        return False
+    if data:
+        return True
+    name = (filename or "").lower()
+    if name.endswith(".aac"):
+        return False
+    return (mime or "").lower() not in ("audio/aac", "audio/mp4a-latm")
+
+
+def ensure_voice_aac(filename, mime, data, ffmpeg_bin=None,
+                     timeout_ms=None, run=None):
+    """Dam bao file gui qua duong hai buoc la AAC ADTS. Tra ve
+    (bytes, ten file, mime, da_chuyen_doi: bool). File AAC that tra
+    nguyen; file khac duoc doi bang ffmpeg truoc khi gui."""
+    if not needs_aac_transcode(filename, mime, data):
+        return data, VOICE_AAC_FILENAME, VOICE_AAC_MIME, False
+    aac = to_zalo_voice_aac(data, ffmpeg_bin=ffmpeg_bin,
+                            timeout_ms=timeout_ms, run=run)
+    return aac, VOICE_AAC_FILENAME, VOICE_AAC_MIME, True

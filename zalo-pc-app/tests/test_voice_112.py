@@ -1,35 +1,57 @@
-"""Loi 112 tren duong gui tin nhan thoai (live 2026-11-06 06:35 +07
-tren 9d87501: sau khi transcode MP3 da het loi 133, server tra
-inner error_code=112 "Loi khong xac dinh").
+"""Tin nhan thoai — DUONG HAI BUOC (upload chunked 12060/12063 +
+asyncfile/msg 11777/13001), thay duong truc tiep voicemp3/sendmp3.
 
-BANG CHUNG BUNDLE (compact-app-pc...js):
-- sendVoice (voicemp3 11148 / sendmp3 11169) ghep params bang
-  chuoi tay: '{"toid":"<id>", "clientId":"<id>"}' — clientId la
-  STRING (co dau ngoac kep), khong phai NUMBER. Gia tri la so
-  epoch-ms cua generator next() (getTimeServer, tang don dieu),
-  chi khac KIEU JSON khi gui di. Code cu gui NUMBER -> sai wire.
-  sendFile (sharefile_full 11146/11191) ghep y het — cung loi.
-  Anh thi khac: JSON.stringify({clientId: <number>, ...}) nen
-  clientId van la NUMBER — khong duoc doi theo.
-- Params voice CHI co toid|grid + clientId: khong ttl, khong
-  duration, khong imei, khong desc.
-- 112 khong co nghia rieng trong bundle: bang loi anh xa 112 ->
-  "STR_ERROR_CODE_UNKNOWN", va moi bo xu ly loi deu coi 112 la
-  TAM THOI va thu lai sau 1-5 giay. App thu lai gioi han (2 lan,
-  cach 2 giay, cung clientId/body).
-- 12060/12063 (/api/message|group/voice/upload) la duong upload
-  CHUNKED cua upload-manager chung (getInfoUploadVoiceFromData,
-  theo uploadMainType==Voice) — thu tu dung cho tin thoai chua
-  lan duoc, khong co bang chung UI ghi am dung duong nay; duong
-  truc tiep voicemp3/sendmp3 (sendVoice) moi la duong gui tin
-  thoai. Giu duong truc tiep, khong doi sang 12060/12063.
+BANG CHUNG BUNDLE (compact-app-pc.5c0110a3a8749b3aacde.js,
+Zalo PC 26.11.10) — doc truc tiep tu bundle, khong phai suy doan:
+- sendVoice (voicemp3 11148 / sendmp3 11169) CO DINH NGHIA nhung
+  KHONG CO caller nao trong toan bo app: "sendVoice(" xuat hien
+  dung 1 lan moi file (dinh nghia), ".sendVoice(" = 0 (renderer,
+  lazy chunk, worker, main-dist). Dispatcher gui tin cua renderer
+  con tu choi thang MSG_VOICE: logCoreError("not support send this
+  type"). Duong truc tiep la code chet o ban nay — va live
+  2026-11-06 08:36 +07 tren 965ce96 van tra inner 112 sau khi da
+  sua clientId STRING (b0e98c2). Khong dung duong nay nua.
+- Duong upload-manager ho tro Voice day du: getInfoUploadVoiceFromData
+  -> {files-wpa}/api/message/voice/upload (12060) / /api/group/
+  voice/upload (12063), type 2/11; buildSendChunksInfo chia file
+  thanh chunk 256_000 byte (getDefaultChunkSize: settings.sharefile.
+  chunk_size_file neu >= 64_000, khong thi 256e3), moi chunk la
+  FormData chunkContent = File([chunk], ten file), URL params AES
+  {totalChunk, fileName, clientId NUMBER, totalSize, imei, chunkId,
+  toid|grid, fileType: "aac"|"amr"} (KHONG co checksum trong params
+  — bundle `delete` no; clientId o day la NUMBER qua JSON.stringify,
+  khac voi STRING ghep tay cua sendVoice/sendFile truc tiep);
+  chunk cuoi tra data {finished: 1, fileId} (handleSendChunkResp:
+  hoan tat <=> finished && fileId); getFileAsyncItem(Voice) ->
+  {fileId, checksum (md5 hex), checksumSha: "", totalSize, clientId,
+  fType, toid|grid}; async event tra {aac, amr, secureKey} ->
+  fileUrl = amr||aac (mapVoiceResponse + __waitAsyncFileInfo).
+- Dinh dang that la AAC (khong phai MP3): fileType aac/amr; tin
+  thoai that do duoc la AAC-LC 16 kHz mono 64 kbps ADTS .aac
+  (Node.js voiceAac.js + voiceMessage.test.js); ten file tai ve
+  cua tin thoai ket bang .aac; forward-voice dung m4aUrl/voiceUrl.
+
+BUOC GUI SAU UPLOAD — SUY LUAN CO GHI RO, KHONG PHAI BANG CHUNG
+TRUC TIEP: khong co code JS nao trong bundle khoi tao task upload
+Voice (0 lan `uploadMainType: *.c.Voice`), khong co
+sendMsgVoiceAsync, sendMsgAsync chi xu ly Photo/File — viec ghi
+am + gui sau upload nam o lop native (khong co MediaRecorder
+trong JS). Buoc 2 o day dung asyncfile/msg (11777/13001,
+sendMsgFileAsync): endpoint PC DUY NHAT nhan dung item ma
+getFileAsyncItem tra ve (fileId/checksum/checksumSha/totalSize/
+clientId + toid|grid, + imei chi 1-1, + zsource -1 qua buildParams/
+transform). Neu live retest van loi thi day la diem can kiem dau
+tien (kem theo viec cho async event {aac,amr} qua kenh sync, hien
+chua implement — xem ghi chu o chat.send_voice).
+
+112: van la loi chung (STR_ERROR_CODE_UNKNOWN), bundle coi la tam
+thoi va thu lai sau 1-5 giay — app thu lai gioi han (2 lan, cach
+2 giay, cung clientId/body) o ca buoc chunk lan buoc gui.
 
 Mock kiem chung doc lap (khong dang nhap that, khong gui that).
-Cac test kieu-wire nay DO tren code cu (clientId NUMBER): mock
-tra 112 nhu server that thi chat thu lai het luot roi van loi —
-tuc la test do, dung nhu loi that. Sau fix thi xanh.
 """
 
+import hashlib
 import json
 import os
 import sys
@@ -48,7 +70,9 @@ from zalo_pc_app import chat as chat_mod  # noqa: E402
 from zalo_pc_app import protocol  # noqa: E402
 from zalo_pc_app import server as app_server  # noqa: E402
 
-FAKE_MP3 = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 100
+# ADTS AAC gia (header sync FF F1 + payload xac dinh) — du de mock
+# kiem tra chunk bytes; file that duoc server route doi bang ffmpeg.
+FAKE_AAC = b"\xff\xf1\x50\x80\x00\x1f\xfc" + b"\x00" * 100
 
 
 def patch_domains(mock):
@@ -76,70 +100,152 @@ def make_chat(mock, sleep=None):
     return chat_mod.Chat(t, "dev-1", TEST_SESSION_KEY, sleep=sleep)
 
 
-def _uploaded_file(mock, path):
-    """(filename, mime, bytes) cua fileContent mock nhan duoc gan
-    nhat o `path`."""
-    for p, raw in reversed(mock.seen_post_raw):
-        if p != path:
-            continue
-        ctype = ""
-        for pp, _qs, headers in reversed(mock.seen):
-            if pp == path and "Content-Type" in headers:
-                ctype = headers["Content-Type"]
-                break
-        _fields, files = chat_mod.parse_multipart(raw, ctype)
-        assert "fileContent" in files, files.keys()
-        return files["fileContent"]
-    raise AssertionError("mock khong nhan duoc %s nao" % path)
+def _uploaded_chunk(mock, path, occurrence=0):
+    """(filename, mime, bytes) cua chunkContent o lan goi thu
+    `occurrence` toi `path` (doc tu seen_post_raw, bytes that)."""
+    raws = [raw for p, raw in mock.seen_post_raw if p == path]
+    assert len(raws) > occurrence, (path, len(raws))
+    # Moi chunk co boundary RIENG (build_multipart sinh moi lan),
+    # nen phai lay Content-Type cua dung lan goi do, khong phai
+    # cua lan dau.
+    ctypes = [headers.get("Content-Type", "")
+              for pp, _qs, headers in mock.seen if pp == path]
+    assert len(ctypes) > occurrence, (path, len(ctypes))
+    ctype = ctypes[occurrence]
+    _fields, files = chat_mod.parse_multipart(raws[occurrence], ctype)
+    assert "chunkContent" in files, files.keys()
+    assert "fileContent" not in files, files.keys()
+    return files["chunkContent"]
 
 
-# -- params tren day (wire) khop bundle -------------------------------
+# -- buoc 1 + 2: params tren day (wire) khop bundle --------------------
 
-def test_voice_params_match_bundle():
-    """voicemp3/sendmp3: params CHI {toid|grid, clientId};
-    clientId la STRING bang str(epoch-ms); khong ttl/duration/
-    imei/desc; fileContent = voice.mp3, audio/mpeg."""
+def test_voice_two_step_params_match_bundle():
+    """1 chunk AAC, 1-1: chunk POST toi /api/message/voice/upload
+    voi params CHI {totalChunk, fileName, clientId NUMBER, totalSize,
+    imei, chunkId, toid, fileType "aac"} (khong checksum, khong ttl/
+    duration/desc); chunkContent = toan bo file; roi asyncfile/msg
+    voi body {fileId, checksum=md5, checksumSha "", totalSize,
+    clientId NUMBER, toid, imei, zsource}."""
     mock = MockZalo().start()
     try:
         patch_domains(mock)
         chat = make_chat(mock)
-        res = chat.send_voice("user", "20001", "voice.mp3",
-                              b"FAKEMP3DATA", "audio/mpeg")
-        assert res["data"]["msgId"] == "msg-file-1", res
+        res = chat.send_voice("user", "20001", "voice.aac",
+                              FAKE_AAC, "audio/aac")
+        assert res["data"]["msgId"] == "msg-voice-1", res
+        assert res["file_id"] == "file-voice-1", res
         assert isinstance(res["client_id"], int), res
-        body = res["data"]["body"]
-        assert set(body.keys()) == {"toid", "clientId"}, body
-        assert body["toid"] == "20001", body
-        assert isinstance(body["clientId"], str), body
-        assert body["clientId"] == str(res["client_id"]), body
-        assert "ttl" not in body and "duration" not in body, body
-        assert "imei" not in body and "desc" not in body, body
-        fname, mime, data = _uploaded_file(mock, "/api/message/voicemp3")
-        assert fname == "voice.mp3", fname
-        assert mime == "audio/mpeg", mime
-        assert data == b"FAKEMP3DATA", data
-
-        res = chat.send_voice("group", "30001", "voice.mp3",
-                              b"FAKEMP3DATA", "audio/mpeg")
-        body = res["data"]["body"]
-        assert set(body.keys()) == {"grid", "clientId"}, body
-        assert body["grid"] == "30001", body
-        assert isinstance(body["clientId"], str), body
-        assert body["clientId"] == str(res["client_id"]), body
-        assert "ttl" not in body and "duration" not in body, body
-        fname, mime, data = _uploaded_file(mock, "/api/group/sendmp3")
-        assert fname == "voice.mp3" and mime == "audio/mpeg", (fname, mime)
+        assert mock.voice_upload_calls == 1, mock.voice_upload_calls
+        assert mock.voice_send_calls == 1, mock.voice_send_calls
+        chunk = mock.upload_bodies[0]["body"]
+        assert mock.upload_bodies[0]["path"] == \
+            "/api/message/voice/upload", mock.upload_bodies
+        assert set(chunk.keys()) == {"totalChunk", "fileName",
+                                     "clientId", "totalSize", "imei",
+                                     "chunkId", "toid",
+                                     "fileType"}, chunk
+        assert chunk["totalChunk"] == 1 and chunk["chunkId"] == 1, chunk
+        assert chunk["fileName"] == "voice.aac", chunk
+        assert chunk["totalSize"] == len(FAKE_AAC), chunk
+        assert chunk["imei"] == "dev-1", chunk
+        assert chunk["toid"] == "20001", chunk
+        assert chunk["fileType"] == "aac", chunk
+        assert isinstance(chunk["clientId"], int) and not \
+            isinstance(chunk["clientId"], bool), chunk
+        assert chunk["clientId"] == res["client_id"], chunk
+        assert "checksum" not in chunk, chunk
+        fname, mime, data = _uploaded_chunk(
+            mock, "/api/message/voice/upload")
+        assert fname == "voice.aac", fname
+        assert data == FAKE_AAC, data
+        sent = mock.voice_send_bodies[0]["body"]
+        assert mock.voice_send_bodies[0]["path"] == \
+            "/api/message/asyncfile/msg", mock.voice_send_bodies
+        assert set(sent.keys()) == {"fileId", "checksum",
+                                    "checksumSha", "totalSize",
+                                    "clientId", "toid", "imei",
+                                    "zsource"}, sent
+        assert sent["fileId"] == "file-voice-1", sent
+        assert sent["checksum"] == \
+            hashlib.md5(FAKE_AAC).hexdigest(), sent
+        assert sent["checksumSha"] == "", sent
+        assert sent["totalSize"] == len(FAKE_AAC), sent
+        assert sent["clientId"] == res["client_id"], sent
+        assert sent["toid"] == "20001" and sent["imei"] == "dev-1", sent
+        assert sent["zsource"] == -1, sent
         paths = [p for p, _q, _h in mock.seen
-                 if p in ("/api/message/voicemp3", "/api/group/sendmp3")]
-        assert len(paths) == 2, mock.seen
+                 if p in ("/api/message/voice/upload",
+                          "/api/message/asyncfile/msg")]
+        assert paths == ["/api/message/voice/upload",
+                         "/api/message/asyncfile/msg"], paths
+    finally:
+        mock.stop()
+
+
+def test_voice_two_step_group_multi_chunk():
+    """Nhom, 600_000 byte AAC -> 3 chunk 256000/256000/88000 toi
+    /api/group/voice/upload (type 11), chunkId 1..3, totalChunk 3;
+    roi /api/group/asyncfile/msg voi grid, KHONG imei."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        chat = make_chat(mock)
+        data = b"\xff\xf1\x50\x80\x00\x1f\xfc" + b"\xab" * (600000 - 7)
+        res = chat.send_voice("group", "30001", "voice.aac",
+                              data, "audio/aac")
+        assert res["data"]["msgId"] == "msg-voice-1", res
+        assert res["file_id"] == "file-voice-1", res
+        assert mock.voice_upload_calls == 3, mock.voice_upload_calls
+        assert mock.voice_send_calls == 1, mock.voice_send_calls
+        for i, entry in enumerate(mock.upload_bodies):
+            assert entry["path"] == "/api/group/voice/upload", entry
+            body = entry["body"]
+            assert body["totalChunk"] == 3, body
+            assert body["chunkId"] == i + 1, body
+            assert body["grid"] == "30001", body
+            assert "toid" not in body, body
+            assert body["fileType"] == "aac", body
+            assert body["clientId"] == res["client_id"], body
+            fname, _mime, chunk = _uploaded_chunk(
+                mock, "/api/group/voice/upload", i)
+            assert fname == "voice.aac", fname
+            assert chunk == data[i * 256000:(i + 1) * 256000], \
+                (i, len(chunk))
+        assert [len(_uploaded_chunk(mock, "/api/group/voice/upload",
+                                    i)[2]) for i in range(3)] == \
+            [256000, 256000, 88000]
+        sent = mock.voice_send_bodies[0]["body"]
+        assert mock.voice_send_bodies[0]["path"] == \
+            "/api/group/asyncfile/msg", mock.voice_send_bodies
+        assert sent["grid"] == "30001", sent
+        assert "toid" not in sent and "imei" not in sent, sent
+        assert sent["checksum"] == hashlib.md5(data).hexdigest(), sent
+        assert sent["totalSize"] == 600000, sent
+    finally:
+        mock.stop()
+
+
+def test_voice_two_step_amr_filename():
+    """Ten file .amr -> fileType "amr" (bundle: ten chua ".amr" thi
+    amr, khong thi aac)."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        chat = make_chat(mock)
+        res = chat.send_voice("user", "20001", "voice.amr",
+                              FAKE_AAC, "audio/amr")
+        assert res["data"]["msgId"] == "msg-voice-1", res
+        assert mock.upload_bodies[0]["body"]["fileType"] == "amr", \
+            mock.upload_bodies[0]["body"]
     finally:
         mock.stop()
 
 
 def test_file_params_match_bundle():
-    """sharefile_full: cung mau thuan wire nhu voice (bundle
-    sendFile ghep '"clientId":"<id>"') — clientId STRING, chi
-    {toid|grid, clientId}."""
+    """sharefile_full: KHONG DOI — bundle sendFile ghep
+    '"clientId":"<id>"' — clientId STRING, chi {toid|grid,
+    clientId}."""
     mock = MockZalo().start()
     try:
         patch_domains(mock)
@@ -183,48 +289,54 @@ def test_photo_client_id_stays_number():
 
 # -- 112: thu lai -------------------------------------------------------
 
-def test_voice_112_once_retries_and_succeeds():
-    """112 tam thoi: lan 1 tra 112, lan 2 ok — gui thanh cong,
-    dung 2 lan goi, cho 1 lan 2 giay, cung clientId ca 2 lan
-    (de server dedup, khong gui trung)."""
+def test_voice_chunk_112_once_retries_and_succeeds():
+    """112 tam thoi o buoc chunk: lan 1 tra 112, lan 2 ok — gui
+    thanh cong, dung 2 lan goi chunk, cho 1 lan 2 giay, cung
+    clientId + chunkId ca 2 lan (de server dedup, khong gui
+    trung); chi 1 lan asyncfile."""
     mock = MockZalo().start()
     try:
         patch_domains(mock)
         mock.voice_upload_mode = "error112_once"
         sleep = SleepRecorder()
         chat = make_chat(mock, sleep=sleep)
-        res = chat.send_voice("user", "20001", "voice.mp3",
-                              b"FAKEMP3DATA", "audio/mpeg")
-        assert res["data"]["msgId"] == "msg-file-1", res
+        res = chat.send_voice("user", "20001", "voice.aac",
+                              FAKE_AAC, "audio/aac")
+        assert res["data"]["msgId"] == "msg-voice-1", res
         assert mock.voice_upload_calls == 2, mock.voice_upload_calls
+        assert mock.voice_send_calls == 1, mock.voice_send_calls
         assert sleep.calls == [2.0], sleep.calls
         assert len(mock.upload_bodies) == 2, mock.upload_bodies
         first = mock.upload_bodies[0]["body"]
         second = mock.upload_bodies[1]["body"]
         assert first["clientId"] == second["clientId"], \
             (first, second)
-        assert isinstance(first["clientId"], str), first
+        assert first["chunkId"] == second["chunkId"] == 1, \
+            (first, second)
+        assert isinstance(first["clientId"], int), first
     finally:
         mock.stop()
 
 
-def test_voice_112_persistent_fails_after_bounded_retries():
-    """112 keo dai: thu lai dung 2 lan roi bao loi (khong thu vo
-    han, khong gia vo thanh cong). Tong 3 lan goi, cho 2 lan."""
+def test_voice_send_112_persistent_fails_after_bounded_retries():
+    """112 keo dai o buoc gui (asyncfile/msg): chunk ok 1 lan,
+    asyncfile thu lai dung 2 lan roi bao loi (khong thu vo han,
+    khong gia vo thanh cong). Tong 3 lan goi gui, cho 2 lan."""
     mock = MockZalo().start()
     try:
         patch_domains(mock)
-        mock.voice_upload_mode = "error112"
+        mock.voice_send_mode = "error112"
         sleep = SleepRecorder()
         chat = make_chat(mock, sleep=sleep)
         try:
-            chat.send_voice("user", "20001", "voice.mp3",
-                            b"FAKEMP3DATA", "audio/mpeg")
+            chat.send_voice("user", "20001", "voice.aac",
+                            FAKE_AAC, "audio/aac")
             raise AssertionError("expected ZaloChatError 112")
         except chat_mod.ZaloChatError as e:
             assert e.error_code == 112, e
             assert "112" in str(e), e
-        assert mock.voice_upload_calls == 3, mock.voice_upload_calls
+        assert mock.voice_upload_calls == 1, mock.voice_upload_calls
+        assert mock.voice_send_calls == 3, mock.voice_send_calls
         assert sleep.calls == [2.0, 2.0], sleep.calls
     finally:
         mock.stop()
@@ -238,12 +350,13 @@ def test_voice_empty_rejected_before_network():
         patch_domains(mock)
         chat = make_chat(mock)
         try:
-            chat.send_voice("user", "20001", "voice.mp3", b"",
-                            "audio/mpeg")
+            chat.send_voice("user", "20001", "voice.aac", b"",
+                            "audio/aac")
             raise AssertionError("expected ValueError on empty voice")
         except ValueError as e:
             assert "rong" in str(e), e
         assert mock.voice_upload_calls == 0, mock.voice_upload_calls
+        assert mock.voice_send_calls == 0, mock.voice_send_calls
     finally:
         mock.stop()
 
@@ -300,32 +413,55 @@ def _run_server(mock):
 def _sendvoice_via_app():
     mbody, mctype = chat_mod.build_multipart(
         {"type": "user"},
-        [("file", "voice.mp3", "audio/mpeg", FAKE_MP3)])
+        [("file", "voice.aac", "audio/aac", FAKE_AAC)])
     return api("POST", "/api/thread/20001/sendvoice",
                mbody, {"Content-Type": mctype})
 
 
-def test_server_voice_112_surfaces_not_faked():
-    """112 keo dai qua route app: tra 502 chua '112', khong gia
-    vo thanh cong — dung trieu chung live 2026-11-06."""
+def test_server_voice_two_step_succeeds():
+    """Duong hai buoc qua route app: file AAC that gui thang (khong
+    doi), 200 ok, kind voice; 1 chunk + 1 asyncfile."""
     mock = MockZalo().start()
     try:
-        mock.voice_upload_mode = "error112"
         httpd = _run_server(mock)
         try:
             status, body = _sendvoice_via_app()
-            assert status == 502, body
-            assert "112" in str(body.get("error", "")), body
-            assert mock.voice_upload_calls == 3, mock.voice_upload_calls
+            assert status == 200 and body["ok"] is True, body
+            assert body["message"]["kind"] == "voice", body
+            assert body["message"]["file_name"] == "voice.aac", body
+            assert body.get("converted_to_aac") is False, body
+            assert mock.voice_upload_calls == 1, \
+                mock.voice_upload_calls
+            assert mock.voice_send_calls == 1, mock.voice_send_calls
         finally:
             httpd.shutdown()
     finally:
         mock.stop()
 
 
-def test_server_voice_112_once_succeeds_via_retry():
-    """112 mot lan qua route app: thu lai trong chat layer lam
-    cuoc goi UI thanh cong (200, ok)."""
+def test_server_voice_send_112_surfaces_not_faked():
+    """112 keo dai o buoc gui qua route app: tra 502 chua '112',
+    khong gia vo thanh cong — dung trieu chung live 2026-11-06."""
+    mock = MockZalo().start()
+    try:
+        mock.voice_send_mode = "error112"
+        httpd = _run_server(mock)
+        try:
+            status, body = _sendvoice_via_app()
+            assert status == 502, body
+            assert "112" in str(body.get("error", "")), body
+            assert mock.voice_upload_calls == 1, \
+                mock.voice_upload_calls
+            assert mock.voice_send_calls == 3, mock.voice_send_calls
+        finally:
+            httpd.shutdown()
+    finally:
+        mock.stop()
+
+
+def test_server_voice_chunk_112_once_succeeds_via_retry():
+    """112 mot lan o buoc chunk qua route app: thu lai trong chat
+    layer lam cuoc goi UI thanh cong (200, ok)."""
     mock = MockZalo().start()
     try:
         mock.voice_upload_mode = "error112_once"
@@ -334,7 +470,9 @@ def test_server_voice_112_once_succeeds_via_retry():
             status, body = _sendvoice_via_app()
             assert status == 200 and body["ok"] is True, body
             assert body["message"]["kind"] == "voice", body
-            assert mock.voice_upload_calls == 2, mock.voice_upload_calls
+            assert mock.voice_upload_calls == 2, \
+                mock.voice_upload_calls
+            assert mock.voice_send_calls == 1, mock.voice_send_calls
         finally:
             httpd.shutdown()
     finally:

@@ -1169,10 +1169,10 @@ async function sendChatFile(file) {
 }
 
 // -- ghi am: MediaRecorder cua trinh duyet (khong phai ghi am native
-// cua Zalo PC) -> gui file da ghi qua voicemp3/sendmp3. Chrome thuong
-// cho webm/opus, khong phai mp3 — server DOI SANG MP3 truoc khi gui
-// (ffmpeg, mono 16 kHz 64 kbps, theo cach Node.js voiceAac.js lam;
-// chi khac codec vi voicemp3 bat buoc MP3 — loi 133 ngay 2026-11-05).
+// cua Zalo PC) -> gui file da ghi qua duong hai buoc (upload chunked
+// 12060/12063 + asyncfile/msg). Chrome thuong cho webm/opus —
+// server DOI SANG AAC truoc khi gui (ffmpeg, mono 16 kHz 64 kbps
+// ADTS, theo cach Node.js voiceAac.js lam).
 // UI chi hien trang thai tung buoc; loi o buoc nao hien ro buoc do,
 // khong lam rot ban ghi lang le.
 async function toggleRecord() {
@@ -1212,10 +1212,10 @@ async function toggleRecord() {
       const form = new FormData();
       form.append("type", currentThread.type === "group" ? "group" : "user");
       form.append("file", file, file.name);
-      // Server doi sang MP3 (ffmpeg) roi moi gui qua voicemp3 —
-      // buoc nay co the mat vai giay voi ban ghi dai.
+      // Server doi sang AAC (ffmpeg) roi moi gui qua duong hai
+      // buoc — buoc nay co the mat vai giay voi ban ghi dai.
       state.hidden = false;
-      state.textContent = "Đang chuyển sang MP3 rồi gửi…";
+      state.textContent = "Đang chuyển sang AAC rồi gửi…";
       let r;
       try {
         r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendvoice", form);

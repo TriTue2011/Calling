@@ -195,21 +195,31 @@ def test_send_file_photo_voice():
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
         assert res["data"]["clientId"] == res["client_id"], res
-        res = chat.send_voice("user", "20001", "voice.mp3",
-                              b"FAKEMP3DATA", "audio/mpeg")
-        assert res["data"]["msgId"] == "msg-file-1", res
+        # Voice di duong hai buoc (12060/12063 + asyncfile/msg):
+        # chunk AAC len 12060/12063, roi gui bang fileId — xem
+        # test_voice_112.py. clientId o day la NUMBER (JSON.stringify
+        # cua upload-manager), khac voi STRING cua sendFile truc tiep.
+        aac = b"\xff\xf1\x50\x80\x00\x1f\xfc" + b"\x00" * 100
+        res = chat.send_voice("user", "20001", "voice.aac",
+                              aac, "audio/aac")
+        assert res["data"]["msgId"] == "msg-voice-1", res
         assert isinstance(res["client_id"], int), res
-        assert res["data"]["clientId"] == str(res["client_id"]), res
-        res = chat.send_voice("group", "30001", "voice.mp3",
-                              b"FAKEMP3DATA", "audio/mpeg")
-        assert res["data"]["msgId"] == "msg-file-1", res
+        assert res["data"]["clientId"] == res["client_id"], res
+        assert res["file_id"] == "file-voice-1", res
+        res = chat.send_voice("group", "30001", "voice.aac",
+                              aac, "audio/aac")
+        assert res["data"]["msgId"] == "msg-voice-1", res
         assert isinstance(res["client_id"], int), res
-        assert res["data"]["clientId"] == str(res["client_id"]), res
+        assert res["data"]["clientId"] == res["client_id"], res
+        assert res["file_id"] == "file-voice-1", res
         seen = [p for p, _, _ in mock.seen]
         for want in ("/api/message/sharefile_full",
                      "/api/group/sharefile_full",
                      "/api/message/photo", "/api/group/sendpt",
-                     "/api/message/voicemp3", "/api/group/sendmp3"):
+                     "/api/message/voice/upload",
+                     "/api/group/voice/upload",
+                     "/api/message/asyncfile/msg",
+                     "/api/group/asyncfile/msg"):
             assert seen.count(want) == 1, (want, seen)
     finally:
         mock.stop()
@@ -397,19 +407,21 @@ def test_server_thread_routes():
         assert status == 200 and body["ok"] is True, body
         assert body["message"]["kind"] == "photo", body
 
-        # Gui file ghi am (multipart) nhom. File phai la MP3 THAT
-        # (it nhat header ID3/frame sync) vi route sendvoice kiem
-        # tra noi dung truoc khi gui — byte gia kieu FAKEMP3DATA
-        # khong phai MP3 se bi dua di doi bang ffmpeg va loi
-        # (loi 133 ngay 2026-11-05; xem test_voice_transcode.py).
+        # Gui file ghi am (multipart) nhom. File phai la AAC ADTS
+        # THAT (it nhat header ADTS sync) vi route sendvoice kiem
+        # tra noi dung truoc khi gui — byte gia khong phai AAC se
+        # bi dua di doi bang ffmpeg va loi (xem
+        # test_voice_transcode.py).
         mbody, mctype = chat_mod.build_multipart(
             {"type": "group"},
-            [("file", "voice.mp3", "audio/mpeg",
-              b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 64)])
+            [("file", "voice.aac", "audio/aac",
+              b"\xff\xf1\x50\x80\x00\x1f\xfc" + b"\x00" * 100)])
         status, body = api("POST", "/api/thread/30001/sendvoice",
                            mbody, {"Content-Type": mctype})
         assert status == 200 and body["ok"] is True, body
         assert body["message"]["kind"] == "voice", body
+        assert body["message"]["file_name"] == "voice.aac", body
+        assert body.get("converted_to_aac") is False, body
         assert "trinh duyet" in body.get("note", ""), body
 
         # Thieu file -> 400.

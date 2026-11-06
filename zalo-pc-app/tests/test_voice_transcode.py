@@ -1,9 +1,15 @@
-"""Tin nhan thoai: doi sang MP3 truoc khi gui qua voicemp3 (loi 133).
+"""Tin nhan thoai: doi sang AAC truoc khi gui qua duong hai buoc
+(upload chunked 12060/12063 + asyncfile/msg 11777/13001).
 
 Goc Node.js (voiceMessage.test.js): pin doi so ffmpeg, doi WAV
-sang dung dinh dang tin thoai Zalo, tai len roi sendVoice, loi ro
-khi khong co URL. O day pin tuong tu cho duong PC — chi khac dich
-(MP3 thay cho AAC) vi voicemp3 bat buoc MP3; xem voice_transcode.py.
+sang dung dinh dang tin thoai Zalo (AAC-LC 16 kHz mono 64 kbps
+ADTS), tai len roi sendVoice, loi ro khi khong co URL. O day pin
+Y HET cho duong PC — vi duong upload-manager cua bundle cung doi
+file AAC (fileType "aac"|"amr", async tra {aac, amr}): doi so
+`-ac 1 -ar 16000 -c:a aac -b:a 64k -f adts` giong he Node.js, khong
+con lech codec nhu thoi voicemp3 (voicemp3 bat MP3 va tra 133 —
+duong do da ngung dung vi bundle khong goi sendVoice, xem
+test_voice_112.py).
 
 Mock kiem chung doc lap (ffmpeg that neu co, khong thi dung run
 inject + bo qua test can ffmpeg that). Khong dang nhap that,
@@ -90,9 +96,10 @@ def test_needs_transcode():
                                      b"\x00\x00\x00\x18ftypmp42") is True
 
 
-# -- doi so ffmpeg: pin giong Node.js pin doi so (voiceMessage.test.js)
-# `-ac 1 -ar 16000 -c:a aac -b:a 64k -f adts`; o day codec/container
-# la libmp3lame/mp3 vi voicemp3 bat buoc MP3.
+# -- doi so ffmpeg: pin Y HET Node.js (voiceMessage.test.js) -----
+# `-ac 1 -ar 16000 -c:a aac -b:a 64k -f adts` — duong upload-manager
+# cua bundle cung doi file AAC (fileType aac/amr), khong con lech
+# codec nhu thoi voicemp3 (libmp3lame/mp3).
 
 def test_ffmpeg_args_match_nodejs_params():
     seen = {}
@@ -110,6 +117,100 @@ def test_ffmpeg_args_match_nodejs_params():
         joined
     assert seen["args"][-1] == "pipe:1", seen["args"]
     assert "-i" in seen["args"] and "pipe:0" in seen["args"], seen
+
+
+def test_ffmpeg_args_aac_match_nodejs_params():
+    seen = {}
+
+    def fake_run(binary, args, data, timeout_s):
+        seen["args"] = args
+        seen["binary"] = binary
+        return b"\xff\xf1FAKEAAC"
+
+    out = voice_mod.to_zalo_voice_aac(
+        b"\x1a\x45\xdf\xa3" + b"\x00" * 10, run=fake_run)
+    assert out == b"\xff\xf1FAKEAAC", out
+    joined = " ".join(seen["args"])
+    assert "-ac 1 -ar 16000 -c:a aac -b:a 64k -f adts" in joined, \
+        joined
+    assert seen["args"][-1] == "pipe:1", seen["args"]
+    assert "-i" in seen["args"] and "pipe:0" in seen["args"], seen
+
+
+# -- nhan dang AAC (ADTS) -------------------------------------------------
+
+def test_is_aac_sniff():
+    # ADTS sync: FF F1 (MPEG-4, khong CRC) / FF F9 (co CRC).
+    assert voice_mod.is_aac(b"\xff\xf1\x50\x80\x00\x1f\xfc"
+                            + b"\x00" * 10) is True
+    assert voice_mod.is_aac(b"\xff\xf9\x50\x80\x00\x1f\xfc"
+                            + b"\x00" * 10) is True
+    # MP3 (ID3 / frame sync), WebM, MP4 (ftyp — chua phai ADTS),
+    # OGG, WAV, rong: khong phai AAC ADTS.
+    assert voice_mod.is_aac(b"ID3\x04\x00\x00\x00\x00\x00\x00") is False
+    assert voice_mod.is_aac(b"\xff\xfb\x90\x00" + b"\x00" * 10) is False
+    assert voice_mod.is_aac(b"\x1a\x45\xdf\xa3" + b"\x00" * 10) is False
+    assert voice_mod.is_aac(b"\x00\x00\x00\x18ftypmp42") is False
+    assert voice_mod.is_aac(b"OggS" + b"\x00" * 10) is False
+    assert voice_mod.is_aac(b"RIFF\x00\x00\x00\x00WAVE") is False
+    assert voice_mod.is_aac(b"") is False
+    assert voice_mod.is_aac(None) is False
+
+
+def test_needs_aac_transcode():
+    aac = b"\xff\xf1\x50\x80\x00\x1f\xfc" + b"\x00" * 10
+    webm = b"\x1a\x45\xdf\xa3" + b"\x00" * 10
+    assert voice_mod.needs_aac_transcode("voice.aac", "audio/aac",
+                                         aac) is False
+    # Noi dung quyet dinh, khong phai ten: blob webm dat ten .aac
+    # van phai doi (dung truong hop trinh duyet dat ten sai).
+    assert voice_mod.needs_aac_transcode("voice.aac", "audio/aac",
+                                         webm) is True
+    assert voice_mod.needs_aac_transcode("voice.webm", "audio/webm",
+                                         webm) is True
+    # MP4 chua AAC ben trong nhung khong phai ADTS tho -> van doi.
+    assert voice_mod.needs_aac_transcode(
+        "voice.mp4", "audio/mp4",
+        b"\x00\x00\x00\x18ftypmp42") is True
+
+
+def test_already_aac_passes_through_without_ffmpeg():
+    def exploding_run(*args):
+        raise AssertionError("ffmpeg khong duoc goi voi file AAC")
+
+    aac = b"\xff\xf1\x50\x80\x00\x1f\xfc" + b"\x00" * 100
+    out, name, mime, converted = voice_mod.ensure_voice_aac(
+        "voice.aac", "audio/aac", aac, run=exploding_run)
+    assert out == aac and name == "voice.aac", (name, converted)
+    assert mime == "audio/aac" and converted is False, converted
+
+
+# -- doi that bang ffmpeg that (AAC) --------------------------------------
+
+def test_transcode_webm_opus_to_aac_real_ffmpeg():
+    if not FFMPEG:
+        print("SKIP test_transcode_webm_opus_to_aac_real_ffmpeg "
+              "(no ffmpeg)")
+        return
+    webm = make_fixture("rec.webm",
+                        ["-c:a", "libopus", "-b:a", "32k"])
+    assert webm and not voice_mod.is_aac(webm), len(webm or b"")
+    aac = voice_mod.to_zalo_voice_aac(webm)
+    assert voice_mod.is_aac(aac), aac[:16]
+    assert decode_ok(aac), "ffmpeg khong giai ma duoc AAC vua doi"
+    assert len(aac) > 500, len(aac)
+
+
+def test_transcode_mp4_to_aac_real_ffmpeg():
+    if not FFMPEG:
+        print("SKIP test_transcode_mp4_to_aac_real_ffmpeg "
+              "(no ffmpeg)")
+        return
+    mp4 = make_fixture("rec.mp4", ["-c:a", "aac", "-b:a", "64k"])
+    assert mp4 and not voice_mod.is_aac(mp4), len(mp4 or b"")
+    aac = voice_mod.to_zalo_voice_aac(mp4)
+    assert voice_mod.is_aac(aac), aac[:16]
+    assert decode_ok(aac), "ffmpeg khong giai ma duoc AAC vua doi"
 
 
 # -- doi that bang ffmpeg that -------------------------------------------
@@ -243,10 +344,10 @@ def login_via_mock():
 
 
 def _uploaded_voice_file(mock):
-    """File that mock Zalo nhan duoc o voicemp3 gan nhat:
-    (filename, bytes)."""
+    """File that mock Zalo nhan duoc o voice/upload gan nhat:
+    (filename, bytes cua chunkContent)."""
     for path, raw in reversed(mock.seen_post_raw):
-        if path != "/api/message/voicemp3":
+        if path != "/api/message/voice/upload":
             continue
         ctype = ""
         for p, _qs, headers in reversed(mock.seen):
@@ -254,15 +355,15 @@ def _uploaded_voice_file(mock):
                 ctype = headers["Content-Type"]
                 break
         _fields, files = chat_mod.parse_multipart(raw, ctype)
-        assert "fileContent" in files, files.keys()
-        return files["fileContent"][0], files["fileContent"][2]
-    raise AssertionError("mock khong nhan duoc voicemp3 nao")
+        assert "chunkContent" in files, files.keys()
+        return files["chunkContent"][0], files["chunkContent"][2]
+    raise AssertionError("mock khong nhan duoc voice/upload nao")
 
 
 def test_server_transcodes_webm_before_upload():
-    """Loi that 2026-11-05 23:03: ghi am webm gui thang -> 133.
-    Sau fix: server doi sang MP3 roi moi gui — mock phai nhan
-    duoc file voice.mp3 voi noi dung MP3 that."""
+    """Ghi am webm (MediaRecorder cua Chrome) phai duoc doi sang
+    AAC-LC 16 kHz 64 kbps ADTS roi moi upload chunked — mock phai
+    nhan duoc file voice.aac voi noi dung AAC that."""
     if not FFMPEG:
         print("SKIP test_server_transcodes_webm_before_upload "
               "(no ffmpeg)")
@@ -281,32 +382,32 @@ def test_server_transcodes_webm_before_upload():
         login_via_mock()
         webm = make_fixture("rec.webm",
                             ["-c:a", "libopus", "-b:a", "32k"])
-        assert webm and not voice_mod.is_mp3(webm)
+        assert webm and not voice_mod.is_aac(webm)
         mbody, mctype = chat_mod.build_multipart(
             {"type": "user"},
             [("file", "voice.webm", "audio/webm", webm)])
         status, body = api("POST", "/api/thread/20001/sendvoice",
                            mbody, {"Content-Type": mctype})
         assert status == 200 and body["ok"] is True, body
-        assert body.get("converted_to_mp3") is True, body
+        assert body.get("converted_to_aac") is True, body
         assert body["message"]["kind"] == "voice", body
-        assert body["message"]["file_name"] == "voice.mp3", body
+        assert body["message"]["file_name"] == "voice.aac", body
         filename, uploaded = _uploaded_voice_file(mock)
-        assert filename == "voice.mp3", filename
-        assert voice_mod.is_mp3(uploaded), uploaded[:16]
+        assert filename == "voice.aac", filename
+        assert voice_mod.is_aac(uploaded), uploaded[:16]
         assert decode_ok(uploaded), \
-            "MP3 gui len Zalo phai giai ma duoc"
+            "AAC gui len Zalo phai giai ma duoc"
         httpd.shutdown()
     finally:
         mock.stop()
 
 
-def test_server_mp3_passthrough_and_133_surfaces():
-    """(a) File MP3 that gui thang, khong doi; (b) Zalo tra 133 thi
-    app tra 502 voi loi chua '133' — UI hien duoc ly do that."""
+def test_server_aac_passthrough():
+    """File AAC ADTS that gui thang, khong doi (khong ton ffmpeg);
+    duong truc tiep voicemp3 + loi 133 cu khong con ap dung — duong
+    hai buoc khong co buoc nao tu choi dinh dang theo kieu 133."""
     if not FFMPEG:
-        print("SKIP test_server_mp3_passthrough_and_133_surfaces "
-              "(no ffmpeg)")
+        print("SKIP test_server_aac_passthrough (no ffmpeg)")
         return
     global BASE
     mock = MockZalo().start()
@@ -320,30 +421,18 @@ def test_server_mp3_passthrough_and_133_surfaces():
         BASE = "http://127.0.0.1:%d" % port
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         login_via_mock()
-        mp3 = make_fixture("rec.mp3",
-                           ["-c:a", "libmp3lame", "-b:a", "64k"])
-        assert mp3 and voice_mod.is_mp3(mp3)
+        aac = make_fixture("rec.aac", ["-c:a", "aac", "-b:a", "64k"])
+        assert aac and voice_mod.is_aac(aac)
         mbody, mctype = chat_mod.build_multipart(
             {"type": "user"},
-            [("file", "voice.mp3", "audio/mpeg", mp3)])
+            [("file", "voice.aac", "audio/aac", aac)])
         status, body = api("POST", "/api/thread/20001/sendvoice",
                            mbody, {"Content-Type": mctype})
         assert status == 200 and body["ok"] is True, body
-        assert body.get("converted_to_mp3") is False, body
+        assert body.get("converted_to_aac") is False, body
         filename, uploaded = _uploaded_voice_file(mock)
-        assert filename == "voice.mp3", filename
-        assert uploaded == mp3, "MP3 that phai gui nguyen, khong doi"
-
-        # Zalo tu choi (133): app khong gia vo thanh cong.
-        mock.voice_upload_mode = "error133"
-        mbody, mctype = chat_mod.build_multipart(
-            {"type": "user"},
-            [("file", "voice.mp3", "audio/mpeg", mp3)])
-        status, body = api("POST", "/api/thread/20001/sendvoice",
-                           mbody, {"Content-Type": mctype})
-        assert status == 502, body
-        assert "133" in str(body.get("error", "")), body
-        assert "MP3" in str(body.get("error", "")), body
+        assert filename == "voice.aac", filename
+        assert uploaded == aac, "AAC that phai gui nguyen, khong doi"
         httpd.shutdown()
     finally:
         mock.stop()

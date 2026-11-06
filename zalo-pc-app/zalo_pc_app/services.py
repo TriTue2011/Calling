@@ -1753,8 +1753,8 @@ _NOT_SUPPORTED = [
     (16, "send_images_to_group", "tin_nhan", "chat",
      "Gửi nhiều ảnh thuộc khung chat (như send_image, đích nhóm)."),
     (33, "send_voice", "tin_nhan", "chat",
-     "Gửi tin nhắn thoại thuộc khung chat (voicemp3 11148 / "
-     "sendmp3 11169) — không phải gọi điện."),
+     "Gửi tin nhắn thoại thuộc khung chat (upload chunked "
+     "12060/12063 + asyncfile/msg) — không phải gọi điện."),
     (71, "send_card", "tin_nhan", "chat",
      "Gửi danh thiếp thuộc khung chat: đường card user thường "
      "CHƯA lần riêng (chỉ có biến thể OA forwardContactOA "

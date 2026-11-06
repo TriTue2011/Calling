@@ -1560,40 +1560,41 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"ok": True, "data": res["data"],
                                         "message": local})
             # sendvoice: file ghi am cua trinh duyet (MediaRecorder).
-            # Chrome cho webm/opus, Safari cho mp4/aac — KHONG phai
-            # mp3 — ma voicemp3 (11148) / sendmp3 (11169) CHI nhan
-            # MP3 (loi that 2026-11-05 23:03: inner error_code=133
-            # "Ban chi co the tai tap tin co dinh dang sau : MP3").
-            # Nen doi sang MP3 o day TRUOC khi gui, theo dung cach
-            # Node.js lam (zalobot voiceAac.js: ffmpeg server-side,
-            # mono 16 kHz 64 kbps, timeout 60 s) — chi khac codec
-            # (libmp3lame/mp3 thay cho aac/adts) vi endpoint PC bat
-            # buoc MP3; xem voice_transcode.py. File da la MP3 thi
-            # gui thang, khong ton ffmpeg. Chuyen doi that bai ->
-            # loi ro cho UI, KHONG gui file goc (gui la bi 133) va
-            # KHONG lam rot ban ghi am lang le.
+            # Chrome cho webm/opus, Safari cho mp4/aac — duong hai
+            # buoc (upload chunked 12060/12063 + asyncfile/msg)
+            # doi file AAC (fileType "aac"|"amr", async tra {aac,
+            # amr}), giong het Node.js. Nen doi sang AAC-LC ADTS o
+            # day TRUOC khi gui, theo dung cach Node.js lam
+            # (zalobot voiceAac.js: ffmpeg server-side, mono 16 kHz
+            # 64 kbps, timeout 60 s) — Y HET tham so, khong con lech
+            # codec; xem voice_transcode.py. File da la AAC thi gui
+            # thang, khong ton ffmpeg. Chuyen doi that bai -> loi ro
+            # cho UI, KHONG gui file goc va KHONG lam rot ban ghi am
+            # lang le. (Duong truc tiep voicemp3/sendmp3 cu bat MP3
+            # va tra 133 — da bo vi bundle khong goi sendVoice.)
             try:
-                mp3_bytes, mp3_name, mp3_mime, converted = (
-                    voice_mod.ensure_voice_mp3(
+                aac_bytes, aac_name, aac_mime, converted = (
+                    voice_mod.ensure_voice_aac(
                         filename, mime, data_bytes))
             except voice_mod.VoiceTranscodeError as e:
                 return self._send_json(
-                    {"error": "khong_chuyen_duoc_sang_mp3: %s" % e},
+                    {"error": "khong_chuyen_duoc_sang_aac: %s" % e},
                     status=502)
-            res = chat.send_voice(thread_type, thread_id, mp3_name,
-                                  mp3_bytes, mp3_mime)
+            res = chat.send_voice(thread_type, thread_id, aac_name,
+                                  aac_bytes, aac_mime)
             local = STATE.chat_store.local_message(
-                thread_type, thread_id, "voice", text=mp3_name,
-                file_name=mp3_name, client_id=res["client_id"])
+                thread_type, thread_id, "voice", text=aac_name,
+                file_name=aac_name, client_id=res["client_id"])
             STATE.chat_store.record_sent(thread_type, thread_id, local)
             return self._send_json({"ok": True, "data": res["data"],
                                     "message": local,
-                                    "converted_to_mp3": converted,
+                                    "converted_to_aac": converted,
                                     "note": "Thu am tai trinh duyet, "
-                                    "da chuyen sang MP3 (ffmpeg, mono "
-                                    "16 kHz 64 kbps) truoc khi gui qua "
-                                    "voicemp3; khong phai ghi am native "
-                                    "cua Zalo PC."})
+                                    "da chuyen sang AAC (ffmpeg, mono "
+                                    "16 kHz 64 kbps ADTS) truoc khi gui "
+                                    "qua duong hai buoc (upload 12060/"
+                                    "12063 + asyncfile/msg); khong phai "
+                                    "ghi am native cua Zalo PC."})
         except Exception as e:  # noqa: BLE001
             return self._send_json({"error": str(e)}, status=502)
 
