@@ -185,6 +185,102 @@ Phiên đăng nhập giữ nguyên (volume `/opt/zalo`), không cần quét lạ
 - Đính kèm: `clientId` dạng SỐ có được `sharefile_full` chấp nhận
   không (xem mục (3)).
 
+## 6. Vòng sửa tiếp theo (2026-11-06) — redeploy + kiểm tra 3 lỗi còn lại
+
+Vòng này sửa 3 lỗi còn lại sau lần kiểm tra thật ngày 2026-11-06 trên
+bản trước: (1) tin nhắn thoại vẫn lỗi, giờ là mã 112 (đã hết 133 nhờ
+transcode MP3); (2) UI vẫn báo "kênh nhận tin (sync) chưa có" dù
+poller có thể đang chạy; (3) gọi đi kẹt ở bước 2 (11301) vì thiếu
+token. Code đã push lên nhánh `muse/zalo-addon-pivot`; **bắt buộc
+rebuild từ source** như mục 2 (image CI cũ không có 3 sửa này).
+
+### Redeploy
+
+```bash
+cd ~/calling/Calling
+git pull
+cd zalo-pc-app
+APP_VERSION=$(git rev-parse HEAD) docker compose -f docker-compose.build.yml up -d --build
+```
+
+Phiên đăng nhập giữ nguyên (volume `/opt/zalo`). Kiểm tra đúng bản
+mới: cuối trang UI phải hiện sha mới (khác sha vòng trước). **Không
+quét lại QR vội** — chỉ quét lại khi mục (2) dưới đây báo đúng
+`no_endpoints` thật (xem cách đọc dòng chú thích ở chân khung chat).
+
+### (1) Tin nhắn thoại — kiểm tra (lỗi 112)
+
+- Ghi âm ~5 giây rồi gửi: kỳ vọng **gửi thành công, không còn lỗi
+  112** — bong bóng thoại hiện và bên kia nghe được.
+- Nguyên nhân đã sửa: bản PC gộp tham số bằng chuỗi JSON tay nên
+  `clientId` trên đường voice/file là dạng CHUỖI, trong khi app cũ
+  gửi dạng SỐ — server trả lỗi chung 112. App giờ gửi `clientId`
+  dạng chuỗi trên cả `voicemp3`/`sendmp3` (và `send_file`), đồng thời
+  thử lại có giới hạn khi gặp 112 (tối đa 2 lần, cách nhau 2 giây,
+  giữ nguyên `clientId`/nội dung để server chống gửi trùng).
+- Nếu vẫn báo lỗi: ghi lại thông báo lỗi trên UI + bước nào (ghi âm /
+  chuyển MP3 / gửi). Lưu ý 112 là mã lỗi chung, không riêng cho một
+  trường nào — nếu `clientId` chuỗi vẫn không đủ thì cần đối chiếu
+  tiếp với code Node.js (định dạng upload 2 bước) ở vòng sau.
+
+### (2) Kênh nhận tin (sync) — kiểm tra (dòng chú thích ở chân khung chat)
+
+Dòng chữ ở chân khung chat giờ **phản ánh đúng trạng thái thật** từ
+`/api/status` (trước đây là chữ viết sẵn "chưa có", hiện mãi dù
+poller đang chạy). Đọc dòng đó rồi làm theo đúng từng trường hợp:
+
+- `Tin nhắn đến tự cập nhật qua kênh sync (đang chạy)…` → poller
+  đang chạy thật. **Không cần quét lại QR.** Nhờ một tài khoản khác
+  gửi tin 1-1: tin phải tự hiện trong thread đang mở trong ~5 giây.
+- `…không lấy được kênh sync từ Zalo (lỗi làm mới phiên). Bấm
+  “Thử kết nối lại”…` → bấm nút **“Thử kết nối lại”** ở chân khung
+  chat (app tự thử lại, có chờ 30 giây giữa các lần bấm). Nếu bấm
+  vài lần vẫn không được thì mới đăng xuất rồi quét QR lại một lần.
+- `…máy chủ chưa cấp kênh nhận tin (sync) cho phiên này…` (chỉ
+  trường hợp này mới là `no_endpoints` thật — server không cấp
+  endpoint) → bấm “Thử kết nối lại” trước; nếu vẫn không được thì
+  đăng xuất rồi **quét QR lại một lần**, poller sẽ lấy endpoint mới
+  từ lúc đăng nhập.
+- `Kênh nhận tin (sync) đã bị Zalo dừng — cần đăng nhập lại…` →
+  phiên đã bị Zalo dừng (kicked_out): đăng nhập lại bằng QR.
+- Kiểm tra thêm trên `http://<địa-chỉ-server>:8080/api/status`:
+  trường `"sync"` phải là `"running"` khi đang chạy; nếu là
+  `"refresh_failed"` thì có thêm `"sync_error"` nêu kiểu/mã lỗi
+  (chỉ tên lỗi, không có nội dung tin).
+
+### (3) Gọi đi — kiểm tra lại (bước 2, 11301)
+
+- Bấm gọi từ một dòng liên hệ (dùng tài khoản phụ, không dùng tài
+  khoản chính). Dòng trạng thái bước 2 phải đọc:
+  `Bước 2 (11301): đã gửi`.
+- Nguyên nhân đã sửa: phản hồi 11300 thật **không có key `token`**;
+  token chính là `sessId` trong 11300 — 115 byte thô, tương đương
+  chuỗi base64url 154 ký tự, khớp đúng con số trong thông báo lỗi
+  trước ("cần 115 byte thô hoặc chuỗi base64url 154 ký tự"). App
+  giờ lấy `sessId` làm token (chỉ chấp nhận khi đúng hình dạng 115
+  byte / 154 ký tự, không tự sinh token), nên bước 2 gửi được.
+- Nếu bước 2 vẫn lỗi: dòng bước 2 giờ nêu rõ tham số còn thiếu +
+  độ dài `sessId` thật (chỉ độ dài, không có giá trị) — chụp lại
+  dòng đó để sửa tiếp.
+- **Chưa chứng minh được cuộc gọi thật hoàn tất** (nghe/nói 2
+  chiều): vòng này mới sửa tới bước gửi 11301. Hai điểm chặn tiếp
+  theo vẫn mở, không chặn redeploy:
+  - Nguồn khóa SRTP vẫn chưa rõ (11300 thật không có `srtpKey` trong
+    `zrtc_config`; có thể nằm trong token 115 byte, trong
+    `settings`/`msg`, hoặc được cấp riêng). Khi chưa có khóa, app
+    vẫn gửi 11301 nhưng báo âm thanh `srtp: not-wired` — tức là
+    tín hiệu gọi đi, chưa có tiếng.
+  - `local_session` lấy SSRC từ đâu vẫn chưa rõ (không được random
+    mỗi cuộc gọi, cũng không được dùng giá trị đã bắt sẵn).
+
+### Câu hỏi còn mở (chưa có đáp án, không chặn redeploy)
+
+- Tin nhắn thoại: nếu `clientId` chuỗi + thử lại vẫn lỗi 112 thì
+  nguyên nhân nằm ở đâu trong luồng upload 2 bước (đối chiếu
+  Node.js)?
+- Gọi đi: khóa SRTP lấy từ đâu (trong token 115 byte, trong
+  `settings`/`msg`, hay cấp riêng)? `local_session` lấy SSRC từ đâu?
+
 ## Ghi chú
 
 - Một container, một cổng duy nhất 8080 — không còn sidecar Node/zalobot,
