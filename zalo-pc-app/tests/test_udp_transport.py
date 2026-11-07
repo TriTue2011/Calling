@@ -625,6 +625,27 @@ def test_probe_burst_is_26_bytes_engine_relative():
         tr.stop()
 
 
+def test_status_scrubs_addresses():
+    # /api/engine/status shows status() in the UI, so no relay or
+    # peer IP may appear in it: relay named by index only (ports
+    # kept), peer addresses expose the port only.
+    import json
+    relay = ut.RelayServer("203.0.113.9", 4200, "203.0.113.9", 4201)
+    cfg = make_config([relay])
+    tr = ut.Udp4200Transport(cfg)
+    tr.selected_relay = relay
+    tr.peer_reflexive = ("198.51.100.7", 51234)
+    tr.peer_p2p_addr = ("198.51.100.7", 51235)
+    st = tr.status()
+    assert st["selected_relay"] == {"index": 0, "rtp_port": 4200,
+                                    "rtcp_port": 4201}, st
+    assert st["peer_reflexive"] == {"port": 51234}, st
+    assert st["peer_p2p_addr"] == {"port": 51235}, st
+    blob = json.dumps(st)
+    assert "203.0.113.9" not in blob, blob
+    assert "198.51.100.7" not in blob, blob
+
+
 def main():
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_")]

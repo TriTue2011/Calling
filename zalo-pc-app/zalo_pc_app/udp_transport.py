@@ -1137,17 +1137,30 @@ class Udp4200Transport:
         self._send_hello()
 
     def status(self):
-        """Snapshot: state, selected relay, mode, counters."""
+        """Snapshot: state, selected relay, mode, counters.
+
+        No addresses leave the transport here: the selected relay
+        is named by index only (ports kept, IPs dropped) and peer
+        addresses expose the port only. /api/engine/status shows
+        this snapshot in the UI, so relay/peer IPs must never
+        appear in it (same rule as _last_error).
+        """
+        selected = None
+        if self.selected_relay is not None:
+            idx = next((i for i, r in enumerate(self.config.relays)
+                        if r is self.selected_relay), None)
+            selected = {"index": idx,
+                        "rtp_port": self.selected_relay.rtp_port,
+                        "rtcp_port": self.selected_relay.rtcp_port}
         return {
             "state": self.state,
             "mode": self.mode,
-            "selected_relay": (self.selected_relay.as_dict()
-                               if self.selected_relay else None),
+            "selected_relay": selected,
             "relay_session": (self.relay_session.hex()
                               if self.relay_session else None),
-            "peer_reflexive": ("%s:%d" % self.peer_reflexive
+            "peer_reflexive": ({"port": self.peer_reflexive[1]}
                                if self.peer_reflexive else None),
-            "peer_p2p_addr": ("%s:%d" % self.peer_p2p_addr
+            "peer_p2p_addr": ({"port": self.peer_p2p_addr[1]}
                               if self.peer_p2p_addr else None),
             "local_ssrc": "0x%08x" % self.config.local_ssrc,
             "call_session": self.config.call_session.hex(),
