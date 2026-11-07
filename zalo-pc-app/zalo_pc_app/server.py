@@ -191,6 +191,21 @@ def make_transport(cookie_value=""):
 _LAST_CALL_ID = 0
 
 
+def _log_call(msg):
+    """One call-lifecycle line to stdout (visible in `docker logs`).
+
+    The live 2026-11-07 test proved the app logs NOTHING about
+    calls: a call that "cut off" after ~8s left no line at all in
+    the server log, so no one could tell whether the user pressed
+    End, the peer rejected, or the server withdrew it — and the
+    Zalo PC app has no F12 to inspect the browser instead. Every
+    lifecycle event gets one line here: start, step-2 outcome,
+    end with the REAL reason + duration. Call ids / peer names /
+    thread ids only — never secrets, tokens, or message content.
+    """
+    print("[call] %s" % msg, flush=True)
+
+
 def _normalize_call_id(value):
     """Coerce a UI-supplied call_id to the JSON NUMBER the real
     client sends (native engine: callId is uint32 — ZaloCall.exe
@@ -1986,10 +2001,29 @@ class Handler(BaseHTTPRequestHandler):
                                 call_id))
                     except Exception as exc:  # noqa: BLE001 - best-effort
                         request_sent, request_error = False, str(exc)
+                # Snapshot the live call first: record_start closes
+                # it when a new call supersedes it, and the log must
+                # say so (with its duration) instead of letting the
+                # earlier call vanish silently.
+                prev_active = STATE.calls.snapshot()["active"]
                 sent_entry = STATE.calls.record_start(call_id, peer, thread_id,
                                          call_type)
                 STATE.calls.record_request(call_id, request_sent,
                                            request_error)
+                if (prev_active is not None
+                        and str(prev_active["call_id"]) != str(call_id)):
+                    _log_call(
+                        "end call_id=%s reason=superseded_by_new_call "
+                        "duration=%.0fs" % (
+                            prev_active["call_id"],
+                            max(0.0, time.time()
+                                - float(prev_active["started_at"] or 0))))
+                _log_call("start call_id=%s peer=%s thread=%s type=%s"
+                          % (call_id, peer, thread_id, call_type))
+                _log_call("step2 call_id=%s request_sent=%s%s"
+                          % (call_id, request_sent,
+                             (" error=" + request_error)
+                             if request_error else ""))
                 # WEBHOOK HOOK (webhooks.py): call.sent fires NOW —
                 # the app is the source, no sync channel needed.
                 # Fire-and-forget: never blocks the call response.
@@ -2012,6 +2046,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001
                 err_entry = STATE.calls.record_error(call_id, peer, thread_id,
                                          call_type, str(e))
+                _log_call("error call_id=%s peer=%s thread=%s error=%s"
+                          % (call_id, peer, thread_id, e))
                 # WEBHOOK HOOK (webhooks.py): call.error, same as above.
                 webhooks_mod.dispatch_call_event(
                     STATE.webhook_dispatcher, err_entry,
@@ -2042,10 +2078,15 @@ class Handler(BaseHTTPRequestHandler):
             live = STATE.calls.snapshot()["active"]
             ended = None
             if call_id is not None:
-                ended = STATE.calls.record_end(call_id)
+                # The reason is recorded in the entry (detail) so the
+                # call history shows WHY it ended, not just that it
+                # did — the 2026-11-07 live test could not tell a
+                # user-ended call from a cut-off one.
+                ended = STATE.calls.record_end(call_id, "user_end")
             if ended is None and live is not None:
-                ended = STATE.calls.end_active()
+                ended = STATE.calls.end_active("user_end")
             if ended is None:
+                _log_call("end call_id=None reason=no_live_call")
                 return self._send_json(
                     {"ok": True, "ended_call_id": None,
                      "zalo_endcall_ok": False,
@@ -2075,12 +2116,24 @@ class Handler(BaseHTTPRequestHandler):
                     data = sig.endcall(uid_to, ended_id)
             except Exception as e:  # noqa: BLE001 - best-effort
                 zalo_ok, zalo_error = False, str(e)
-                STATE.calls.record_end_error(ended_id, zalo_error)
+                # Keep the end reason: record_end_error overwrites
+                # the entry's detail, so the Zalo failure is
+                # appended to the reason instead of replacing it.
+                STATE.calls.record_end_error(
+                    ended_id, "user_end; zalo_endcall: " + zalo_error)
             # Phase 2: stop the media engine + the relay transport
             # for this call (best-effort; a stuck UDP socket must
             # not leave the call half-alive after the user ends it).
             engine_seam.SEAM.stop_media()
             media_endpoints.ENDPOINTS.stop_call(ended_id)
+            _log_call("end call_id=%s reason=user_end duration=%.0fs "
+                      "zalo_endcall_ok=%s%s"
+                      % (ended_id,
+                         max(0.0, float(ended.get("ended_at") or 0)
+                             - float(ended.get("started_at") or 0)),
+                         zalo_ok,
+                         (" zalo_error=" + zalo_error)
+                         if zalo_error else ""))
             return self._send_json(
                 {"ok": True, "ended_call_id": ended_id,
                  "zalo_endcall_ok": zalo_ok, "zalo_error": zalo_error,

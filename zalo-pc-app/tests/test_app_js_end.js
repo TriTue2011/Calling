@@ -96,6 +96,45 @@ const test = `
   assert(reqText.indexOf("114") !== -1,
     "detail must carry the step-2 error code, got: " + JSON.stringify(reqText));
 
+  // --- Test 3: end reason maps to Vietnamese ---
+  // The server records WHY a call ended in the entry's detail
+  // ("user_end", "superseded_by_new_call", "user_end; zalo_endcall:
+  // ..."); the history must show it in plain Vietnamese, not the
+  // raw key. (historyRow itself builds stub DOM elements whose
+  // children cannot be read back here, so the mapping is tested
+  // directly.)
+  assert(endReasonText("user_end").indexOf("Kết thúc") !== -1,
+    "endReasonText must map user_end to Vietnamese");
+  assert(endReasonText("superseded_by_new_call")
+      .indexOf("thay bằng cuộc gọi mới") !== -1,
+    "endReasonText must map superseded_by_new_call to Vietnamese");
+  assert(endReasonText("user_end; zalo_endcall: mock endcall rejected")
+      .indexOf("chưa xác nhận") !== -1,
+    "endReasonText must keep the Zalo failure after user_end");
+
+  // --- Test 4: double tap on "Gọi" sends one invitation only ---
+  // startCall has no server round-trip guard in the old code: two
+  // rapid taps fired two concurrent /api/call/request calls (two
+  // different callIds), so the peer's phone got TWO invitations.
+  // The second tap while a request is in flight must be ignored.
+  const reqBefore = fetchCalls.filter(
+    (c) => c.url === "/api/call/request").length;
+  const p1 = startCall({ id: "20001", name: "Ban A", type: "user" });
+  const p2 = startCall({ id: "20001", name: "Ban A", type: "user" });
+  await Promise.all([p1, p2]);
+  const reqAfter = fetchCalls.filter(
+    (c) => c.url === "/api/call/request");
+  assert(reqAfter.length - reqBefore === 1,
+    "double tap must send exactly one /api/call/request, got: "
+    + (reqAfter.length - reqBefore));
+  // The guard clears after the request finishes: a later tap works.
+  await startCall({ id: "20001", name: "Ban A", type: "user" });
+  const reqFinal = fetchCalls.filter(
+    (c) => c.url === "/api/call/request");
+  assert(reqFinal.length - reqBefore === 2,
+    "a later tap after the first request must send again, got: "
+    + (reqFinal.length - reqBefore));
+
   console.log("APP_JS_END_TESTS_PASSED");
 })().catch((e) => { console.error("APP_JS_END_TESTS_FAILED", e); process.exit(1); });
 `;

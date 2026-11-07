@@ -11,6 +11,12 @@ let currentCall = null;
 let detailCall = null; // the call shown in the detail view (may be
 // an active call reloaded from /api/calls, not started here)
 let ending = false; // an End request is in flight — ignore taps.
+let calling = false; // a call request is in flight — ignore taps:
+// without this, a double tap on "Gọi" fires two concurrent
+// /api/call/request calls (different callIds — epoch seconds plus
+// the server's monotonic guard), so the peer's phone gets TWO
+// invitations and the first call's log entry is superseded by the
+// second. One tap = one invitation.
 let currentThread = null; // the thread open in the chat view
 // ({id, name, type, members}); row click opens chat, the "Goi"
 // button still starts a call (startCall, unchanged).
@@ -162,6 +168,23 @@ function statusPill(status, requestSent) {
   }
   if (status === "error") return ["pill pill-negative", "Lỗi"];
   return ["pill pill-neutral", "Đã kết thúc"];
+}
+function endReasonText(detail) {
+  // The server records WHY a call ended in the entry's detail
+  // ("user_end", "superseded_by_new_call", or
+  // "user_end; zalo_endcall: <error>"). Show it in plain
+  // Vietnamese instead of the raw key, so the history answers
+  // "who ended this call" instead of only "it ended".
+  if (!detail) return "";
+  if (detail === "user_end")
+    return "Đã kết thúc (người dùng bấm Kết thúc).";
+  if (detail === "superseded_by_new_call")
+    return "Đã kết thúc (bị thay bằng cuộc gọi mới).";
+  const prefix = "user_end; zalo_endcall: ";
+  if (detail.indexOf(prefix) === 0)
+    return "Đã kết thúc (người dùng bấm Kết thúc; máy chủ Zalo "
+      + "chưa xác nhận: " + detail.slice(prefix.length) + ").";
+  return detail;
 }
 function typePill(type) {
   return type === "group" ? "Nhóm" : "Cá nhân";
@@ -858,7 +881,8 @@ function feedRow(c) {
   const [cls, label] = statusPill(c.status, c.request_sent);
   pill.className = cls;
   pill.textContent = label;
-  if (c.status === "error" && c.detail) pill.title = c.detail;
+  if (c.detail) pill.title = c.status === "ended"
+    ? endReasonText(c.detail) : c.detail;
   li.appendChild(main);
   li.appendChild(pill);
   return li;
@@ -884,10 +908,11 @@ function historyRow(c) {
   pill.className = cls;
   pill.textContent = label;
   tdRes.appendChild(pill);
-  if (c.status === "error" && c.detail) {
+  if (c.detail) {
     const d = document.createElement("div");
     d.className = "row-sub";
-    d.textContent = c.detail;
+    d.textContent = c.status === "ended"
+      ? endReasonText(c.detail) : c.detail;
     tdRes.appendChild(d);
   }
   tr.appendChild(tdTime);
@@ -1458,6 +1483,9 @@ function renderCallDetail() {
 }
 
 async function startCall(peer) {
+  if (calling) return; // double tap while a request is in flight.
+  calling = true;
+  try {
   // callId must be a JSON NUMBER in uint32 range (the native engine
   // stores it as %u) — epoch seconds. The old code sent
   // String(Date.now()): a 13-digit string, wrong type AND out of
@@ -1512,6 +1540,9 @@ async function startCall(peer) {
       : "Đã gửi yêu cầu gọi. Bên kia đang đổ chuông — tiếng sẽ có khi engine giai đoạn 2 gắn vào.");
   await loadCalls();
   renderCallDetail();
+  } finally {
+    calling = false;
+  }
 }
 
 async function endCall() {

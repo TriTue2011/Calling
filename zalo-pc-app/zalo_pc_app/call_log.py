@@ -39,13 +39,19 @@ class CallLog:
 
     def record_start(self, call_id, peer, thread_id, call_type):
         """A requestcall was accepted: log it live, and close any
-        earlier live call (starting a new call supersedes it)."""
+        earlier live call (starting a new call supersedes it).
+        The closed entry keeps the real reason in `detail`
+        ("superseded_by_new_call") so the call history — and the
+        server log — can tell a superseded call apart from one
+        the user ended (live 2026-11-07: a call that "cut off"
+        could not be diagnosed because no end carried a reason)."""
         now = time.time()
         with self._lock:
             for c in self._calls:
                 if c["status"] == "sent":
                     c["status"] = "ended"
                     c["ended_at"] = now
+                    c["detail"] = "superseded_by_new_call"
             entry = {"call_id": str(call_id), "peer": peer or "",
                      "thread_id": str(thread_id), "type": call_type,
                      "status": "sent", "started_at": now,
