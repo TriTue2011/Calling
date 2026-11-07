@@ -27,6 +27,7 @@ const sandbox = {
   document: {
     getElementById: (id) => (els[id] || (els[id] = makeEl())),
     createElement: () => makeEl(),
+    createTextNode: (t) => { const el = makeEl(); el.textContent = t; return el; },
     querySelectorAll: () => [],
   },
   fetch: async (url, opts) => {
@@ -39,15 +40,19 @@ const sandbox = {
       data = { ok: true, ended_call_id: body.call_id,
                zalo_endcall_ok: true, zalo_error: "", data: {} };
     } else if (url === "/api/calls") {
-      data = { calls: [{ call_id: "1762346001", peer: "Ban A",
+      data = sandbox.stubCalls;
+    }
+    return { json: async () => data };
+  },
+  // Mutable /api/calls state the tests drive: the stub fetch returns
+  // this object, so a test can stage "call live" then "call ended
+  // elsewhere" (ring timeout) and check the UI follows the poll.
+  stubCalls: { calls: [{ call_id: "1762346001", peer: "Ban A",
                          thread_id: "20001", type: "user",
                          status: "ended", started_at: 1762346001,
                          ended_at: 1762346010, detail: "",
                          request_sent: true, request_detail: "" }],
-               active: null };
-    }
-    return { json: async () => data };
-  },
+               active: null },
   setInterval: () => 0,
   clearInterval: () => {},
   setTimeout, clearTimeout,
@@ -109,8 +114,16 @@ const test = `
       .indexOf("thay bằng cuộc gọi mới") !== -1,
     "endReasonText must map superseded_by_new_call to Vietnamese");
   assert(endReasonText("user_end; zalo_endcall: mock endcall rejected")
-      .indexOf("chưa xác nhận") !== -1,
+      .indexOf("xác nhận") !== -1
+      && endReasonText("user_end; zalo_endcall: mock endcall rejected")
+      .indexOf("mock endcall rejected") !== -1,
     "endReasonText must keep the Zalo failure after user_end");
+  assert(endReasonText("ring_timeout").indexOf("30 giây") !== -1
+      && endReasonText("ring_timeout").indexOf("thành nhỡ") !== -1,
+    "endReasonText must map ring_timeout to Vietnamese + missed");
+  assert(endReasonText("user_end; zalo_cancel: mock cancel rejected")
+      .indexOf("hủy") !== -1,
+    "endReasonText must name the cancel signal after user_end");
 
   // --- Test 4: double tap on "Gọi" sends one invitation only ---
   // startCall has no server round-trip guard in the old code: two
@@ -134,6 +147,42 @@ const test = `
   assert(reqFinal.length - reqBefore === 2,
     "a later tap after the first request must send again, got: "
     + (reqFinal.length - reqBefore));
+  // The ringing line states the limit: a call has no open-ended
+  // ring — it ends itself after ~30s unanswered (live 2026-11-07
+  // 09:03: "khi gọi sẽ không có thời gian đâu, mà sau 1 thời gian
+  // nhất định sẽ tự ngắt").
+  const ringText = document.getElementById("call-state").textContent;
+  assert(ringText.indexOf("30 giây") !== -1,
+    "ringing line must state the ~30s limit, got: "
+    + JSON.stringify(ringText));
+
+  // --- Test 5: poll closes the call view when the live call ends elsewhere ---
+  // (ring timeout on the server, peer reject/end): the detail view
+  // must not keep showing "ringing" with a ticking timer after the
+  // call is gone (live 2026-11-07 09:03: the screen kept reporting
+  // the call as connecting after it had ended).
+  stubCalls = { calls: [{ call_id: "1762346099", peer: "Ban A",
+    thread_id: "20001", type: "user", status: "sent",
+    started_at: 1762346099, ended_at: null, detail: "",
+    request_sent: true, request_detail: "" }], active: null };
+  stubCalls.active = stubCalls.calls[0];
+  await startCall({ id: "20001", name: "Ban A", type: "user" });
+  assert(currentCall !== null, "startCall must set currentCall");
+  assert(document.getElementById("view-call").style.display !== "none",
+    "call view must be visible while the call is live");
+  const liveCallId = String(currentCall.callId);
+  // The server-side call ends (ring timeout): the poll returns no
+  // active call and the entry ended with reason ring_timeout.
+  stubCalls = { calls: [{ call_id: liveCallId, peer: "Ban A",
+    thread_id: "20001", type: "user", status: "ended",
+    started_at: 1762346099, ended_at: 1762346129,
+    detail: "ring_timeout", request_sent: true, request_detail: "" }],
+    active: null };
+  await loadCalls();
+  assert(currentCall === null,
+    "loadCalls must clear currentCall when the live call is gone");
+  assert(document.getElementById("view-call").style.display === "none",
+    "call view must close when the live call ends elsewhere");
 
   console.log("APP_JS_END_TESTS_PASSED");
 })().catch((e) => { console.error("APP_JS_END_TESTS_FAILED", e); process.exit(1); });

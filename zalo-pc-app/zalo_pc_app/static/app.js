@@ -180,10 +180,20 @@ function endReasonText(detail) {
     return "Đã kết thúc (người dùng bấm Kết thúc).";
   if (detail === "superseded_by_new_call")
     return "Đã kết thúc (bị thay bằng cuộc gọi mới).";
-  const prefix = "user_end; zalo_endcall: ";
-  if (detail.indexOf(prefix) === 0)
-    return "Đã kết thúc (người dùng bấm Kết thúc; máy chủ Zalo "
-      + "chưa xác nhận: " + detail.slice(prefix.length) + ").";
+  if (detail === "ring_timeout")
+    return "Đã hết thời gian đổ chuông (30 giây) — bên kia không "
+      + "trả lời, cuộc gọi đã thành nhỡ.";
+  const m = detail.match(/^user_end; zalo_(cancel|endcall): (.*)$/);
+  if (m)
+    return "Đã kết thúc (người dùng bấm Kết thúc; tín hiệu "
+      + (m[1] === "cancel" ? "hủy" : "kết thúc")
+      + " chưa được máy chủ Zalo xác nhận: " + m[2] + ").";
+  const m2 = detail.match(/^ring_timeout; zalo_(cancel|endcall): (.*)$/);
+  if (m2)
+    return "Đã hết thời gian đổ chuông (30 giây) — bên kia không "
+      + "trả lời; tín hiệu "
+      + (m2[1] === "cancel" ? "hủy" : "kết thúc")
+      + " chưa được máy chủ Zalo xác nhận: " + m2[2] + ".";
   return detail;
 }
 function typePill(type) {
@@ -928,6 +938,24 @@ async function loadCalls() {
     callsData = await api("/api/calls");
   } catch (e) { /* keep the last good data; the rail stays as-is */ }
   renderCalls();
+  // The live call ended somewhere else (ring timeout on the server,
+  // peer reject/end): the detail view must not keep showing
+  // "ringing" with a ticking timer after the call is gone (live
+  // 2026-11-07 09:03 — the screen kept reporting the call as
+  // connecting after it had ended). Only when currentCall is set:
+  // viewing a history entry's detail (detailCall without
+  // currentCall) must stay put, and the view only switches when
+  // the call view is actually visible.
+  if (currentCall && !callsData.active) {
+    const gone = !callsData.calls.some((c) =>
+      String(c.call_id) === String(currentCall.callId)
+      && c.status === "sent");
+    if (gone) {
+      currentCall = null;
+      detailCall = null;
+      if ($("view-call").style.display !== "none") show("view-main");
+    }
+  }
 }
 
 function startCallsTimers() {
@@ -1537,7 +1565,7 @@ async function startCall(peer) {
       ? ("Đã gửi yêu cầu gọi (bước 1), nhưng bước 2 (11301) KHÔNG gửi được"
          + (r.request_error ? (": " + r.request_error) : "")
          + ". Bên kia có thể chưa đổ chuông.")
-      : "Đã gửi yêu cầu gọi. Bên kia đang đổ chuông — tiếng sẽ có khi engine giai đoạn 2 gắn vào.");
+      : "Đã gửi yêu cầu gọi. Bên kia đang đổ chuông (tự ngắt sau ~30 giây nếu không trả lời) — tiếng sẽ có khi engine giai đoạn 2 gắn vào.");
   await loadCalls();
   renderCallDetail();
   } finally {

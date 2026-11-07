@@ -206,6 +206,157 @@ def _log_call(msg):
     print("[call] %s" % msg, flush=True)
 
 
+# Ring timeout for an outgoing call nobody answers (seconds).
+# The real client ends an unanswered call after ~30s (pcap file 2:
+# media 5.74-35.26s = 29.52s, teardown voicecall stream 35.33-36.22s;
+# live 2026-11-07 09:00 the call was still ringing at 00:31 and then
+# became missed). Measured from step 2 sent — the moment the peer
+# starts ringing. Without this timeout the app leaves a "sent" call
+# — and its UDP transport — alive forever when the peer never
+# answers and sync is down, so /api/calls still reports the call as
+# connecting after it ended server-side (live 2026-11-07 09:03).
+# The value is a module constant so tests can shorten it.
+RING_TIMEOUT_SECONDS = 30.0
+
+
+def _send_end_signal(entry, sess, group_data=None, group_partners=None):
+    """Send the wire termination signal for one call entry.
+
+    Returns (signal, zalo_ok, zalo_error, data). `signal` names the
+    signal sent ("cancel" / "endcall" / "group/endcall") or "none"
+    when nothing had to be sent. Best-effort: a failure is returned,
+    never raised — the call is already ended locally.
+
+    Which signal (bundle wZ, 1-1):
+    - never answered (status "sent" at end time) -> CANCEL (11305,
+      sendCancelCall, {callerId, callId, callType, status:0, imei}).
+      This withdraws the pending invitation; the peer's client drops
+      the incoming-call UI on [SIG]recvCancel. The app used to send
+      endcall here instead — and the peer kept a ghost "hidden call"
+      that re-rang with a dead answer button (live 2026-11-07
+      09:01-09:02).
+    - answered (status "answered") -> ENDCALL (11306, {uidTo, callId,
+      status:3, imei}): ends an established call. The app has no
+      answer path yet, so no entry ever carries "answered" today;
+      the branch exists so the choice stays correct when one lands.
+    - group calls -> group/endcall (12438): the group cancel
+      (group_cancel) shape is not traced yet, so group ends keep the
+      existing signal.
+    The signal is sent for EVERY live ("sent") entry, even when
+    step 2 was never sent (request_sent is not True): requestcall
+    (11300) already created a server-side invitation for this
+    callId, and only the termination signal withdraws it. (An
+    earlier draft skipped the signal when step 2 failed — wrong:
+    the server still holds the invitation, and the pre-existing
+    end tests require the signal in exactly that case.)
+    """
+    call_id = int(entry["call_id"])
+    call_type = entry.get("type") or "user"
+    try:
+        transport = make_transport(sess["zpw_sek"])
+        sig = signaling_mod.Signaling(transport, sess["device_id"],
+                                      sess["zpw_enk"])
+        if call_type == "group":
+            data = sig.endcall_group(
+                entry["thread_id"], call_id,
+                protocol.CALL_TYPE_AUDIO_GROUP, True,
+                group_data, group_partners)
+            return "group/endcall", True, "", data
+        if entry.get("status") == "answered":
+            data = sig.endcall(entry["thread_id"], call_id)
+            return "endcall", True, "", data
+        data = sig.cancel(sess.get("uid", ""), call_id,
+                          _type_request_for(call_type))
+        return "cancel", True, "", data
+    except Exception as e:  # noqa: BLE001 - best-effort
+        signal = ("group/endcall" if call_type == "group"
+                  else "endcall" if entry.get("status") == "answered"
+                  else "cancel")
+        return signal, False, str(e), {}
+
+
+def _terminate_call(call_id, reason, sess, group_data=None,
+                    group_partners=None):
+    """End one call completely: local log + webhook + wire signal +
+    transport stop. `reason` is the true end reason recorded in the
+    entry's detail ("user_end" / "ring_timeout" /
+    "superseded_by_new_call"). Returns (ended_entry_or_None, signal,
+    zalo_ok, zalo_error, data).
+
+    Local-first (§7m): the entry is marked ended BEFORE the wire
+    signal is attempted, so a slow or rejected Zalo signal never
+    leaves the call stuck on "ringing". A wire failure is appended
+    to the detail as "<reason>; zalo_<signal>: <error>" so the
+    reason survives (the 2026-11-07 live test could not tell a
+    user-ended call from a cut-off one precisely because no end
+    carried a reason).
+    """
+    snap = STATE.calls.snapshot()
+    before = None
+    for c in snap["calls"]:
+        if str(c["call_id"]) == str(call_id) and c["status"] == "sent":
+            before = c
+            break
+    if before is None:
+        return None, "none", False, "no_live_call", {}
+    ended = STATE.calls.record_end(call_id, reason)
+    if ended is None:
+        return None, "none", False, "no_live_call", {}
+    webhooks_mod.dispatch_call_event(
+        STATE.webhook_dispatcher, ended, (sess or {}).get("uid", ""))
+    signal, zalo_ok, zalo_error, data = "none", True, "", {}
+    if sess is not None:
+        signal, zalo_ok, zalo_error, data = _send_end_signal(
+            before, sess, group_data, group_partners)
+    else:
+        zalo_ok, zalo_error = False, "no_session"
+    if not zalo_ok and signal != "none":
+        STATE.calls.record_end_error(
+            int(ended["call_id"]),
+            "%s; zalo_%s: %s" % (reason, signal, zalo_error))
+    # Phase 2: stop the media engine + the relay transport for this
+    # call (best-effort; a stuck UDP socket must not leave the call
+    # half-alive after it ends).
+    engine_seam.SEAM.stop_media()
+    media_endpoints.ENDPOINTS.stop_call(int(ended["call_id"]))
+    _log_call("end call_id=%s reason=%s duration=%.0fs "
+              "zalo_signal=%s zalo_ok=%s%s"
+              % (ended["call_id"], reason,
+                 max(0.0, float(ended.get("ended_at") or 0)
+                     - float(ended.get("started_at") or 0)),
+                 signal, zalo_ok,
+                 (" zalo_error=" + zalo_error) if zalo_error else ""))
+    return ended, signal, zalo_ok, zalo_error, data
+
+
+def _ring_timeout_fire(call_id):
+    """Background ring-timeout: a call still ringing after
+    RING_TIMEOUT_SECONDS ends itself (cancel on the wire, reason
+    ring_timeout). The live entry is re-checked first — a stale
+    timer (call already ended, or superseded by another call) is a
+    no-op, so a call can never be ended twice. The session is read
+    fresh from STATE: without one (logged out mid-ring) the call
+    still ends locally so it never stays "connecting" forever."""
+    snap = STATE.calls.snapshot()
+    active = snap.get("active")
+    if active is None or str(active["call_id"]) != str(call_id):
+        return
+    sess = STATE.session
+    if not sess or not sess.get("zpw_sek"):
+        sess = None
+    _terminate_call(call_id, "ring_timeout", sess)
+
+
+def _arm_ring_timer(call_id):
+    """Arm the ring timeout for a call whose step 2 was sent (the
+    peer is ringing from now). Daemon thread: it must never block
+    process exit."""
+    timer = threading.Timer(RING_TIMEOUT_SECONDS,
+                            _ring_timeout_fire, [call_id])
+    timer.daemon = True
+    timer.start()
+
+
 def _normalize_call_id(value):
     """Coerce a UI-supplied call_id to the JSON NUMBER the real
     client sends (native engine: callId is uint32 — ZaloCall.exe
@@ -2018,12 +2169,37 @@ class Handler(BaseHTTPRequestHandler):
                             prev_active["call_id"],
                             max(0.0, time.time()
                                 - float(prev_active["started_at"] or 0))))
+                    # Withdraw the superseded invitation on the wire
+                    # AND stop its transport: without a cancel the
+                    # previous peer keeps ringing (same ghost-call
+                    # bug as the missing end signal), and for_call
+                    # started a transport for it that nothing else
+                    # ever stops. Best-effort; a failure is logged,
+                    # never breaks the new call.
+                    media_endpoints.ENDPOINTS.stop_call(
+                        int(prev_active["call_id"]))
+                    _sig, _ok, _err, _data = _send_end_signal(
+                        prev_active, sess)
+                    if _sig != "none":
+                        _log_call(
+                            "end call_id=%s reason=superseded_by_new_call "
+                            "zalo_signal=%s zalo_ok=%s%s"
+                            % (prev_active["call_id"], _sig, _ok,
+                               (" zalo_error=" + _err) if _err else ""))
                 _log_call("start call_id=%s peer=%s thread=%s type=%s"
                           % (call_id, peer, thread_id, call_type))
                 _log_call("step2 call_id=%s request_sent=%s%s"
                           % (call_id, request_sent,
                              (" error=" + request_error)
                              if request_error else ""))
+                # Ring timeout: if nobody answers within
+                # RING_TIMEOUT_SECONDS the call ends itself (cancel
+                # on the wire, reason ring_timeout) instead of
+                # staying "sent" forever — see _ring_timeout_fire.
+                # Only when step 2 was sent: without it the peer
+                # never rang, so there is nothing to time out.
+                if request_sent:
+                    _arm_ring_timer(call_id)
                 # WEBHOOK HOOK (webhooks.py): call.sent fires NOW —
                 # the app is the source, no sync channel needed.
                 # Fire-and-forget: never blocks the call response.
@@ -2063,10 +2239,16 @@ class Handler(BaseHTTPRequestHandler):
             # endcall succeeded — a slow or failing endcall left
             # the call stuck on "ringing" in the UI (and the UI
             # ignored the 502). Mark it ended first, then attempt
-            # the Zalo endcall (best-effort); a failure is recorded
+            # the Zalo signal (best-effort); a failure is recorded
             # in the log entry's detail and returned, never leaves
             # the call stuck. The response is always ok when a call
-            # was ended locally, even if Zalo rejected the endcall.
+            # was ended locally, even if Zalo rejected the signal.
+            # The wire signal is chosen by _terminate_call: an
+            # UNANSWERED 1-1 call ends with CANCEL (11305), not
+            # endcall (11306) — see _send_end_signal. The response
+            # keeps "zalo_endcall_ok" (the UI and the old tests read
+            # it: it means "the Zalo-side termination signal was
+            # accepted") and adds "zalo_signal" naming the signal.
             # Resolve the target: the body's call_id (coerced to a
             # uint32 number — the detail view builds it from the
             # log record, where it is a STRING; sending it as a
@@ -2075,67 +2257,35 @@ class Handler(BaseHTTPRequestHandler):
             # most one; the End button's intent is unambiguous).
             raw_id = body.get("call_id", "")
             call_id = _coerce_call_id(raw_id)
-            live = STATE.calls.snapshot()["active"]
-            ended = None
+            snap = STATE.calls.snapshot()
+            live = snap["active"]
+            target_id = None
             if call_id is not None:
-                # The reason is recorded in the entry (detail) so the
-                # call history shows WHY it ended, not just that it
-                # did — the 2026-11-07 live test could not tell a
-                # user-ended call from a cut-off one.
-                ended = STATE.calls.record_end(call_id, "user_end")
-            if ended is None and live is not None:
-                ended = STATE.calls.end_active("user_end")
+                for c in snap["calls"]:
+                    if (str(c["call_id"]) == str(call_id)
+                            and c["status"] == "sent"):
+                        target_id = call_id
+                        break
+            if target_id is None and live is not None:
+                target_id = int(live["call_id"])
+            if target_id is None:
+                _log_call("end call_id=None reason=no_live_call")
+                return self._send_json(
+                    {"ok": True, "ended_call_id": None,
+                     "zalo_endcall_ok": False,
+                     "zalo_error": "no_live_call"})
+            ended, signal, zalo_ok, zalo_error, data = _terminate_call(
+                target_id, "user_end", sess,
+                body.get("data"), body.get("partners"))
             if ended is None:
                 _log_call("end call_id=None reason=no_live_call")
                 return self._send_json(
                     {"ok": True, "ended_call_id": None,
                      "zalo_endcall_ok": False,
                      "zalo_error": "no_live_call"})
-            # WEBHOOK HOOK (webhooks.py): call.ended — kept from
-            # the merge; dispatch with the ended entry, after the
-            # local-first record_end, only when a live call record
-            # existed (ended is not None here).
-            webhooks_mod.dispatch_call_event(
-                STATE.webhook_dispatcher, ended,
-                sess.get("uid", ""))
-            ended_id = int(ended["call_id"])
-            uid_to = body.get("uid_to") or ended["thread_id"]
-            call_type = (body.get("type") or ended.get("type")
-                         or "user")
-            zalo_ok, zalo_error, data = True, "", {}
-            try:
-                transport = make_transport(sess["zpw_sek"])
-                sig = signaling_mod.Signaling(transport, sess["device_id"],
-                                              sess["zpw_enk"])
-                if call_type == "group":
-                    data = sig.endcall_group(
-                        ended["thread_id"], ended_id,
-                        protocol.CALL_TYPE_AUDIO_GROUP, True,
-                        body.get("data"), body.get("partners"))
-                else:
-                    data = sig.endcall(uid_to, ended_id)
-            except Exception as e:  # noqa: BLE001 - best-effort
-                zalo_ok, zalo_error = False, str(e)
-                # Keep the end reason: record_end_error overwrites
-                # the entry's detail, so the Zalo failure is
-                # appended to the reason instead of replacing it.
-                STATE.calls.record_end_error(
-                    ended_id, "user_end; zalo_endcall: " + zalo_error)
-            # Phase 2: stop the media engine + the relay transport
-            # for this call (best-effort; a stuck UDP socket must
-            # not leave the call half-alive after the user ends it).
-            engine_seam.SEAM.stop_media()
-            media_endpoints.ENDPOINTS.stop_call(ended_id)
-            _log_call("end call_id=%s reason=user_end duration=%.0fs "
-                      "zalo_endcall_ok=%s%s"
-                      % (ended_id,
-                         max(0.0, float(ended.get("ended_at") or 0)
-                             - float(ended.get("started_at") or 0)),
-                         zalo_ok,
-                         (" zalo_error=" + zalo_error)
-                         if zalo_error else ""))
             return self._send_json(
-                {"ok": True, "ended_call_id": ended_id,
+                {"ok": True, "ended_call_id": int(ended["call_id"]),
+                 "zalo_signal": signal,
                  "zalo_endcall_ok": zalo_ok, "zalo_error": zalo_error,
                  "data": data})
         # WEBHOOK HOOK (webhooks.py): save the webhook config. Auth is

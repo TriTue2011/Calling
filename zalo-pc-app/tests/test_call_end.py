@@ -143,12 +143,13 @@ def _shutdown(httpd, mock):
 
 
 def test_end_clears_log_before_slow_zalo_reply():
-    """Endcall Zalo cham (mock ngu 2 giay): log phai xoa active
-    TRUOC KHI POST /api/call/end tra ve — neu khong, UI thay cuoc
-    goi van do chuong trong suot thoi gian cho va tuong nut hong
-    (trieu chung 18:06: bam Ket thuc, khong co gi thay doi)."""
+    """Tin hieu ket thuc Zalo cham (cancel, mock ngu 2 giay): log
+    phai xoa active TRUOC KHI POST /api/call/end tra ve — neu
+    khong, UI thay cuoc goi van do chuong trong suot thoi gian cho
+    va tuong nut hong (trieu chung 18:06: bam Ket thuc, khong co gi
+    thay doi)."""
     mock = MockZalo()
-    mock.endcall_mode = "slow"
+    mock.cancel_mode = "slow"
     mock = mock.start()
     httpd = None
     try:
@@ -173,7 +174,7 @@ def test_end_clears_log_before_slow_zalo_reply():
                 break
             time.sleep(0.2)
         t.join(timeout=10)
-        assert cleared, "active van hien trong luc endcall dang bay"
+        assert cleared, "active van hien trong luc cancel dang bay"
         status, resp = result["resp"]
         assert resp["ok"] is True, resp
         assert _calls(base)["active"] is None
@@ -226,13 +227,13 @@ def test_end_twice_is_safe():
         _shutdown(httpd, mock) if httpd else mock.stop()
 
 
-def test_end_when_zalo_endcall_fails_still_ends_locally():
-    """Zalo tu choi endcall (mock inner 500): cuoc goi VAN phai
+def test_end_when_zalo_cancel_fails_still_ends_locally():
+    """Zalo tu choi cancel (mock inner 500): cuoc goi VAN phai
     ket thuc cuc bo — response ok, het active, lich su ended, va
     loi Zalo duoc ghi vao detail cua entry (de chan doan). Code cu
     tra 502 va de cuoc ket o "sent" mai — dung trieu chung that."""
     mock = MockZalo()
-    mock.endcall_mode = "error"
+    mock.cancel_mode = "error"
     mock = mock.start()
     httpd = None
     try:
@@ -249,7 +250,7 @@ def test_end_when_zalo_endcall_fails_still_ends_locally():
         by_id = {c["call_id"]: c for c in calls["calls"]}
         entry = by_id[str(CID_FAIL)]
         assert entry["status"] == "ended", calls
-        assert "mock endcall rejected" in entry["detail"], entry
+        assert "mock cancel rejected" in entry["detail"], entry
         httpd.shutdown()
     finally:
         _shutdown(httpd, mock) if httpd else mock.stop()
@@ -258,8 +259,8 @@ def test_end_when_zalo_endcall_fails_still_ends_locally():
 def test_end_with_string_call_id():
     """call_id dang CHUOI (man hinh chi tiet build tu log record,
     noi call_id duoc luu dang str): server phai chuan hoa ve so
-    uint32 truoc khi gui endcall — gui dang chuoi thi server that
-    co the tra 114 nhu requestcall (§7k)."""
+    uint32 truoc khi gui tin hieu ket thuc (cancel) — gui dang
+    chuoi thi server that co the tra 114 nhu requestcall (§7k)."""
     mock = MockZalo().start()
     httpd = None
     try:

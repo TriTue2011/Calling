@@ -112,6 +112,11 @@ class MockZalo:
         # so tests can prove the log clears before the Zalo
         # round-trip finishes (the "End is slow/delayed" symptom).
         self.endcall_mode = "ok"
+        # Cancel simulation (11305): "ok" | "error" | "slow", same
+        # meanings as endcall_mode — the app must end an unanswered
+        # call with CANCEL, so a rejected/slow cancel needs the same
+        # local-first treatment as a rejected/slow endcall.
+        self.cancel_mode = "ok"
         # Voicecall request-step simulation (§7l): "ok" | "error114".
         # "error114" makes the follow-up `request` (11301) /
         # `group/request` (12434) step fail with the real server's
@@ -1053,6 +1058,40 @@ class MockZalo:
                     500, "mock endcall rejected")
             if self.endcall_mode == "slow":
                 time.sleep(2)
+            self._record_voice_step(call_id, sub)
+            return self._postlogin_envelope(
+                {"ok": True, "path": path, "body": body})
+        if sub == "cancel":
+            # Withdraw an unanswered invitation (bundle wZ
+            # sendCancelCall, code 11305, mobile opcode 405 "huy"):
+            # {callerId, callId, callType, status:0, imei}. This is
+            # the signal the real client sends when the caller hangs
+            # up before the callee answers, and at ring timeout
+            # (~30s, pcap file 2: teardown voicecall stream
+            # 35.33-36.22s after ~29.5s of media). The callee's
+            # client handles it via [SIG]recvCancel and drops the
+            # incoming-call UI; without it the peer keeps a ghost
+            # "hidden call" that re-rings with a dead answer button
+            # (live 2026-11-07 09:01-09:02). callType is the
+            # call-type enum (1-1 audio=1, 1-1 video=3); callerId is
+            # the CALLER's uid. cancel_mode mirrors endcall_mode.
+            call_id = body.get("callId")
+            id_ok = (isinstance(call_id, int)
+                     and not isinstance(call_id, bool)
+                     and 1 <= call_id <= 2 ** 32 - 1)
+            shape_ok = (bool(body.get("callerId")) and id_ok
+                        and body.get("callType") in (1, 3)
+                        and body.get("status") == 0
+                        and body.get("imei"))
+            if not shape_ok:
+                return self._postlogin_envelope_error(
+                    114, "Tham số không hợp lệ")
+            if self.cancel_mode == "error":
+                return self._postlogin_envelope_error(
+                    500, "mock cancel rejected")
+            if self.cancel_mode == "slow":
+                time.sleep(2)
+            self._record_voice_step(call_id, sub)
             return self._postlogin_envelope(
                 {"ok": True, "path": path, "body": body})
         if sub in ("request", "group/request"):
