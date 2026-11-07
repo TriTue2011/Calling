@@ -111,7 +111,16 @@ DEVICE_CONST_PROBE_ID = 0x003E9765   # hardcoded probe id (disasm 0x894b2e)
 DEVICE_CONST_PROBE_C2 = 0x012F833C   # hardcoded 2nd probe constant
 CALL_SESSION_LAST_BYTE = 0x2B        # last byte of call session, all captures
 SETUP_REFRESH_INTERVAL = 6.0         # setup 177B repeat, seconds
-PING_INTERVAL = 6.0                  # ping keepalive after connect, seconds
+PING_INTERVAL = 0.1                  # ping keepalive, seconds (~10 Hz:
+                                    # the real client pings the relay at
+                                    # ~10 Hz while ringing — pcap file 2:
+                                    # 290 ping pairs in 29.5 s, median gap
+                                    # 100 ms. The old 6.0 s was 60x slower;
+                                    # the relay session itself is kept by
+                                    # the 6 s setup refresh, but the ping is
+                                    # part of the caller's ringing
+                                    # maintenance (5-pcap re-analysis
+                                    # 2026-11-08), so match the real cadence.
 HELLO_INTERVAL = 0.5                 # P2P hello retransmit, seconds
 RTCP_INTERVAL = 5.0                  # minimal RTCP RR cadence, seconds
 
@@ -1004,6 +1013,28 @@ class Udp4200Transport:
         self.relay_session = None       # bytes, per-relay, from type-02
         self.peer_reflexive = None      # (ip, port) from type-02
         self.peer_p2p_addr = None       # (ip, port) confirmed via P2P ack
+        # First-media hook (2026-11-08): a callable fired ONCE when
+        # the first INBOUND media packet arrives — type-04 downlink
+        # from the relay, or P2P media — from `_on_media` BEFORE the
+        # SRTP check. Inbound only: `_dispatch` routes head 0x04
+        # and P2P media here, while type-02 (setup reply, arrives
+        # during ringing), ping replies and RTCP never reach it.
+        # The captures show inbound media only AFTER the peer
+        # answers (file 1: type-04 from ~0.5 s after the answer;
+        # file 4: 52 packets after the answer; file 2: ZERO inbound
+        # in 29.5 s of ringing) — so arrival is evidence the peer
+        # answered, even while SRTP is unwired and the packet itself
+        # is dropped. It is a PROXY, not the answer signal itself:
+        # the answer signal is the peer's answer on voicecall/sync,
+        # which the app cannot receive yet (sync down, no parser) —
+        # the explicit path is POST /api/call/answered. And
+        # OUTBOUND media proves nothing (file 2: the caller sends
+        # type-03 uplink for the whole 29.5 s of ringing with no
+        # answer), so only the inbound direction counts. The server
+        # wires it to mark the call answered; a callback failure
+        # never breaks the receiver loop. None by default.
+        self.on_first_media = None
+        self._first_media_seen = False
         self._sock = None
         self._stop = threading.Event()
         self._recv_thread = None
@@ -1458,6 +1489,21 @@ class Udp4200Transport:
         self.counters["rtp_rx"] += 1
         if via == "p2p":
             self.counters["p2p_media_rx"] += 1
+        # First inbound RTP = the peer answered (see on_first_media
+        # in __init__): fire once, BEFORE the SRTP check, so an
+        # unwired call is still recognised as answered even though
+        # this packet is dropped below for lack of unprotect_rtp.
+        # A callback failure is recorded, never raised — the
+        # receiver loop must not die on it.
+        if not self._first_media_seen:
+            self._first_media_seen = True
+            hook = self.on_first_media
+            if hook is not None:
+                try:
+                    hook()
+                except Exception as exc:  # noqa: BLE001
+                    self._last_error = (
+                        "on_first_media failed: %s" % (exc,))
         if self.config.unprotect_rtp is None:
             self.counters["rtp_rx_dropped"] += 1
             self._last_error = (

@@ -161,6 +161,13 @@ function statusPill(status, requestSent) {
   // requestSent === true -> ringing; === false -> step 2 failed
   // (the call is still live until ended, but the attempt failed);
   // null/undefined -> step 2 not attempted yet.
+  // "answered" (2026-11-08 fix) means the peer picked up: the
+  // call is connected, NOT ringing any more. The media note
+  // ("chưa có tiếng") lives on the active card, not the pill —
+  // the pill only names the state.
+  if (status === "answered") {
+    return ["pill pill-accent", "Đang gọi"];
+  }
   if (status === "sent") {
     if (requestSent === true) return ["pill pill-accent", "Đang đổ chuông"];
     if (requestSent === false) return ["pill pill-negative", "Lỗi"];
@@ -792,9 +799,13 @@ function renderCalls() {
     // request_sent is the only honest signal; before that the
     // call is still being placed and the peer may not be
     // ringing at all (live 07/11: step 2 stuck, chip lied).
-    pill.textContent = (active.request_sent === true
-      ? "Đang đổ chuông: "
-      : "Đang gọi: ") + (active.peer || active.thread_id);
+    // An answered call (2026-11-08 fix) is connected, not
+    // ringing any more — it says "Đang gọi".
+    pill.textContent = (active.status === "answered"
+      ? "Đang gọi: "
+      : active.request_sent === true
+        ? "Đang đổ chuông: "
+        : "Đang gọi: ") + (active.peer || active.thread_id);
   } else {
     pill.hidden = true;
   }
@@ -846,6 +857,18 @@ function activeCard(c) {
   timer.textContent = fmtElapsed(c.started_at);
   row.appendChild(pill);
   row.appendChild(timer);
+  // Answered but SRTP unwired (2026-11-08 fix): say so plainly
+  // on the card — the call is connected but has no voice yet
+  // (missing SRTP key), instead of implying voice works or
+  // dropping the call. The server sends media.srtp only while
+  // the transport runs.
+  let mediaNote = null;
+  if (c.status === "answered" && c.media
+      && c.media.srtp === "not-wired") {
+    mediaNote = document.createElement("div");
+    mediaNote.className = "row-sub";
+    mediaNote.textContent = "Đã nối — chưa có tiếng (thiếu khoá SRTP).";
+  }
   const actions = document.createElement("div");
   actions.className = "call-actions";
   const end = document.createElement("button");
@@ -863,6 +886,7 @@ function activeCard(c) {
   div.appendChild(peer);
   div.appendChild(meta);
   div.appendChild(row);
+  if (mediaNote) div.appendChild(mediaNote);
   div.appendChild(actions);
   return div;
 }
@@ -949,7 +973,7 @@ async function loadCalls() {
   if (currentCall && !callsData.active) {
     const gone = !callsData.calls.some((c) =>
       String(c.call_id) === String(currentCall.callId)
-      && c.status === "sent");
+      && (c.status === "sent" || c.status === "answered"));
     if (gone) {
       currentCall = null;
       detailCall = null;
@@ -1565,6 +1589,16 @@ function renderCallDetail() {
   } else {
     el.textContent = "Bước 2 (11301): chưa có thông tin.";
   }
+  // "Bên kia đã nhấc máy" is only useful while the call is still
+  // ringing: once it is answered (or ended / gone) the button
+  // hides. rec is the freshest /api/calls entry; when it is not
+  // there yet (just dialed, first poll pending) the call was just
+  // started, so it is ringing by construction.
+  const answeredBtn = $("btn-answered");
+  if (answeredBtn) {
+    const st = rec ? rec.status : "sent";
+    answeredBtn.style.display = (st === "sent") ? "" : "none";
+  }
 }
 
 async function startCall(peer) {
@@ -1628,6 +1662,27 @@ async function startCall(peer) {
   } finally {
     calling = false;
   }
+}
+
+async function markAnswered() {
+  // The peer picked up (seen on their phone, or heard): tell the
+  // server the live call is answered (POST /api/call/answered).
+  // Until the sync channel parses the peer's answer event, this is
+  // the explicit path — the first inbound media (type-04 downlink)
+  // is the automatic one. Idempotent: marking twice is harmless.
+  const active = callsData.active;
+  const cc = currentCall || detailCall;
+  const rawId = (cc && (cc.callId || cc.call_id))
+    || (active && active.call_id) || "";
+  let callId = rawId;
+  if (typeof rawId === "string" && /^\d+$/.test(rawId)) {
+    callId = parseInt(rawId, 10);
+  }
+  try {
+    await api("/api/call/answered", "POST", { call_id: callId });
+  } catch (e) { /* best-effort: the poll below reconciles */ }
+  await loadCalls();
+  renderCallDetail();
 }
 
 async function endCall() {
@@ -1795,6 +1850,7 @@ $("btn-logout").onclick = () =>
   api("/api/logout", "POST").then(() => { window.location.href = "/login"; })
     .catch(() => { window.location.href = "/login"; });
 $("btn-end").onclick = endCall;
+$("btn-answered").onclick = markAnswered;
 $("btn-back").onclick = () => loadMain();
 $("btn-retry-contacts").onclick = () => {
   // Guard as well as disabled state: never fire during backoff.

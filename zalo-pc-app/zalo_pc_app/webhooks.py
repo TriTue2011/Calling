@@ -231,9 +231,10 @@ def _base(event, type_name, account_id):
 def build_call_event(call_entry, account_id):
     """call_entry is a call_log record ({call_id, peer, thread_id,
     type, status, started_at, ended_at, detail}). type is
-    call.sent / call.error / call.ended, from status. `detail`
-    carries the error text for error events only (it is the same
-    text the Calls UI already shows; it never holds a secret)."""
+    call.sent / call.answered / call.error / call.ended, from
+    status. `detail` carries the error text for error events only
+    (it is the same text the Calls UI already shows; it never
+    holds a secret)."""
     status = (call_entry or {}).get("status", "")
     payload = _base("call", "call." + status, account_id)
     payload.update({
@@ -455,8 +456,8 @@ class WebhookDispatcher:
 # dispatch_reaction() (long-poll 99101).
 
 def dispatch_call_event(dispatcher, call_entry, account_id):
-    """Call event from a call_log record (sent/error/ended). Fires
-    NOW — the app itself is the source, no sync channel needed."""
+    """Call event from a call_log record (sent/answered/error/ended).
+    Fires NOW — the app itself is the source, no sync channel needed."""
     if dispatcher is None or not call_entry:
         return False
     return dispatcher.dispatch(

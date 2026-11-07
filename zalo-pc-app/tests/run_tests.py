@@ -8,7 +8,9 @@ HERE = os.path.dirname(__file__)
 FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
          "test_logininfo.py", "test_contacts.py", "test_calls.py",
          "test_call_114.py", "test_call_11301.py", "test_call_end.py",
-         "test_call_ringing.py", "test_call_local_session.py",
+         "test_call_ringing.py", "test_call_answered.py",
+         "test_call_states.py",
+         "test_call_local_session.py",
          "test_media_provider.py", "test_udp_transport.py",
          "test_p2p.py",
          "test_app_auth.py",
@@ -30,6 +32,7 @@ JS_CHECKS = [["node", "--check", "zalo_pc_app/static/app.js"],
              ["node", "tests/test_app_js_end.js"],
              ["node", "tests/test_app_js_sync.js"],
              ["node", "tests/test_app_js_feedrow.js"],
+             ["node", "tests/test_app_js_answered.js"],
              ["node", "tests/test_app_js_attach.js"]]
 
 

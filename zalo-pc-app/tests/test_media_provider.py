@@ -67,6 +67,10 @@ class FakeTransport:
         self._pcm_callback = None
         self._seq = 0
         self._timestamp = 0
+        # Mirror of the real transport's first-media hook
+        # (2026-11-08): fired once from deliver_inbound.
+        self.on_first_media = None
+        self._first_media_seen = False
 
     def start(self):
         self.started = True
@@ -104,7 +108,16 @@ class FakeTransport:
 
     def deliver_inbound(self, rtp_packet):
         """Dua mot goi RTP (da protect) vao nhu transport that nhan
-        duoc tu relay: unprotect -> parse -> decode -> callback."""
+        duoc tu relay: unprotect -> parse -> decode -> callback.
+        Giong transport that (_on_media), goi RTP den DAU TIEN goi
+        on_first_media TRUOC khi kiem tra unprotect — viec nhan
+        duoc goi chung minh ben kia da tra loi ngay ca khi SRTP
+        chua co khoa va goi se bi drop."""
+        hook = getattr(self, "on_first_media", None)
+        if not getattr(self, "_first_media_seen", False):
+            self._first_media_seen = True
+            if hook is not None:
+                hook()
         if self.config.unprotect_rtp is None:
             raise MissingTransportParam("unprotect_rtp: missing")
         plain = self.config.unprotect_rtp(rtp_packet)

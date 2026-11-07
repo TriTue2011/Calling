@@ -856,7 +856,8 @@ class MediaEndpoints:
                  zrtc_config=None, requestcall_data=None,
                  protect_rtp=None, unprotect_rtp=None,
                  encode_frame=None, decode_frame=None,
-                 selection_timeout=5.0, transport_factory=None):
+                 selection_timeout=5.0, transport_factory=None,
+                 on_first_media=None):
         """Media fields for one outgoing call's request step (11301).
 
         Returns {"rtcp_address", "rtp_address", "session",
@@ -1058,6 +1059,18 @@ class MediaEndpoints:
                if call_counter is not None else {}))
         factory = transport_factory or self._transport_factory
         transport = factory(config)
+        # First-media hook (2026-11-08): the caller (server.py)
+        # passes a callback that marks the call answered when the
+        # first inbound RTP arrives — arrival alone proves the
+        # peer answered (pcap), so this works without the sync
+        # channel. Set as an attribute (TransportConfig has no
+        # such field); a factory that rejects it must not break
+        # the call, so the assignment is guarded.
+        if on_first_media is not None:
+            try:
+                transport.on_first_media = on_first_media
+            except Exception:  # noqa: BLE001 - hook is optional
+                pass
 
         # 8. Start + wait for relay selection (first type-02).
         # The 416 addresses are the SELECTED relay's addresses, not

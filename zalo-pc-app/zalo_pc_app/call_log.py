@@ -14,8 +14,20 @@ Statuses (Vietnamese labels live in the UI, not here):
            whether that second step went through; until the live
            test confirms the far end rings, "sent" means "invitation
            fully sent", not "the peer's phone is ringing".
+  answered — the peer ANSWERED (live 2026-11-08 fix): the call is
+           connected and still live. The ring timeout MUST NOT
+           fire for this status, and ending it sends ENDCALL
+           (11306), not cancel. `answered_at` records when, and
+           `answer_source` how the app learned it ("api" = an
+           explicit /api/call/answered call, e.g. from a sync
+           push event; "media" = first inbound RTP arrived).
   error  — the request failed; `detail` carries the error text.
   ended  — /api/call/end was called for this call_id.
+
+"LIVE" means status in ("sent", "answered") — every place that
+looks for the live call (snapshot/active, record_end, supersede)
+must accept both; before this fix only "sent" existed, so an
+answered call could never be ended through /api/call/end.
 
 Each entry also carries `request_sent` (True/False/None — None
 means the request step was never attempted, e.g. entries recorded
@@ -30,6 +42,10 @@ import threading
 import time
 
 MAX_RECORDS = 50
+
+
+# Statuses that count as a LIVE call (ringing or connected).
+LIVE_STATUSES = ("sent", "answered")
 
 
 class CallLog:
@@ -48,7 +64,7 @@ class CallLog:
         now = time.time()
         with self._lock:
             for c in self._calls:
-                if c["status"] == "sent":
+                if c["status"] in LIVE_STATUSES:
                     c["status"] = "ended"
                     c["ended_at"] = now
                     c["detail"] = "superseded_by_new_call"
@@ -56,10 +72,32 @@ class CallLog:
                      "thread_id": str(thread_id), "type": call_type,
                      "status": "sent", "started_at": now,
                      "ended_at": None, "detail": "",
-                     "request_sent": None, "request_detail": ""}
+                     "request_sent": None, "request_detail": "",
+                     "answered_at": None, "answer_source": ""}
             self._calls.append(entry)
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
+
+    def record_answered(self, call_id, source=""):
+        """Mark a live (ringing) call answered: the peer picked up
+        and the call is connected. Only "sent" -> "answered"; an
+        already-answered entry is returned unchanged (idempotent)
+        and any other status (ended/error/unknown) returns None.
+        The ring timer must be disarmed by the caller when this
+        returns an entry — an answered call is never ring-timed-out."""
+        now = time.time()
+        with self._lock:
+            for c in self._calls:
+                if c["call_id"] == str(call_id):
+                    if c["status"] == "answered":
+                        return dict(c)
+                    if c["status"] != "sent":
+                        return None
+                    c["status"] = "answered"
+                    c["answered_at"] = now
+                    c["answer_source"] = source or ""
+                    return dict(c)
+            return None
 
     def record_request(self, call_id, sent, detail=""):
         """Record the outcome of the follow-up `request` step
@@ -81,7 +119,8 @@ class CallLog:
                      "thread_id": str(thread_id), "type": call_type,
                      "status": "error", "started_at": now,
                      "ended_at": now, "detail": detail or "",
-                     "request_sent": None, "request_detail": ""}
+                     "request_sent": None, "request_detail": "",
+                     "answered_at": None, "answer_source": ""}
             self._calls.append(entry)
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
@@ -94,7 +133,8 @@ class CallLog:
         now = time.time()
         with self._lock:
             for c in self._calls:
-                if c["call_id"] == str(call_id) and c["status"] == "sent":
+                if c["call_id"] == str(call_id) \
+                        and c["status"] in LIVE_STATUSES:
                     c["status"] = "ended"
                     c["ended_at"] = now
                     c["detail"] = detail or ""
@@ -109,7 +149,7 @@ class CallLog:
         now = time.time()
         with self._lock:
             for c in self._calls:
-                if c["status"] == "sent":
+                if c["status"] in LIVE_STATUSES:
                     c["status"] = "ended"
                     c["ended_at"] = now
                     c["detail"] = detail or ""
@@ -133,7 +173,7 @@ class CallLog:
             calls = [dict(c) for c in reversed(self._calls)]
         active = None
         for c in calls:
-            if c["status"] == "sent":
+            if c["status"] in LIVE_STATUSES:
                 active = c
                 break
         return {"calls": calls, "active": active}

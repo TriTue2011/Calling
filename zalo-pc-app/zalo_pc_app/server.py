@@ -27,6 +27,14 @@ API (all JSON, never returns session secrets):
   POST /api/call/request  {callee_id} -> signaling requestcall (11300)
                           + follow-up request (11301 / 12434, §7l)
   POST /api/call/end      {uid_to, call_id} -> signaling endcall
+                          (11306) for an answered call, cancel
+                          (11305) for an unanswered one
+  POST /api/call/answered {call_id} -> mark the live call answered
+                          (peer picked up): disarms the ring timer,
+                          sends answerack (11304) best-effort for
+                          1-1 calls; also fired by first inbound
+                          RTP (media proves the answer, no sync
+                          channel needed)
   GET  /api/svc/catalog   96-service catalog + support status
   POST /api/svc/<action>  addon-service op (services.py; needs login)
   GET  /api/engine/status media-engine seam status
@@ -218,6 +226,16 @@ def _log_call(msg):
 # The value is a module constant so tests can shorten it.
 RING_TIMEOUT_SECONDS = 30.0
 
+# Ring-timer handles, keyed by str(call_id): the timer is armed
+# when step 2 is sent and MUST be disarmed when the peer answers
+# (2026-11-08 fix) — before this fix no handle was kept, so an
+# answered call was killed at 30s by the same timer that guards
+# an unanswered ring. Guarded by a lock: arm/disarm/fire run on
+# the HTTP thread, the timer thread and the transport's receiver
+# thread (first-media hook).
+_RING_TIMERS = {}
+_RING_TIMERS_LOCK = threading.Lock()
+
 
 def _send_end_signal(entry, sess, group_data=None, group_partners=None):
     """Send the wire termination signal for one call entry.
@@ -236,9 +254,10 @@ def _send_end_signal(entry, sess, group_data=None, group_partners=None):
       that re-rang with a dead answer button (live 2026-11-07
       09:01-09:02).
     - answered (status "answered") -> ENDCALL (11306, {uidTo, callId,
-      status:3, imei}): ends an established call. The app has no
-      answer path yet, so no entry ever carries "answered" today;
-      the branch exists so the choice stays correct when one lands.
+      status:3, imei}): ends an established call. Entries reach
+      "answered" through POST /api/call/answered or the transport's
+      first-media hook (2026-11-08 fix) — before that fix no entry
+      ever carried "answered" and this branch was dead code.
     - group calls -> group/endcall (12438): the group cancel
       (group_cancel) shape is not traced yet, so group ends keep the
       existing signal.
@@ -294,11 +313,13 @@ def _terminate_call(call_id, reason, sess, group_data=None,
     snap = STATE.calls.snapshot()
     before = None
     for c in snap["calls"]:
-        if str(c["call_id"]) == str(call_id) and c["status"] == "sent":
+        if str(c["call_id"]) == str(call_id) \
+                and c["status"] in ("sent", "answered"):
             before = c
             break
     if before is None:
         return None, "none", False, "no_live_call", {}
+    _disarm_ring_timer(call_id)
     ended = STATE.calls.record_end(call_id, reason)
     if ended is None:
         return None, "none", False, "no_live_call", {}
@@ -334,12 +355,18 @@ def _ring_timeout_fire(call_id):
     RING_TIMEOUT_SECONDS ends itself (cancel on the wire, reason
     ring_timeout). The live entry is re-checked first — a stale
     timer (call already ended, or superseded by another call) is a
-    no-op, so a call can never be ended twice. The session is read
+    no-op, so a call can never be ended twice. An ANSWERED call
+    is never ring-timed-out (2026-11-08 fix): the timer is disarmed
+    on answer, and this check is the second layer — a stale timer
+    firing late must not kill a connected call. The session is read
     fresh from STATE: without one (logged out mid-ring) the call
     still ends locally so it never stays "connecting" forever."""
+    _disarm_ring_timer(call_id)
     snap = STATE.calls.snapshot()
     active = snap.get("active")
     if active is None or str(active["call_id"]) != str(call_id):
+        return
+    if active.get("status") == "answered":
         return
     sess = STATE.session
     if not sess or not sess.get("zpw_sek"):
@@ -350,11 +377,119 @@ def _ring_timeout_fire(call_id):
 def _arm_ring_timer(call_id):
     """Arm the ring timeout for a call whose step 2 was sent (the
     peer is ringing from now). Daemon thread: it must never block
-    process exit."""
+    process exit. The handle is kept in _RING_TIMERS so answering
+    can disarm it (2026-11-08 fix); re-arming replaces a stale
+    handle for the same call_id."""
     timer = threading.Timer(RING_TIMEOUT_SECONDS,
                             _ring_timeout_fire, [call_id])
     timer.daemon = True
+    with _RING_TIMERS_LOCK:
+        old = _RING_TIMERS.pop(str(call_id), None)
+        _RING_TIMERS[str(call_id)] = timer
+    if old is not None:
+        try:
+            old.cancel()
+        except Exception:  # noqa: BLE001 - cancel is best-effort
+            pass
     timer.start()
+
+
+def _disarm_ring_timer(call_id):
+    """Cancel + forget the ring timer for a call (on answer, and
+    when the call ends any other way). Best-effort, never raises;
+    a timer that already fired is a harmless no-op."""
+    with _RING_TIMERS_LOCK:
+        timer = _RING_TIMERS.pop(str(call_id), None)
+    if timer is not None:
+        try:
+            timer.cancel()
+        except Exception:  # noqa: BLE001 - cancel is best-effort
+            pass
+
+
+def _send_answerack_async(call_id, thread_id):
+    """Best-effort answerack (11304, bundle wZ sendAnswerACKCall):
+    the caller ACKs the callee's answer. Runs on a daemon thread
+    so it never blocks the caller — the first-media hook runs on
+    the transport's receiver thread, and a 30s signaling round-trip
+    there would stall media reception. The session is read fresh
+    from STATE; without one the ACK is skipped (logged, not fatal:
+    the call is already marked answered). Only for 1-1 calls."""
+    sess = STATE.session
+    if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
+        _log_call("answerack call_id=%s ok=False error=no_session"
+                  % call_id)
+        return
+    try:
+        transport = make_transport(sess["zpw_sek"])
+        sig = signaling_mod.Signaling(transport, sess["device_id"],
+                                      sess["zpw_enk"])
+        sig.answer_ack(thread_id, call_id)
+        _log_call("answerack call_id=%s ok=True" % call_id)
+    except Exception as e:  # noqa: BLE001 - best-effort
+        _log_call("answerack call_id=%s ok=False error=%s"
+                  % (call_id, e))
+
+
+def _calls_snapshot_with_media():
+    """Call-log snapshot + live media state: every entry whose
+    transport is still running gains "media": {"srtp":
+    "wired"|"not-wired"} so the UI can report honestly — a
+    connected call with srtp "not-wired" is "da noi, chua co
+    tieng (thieu khoa SRTP)", not silent voice and not a reason
+    to drop the call. Entries without a running transport (ended
+    / error) carry no media key."""
+    snap = STATE.calls.snapshot()
+    for entry in snap["calls"]:
+        try:
+            record = media_endpoints.ENDPOINTS.active_record(
+                entry["call_id"])
+        except Exception:  # noqa: BLE001 - media is best-effort
+            record = None
+        if record is not None:
+            entry["media"] = {"srtp": record.get("srtp", "not-wired")}
+    return snap
+
+
+def _mark_answered(call_id, source):
+    """Mark a live (ringing) call answered: the peer picked up and
+    the call is connected. `source` names how the app learned it
+    ("api" = POST /api/call/answered, e.g. from a sync push event;
+    "media" = first inbound RTP arrived). Idempotent: marking an
+    already-answered call returns it unchanged without re-logging
+    or re-ACKing. Returns the entry, or None when there is no live
+    call with that id. Side effects on transition: the ring timer
+    is disarmed (an answered call is never ring-timed-out), a
+    [call] answered line is logged, a call webhook event fires,
+    and an answerack (11304) is sent best-effort on a daemon
+    thread for 1-1 calls."""
+    snap = STATE.calls.snapshot()
+    live = None
+    for c in snap["calls"]:
+        if str(c["call_id"]) == str(call_id) \
+                and c["status"] in ("sent", "answered"):
+            live = c
+            break
+    if live is None:
+        return None
+    if live["status"] == "answered":
+        return dict(live)
+    entry = STATE.calls.record_answered(call_id, source)
+    if entry is None:
+        return None
+    _disarm_ring_timer(call_id)
+    _log_call("answered call_id=%s source=%s"
+              % (entry["call_id"], source))
+    webhooks_mod.dispatch_call_event(
+        STATE.webhook_dispatcher, entry,
+        (STATE.session or {}).get("uid", ""))
+    if (entry.get("type") or "user") != "group":
+        thread = threading.Thread(
+            target=_send_answerack_async,
+            args=(int(entry["call_id"]), entry["thread_id"]),
+            daemon=True)
+        thread.start()
+    return entry
 
 
 def _normalize_call_id(value):
@@ -1682,7 +1817,7 @@ class Handler(BaseHTTPRequestHandler):
             if sess is None:
                 return self._send_json({"error": "chua_dang_nhap"},
                                        status=401)
-            return self._send_json(STATE.calls.snapshot())
+            return self._send_json(_calls_snapshot_with_media())
         # WEBHOOK HOOK (webhooks.py): read the webhook config. Auth is
         # the same _require_login() as /api/calls — the login-app agent
         # owns that check; do NOT open this route without it.
@@ -2324,6 +2459,27 @@ class Handler(BaseHTTPRequestHandler):
                     # nhat noi hai gia tri nay vao `for_call`
                     # (`ENDPOINTS` la global, khong dat default
                     # theo phien — id thay doi theo response).
+                    # First-media hook (2026-11-08): the first
+                    # INBOUND media packet (type-04 downlink from the
+                    # relay, or P2P media) is evidence the peer
+                    # answered — the captures show inbound media only
+                    # after an answer (file 1/4) and ZERO inbound in
+                    # 29.5 s of ringing (file 2) — so the transport
+                    # marks the call answered through this callback
+                    # — no sync channel needed. It is a PROXY, not
+                    # the answer signal itself (that is the peer's
+                    # answer on voicecall/sync, still unparsed; the
+                    # explicit path is POST /api/call/answered), and
+                    # OUTBOUND media proves nothing (file 2: the
+                    # caller sends type-03 uplink all through
+                    # ringing with no answer). It runs on the
+                    # transport's receiver thread; _mark_answered
+                    # only touches locked state + logging + async
+                    # webhook, and the answerack goes on a daemon
+                    # thread, so it never blocks media reception.
+                    def _on_first_media():
+                        _mark_answered(call_id, "media")
+
                     endpoints = media_endpoints.ENDPOINTS.for_call(
                         call_id=call_id, callee_id=thread_id,
                         call_type=call_type, codec=body.get("codec"),
@@ -2331,7 +2487,8 @@ class Handler(BaseHTTPRequestHandler):
                         peer_session=(
                             _alloc.get("peer_session")
                             if call_type != "group" else None),
-                        requestcall_data=data, **hooks)
+                        requestcall_data=data,
+                        on_first_media=_on_first_media, **hooks)
                 except Exception as exc:  # noqa: BLE001 - best-effort
                     request_sent, request_error = False, str(exc)
                 if endpoints is not None:
@@ -2492,6 +2649,45 @@ class Handler(BaseHTTPRequestHandler):
                  "zalo_signal": signal,
                  "zalo_endcall_ok": zalo_ok, "zalo_error": zalo_error,
                  "data": data})
+        if path == "/api/call/answered":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            # Mark the live call answered (the peer picked up).
+            # Callers: a future sync-push handler (the server
+            # reports "da tra loi" on the sync channel), tests, or
+            # a manual trigger. The transport's first-media hook
+            # calls _mark_answered directly instead. Target
+            # resolution mirrors /api/call/end: the body's call_id,
+            # else the live call (there is at most one). Idempotent:
+            # marking an already-answered call answers ok again.
+            raw_id = body.get("call_id", "")
+            call_id = _coerce_call_id(raw_id)
+            snap = STATE.calls.snapshot()
+            live = snap["active"]
+            target_id = None
+            if call_id is not None:
+                for c in snap["calls"]:
+                    if (str(c["call_id"]) == str(call_id)
+                            and c["status"] in ("sent", "answered")):
+                        target_id = call_id
+                        break
+            if target_id is None and live is not None:
+                target_id = int(live["call_id"])
+            if target_id is None:
+                _log_call("answered call_id=None reason=no_live_call")
+                return self._send_json({"ok": False,
+                                        "error": "no_live_call"})
+            entry = _mark_answered(target_id, "api")
+            if entry is None:
+                return self._send_json({"ok": False,
+                                        "error": "no_live_call"})
+            return self._send_json(
+                {"ok": True, "call_id": int(entry["call_id"]),
+                 "status": entry["status"],
+                 "answered_at": entry.get("answered_at"),
+                 "answer_source": entry.get("answer_source", "")})
         # WEBHOOK HOOK (webhooks.py): save the webhook config. Auth is
         # the same _require_login() as /api/calls. Bad URL -> 400,
         # nothing written. Unknown keys are dropped by normalize.

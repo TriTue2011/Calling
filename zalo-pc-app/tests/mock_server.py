@@ -235,19 +235,97 @@ class MockZalo:
         return {"requested": requested,
                 "delivered": bool(entry["delivered"]), "steps": steps}
 
-    def _record_voice_step(self, call_id, step):
+    def server_call_state(self, call_id):
+        """The SERVER-side call state the mock models for one callId:
+        {"state": "ringing"|"connected"|"ended"|None,
+         "record": "missed"|"ended"|None,
+         "request_addresses": {"rtcp": ..., "rtp": ...} | None,
+         "steps": [...]}.
+
+        The model is the CONTRACT the 5-pcap re-analysis
+        (2026-11-08) proves for the real flow, and the app must
+        satisfy it:
+        * requestcall (11300) opens the call as "ringing" — never
+          "connected" at dial, never "missed" at dial. A missed
+          call is only recorded AFTER a call ends without an
+          answer (ring timeout ~30 s, caller ends first, or
+          callee declines); the server syncs it via tt-chat4
+          0.1-0.6 s after the end.
+        * answerack (11304, the caller ACKing the peer's answer)
+          moves the call to "connected". The caller NEVER sends
+          the answer signal itself (11303 answer / 11302 ringring
+          are callee signals); sending one at dial would make the
+          server switch to "connected" before the peer agrees.
+        * cancel (11305) withdraws an UNANSWERED invitation, so
+          the call is recorded "missed". Sent for a CONNECTED call
+          it still records "missed" — that is the spurious
+          "missed" the user reported on 2026-11-08 (an answered
+          call killed by cancel at the 30 s ring timeout). An
+          answered call must therefore end with endcall, never
+          cancel.
+        * endcall (11306) records "ended" when the call was
+          connected, "missed" when it ends still ringing (the peer
+          never agreed).
+        This models the contract, not the real server's internals
+        (TLS-encrypted, unobservable from here); the live test is
+        what proves the real server behaves this way. The mock
+        records the 11301 addresses so tests can assert the app
+        never sends empty ones (the real client always carries a
+        real relay address); it still does NOT reject empty
+        addresses, because no server rejection was observed.
+        """
+        entry = self.voice_calls.get(
+            call_id, {"steps": [], "delivered": False,
+                      "server_state": None, "record": None,
+                      "request_addresses": None})
+        return {"state": entry.get("server_state"),
+                "record": entry.get("record"),
+                "request_addresses": entry.get("request_addresses"),
+                "steps": list(entry["steps"])}
+
+    def _record_voice_step(self, call_id, step, body=None):
         """Record one voicecall step for a callId; the follow-up
         request step only counts as delivery when a requestcall for
         the same callId was seen first (the real server correlates
-        the two steps by callId)."""
+        the two steps by callId). Also advances the modeled
+        server-side call state (see server_call_state): requestcall
+        opens "ringing", answerack moves to "connected", cancel /
+        endcall close the call and set the record ("missed" when the
+        call ends without the peer ever agreeing, "ended" when it
+        ends connected). `body` (the 11301 request body, when given)
+        is kept as request_addresses so tests can assert the media
+        endpoints the app sent are real relay addresses, never
+        empty."""
         entry = self.voice_calls.setdefault(
-            call_id, {"steps": [], "delivered": False})
+            call_id, {"steps": [], "delivered": False,
+                      "server_state": None, "record": None,
+                      "request_addresses": None})
         if step not in entry["steps"]:
             entry["steps"].append(step)
         if step in ("request", "group/request") and (
                 "requestcall" in entry["steps"]
                 or "group/requestcall" in entry["steps"]):
             entry["delivered"] = True
+        if entry["server_state"] == "ended":
+            return entry  # a closed call keeps its first record
+        if step in ("requestcall", "group/requestcall"):
+            if entry["server_state"] is None:
+                entry["server_state"] = "ringing"
+        elif step in ("request", "group/request"):
+            if body is not None:
+                entry["request_addresses"] = {
+                    "rtcp": body.get("rtcpAddress"),
+                    "rtp": body.get("rtpAddress")}
+        elif step == "answerack":
+            if entry["server_state"] == "ringing":
+                entry["server_state"] = "connected"
+        elif step == "cancel":
+            entry["record"] = "missed"
+            entry["server_state"] = "ended"
+        elif step in ("endcall", "group/endcall"):
+            entry["record"] = ("ended" if entry["server_state"]
+                               == "connected" else "missed")
+            entry["server_state"] = "ended"
         return entry
     def start(self):
         mock = self
@@ -1292,12 +1370,17 @@ class MockZalo:
             # here is only what the bundle proves — calleeId +
             # callId (uint32 number) must be present, and (group)
             # groupId must be present. The endpoint VALUES
-            # (rtcp/rtp/session) are NOT validated: phase 1 sends
-            # empty placeholders and whether the real server
-            # accepts them is unverified — the mock must not invent
-            # a rejection the real server was never observed to
-            # make. request_mode="error114" simulates the rejection
-            # explicitly when a test wants it.
+            # (rtcp/rtp/session) are NOT validated as a rejection:
+            # whether the real server rejects empty addresses is
+            # unverified, so the mock must not invent a rejection
+            # it was never observed to make — but the addresses ARE
+            # recorded (see _record_voice_step) so tests can assert
+            # the app-side contract: the real client ALWAYS carries
+            # a real relay address in 11301 (probe -> setup ->
+            # type-02 first; 5-pcap re-analysis 2026-11-08), and
+            # the app's for_call refuses to send 11301 with empty
+            # endpoints. request_mode="error114" simulates the
+            # rejection explicitly when a test wants it.
             call_id = body.get("callId")
             id_ok = (isinstance(call_id, int)
                      and not isinstance(call_id, bool)
@@ -1307,6 +1390,27 @@ class MockZalo:
                 need.append("groupId")
             if (not id_ok or any(not body.get(f) for f in need)
                     or self.request_mode == "error114"):
+                return self._postlogin_envelope_error(
+                    114, "Tham số không hợp lệ")
+            self._record_voice_step(call_id, sub, body)
+            return self._postlogin_envelope(
+                {"ok": True, "path": path, "body": body})
+        if sub == "answerack":
+            # Caller ACKs the callee's answer (bundle wZ
+            # sendAnswerACKCall, code 11304, mobile opcode 408):
+            # {calleeId, callId, status:0, imei}. Sent best-effort
+            # when the app learns the peer answered (2026-11-08
+            # fix); the mock records it so tests can assert the
+            # ACK went out, and validates the shape the bundle
+            # proves (uint32 callId, status 0).
+            call_id = body.get("callId")
+            id_ok = (isinstance(call_id, int)
+                     and not isinstance(call_id, bool)
+                     and 1 <= call_id <= 2 ** 32 - 1)
+            shape_ok = (bool(body.get("calleeId")) and id_ok
+                        and body.get("status") == 0
+                        and body.get("imei"))
+            if not shape_ok:
                 return self._postlogin_envelope_error(
                     114, "Tham số không hợp lệ")
             self._record_voice_step(call_id, sub)
