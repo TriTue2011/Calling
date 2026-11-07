@@ -1119,12 +1119,14 @@ function attachCheck(file) {
 }
 
 async function sendChatFile(file) {
+  // Tra ve {ok, error} de luong gui nhieu file (sendChatFiles) tong
+  // hop duoc; hanh vi hien thi (notice) giu nguyen nhu cu.
   if (!currentThread) {
     attachNotice("Chưa mở đoạn chat nào — hãy chọn một cuộc trò chuyện rồi gửi file.");
-    return;
+    return { ok: false, error: "Chưa mở đoạn chat nào." };
   }
   const bad = attachCheck(file);
-  if (bad) { attachNotice(bad); return; }
+  if (bad) { attachNotice(bad); return { ok: false, error: bad }; }
   const btn = $("btn-chat-attach");
   btn.disabled = true;
   attachNotice("Đang gửi file “" + file.name + "”…");
@@ -1148,23 +1150,65 @@ async function sendChatFile(file) {
     const r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendfile", form);
     if (r && r.error) {
       attachNotice("Lỗi gửi file: " + r.error);
-      return;
+      return { ok: false, error: r.error };
     }
     if (r && r.message) {
       $("chat-notice").hidden = true;
       renderMessages([...chatRenderedMessages(), r.message]);
-      return;
+      return { ok: true };
     }
     attachNotice("Máy chủ trả về không rõ kết quả gửi file — hãy mở lại đoạn chat để kiểm tra.");
+    return { ok: false, error: "Máy chủ trả về không rõ kết quả." };
   } catch (e) {
     // fetch bi tu choi (mat mang / server khong tra loi) hoac tra ve
     // khong phai JSON: truoc day promise reject im lang (onchange
     // khong catch), nguoi dung khong thay gi — gio luon hien loi
     // cu the (loi live 23:00 +07).
-    attachNotice("Lỗi gửi file: " + (e && e.message ? e.message : e)
+    const errText = e && e.message ? e.message : String(e);
+    attachNotice("Lỗi gửi file: " + errText
       + " — hãy kiểm tra mạng rồi gửi lại.");
+    return { ok: false, error: errText };
   } finally {
     btn.disabled = false;
+  }
+}
+
+// -- gui nhieu file mot luc: client PC that gui moi anh/file bang
+// mot message rieng (bundle _sendPhoto chi nhan mot fileContent,
+// backend send_photo tao clientId moi moi call — khong co endpoint
+// gop). Gui lan luot tung file, moi file mot POST sendfile rieng;
+// mot file loi khong chan cac file con lai; cuoi cung bao tong ket
+// so file da gui + ten file loi.
+async function sendChatFiles(files) {
+  const list = Array.prototype.slice.call(files || []);
+  if (!list.length) return;
+  if (list.length === 1) { await sendChatFile(list[0]); return; }
+  if (!currentThread) {
+    attachNotice("Chưa mở đoạn chat nào — hãy chọn một cuộc trò chuyện rồi gửi file.");
+    return;
+  }
+  const btn = $("btn-chat-attach");
+  btn.disabled = true;
+  let okCount = 0;
+  const failed = [];
+  try {
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      attachNotice("Đang gửi " + (i + 1) + "/" + list.length + ": “" + file.name + "”…");
+      const r = await sendChatFile(file);
+      if (r && r.ok) okCount++;
+      else failed.push({ name: file.name, error: (r && r.error) || "không rõ lỗi" });
+    }
+  } finally {
+    btn.disabled = false;
+  }
+  const failedText = failed.map((f) => "“" + f.name + "” (" + f.error + ")").join(", ");
+  if (failed.length === 0) {
+    attachNotice("Đã gửi " + okCount + "/" + list.length + " file.");
+  } else if (okCount === 0) {
+    attachNotice("Không gửi được file nào (0/" + list.length + "): " + failedText + ".");
+  } else {
+    attachNotice("Đã gửi " + okCount + "/" + list.length + " file. Lỗi: " + failedText + ".");
   }
 }
 
@@ -1531,9 +1575,9 @@ $("chat-input").onkeydown = (e) => { if (e.key === "Enter") sendChatText(); };
 $("chat-input").oninput = onChatInput;
 $("btn-chat-attach").onclick = () => $("chat-file").click();
 $("chat-file").onchange = (e) => {
-  const f = e.target.files && e.target.files[0];
+  const files = e.target.files;
   e.target.value = "";
-  if (f) sendChatFile(f);
+  if (files && files.length) sendChatFiles(files);
 };
 $("btn-chat-record").onclick = toggleRecord;
 

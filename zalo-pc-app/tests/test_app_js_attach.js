@@ -11,6 +11,10 @@
 //  - real jpg photo: kind=photo with width/height from the image.
 //  - server error JSON: notice shows "Lỗi gửi file: ...".
 //  - success: notice hidden, message appended.
+// Multi-file (sendChatFiles): 3 photos -> 3 sendfile calls in
+// order + "Đã gửi 3/3"; a failed middle file does not stop the
+// rest and is named in the summary; an invalid middle file never
+// reaches the server; single file behaves exactly as before.
 // No browser needed.
 //
 // Run: node tests/test_app_js_attach.js  (exit 0 = pass)
@@ -31,6 +35,8 @@ function makeEl() {
 
 const els = {};
 let fetchMode = "ok"; // ok | error-json | reject | bad-json
+let failAtSendfile = 0; // 0 = khong fail rieng le; n>0: sendfile thu n tra loi 405
+let sendfileCount = 0;
 const fetchCalls = [];
 const sandbox = {
   document: {
@@ -43,6 +49,13 @@ const sandbox = {
                       form: opts && opts.body });
     if (url === "/api/status") {
       return { status: 200, json: async () => ({ login: false }) };
+    }
+    if (url.indexOf("/sendfile") !== -1) {
+      sendfileCount++;
+      if (failAtSendfile > 0 && sendfileCount === failAtSendfile) {
+        return { status: 502,
+                 json: async () => ({ error: "chat: POST /api/message/photo network status=405" }) };
+      }
     }
     if (fetchMode === "reject") throw new Error("Failed to fetch");
     if (fetchMode === "bad-json") {
@@ -78,6 +91,7 @@ const sandbox = {
   Date, console, process, fetchCalls,
 };
 sandbox.__setFetchMode = (m) => { fetchMode = m; };
+sandbox.__setFailAtSendfile = (n) => { failAtSendfile = n; sendfileCount = 0; };
 
 const src = fs.readFileSync(
   path.join(__dirname, "..", "zalo_pc_app", "static", "app.js"), "utf-8");
@@ -174,6 +188,89 @@ const test = `
   currentThread = null;
   await sendChatFile({ name: "hello.txt", type: "text/plain", size: 5 });
   assert(sendfileCalls().length === before3,
+    "no thread must not fetch");
+  assert(notice().textContent.indexOf("Chưa mở đoạn chat") !== -1,
+    "no thread needs a specific message, got: " + JSON.stringify(notice().textContent));
+
+  // --- Test 11: 3 photos at once -> 3 sendfile calls, in order ---
+  currentThread = { id: "20001", type: "user" };
+  notice().textContent = "";
+  __setFetchMode("ok");
+  __setFailAtSendfile(0);
+  const fileNameOf = (c) => {
+    const f = c.form.fields.find((e) => e[0] === "file");
+    return f ? f[1] : null;
+  };
+  const before4 = sendfileCalls().length;
+  await sendChatFiles([
+    { name: "a.jpg", type: "image/jpeg", size: 120 },
+    { name: "b.jpg", type: "image/jpeg", size: 120 },
+    { name: "c.jpg", type: "image/jpeg", size: 120 },
+  ]);
+  const calls11 = sendfileCalls().slice(before4);
+  assert(calls11.length === 3,
+    "3 files must make 3 sendfile calls, got: " + calls11.length);
+  assert(fileNameOf(calls11[0]) === "a.jpg"
+         && fileNameOf(calls11[1]) === "b.jpg"
+         && fileNameOf(calls11[2]) === "c.jpg",
+    "files must go in selection order");
+  assert(notice().textContent.indexOf("Đã gửi 3/3") !== -1,
+    "summary must say 3/3, got: " + JSON.stringify(notice().textContent));
+  assert(document.getElementById("btn-chat-attach").disabled === false,
+    "attach button must be re-enabled after multi send");
+
+  // --- Test 12: middle file fails -> others still go, summary names it ---
+  notice().textContent = "";
+  __setFailAtSendfile(2);
+  const before5 = sendfileCalls().length;
+  await sendChatFiles([
+    { name: "a.jpg", type: "image/jpeg", size: 120 },
+    { name: "b.jpg", type: "image/jpeg", size: 120 },
+    { name: "c.jpg", type: "image/jpeg", size: 120 },
+  ]);
+  const calls12 = sendfileCalls().slice(before5);
+  assert(calls12.length === 3,
+    "a failed file must not stop the rest, got: " + calls12.length + " calls");
+  assert(notice().textContent.indexOf("Đã gửi 2/3") !== -1,
+    "summary must say 2/3, got: " + JSON.stringify(notice().textContent));
+  assert(notice().textContent.indexOf("b.jpg") !== -1,
+    "summary must name the failed file, got: " + JSON.stringify(notice().textContent));
+  __setFailAtSendfile(0);
+
+  // --- Test 13: single file via sendChatFiles -> same as before ---
+  notice().textContent = "";
+  const before6 = sendfileCalls().length;
+  await sendChatFiles([{ name: "mot.jpg", type: "image/jpeg", size: 120 }]);
+  assert(sendfileCalls().length === before6 + 1,
+    "single file must make exactly 1 call");
+  assert(notice().hidden === true,
+    "single-file success must hide the notice as before");
+
+  // --- Test 14: invalid file in the middle -> no fetch, counted failed ---
+  notice().textContent = "";
+  const before7 = sendfileCalls().length;
+  await sendChatFiles([
+    { name: "a.jpg", type: "image/jpeg", size: 120 },
+    { name: "rong.jpg", type: "image/jpeg", size: 0 },
+    { name: "c.jpg", type: "image/jpeg", size: 120 },
+  ]);
+  assert(sendfileCalls().length === before7 + 2,
+    "invalid file must not reach the server, got: "
+    + (sendfileCalls().length - before7) + " calls");
+  assert(notice().textContent.indexOf("Đã gửi 2/3") !== -1,
+    "summary must say 2/3, got: " + JSON.stringify(notice().textContent));
+  assert(notice().textContent.indexOf("rong.jpg") !== -1,
+    "summary must name the invalid file, got: " + JSON.stringify(notice().textContent));
+
+  // --- Test 15: no thread + multiple files -> no fetch, specific message ---
+  notice().textContent = "";
+  const before8 = sendfileCalls().length;
+  currentThread = null;
+  await sendChatFiles([
+    { name: "a.jpg", type: "image/jpeg", size: 120 },
+    { name: "b.jpg", type: "image/jpeg", size: 120 },
+  ]);
+  assert(sendfileCalls().length === before8,
     "no thread must not fetch");
   assert(notice().textContent.indexOf("Chưa mở đoạn chat") !== -1,
     "no thread needs a specific message, got: " + JSON.stringify(notice().textContent));
