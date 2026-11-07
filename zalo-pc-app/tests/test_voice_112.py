@@ -394,7 +394,13 @@ def test_photo_client_id_stays_number():
         assert isinstance(body["clientId"], int) and not \
             isinstance(body["clientId"], bool), body
         assert body["clientId"] == res["client_id"], body
-        assert body["desc"] == "anh.jpg", body
+        # desc rong khi khong caption (bundle _sendPhoto: desc =
+        # title || ""; anh chon tu file picker khong co title).
+        # Assertion cu ("anh.jpg") ghi nhan hanh vi sai — app gui
+        # ten file lam caption nen ben nhan hien ten file duoi
+        # moi anh (case live 07/11); sua theo bundle, xem
+        # chat.send_photo.
+        assert body["desc"] == "", body
         assert body["width"] == 800 and body["height"] == 600, body
     finally:
         mock.stop()

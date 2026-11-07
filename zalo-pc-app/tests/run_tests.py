@@ -20,7 +20,7 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
          "test_ctrl_webhooks.py",
          "test_voice_transcode.py", "test_voice_112.py",
          "test_voice_async_114.py",
-         "test_photo_silent.py",
+         "test_photo_silent.py", "test_photo_group.py",
          "test_services.py", "test_server_smoke.py"]
 
 # Node checks: app.js syntax + the vm harness for the End button
@@ -37,7 +37,16 @@ def main():
     for name in FILES:
         path = os.path.join(HERE, name)
         print("=== %s ===" % name)
-        p = subprocess.run([sys.executable, path],
+        # -u (unbuffered stdout): test e2e mo poller sync/ctrl la
+        # daemon thread in log ra stdout; neu process thoat trong
+        # luc mot thread dang in thi interpreter chet voi 'Fatal
+        # Python error: _enter_buffered_busy ... at interpreter
+        # shutdown' (do BufferedWriter cua stdout). Do 07/11 tren
+        # test_chat.py chay rieng: buffered 4/6 lan abort (exit
+        # 134), -u 6/6 sach. Test khong can buffer stdout; -u
+        # khong doi ket qua assert (redirect_stdout sang StringIO
+        # van nhu cu).
+        p = subprocess.run([sys.executable, "-u", path],
                            cwd=os.path.join(HERE, ".."))
         if p.returncode != 0:
             failed.append(name)

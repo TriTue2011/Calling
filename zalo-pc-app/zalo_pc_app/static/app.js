@@ -1060,10 +1060,23 @@ function renderMessages(messages) {
       who.textContent = m.sender_name || m.sender_id;
       div.appendChild(who);
     }
-    const text = document.createElement("div");
-    text.className = "bubble-text";
-    text.textContent = bubbleText(m);
-    div.appendChild(text);
+    const imgUrl = m.kind === "photo" ? (m.localUrl || "") : "";
+    if (imgUrl) {
+      // Anh vua gui (localUrl = blob URL cua file vua chon) hien
+      // dang hinh thay vi chu "Da gui anh: <ten file>". Khong co
+      // URL (tai lai lich su / anh den chua co URL) thi ve chu
+      // nhu cu — xem bubbleText.
+      const img = document.createElement("img");
+      img.className = "bubble-img";
+      img.src = imgUrl;
+      img.alt = m.file_name || "Ảnh đã gửi";
+      div.appendChild(img);
+    } else {
+      const text = document.createElement("div");
+      text.className = "bubble-text";
+      text.textContent = bubbleText(m);
+      div.appendChild(text);
+    }
     if (m.time) {
       const meta = document.createElement("div");
       meta.className = "bubble-meta";
@@ -1234,9 +1247,27 @@ function attachCheck(file) {
   return "";
 }
 
-async function sendChatFile(file) {
+// -- gom nhom anh: client PC that gom nhieu anh chon mot luc
+// bang cach gan chung mot bundle vao params tung anh (bundle
+// _sendPhoto: t.photoBundle && Object.assign(h, t.photoBundle);
+// file-input handler tao bundle khi chon >1 anh khong-phai-gif).
+// groupLayoutId = epoch-ms tang don dieu (E.a.next(): lay gio
+// server, neu <= lan truoc thi +1) — duy nhat moi batch; ben nhan
+// gom cac message cung group_layout_id thanh mot album. Anh don
+// khong kem field nhom; GIF di duong file, khong dem.
+let _lastGroupLayoutId = 0;
+function nextGroupLayoutId() {
+  const now = Date.now();
+  _lastGroupLayoutId = Math.max(now, _lastGroupLayoutId + 1);
+  return String(_lastGroupLayoutId);
+}
+
+async function sendChatFile(file, photoBundle) {
   // Tra ve {ok, error} de luong gui nhieu file (sendChatFiles) tong
   // hop duoc; hanh vi hien thi (notice) giu nguyen nhu cu.
+  // photoBundle (neu co): {groupLayoutId, totalItemInGroup,
+  // isGroupLayout, idInGroup} — chi cho anh trong batch >1 anh,
+  // gui kem FormData de server merge vao params 11152/11164.
   if (!currentThread) {
     attachNotice("Chưa mở đoạn chat nào — hãy chọn một cuộc trò chuyện rồi gửi file.");
     return { ok: false, error: "Chưa mở đoạn chat nào." };
@@ -1264,6 +1295,12 @@ async function sendChatFile(file) {
       });
       form.append("width", String(dims.w));
       form.append("height", String(dims.h));
+      if (photoBundle) {
+        form.append("groupLayoutId", photoBundle.groupLayoutId);
+        form.append("totalItemInGroup", String(photoBundle.totalItemInGroup));
+        form.append("isGroupLayout", String(photoBundle.isGroupLayout));
+        form.append("idInGroup", String(photoBundle.idInGroup));
+      }
     }
     form.append("file", file, file.name);
     const r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendfile", form);
@@ -1275,6 +1312,12 @@ async function sendChatFile(file) {
     if (r && r.message) {
       $("chat-notice").hidden = true;
       _setSendError(null);
+      if (isPhoto && typeof URL !== "undefined" && URL.createObjectURL) {
+        // Hien anh vua gui dang hinh, khong phai dang chu "Da gui
+        // anh: <ten file>" — blob URL cua file vua chon, chi song
+        // trong phien (tai lai lich su thi ve chu nhu cu).
+        r.message.localUrl = URL.createObjectURL(file);
+      }
       renderMessages([...chatRenderedMessages(), r.message]);
       return { ok: true };
     }
@@ -1302,7 +1345,11 @@ async function sendChatFile(file) {
 // backend send_photo tao clientId moi moi call — khong co endpoint
 // gop). Gui lan luot tung file, moi file mot POST sendfile rieng;
 // mot file loi khong chan cac file con lai; cuoi cung bao tong ket
-// so file da gui + ten file loi.
+// so file da gui + ten file loi. Nhieu anh mot luc van gom thanh
+// mot album o ben nhan nho photoBundle chung (xem nextGroupLayoutId):
+// dem anh khong-phai-gif, neu >1 thi sinh mot groupLayoutId chung
+// cho ca batch, idInGroup 0-based theo thu tu chon; file thuong /
+// GIF khong nhan bundle.
 async function sendChatFiles(files) {
   const list = Array.prototype.slice.call(files || []);
   if (!list.length) return;
@@ -1311,6 +1358,9 @@ async function sendChatFiles(files) {
     attachNotice("Chưa mở đoạn chat nào — hãy chọn một cuộc trò chuyện rồi gửi file.");
     return;
   }
+  const photoCount = list.filter((f) => isPhotoFile(f)).length;
+  const groupLayoutId = photoCount > 1 ? nextGroupLayoutId() : null;
+  let photoIndex = 0;
   const btn = $("btn-chat-attach");
   btn.disabled = true;
   let okCount = 0;
@@ -1319,7 +1369,14 @@ async function sendChatFiles(files) {
     for (let i = 0; i < list.length; i++) {
       const file = list[i];
       attachNotice("Đang gửi " + (i + 1) + "/" + list.length + ": “" + file.name + "”…");
-      const r = await sendChatFile(file);
+      let bundle = null;
+      if (groupLayoutId && isPhotoFile(file)) {
+        bundle = { groupLayoutId: groupLayoutId,
+                   totalItemInGroup: photoCount,
+                   isGroupLayout: 1, idInGroup: photoIndex };
+        photoIndex++;
+      }
+      const r = await sendChatFile(file, bundle);
       if (r && r.ok) okCount++;
       else failed.push({ name: file.name, error: (r && r.error) || "không rõ lỗi" });
     }

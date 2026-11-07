@@ -1369,6 +1369,33 @@ class AppState:
         return messages
 
 
+def _photo_bundle_from_fields(fields):
+    """Doc 4 field gom nhom anh tu form sendfile (xem
+    chat._validate_photo_bundle): UI gui du 4 field khi batch co
+    >1 anh khong-gif. Khong co field nao -> None (anh don, khong
+    gom nhom). Co mot vai field -> ValueError (400, khong gui
+    khong bundle — gui thieu field thi anh roi rac). So nguyen
+    parse o day; validate day du (total >= 2, id trong khoang)
+    o chat._validate_photo_bundle."""
+    keys = ("groupLayoutId", "totalItemInGroup", "isGroupLayout",
+            "idInGroup")
+    values = [fields.get(k) for k in keys]
+    if all(v is None for v in values):
+        return None
+    if any(v is None for v in values):
+        raise ValueError(
+            "thieu truong nhom anh — gui du groupLayoutId, "
+            "totalItemInGroup, isGroupLayout, idInGroup")
+    try:
+        return chat_mod._validate_photo_bundle({
+            "groupLayoutId": values[0],
+            "totalItemInGroup": int(values[1]),
+            "isGroupLayout": int(values[2]),
+            "idInGroup": int(values[3])})
+    except (TypeError, ValueError) as e:
+        raise ValueError("truong nhom anh khong hop le: %s" % e)
+
+
 STATE = AppState(DATA_DIR)
 
 
@@ -1813,9 +1840,16 @@ class Handler(BaseHTTPRequestHandler):
                             height = int(fields.get("height") or 0)
                         except ValueError:
                             width, height = 0, 0
+                        # Gom nhom anh: UI gui du 4 field khi batch
+                        # co >1 anh khong-gif (xem
+                        # _photo_bundle_from_fields); thieu/sai ->
+                        # ValueError -> 400 o except duoi, khong
+                        # gui khong bundle.
+                        bundle = _photo_bundle_from_fields(fields)
                         res = chat.send_photo(thread_type, thread_id,
                                               filename, data_bytes, mime,
-                                              width, height)
+                                              width, height,
+                                              photo_bundle=bundle)
                         local_kind = "photo"
                     else:
                         res = chat.send_file(thread_type, thread_id,

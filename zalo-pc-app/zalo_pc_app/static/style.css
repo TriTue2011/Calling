@@ -489,6 +489,7 @@ button { font-family: var(--font); }
 }
 .bubble-who { font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
 .bubble-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.bubble-img { display: block; max-width: 100%; max-height: 320px; border-radius: 6px; }
 .bubble-out .bubble-meta { text-align: right; }
 .composer {
   display: flex; align-items: center; gap: 8px;

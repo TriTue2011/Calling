@@ -501,7 +501,12 @@ class MockZalo:
             assert body.get("toid"), body
             assert qs.get("type") == "2", qs
         if path in ("/api/message/photo", "/api/group/sendpt"):
-            assert body.get("desc"), body
+            # desc CHI can co mat, khong can khac rong: client that
+            # gui desc = title || "" (bundle _sendPhoto) — anh
+            # khong caption co desc = "". Assertion cu (truthy)
+            # chat hon server that; ten file khong duoc gui lam
+            # desc (xem chat.send_photo).
+            assert "desc" in body, body
             assert isinstance(body.get("width"), int), body
             assert isinstance(body.get("height"), int), body
             assert isinstance(body.get("clientId"), int) and not \

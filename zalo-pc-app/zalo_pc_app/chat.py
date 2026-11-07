@@ -350,6 +350,52 @@ E2EE_NOTE = (
 )
 
 
+def _validate_photo_bundle(bundle):
+    """Kiem tra bundle gom nhom anh (xem send_photo): phai la dict
+    du 4 field camelCase nhu client that merge vao params 11152/
+    11164 — groupLayoutId (str khong rong, duy nhat moi batch),
+    totalItemInGroup (int >= 2), isGroupLayout (== 1), idInGroup
+    (int, 0 <= id < total). Tra ban sao da chuan hoa (int/str);
+    sai -> ValueError, khong gui (gui khong bundle thi anh roi
+    rac)."""
+    if not isinstance(bundle, dict):
+        raise ValueError("photo_bundle phai la dict")
+    missing = [k for k in ("groupLayoutId", "totalItemInGroup",
+                          "isGroupLayout", "idInGroup")
+               if k not in bundle]
+    if missing:
+        raise ValueError("photo_bundle thieu truong: %s"
+                         % ", ".join(missing))
+    group_layout_id = bundle["groupLayoutId"]
+    if not isinstance(group_layout_id, str) or not group_layout_id:
+        raise ValueError("photo_bundle groupLayoutId phai la chuoi "
+                         "khong rong")
+    try:
+        total = int(bundle["totalItemInGroup"])
+        is_group = int(bundle["isGroupLayout"])
+        index = int(bundle["idInGroup"])
+    except (TypeError, ValueError):
+        raise ValueError("photo_bundle totalItemInGroup/isGroupLayout/"
+                         "idInGroup phai la so")
+    if isinstance(bundle["totalItemInGroup"], bool) \
+            or isinstance(bundle["isGroupLayout"], bool) \
+            or isinstance(bundle["idInGroup"], bool):
+        raise ValueError("photo_bundle totalItemInGroup/isGroupLayout/"
+                         "idInGroup phai la so")
+    if total < 2:
+        raise ValueError("photo_bundle totalItemInGroup phai >= 2 "
+                         "(anh don khong gom nhom)")
+    if is_group != 1:
+        raise ValueError("photo_bundle isGroupLayout phai == 1")
+    if index < 0 or index >= total:
+        raise ValueError("photo_bundle idInGroup phai trong "
+                         "[0, totalItemInGroup)")
+    return {"groupLayoutId": group_layout_id,
+            "totalItemInGroup": total,
+            "isGroupLayout": is_group,
+            "idInGroup": index}
+
+
 def _new_client_id():
     """clientId do client tu sinh: JSON NUMBER epoch-ms tang don
     dieu (NMlV.next() — xem protocol.new_client_id). Dung chung
@@ -829,7 +875,8 @@ class Chat:
                 "client_id": client_id}
 
     def send_photo(self, thread_type, thread_id, filename, data,
-                   mime="image/jpeg", width=0, height=0, visibility=0):
+                   mime="image/jpeg", width=0, height=0, visibility=0,
+                   desc="", photo_bundle=None):
         """11152 (1-1) / 11164 (nhom): multipart fileContent +
         params AES {clientId, desc, width, height, toid|grid}.
         width/height lay tu anh that o UI; 0 = khong biet (best
@@ -840,20 +887,50 @@ class Chat:
         heic/... di duong send_file theo luat Node.js. Response
         giai ma rong (None/{}) -> ZaloChatError "khong co ma tin":
         Zalo tra 200/error_code=0 nhung khong tao tin nao thi
-        khong duoc bao thanh cong (loi cam 07/11)."""
+        khong duoc bao thanh cong (loi cam 07/11). Tin gui thanh
+        cong that luon co data {msgId, ...}.
+
+        desc: caption cua anh. Client that gui desc = title || ""
+        (bundle _sendPhoto) — anh chon tu file picker khong co
+        title nen desc = "" (rong, khong phai ten file). Truoc day
+        ham nay gui desc = ten file nen ben nhan hien ten file
+        nhu caption duoi moi anh (case live 07/11). Gi nu tham so
+        desc de sau nay co o nhap caption thi truyen vao.
+
+        photo_bundle: gom nhom anh — client that gom nhieu anh
+        chon mot luc bang cach gan chung mot bundle vao params
+        tung anh (bundle _sendPhoto: t.photoBundle &&
+        Object.assign(h, t.photoBundle); file-input handler tao
+        bundle khi chon >1 anh khong-phai-gif): {"groupLayoutId":
+        chuoi epoch-ms duy nhat moi batch, "totalItemInGroup":
+        so anh khong-gif trong batch, "isGroupLayout": 1,
+        "idInGroup": 0-based theo thu tu chon}. Ben nhan gom cac
+        message cung group_layout_id thanh mot album MSG_PHOTO_GROUP
+        (bundle @12913083). Anh don KHONG kem field nhom; GIF di
+        duong file, khong dem, khong nhan idInGroup. Bundle sai
+        (thieu field / total < 2 / id ngoai khoang) -> ValueError,
+        khong gui — gui khong bundle thi anh roi rac, khong duoc
+        bao thanh cong gia."""
         validate_attachment("photo", filename, mime, data)
+        if photo_bundle is not None:
+            photo_bundle = _validate_photo_bundle(photo_bundle)
         client_id = _new_client_id()
         if thread_type == "group":
-            params = {"clientId": client_id, "desc": filename,
-                      "width": int(width), "height": int(height),
-                      "visibility": visibility, "grid": str(thread_id)}
+            params = {"clientId": client_id, "desc": desc,
+                      "width": int(width), "height": int(height)}
+            if photo_bundle is not None:
+                params.update(photo_bundle)
+            params["visibility"] = visibility
+            params["grid"] = str(thread_id)
             url = _multipart_url(FILES_DOMAIN, "/api/group/sendpt",
                                  params, self.zpw_enk, TYPE_FILE_GROUP)
             where = "POST /api/group/sendpt"
         else:
-            params = {"clientId": client_id, "desc": filename,
-                      "width": int(width), "height": int(height),
-                      "toid": str(thread_id)}
+            params = {"clientId": client_id, "desc": desc,
+                      "width": int(width), "height": int(height)}
+            if photo_bundle is not None:
+                params.update(photo_bundle)
+            params["toid"] = str(thread_id)
             url = _multipart_url(FILES_DOMAIN, "/api/message/photo",
                                  params, self.zpw_enk, TYPE_FILE_USER)
             where = "POST /api/message/photo"

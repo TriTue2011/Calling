@@ -15,6 +15,12 @@
 // order + "Đã gửi 3/3"; a failed middle file does not stop the
 // rest and is named in the summary; an invalid middle file never
 // reaches the server; single file behaves exactly as before.
+// Photo grouping (live 07/11, ban bea4f0a): >1 photo in one batch
+// shares one photoBundle (groupLayoutId/totalItemInGroup/
+// isGroupLayout/idInGroup — ben nhan gom thanh album); single
+// photo carries none; gif/file never carries one; a sent photo
+// shows as an <img> (localUrl) instead of the "Đã gửi ảnh: ..."
+// text.
 // No browser needed.
 //
 // Run: node tests/test_app_js_attach.js  (exit 0 = pass)
@@ -28,8 +34,11 @@ function makeEl() {
     style: {}, dataset: {}, hidden: false, textContent: "",
     value: "", src: "", className: "", innerHTML: "",
     disabled: false, scrollTop: 0, scrollHeight: 0,
+    children: [],
     classList: { add() {}, remove() {}, toggle() { return false; } },
-    setAttribute() {}, appendChild() {}, querySelectorAll() { return []; },
+    setAttribute() {},
+    appendChild(c) { this.children.push(c); },
+    querySelectorAll() { return []; },
   };
 }
 
@@ -82,9 +91,18 @@ const sandbox = {
       return { status: 502,
                json: async () => ({ error: "chat: POST /api/message/sharefile_full error_code=133 File rong" }) };
     }
+    // Tra message nhu server that: kind/file_name theo dung file
+    // vua gui (de test duoc bubble anh hien dang hinh khi co
+    // localUrl); cac test cu chi dung notice/count nen khong doi.
+    const formBody = opts && opts.body;
+    const formKind = formBody && typeof formBody.get === "function"
+      ? (formBody.get("kind") || "file") : "file";
+    const formFile = formBody && typeof formBody.get === "function"
+      ? (formBody.get("file") || "x.txt") : "x.txt";
     return { status: 200,
              json: async () => ({ ok: true,
-               message: { id: "1", kind: "file", text: "x.txt",
+               message: { id: "1", kind: formKind, text: formFile,
+                          file_name: formFile,
                           sender_id: "me", direction: "out",
                           time: 1762345600 } }) };
   },
@@ -414,6 +432,104 @@ const test = `
   assert(sendfileCalls().length === before23 + 2,
     "re-selecting the same file must send it again, got "
     + (sendfileCalls().length - before23));
+
+  // --- Test 24: gom nhom anh (live 07/11, ban bea4f0a) — 3 anh
+  // mot luc phai kem chung 1 photoBundle: cung groupLayoutId
+  // (chuoi epoch-ms), totalItemInGroup=3, isGroupLayout=1,
+  // idInGroup 0/1/2 theo thu tu chon. Khong co bundle thi ben
+  // nhan khong gom duoc (moi anh mot tin rieng).
+  currentThread = { id: "20001", type: "user" };
+  notice().textContent = "";
+  __setFetchMode("ok");
+  __setFailAtSendfile(0);
+  const before24 = sendfileCalls().length;
+  await sendChatFiles([
+    { name: "a.jpg", type: "image/jpeg", size: 120 },
+    { name: "b.jpg", type: "image/jpeg", size: 120 },
+    { name: "c.jpg", type: "image/jpeg", size: 120 },
+  ]);
+  const calls24 = sendfileCalls().slice(before24);
+  assert(calls24.length === 3,
+    "3 photos must make 3 sendfile calls, got: " + calls24.length);
+  const gid24 = calls24[0].form.get("groupLayoutId");
+  assert(typeof gid24 === "string" && /^\\d+$/.test(gid24),
+    "groupLayoutId must be a digit string, got: " + JSON.stringify(gid24));
+  calls24.forEach((c, i) => {
+    assert(c.form.get("groupLayoutId") === gid24,
+      "all photos in one batch must share groupLayoutId, call " + i
+      + " got: " + JSON.stringify(c.form.get("groupLayoutId")));
+    assert(c.form.get("totalItemInGroup") === "3",
+      "totalItemInGroup must be 3, got: " + c.form.get("totalItemInGroup"));
+    assert(c.form.get("isGroupLayout") === "1",
+      "isGroupLayout must be 1, got: " + c.form.get("isGroupLayout"));
+    assert(c.form.get("idInGroup") === String(i),
+      "idInGroup must be " + i + ", got: " + c.form.get("idInGroup"));
+  });
+
+  // --- Test 25: anh don -> khong kem field nhom nao ---
+  notice().textContent = "";
+  const before25 = sendfileCalls().length;
+  await sendChatFile({ name: "mot.jpg", type: "image/jpeg", size: 120 });
+  const singleForm = sendfileCalls()[sendfileCalls().length - 1].form;
+  assert(sendfileCalls().length === before25 + 1,
+    "single photo must make exactly 1 call");
+  ["groupLayoutId", "totalItemInGroup", "isGroupLayout", "idInGroup"]
+    .forEach((k) => {
+      assert(singleForm.get(k) === null,
+        "single photo must not carry " + k + ", got: " + singleForm.get(k));
+    });
+
+  // --- Test 26: batch tron (anh + gif + anh) — chi 2 anh duoc
+  // gom (total=2, id 0/1, cung groupLayoutId moi, khac batch
+  // truoc); GIF di duong file, khong nhan bundle ---
+  notice().textContent = "";
+  const before26 = sendfileCalls().length;
+  await sendChatFiles([
+    { name: "a.jpg", type: "image/jpeg", size: 120 },
+    { name: "g.gif", type: "image/gif", size: 120 },
+    { name: "c.png", type: "image/png", size: 120 },
+  ]);
+  const calls26 = sendfileCalls().slice(before26);
+  assert(calls26.length === 3,
+    "mixed batch must make 3 calls, got: " + calls26.length);
+  const gid26 = calls26[0].form.get("groupLayoutId");
+  assert(gid26 && gid26 !== gid24,
+    "a new batch must get a new groupLayoutId, got: " + gid26);
+  assert(calls26[0].form.get("totalItemInGroup") === "2"
+         && calls26[0].form.get("idInGroup") === "0",
+    "first photo must be id 0 of 2, got: "
+    + calls26[0].form.get("totalItemInGroup") + "/"
+    + calls26[0].form.get("idInGroup"));
+  assert(calls26[1].form.get("kind") === "file"
+         && calls26[1].form.get("groupLayoutId") === null,
+    "gif-as-file must not carry a bundle, got kind="
+    + calls26[1].form.get("kind") + " gid="
+    + calls26[1].form.get("groupLayoutId"));
+  assert(calls26[2].form.get("groupLayoutId") === gid26
+         && calls26[2].form.get("totalItemInGroup") === "2"
+         && calls26[2].form.get("idInGroup") === "1",
+    "second photo must be id 1 of 2 in the same group, got: "
+    + JSON.stringify(calls26[2].form.get("groupLayoutId")) + "/"
+    + calls26[2].form.get("idInGroup"));
+
+  // --- Test 27: anh vua gui hien dang hinh (khong phai chu
+  // "Da gui anh: <ten file>") — message duoc gan localUrl (blob
+  // URL cua file vua chon) va bubble render <img> voi src do. ---
+  notice().textContent = "";
+  document.getElementById("chat-history").children = [];
+  await sendChatFile({ name: "xem.jpg", type: "image/jpeg", size: 120 });
+  const rendered = chatRenderedMessages();
+  const lastMsg = rendered[rendered.length - 1];
+  assert(lastMsg.kind === "photo",
+    "sent photo message must be kind=photo, got: " + lastMsg.kind);
+  assert(lastMsg.localUrl === "blob:x",
+    "sent photo must carry localUrl, got: " + JSON.stringify(lastMsg.localUrl));
+  const hist = document.getElementById("chat-history");
+  const hasImg = hist.children.some((bubble) =>
+    (bubble.children || []).some((c) => c.src === "blob:x"
+      && c.className === "bubble-img"));
+  assert(hasImg,
+    "photo bubble must render an <img> with the blob URL");
 
   console.log("APP_JS_ATTACH_TESTS_PASSED");
 })().catch((e) => { console.error("APP_JS_ATTACH_TESTS_FAILED", e); process.exit(1); });
