@@ -362,6 +362,59 @@ const test = `
   assert(notice().hidden === true,
     "after a success, reopening must not resurrect the old error");
 
+  // --- Test 21: onchange that — FileList LIVE, reset value lam
+  // rong no (regression 30d594b, live 07/11): chon file xong khong
+  // co gi xay ra voi MOI loai file. Mo phong dung hanh vi trinh
+  // duyet that: files la cung mot list; gan value = "" lam rong
+  // chinh list do. Handler phai copy sang array truoc khi reset.
+  const attachInput = document.getElementById("chat-file");
+  const liveFiles = [];
+  Object.defineProperty(attachInput, "files", { value: liveFiles, configurable: true });
+  let attachValue = "";
+  Object.defineProperty(attachInput, "value", {
+    get() { return attachValue; },
+    set(v) { attachValue = v; if (v === "") liveFiles.length = 0; },
+    configurable: true,
+  });
+  const fireChange = async (files) => {
+    liveFiles.length = 0;
+    files.forEach((f) => liveFiles.push(f));
+    attachInput.onchange({ target: attachInput });
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  currentThread = { id: "20001", type: "user" };
+  notice().textContent = "";
+  __setFetchMode("ok");
+  const before21 = sendfileCalls().length;
+  await fireChange([{ name: "anh.jpg", type: "image/jpeg", size: 111 * 1024 }]);
+  assert(sendfileCalls().length === before21 + 1,
+    "onchange with a live FileList must send the file, got "
+    + (sendfileCalls().length - before21) + " sendfile calls");
+  assert(notice().hidden === true,
+    "onchange send must succeed and hide the notice");
+
+  // --- Test 22: onchange nhieu file -> moi file 1 POST, co tong ket ---
+  notice().textContent = "";
+  const before22 = sendfileCalls().length;
+  await fireChange([
+    { name: "a.jpg", type: "image/jpeg", size: 100 },
+    { name: "b.txt", type: "text/plain", size: 5 },
+  ]);
+  assert(sendfileCalls().length === before22 + 2,
+    "onchange with 2 files must send both, got "
+    + (sendfileCalls().length - before22));
+  assert(notice().textContent.indexOf("Đã gửi 2/2") !== -1,
+    "multi-file summary must say 2/2, got: " + JSON.stringify(notice().textContent));
+
+  // --- Test 23: chon lai cung file van gui duoc (ly do reset value) ---
+  notice().textContent = "";
+  const before23 = sendfileCalls().length;
+  await fireChange([{ name: "anh.jpg", type: "image/jpeg", size: 111 * 1024 }]);
+  await fireChange([{ name: "anh.jpg", type: "image/jpeg", size: 111 * 1024 }]);
+  assert(sendfileCalls().length === before23 + 2,
+    "re-selecting the same file must send it again, got "
+    + (sendfileCalls().length - before23));
+
   console.log("APP_JS_ATTACH_TESTS_PASSED");
 })().catch((e) => { console.error("APP_JS_ATTACH_TESTS_FAILED", e); process.exit(1); });
 `;

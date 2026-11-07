@@ -6,6 +6,8 @@ query type=2/11, multipart fileContent. Khong dang nhap that,
 khong gui tin that.
 """
 
+import contextlib
+import io
 import json
 import os
 import sys
@@ -705,6 +707,54 @@ def test_server_sendfile_validation():
             assert "133" in body["error"], body
         finally:
             app_server.make_transport = real_make_transport
+        httpd.shutdown()
+    finally:
+        mock.stop()
+
+
+def test_server_sendfile_logs():
+    """Log sendfile ra stdout (docker logs): moi lan goi sendfile
+    phai de lai 1 dong [sendfile] thread/kind/size + ket qua/loi —
+    live 07/11: log server khong co dong nao ve dinh kem nen khong
+    chan doan duoc tu docker logs (app khong co F12)."""
+    global BASE
+    mock = MockZalo().start()
+    tmp = tempfile.mkdtemp(prefix="zalo-pc-sendfile-log-test-")
+    try:
+        patch_domains(mock)
+        state = app_server.AppState(tmp)
+        app_server.STATE = state
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), app_server.Handler)
+        port = httpd.server_address[1]
+        BASE = "http://127.0.0.1:%d" % port
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        login_via_mock()
+
+        # Gui file thanh cong -> log co entry + ok.
+        mbody, mctype = chat_mod.build_multipart(
+            {"type": "user"},
+            [("file", "x.txt", "text/plain", b"#EXTM3U\n")])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            status, body = api("POST", "/api/thread/20001/sendfile",
+                               mbody, {"Content-Type": mctype})
+        assert status == 200 and body["ok"] is True, body
+        log = buf.getvalue()
+        assert "[sendfile] thread=20001 kind=file size=8" in log, log
+        assert "-> ok client_id=" in log, log
+
+        # File rong -> 400, log co entry + loi ro.
+        mbody, mctype = chat_mod.build_multipart(
+            {"type": "user"},
+            [("file", "rong.txt", "text/plain", b"")])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            status, body = api("POST", "/api/thread/20001/sendfile",
+                               mbody, {"Content-Type": mctype})
+        assert status == 400, body
+        log = buf.getvalue()
+        assert "[sendfile] thread=20001 kind=file size=0" in log, log
+        assert "-> loi:" in log and "rong (0 byte)" in log, log
         httpd.shutdown()
     finally:
         mock.stop()

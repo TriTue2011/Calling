@@ -1626,10 +1626,19 @@ class Handler(BaseHTTPRequestHandler):
                 # (max_size_share_file_v3) chua lan duoc.
                 kind = chat_mod.effective_kind(
                     fields.get("kind") or "file", filename, mime)
+                # Log ra stdout (docker logs): app khong co F12 nen
+                # lan sau dinh kem loi la co du kien ngay (thread,
+                # kind, size, ket qua/loi) ma khong can mo trinh
+                # duyet. Chi ghi size, khong ghi ten file/noi dung.
+                print("[sendfile] thread=%s kind=%s size=%d"
+                      % (thread_id, kind, len(data_bytes)), flush=True)
                 try:
                     chat_mod.validate_attachment(kind, filename, mime,
                                                  data_bytes)
                 except ValueError as e:
+                    print("[sendfile] thread=%s kind=%s size=%d -> loi: %s"
+                          % (thread_id, kind, len(data_bytes), e),
+                          flush=True)
                     return self._send_json({"error": str(e)}, status=400)
                 try:
                     if kind == "photo":
@@ -1649,7 +1658,13 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError as e:
                     # Phong thu them (validate trong chat.send_*):
                     # loi kiem tra van la 400, khong phai 502.
+                    print("[sendfile] thread=%s kind=%s size=%d -> loi: %s"
+                          % (thread_id, kind, len(data_bytes), e),
+                          flush=True)
                     return self._send_json({"error": str(e)}, status=400)
+                print("[sendfile] thread=%s kind=%s size=%d -> ok client_id=%s"
+                      % (thread_id, kind, len(data_bytes),
+                         res["client_id"]), flush=True)
                 local = STATE.chat_store.local_message(
                     thread_type, thread_id, local_kind,
                     text=filename, file_name=filename,
@@ -1700,6 +1715,9 @@ class Handler(BaseHTTPRequestHandler):
                                     "12063 + asyncfile/msg); khong phai "
                                     "ghi am native cua Zalo PC."})
         except Exception as e:  # noqa: BLE001
+            if action == "sendfile":
+                print("[sendfile] thread=%s -> loi: %s"
+                      % (thread_id, e), flush=True)
             return self._send_json({"error": str(e)}, status=502)
 
     def do_POST(self):

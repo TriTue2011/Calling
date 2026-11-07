@@ -1655,9 +1655,14 @@ $("chat-input").onkeydown = (e) => { if (e.key === "Enter") sendChatText(); };
 $("chat-input").oninput = onChatInput;
 $("btn-chat-attach").onclick = () => $("chat-file").click();
 $("chat-file").onchange = (e) => {
-  const files = e.target.files;
+  // FileList la LIVE: giu tham chieu roi reset value se lam rong
+  // chinh list do (regression 30d594b: truoc day chi lay files[0]
+  // la File rieng, khong anh huong; tu 30d594b lay ca FileList
+  // nen chon file xong khong co gi xay ra voi MOI loai file —
+  // live 07/11). Copy sang array TRUOC khi reset value.
+  const files = Array.prototype.slice.call(e.target.files || []);
   e.target.value = "";
-  if (files && files.length) sendChatFiles(files);
+  if (files.length) sendChatFiles(files);
 };
 $("btn-chat-record").onclick = toggleRecord;
 
