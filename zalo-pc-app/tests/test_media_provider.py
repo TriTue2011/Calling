@@ -730,6 +730,39 @@ def test_wait_selected_error_includes_diagnostics():
         raise AssertionError("no timeout raised")
 
 
+def test_wait_selected_error_includes_unknown_sample():
+    # Live 07/11 shape: replies arrived but were not recognized
+    # (unknown_rx=8, type02_rx=0). The error must name the latest
+    # unknown packet (length + head byte + hex prefix) so the
+    # next live test can be read from the message alone — and
+    # must never carry an address.
+    class _FakeTransport:
+        selected_relay = None
+        state = "handshaking"
+        counters = {"probe_tx": 160, "setup_init_tx": 8, "send_errors": 0,
+                    "type02_rx": 0, "unknown_rx": 8, "recv_errors": 0,
+                    "ping_reply_rx": 160}
+        _last_error = None
+        config = None
+
+        def unknown_samples(self):
+            return [{"len": 47, "head": 0x02,
+                     "hex": "027e0000000000000000000000000000"}]
+
+    try:
+        media_endpoints.MediaEndpoints._wait_selected(
+            _FakeTransport(), 0.01)
+    except RuntimeError as exc:
+        msg = str(exc)
+        assert "unknown_rx=8" in msg and "type02_rx=0" in msg
+        assert "hint: unrecognized packets arrived" in msg
+        assert "last unknown packet: len=47 head=0x02" in msg
+        assert "hex=027e0000000000000000000000000000" in msg
+        assert "203.0.113" not in msg
+    else:
+        raise AssertionError("no timeout raised")
+
+
 def test_wait_selected_error_sent_but_silent_hint():
     # Probes/setups left the socket and nothing came back: the
     # hint must say so, and the relay families must be listed

@@ -28,7 +28,7 @@ parse the relay list from response 11300 (`servers` — REAL shape:
 a list of dicts keyed `rtcpaddr`/`rtpIPv6`, seen live 2026-11-05;
 legacy `zrtc_config.servers` string kept as fallback),
 start the transport (probe -> setup init), WAIT for the relay to
-be selected (first type-02 52B, the disassembly's
+be selected (first type-02, the disassembly's
 smallest-`initSuccessTime` rule), and return the selected relay's
 `rtpAddress`/`rtcpAddress` as `"IP:port"` strings plus `session`
 and `extendData` for signal 416 / `vc_request` (11301).
@@ -706,6 +706,36 @@ def _extend_data_dict(extend_data, srtp_mode):
 
 # ------------------------------------------------------------------ provider
 
+def _latest_unknown_sample(transport):
+    """Latest unrecognized packet as a scrubbed one-liner, or "".
+
+    Reads transport.unknown_samples() when present (the real
+    transport keeps them; fakes may not). A sample holds only
+    the length, the head byte, and the first 16 bytes as hex —
+    no address — so it is safe to put in an error message. The
+    first 16 bytes can never hold a reflexive address (that
+    starts at offset 35), and the hex prefix is what tells the
+    next live test whether the reply was a type-02 of an
+    unexpected shape or something else entirely.
+    """
+    getter = getattr(transport, "unknown_samples", None)
+    if not callable(getter):
+        return ""
+    try:
+        samples = getter()
+    except Exception:  # noqa: BLE001 - diagnostics must not raise
+        return ""
+    if not samples:
+        return ""
+    last = samples[-1]
+    try:
+        return ("; last unknown packet: len=%s head=0x%02x hex=%s"
+                % (last.get("len"), last.get("head") or 0,
+                   last.get("hex", "")))
+    except Exception:  # noqa: BLE001 - diagnostics must not raise
+        return ""
+
+
 def _describe_wait_failure(transport):
     """Diagnostic summary for a relay-selection timeout.
 
@@ -766,6 +796,7 @@ def _describe_wait_failure(transport):
         hint = ("hint: unrecognized packets arrived "
                 "(unknown_rx=%d, recv_errors=%d)"
                 % (_n("unknown_rx"), _n("recv_errors")))
+        hint += _latest_unknown_sample(transport)
     else:
         hint = ("hint: probes/setups were sent but nothing came "
                 "back in the wait — the UDP path to the relay or "
@@ -1088,7 +1119,7 @@ class MediaEndpoints:
                 state = getattr(transport, "state", "?")
                 raise RuntimeError(
                     "no relay selected within %.1fs (transport "
-                    "state=%s): no type-02 52B arrived from any "
+                    "state=%s): no type-02 arrived from any "
                     "relay, so there is no address to put in 11301%s"
                     % (timeout, state,
                        _describe_wait_failure(transport)))

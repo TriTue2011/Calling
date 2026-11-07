@@ -122,8 +122,20 @@ function fmtElapsed(epochSec) {
   const m = Math.floor(s / 60);
   return String(m).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
 }
-function statusPill(status) {
-  if (status === "sent") return ["pill pill-accent", "Đang đổ chuông"];
+function statusPill(status, requestSent) {
+  // "sent" means step 1 (11300) went out, NOT that the peer is
+  // ringing: the peer only rings once step 2 (11301) is sent,
+  // and request_sent records exactly that. Showing "Đang đổ
+  // chuông" for a call whose step 2 never left lied to the
+  // user (live 07/11: step 2 stuck, chip still said ringing).
+  // requestSent === true -> ringing; === false -> step 2 failed
+  // (the call is still live until ended, but the attempt failed);
+  // null/undefined -> step 2 not attempted yet.
+  if (status === "sent") {
+    if (requestSent === true) return ["pill pill-accent", "Đang đổ chuông"];
+    if (requestSent === false) return ["pill pill-negative", "Lỗi"];
+    return ["pill pill-neutral", "Đang gọi"];
+  }
   if (status === "error") return ["pill pill-negative", "Lỗi"];
   return ["pill pill-neutral", "Đã kết thúc"];
 }
@@ -719,7 +731,13 @@ function renderCalls() {
   const pill = $("topbar-call");
   if (active) {
     pill.hidden = false;
-    pill.textContent = "Đang đổ chuông: " + (active.peer || active.thread_id);
+    // Only "ringing" once step 2 (11301) is actually sent:
+    // request_sent is the only honest signal; before that the
+    // call is still being placed and the peer may not be
+    // ringing at all (live 07/11: step 2 stuck, chip lied).
+    pill.textContent = (active.request_sent === true
+      ? "Đang đổ chuông: "
+      : "Đang gọi: ") + (active.peer || active.thread_id);
   } else {
     pill.hidden = true;
   }
@@ -762,7 +780,7 @@ function activeCard(c) {
   const row = document.createElement("div");
   row.className = "call-status-row";
   const pill = document.createElement("span");
-  const [cls, label] = statusPill(c.status);
+  const [cls, label] = statusPill(c.status, c.request_sent);
   pill.className = cls;
   pill.textContent = label;
   const timer = document.createElement("span");
@@ -813,7 +831,7 @@ function feedRow(c) {
   main.appendChild(tid);
   main.appendChild(sub);
   const pill = document.createElement("span");
-  const [cls, label] = statusPill(c.status);
+  const [cls, label] = statusPill(c.status, c.request_sent);
   pill.className = cls;
   pill.textContent = label;
   if (c.status === "error" && c.detail) pill.title = c.detail;
@@ -838,7 +856,7 @@ function historyRow(c) {
   tdType.textContent = typePill(c.type);
   const tdRes = document.createElement("td");
   const pill = document.createElement("span");
-  const [cls, label] = statusPill(c.status);
+  const [cls, label] = statusPill(c.status, c.request_sent);
   pill.className = cls;
   pill.textContent = label;
   tdRes.appendChild(pill);

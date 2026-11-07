@@ -58,6 +58,7 @@ OPEN (TODO, unresolved by the reports — do NOT guess an answer):
 
 import base64
 import binascii
+import collections
 import ipaddress
 import os
 import random
@@ -576,7 +577,8 @@ def build_setup_refresh(local_ssrc, relay_session, token):
 
 
 def parse_type02(data):
-    """Parse a type-02 52B relay reply.
+    """Parse a type-02 relay reply (variable length: 35 +
+    len("IP|port")).
 
     [0]=0x02 [1]=0x7e [2..9]=00 [10..13]=local SSRC LE
     [14..17]=00 [18..19]=call counter [20]=0x02 [21..24]=00
@@ -584,17 +586,28 @@ def parse_type02(data):
     [33..34]=ASCII length LE u16 [35..]=ASCII "IP|port".
     Returns the relay session, the peer reflexive address, and
     the echoed call identity. Raises ValueError on bad shape.
+
+    The 52B in the captures is the 17-char case, NOT a fixed
+    size: the engine reads the u16 LE length at [33..34] and
+    copies exactly that many ASCII chars of the reflexive
+    "IP|port" (disasm-init-serializer-reflexive.md §4.2), so a
+    peer whose reflexive string is shorter or longer yields a
+    shorter or longer packet. Requiring exactly 52 bytes
+    rejected every such reply as "unknown" (live 07/11: 8
+    setup replies -> 8 unknown_rx, 0 type02_rx). Trailing
+    bytes past the reflexive string are tolerated.
     """
-    if len(data) != 52:
-        raise ValueError("type-02 reply must be 52 bytes, got %d"
-                         % len(data))
+    if len(data) < 36:
+        raise ValueError(
+            "type-02 reply too short: %d bytes (need at least 36)"
+            % len(data))
     if data[0] != 0x02 or data[1] != 0x7E:
         raise ValueError("type-02 reply head must be 02 7e, got %s"
                          % bytes(data[:2]).hex())
     (local_ssrc,) = struct.unpack_from("<I", data, 10)
     (call_counter,) = struct.unpack_from("<H", data, 18)
     (addr_len,) = struct.unpack_from("<H", data, 33)
-    if 35 + addr_len > 52:
+    if 35 + addr_len > len(data):
         raise ValueError("type-02 reflexive length %d overruns packet"
                          % addr_len)
     raw = bytes(data[35:35 + addr_len]).decode("ascii", "strict")
@@ -934,7 +947,7 @@ class Udp4200Transport:
     """UDP 4200 relay + P2P transport for one call.
 
     Lifecycle: ``start()`` (probe burst -> setup init -> listen)
-    -> relay selected on the first type-02 52B (sticky: the
+    -> relay selected on the first type-02 (sticky: the
     first UDP success wins; a challenger only replaces a TCP
     best, and this transport is UDP-only) -> ``send_pcm()`` /
     PCM callback carry voice -> ``stop()``.
@@ -1024,6 +1037,11 @@ class Udp4200Transport:
             "rtp_rx_dropped": 0, "p2p_rx": 0, "p2p_media_rx": 0,
             "unknown_rx": 0, "send_errors": 0, "recv_errors": 0,
         }
+        # Last unrecognized packets (bounded, scrubbed — see
+        # _record_unknown): the wait-failure diagnostics show the
+        # latest one so the next live test can be read from the
+        # error alone.
+        self._unknown_samples = collections.deque(maxlen=8)
 
     # -- public API ------------------------------------------------
 
@@ -1118,7 +1136,7 @@ class Udp4200Transport:
             ok = self._send_to(pkt, self.selected_relay.rtp_addr())
         else:
             raise RuntimeError(
-                "no relay selected yet (no type-02 52B received); "
+                "no relay selected yet (no type-02 received); "
                 "media cannot be sent before the relay handshake")
         if not ok:
             raise RuntimeError("send failed: %s" % self._last_error)
@@ -1337,16 +1355,19 @@ class Udp4200Transport:
 
     def _dispatch(self, data, addr):
         if not data:
-            self.counters["unknown_rx"] += 1
+            self._record_unknown(data)
             return
         head = data[0]
         if head == 0x02:
-            if len(data) == 52:
-                self._on_type02(data, addr)
-            elif len(data) == 25:
+            if len(data) == 25:
                 self._on_type02_25(data, addr)
+            elif len(data) >= 36 and data[1] == 0x7E:
+                # Setup reply: variable length (35 + len of the
+                # reflexive "IP|port"), NOT fixed 52B — see
+                # parse_type02.
+                self._on_type02(data, addr)
             else:
-                self.counters["unknown_rx"] += 1
+                self._record_unknown(data)
         elif head == 0x04:
             self._on_media(data[1:], addr, via="relay")
         elif head == 0x05:
@@ -1358,7 +1379,26 @@ class Udp4200Transport:
             # contents not needed for the media path.
             self.counters["ping_reply_rx"] += 1
         else:
-            self.counters["unknown_rx"] += 1
+            self._record_unknown(data)
+
+    def _record_unknown(self, data):
+        """Count an unrecognized packet and keep a scrubbed sample.
+
+        The sample holds only the length, the head byte, and the
+        first 16 bytes as hex. A reflexive address (if the packet
+        has one) starts at offset 35, so no address can leak
+        through it — same rule as _last_error and status().
+        """
+        self.counters["unknown_rx"] += 1
+        self._unknown_samples.append({
+            "len": len(data),
+            "head": data[0] if data else None,
+            "hex": bytes(data[:16]).hex(),
+        })
+
+    def unknown_samples(self):
+        """Last unrecognized packets (bounded, scrubbed)."""
+        return [dict(s) for s in self._unknown_samples]
 
     def _relay_for_addr(self, addr):
         for relay in self.config.relays:

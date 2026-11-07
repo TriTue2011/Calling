@@ -208,7 +208,7 @@ def test_build_setup_refresh_verbatim():
 
 
 def test_parse_type02_verbatim():
-    addr = "203.0.113.7|42000"  # 17 chars, TEST-NET (52B fits <=17)
+    addr = "203.0.113.7|42000"  # 17 chars -> 52B, the capture case
     assert len(addr) == 17
     pkt = bytearray(52)
     pkt[0] = 0x02
@@ -227,6 +227,57 @@ def test_parse_type02_verbatim():
     assert info["relay_session"] == RELAY_SESSION
     assert info["reflexive_ip"] == "203.0.113.7"
     assert info["reflexive_port"] == 42000
+
+
+def _type02_packet(reflexive, call_counter=11):
+    """Type-02 reply of exact wire length (35 + len(reflexive))."""
+    raw = reflexive.encode("ascii")
+    pkt = bytearray(35 + len(raw))
+    pkt[0] = 0x02
+    pkt[1] = 0x7E
+    struct.pack_into("<I", pkt, 10, SSRC)
+    struct.pack_into("<H", pkt, 18, call_counter)
+    pkt[20] = 0x02
+    pkt[25:29] = CALL_SESSION
+    pkt[29:33] = RELAY_SESSION
+    struct.pack_into("<H", pkt, 33, len(raw))
+    pkt[35:] = raw
+    return bytes(pkt)
+
+
+def test_parse_type02_variable_length():
+    # Live 07/11 (690edbc): 8 setup replies arrived, 0 parsed as
+    # type-02, 8 counted unknown — the parser demanded exactly
+    # 52B. The length is 35 + len("IP|port"): 52B is only the
+    # 17-char case. Shorter and longer reflexives must parse.
+    for reflexive in ("1.2.3.4|4200",         # 12 chars -> 47B
+                      "203.0.113.7|42000",    # 17 chars -> 52B
+                      "203.0.113.123|5432"):  # 18 chars -> 53B
+        pkt = _type02_packet(reflexive)
+        assert len(pkt) == 35 + len(reflexive)
+        info = ut.parse_type02(pkt)
+        assert info["reflexive"] == reflexive
+        ip, port = reflexive.split("|")
+        assert info["reflexive_ip"] == ip
+        assert info["reflexive_port"] == int(port)
+        assert info["relay_session"] == RELAY_SESSION
+        assert info["call_session"] == CALL_SESSION
+    # Trailing bytes past the reflexive string are tolerated
+    # (the old loopback builder padded to 52B).
+    pkt = _type02_packet("1.2.3.4|4200") + b"\x00\x00\x00"
+    assert ut.parse_type02(pkt)["reflexive"] == "1.2.3.4|4200"
+    # Still rejected: too short, length field overruns the
+    # packet, no '|' in the reflexive, bad IP.
+    for bad in (b"\x02\x7e" + b"\x00" * 30,
+                _type02_packet("203.0.113.7|42000")[:40],
+                _type02_packet("203.0.113.7-42000"),
+                _type02_packet("999.999.999.999|42000")):
+        try:
+            ut.parse_type02(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("parse_type02 accepted %r" % (bad,))
 
 
 def test_type02_keepalive_roundtrip():
@@ -377,7 +428,11 @@ def test_missing_params():
 # ---------------------------------------------------------------- loopback flow
 
 def _build_type02_reply(setup_pkt, relay_session, reflexive):
-    pkt = bytearray(52)
+    # Exact wire length (35 + len(reflexive)): the fake relay's
+    # reflexive ("127.0.0.1|<port>") is 14-15 chars, so the reply
+    # is 49-50B, NOT 52B — the loopback flow itself now proves
+    # variable-length type-02 selection.
+    pkt = bytearray(35 + len(reflexive))
     pkt[0] = 0x02
     pkt[1] = 0x7E
     pkt[10:14] = setup_pkt[10:14]
@@ -492,6 +547,57 @@ def test_relay_flow_loopback():
         tr.stop()
         relay_sock.close()
         dummy.close()
+
+
+def test_dispatch_variable_type02_selects_relay():
+    # The live 07/11 shape, replayed directly: a 47B type-02
+    # (12-char reflexive) from a listed relay must select it —
+    # the old dispatcher only routed exactly 52B and counted
+    # everything else unknown.
+    fabric = _Fabric()
+    cfg = make_config(
+        [ut.RelayServer("203.0.113.7", 4200, "203.0.113.7", 4201)],
+        probe_burst=0)
+    tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
+    try:
+        tr.start()
+        tr._dispatch(_type02_packet("1.2.3.4|4200"),
+                     ("203.0.113.7", 4200))
+        assert tr.counters["type02_rx"] == 1
+        assert tr.counters["unknown_rx"] == 0
+        assert tr.selected_relay is not None
+        assert tr.peer_reflexive == ("1.2.3.4", 4200)
+        assert tr.state == "connected"
+    finally:
+        tr.stop()
+
+
+def test_unknown_sample_recorded():
+    # An unrecognized packet is counted AND its scrubbed shape
+    # (length + head byte + first 16 bytes of hex) is kept for
+    # the wait-failure diagnostics. The sample must never carry
+    # an address: a reflexive starts at offset 35, past the 16
+    # bytes kept — proven here by planting an address at 35.
+    fabric = _Fabric()
+    cfg = make_config(
+        [ut.RelayServer("203.0.113.7", 4200, "203.0.113.7", 4201)],
+        probe_burst=0)
+    tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
+    try:
+        tr.start()
+        pkt = bytearray(60)
+        pkt[0] = 0x09
+        pkt[35:35 + 17] = b"203.0.113.7|42000"
+        tr._dispatch(bytes(pkt), ("203.0.113.7", 4200))
+        assert tr.counters["unknown_rx"] == 1
+        samples = tr.unknown_samples()
+        assert len(samples) == 1
+        assert samples[0]["len"] == 60
+        assert samples[0]["head"] == 0x09
+        assert samples[0]["hex"] == bytes(pkt[:16]).hex()
+        assert "203.0.113" not in str(samples)
+    finally:
+        tr.stop()
 
 
 def test_send_pcm_without_protect_raises():
