@@ -728,7 +728,9 @@ def test_send_photo_uses_files_domain():
 
     def fake_post(self, url, body_bytes, content_type, where):
         urls.append(url)
-        return {}
+        # Tra payload thanh cong that ({msgId, ...}) — send_photo
+        # doi data khong rong (loi cam 07/11: data rong = loi).
+        return {"msgId": "msg-file-1"}
 
     orig_post = chat_mod.Chat._post_multipart
     orig_chat = chat_mod.CHAT_DOMAIN

@@ -93,10 +93,34 @@ async function api(path, method, body) {
 }
 
 // POST multipart (file/photo/voice): FormData, no JSON header.
-async function apiForm(path, form) {
-  const r = await fetch(path, { method: "POST", body: form });
-  return r.json();
+// Timeout bat buoc: fetch mac dinh KHONG co timeout — neu may chu
+// treo (khong tra loi), UI ket o "Dang gui..." mai ma khong bao
+// loi (loi cam 07/11). Mac dinh 90 giay > timeout Zalo 60 giay
+// cua server + du phong; voice duoc goi voi timeout dai hon vi
+// server doi sang AAC truoc khi gui.
+let API_FORM_TIMEOUT_MS = 90000;
+async function apiForm(path, form, timeoutMs = API_FORM_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(path, { method: "POST", body: form, signal: ctrl.signal });
+    return r.json();
+  } catch (e) {
+    if (e && e.name === "AbortError") {
+      throw new Error("hết thời gian chờ " + Math.round(timeoutMs / 1000)
+        + " giây — máy chủ không trả lời, file chưa chắc đã gửi");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
+
+// Giai ma anh de lay width/height co gioi han thoi gian: neu
+// trinh duyet kẹt khong goi onload/onerror, promise cu treo mai
+// (loi cam 07/11) — qua 5 giay thi gui voi 0x0 thay vi ket o
+// "Dang gui..." khong bao loi.
+let IMAGE_DIMS_TIMEOUT_MS = 5000;
 
 // -- helpers ---------------------------------------------------------------
 const TINTS = ["t0", "t1", "t2", "t3", "t4", "t5"];
@@ -1026,7 +1050,15 @@ async function loadThreadHistory() {
       renderMessages([]);
       return;
     }
-    if (data.notice) {
+    if (_lastSendError && currentThread
+        && String(_lastSendError.threadId) === String(currentThread.id)) {
+      // Loi gui vua hien o chinh thread nay thang thong bao lich
+      // su: mo lai thread khong duoc xoa banner loi (loi cam
+      // 07/11 — user gui anh loi, mo lai doan chat de goi thi
+      // banner bien mat, tuong la khong co loi gi).
+      notice.hidden = false;
+      notice.textContent = _lastSendError.text;
+    } else if (data.notice) {
       notice.hidden = false;
       notice.textContent = data.notice;
     } else {
@@ -1062,11 +1094,13 @@ async function sendChatText() {
   if (r.error) {
     $("chat-notice").hidden = false;
     $("chat-notice").textContent = "Lỗi gửi tin: " + r.error;
+    _setSendError("Lỗi gửi tin: " + r.error);
     input.value = text;
     return;
   }
   // The message just sent shows at once (local echo from the server).
   if (r.message) {
+    _setSendError(null);
     const box = $("chat-history");
     const cur = Array.from(box.querySelectorAll(".bubble")).length;
     if (cur === 0) $("chat-empty").hidden = true;
@@ -1115,6 +1149,17 @@ function attachNotice(msg) {
   el.hidden = false;
   el.textContent = msg;
 }
+// Loi gui gan nhat theo thread — loadThreadHistory khong duoc xoa
+// banner loi khi mo lai thread (loi cam 07/11: banner hien roi
+// bien mat khi user mo lai doan chat de goi). Luu kem thread id de
+// loi cua thread nay khong hien sang thread khac; xoa khi gui
+// thanh cong o chinh thread do.
+let _lastSendError = null; // { threadId, text } | null
+function _setSendError(text) {
+  _lastSendError = text
+    ? { threadId: currentThread && currentThread.id, text }
+    : null;
+}
 // Kiem tra truoc khi gui: tra ve loi tieng Viet cu the, "" neu dat.
 function attachCheck(file) {
   if (!file) return "Chưa chọn file để gửi.";
@@ -1157,9 +1202,12 @@ async function sendChatFile(file) {
       // Real photo send carries width/height (11152/11164 params).
       const dims = await new Promise((resolve) => {
         const img = new Image();
-        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-        img.onerror = () => resolve({ w: 0, h: 0 });
+        let done = false;
+        const finish = (d) => { if (!done) { done = true; resolve(d); } };
+        img.onload = () => finish({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => finish({ w: 0, h: 0 });
         img.src = URL.createObjectURL(file);
+        setTimeout(() => finish({ w: 0, h: 0 }), IMAGE_DIMS_TIMEOUT_MS);
       });
       form.append("width", String(dims.w));
       form.append("height", String(dims.h));
@@ -1168,14 +1216,17 @@ async function sendChatFile(file) {
     const r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendfile", form);
     if (r && r.error) {
       attachNotice("Lỗi gửi file: " + r.error);
+      _setSendError("Lỗi gửi file: " + r.error);
       return { ok: false, error: r.error };
     }
     if (r && r.message) {
       $("chat-notice").hidden = true;
+      _setSendError(null);
       renderMessages([...chatRenderedMessages(), r.message]);
       return { ok: true };
     }
     attachNotice("Máy chủ trả về không rõ kết quả gửi file — hãy mở lại đoạn chat để kiểm tra.");
+    _setSendError("Máy chủ trả về không rõ kết quả gửi file — hãy mở lại đoạn chat để kiểm tra.");
     return { ok: false, error: "Máy chủ trả về không rõ kết quả." };
   } catch (e) {
     // fetch bi tu choi (mat mang / server khong tra loi) hoac tra ve
@@ -1184,6 +1235,8 @@ async function sendChatFile(file) {
     // cu the (loi live 23:00 +07).
     const errText = e && e.message ? e.message : String(e);
     attachNotice("Lỗi gửi file: " + errText
+      + " — hãy kiểm tra mạng rồi gửi lại.");
+    _setSendError("Lỗi gửi file: " + errText
       + " — hãy kiểm tra mạng rồi gửi lại.");
     return { ok: false, error: errText };
   } finally {
@@ -1223,10 +1276,13 @@ async function sendChatFiles(files) {
   const failedText = failed.map((f) => "“" + f.name + "” (" + f.error + ")").join(", ");
   if (failed.length === 0) {
     attachNotice("Đã gửi " + okCount + "/" + list.length + " file.");
+    _setSendError(null);
   } else if (okCount === 0) {
     attachNotice("Không gửi được file nào (0/" + list.length + "): " + failedText + ".");
+    _setSendError("Không gửi được file nào (0/" + list.length + "): " + failedText + ".");
   } else {
     attachNotice("Đã gửi " + okCount + "/" + list.length + " file. Lỗi: " + failedText + ".");
+    _setSendError("Đã gửi " + okCount + "/" + list.length + " file. Lỗi: " + failedText + ".");
   }
 }
 
@@ -1280,7 +1336,9 @@ async function toggleRecord() {
       state.textContent = "Đang chuyển sang AAC rồi gửi…";
       let r;
       try {
-        r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendvoice", form);
+        // 180 giay: server doi sang AAC truoc khi gui nen co the
+        // lau hon gui file thuong (apiForm mac dinh 90 giay).
+        r = await apiForm("/api/thread/" + encodeURIComponent(currentThread.id) + "/sendvoice", form, 180000);
       } catch (e) {
         state.textContent = "Lỗi gửi tin nhắn thoại: không tới được máy chủ (" + (e && e.message ? e.message : e) + "). Bản ghi vẫn ở trình duyệt — bấm ghi âm lại để gửi.";
         return;
@@ -1289,9 +1347,13 @@ async function toggleRecord() {
       if (r.error) {
         $("chat-notice").hidden = false;
         $("chat-notice").textContent = "Lỗi gửi tin nhắn thoại: " + r.error;
+        _setSendError("Lỗi gửi tin nhắn thoại: " + r.error);
         return;
       }
-      if (r.message) renderMessages([...chatRenderedMessages(), r.message]);
+      if (r.message) {
+        _setSendError(null);
+        renderMessages([...chatRenderedMessages(), r.message]);
+      }
     };
     mediaRecorder.start();
     btn.textContent = "■ Dừng";

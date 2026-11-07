@@ -837,7 +837,10 @@ class Chat:
         truoc (validate_attachment): anh rong / qua lon / noi dung
         khong phai anh -> ValueError, khong goi Zalo. Chi jpg/jpeg/
         png/webp moi goi ham nay (xem effective_kind) — gif/bmp/
-        heic/... di duong send_file theo luat Node.js."""
+        heic/... di duong send_file theo luat Node.js. Response
+        giai ma rong (None/{}) -> ZaloChatError "khong co ma tin":
+        Zalo tra 200/error_code=0 nhung khong tao tin nao thi
+        khong duoc bao thanh cong (loi cam 07/11)."""
         validate_attachment("photo", filename, mime, data)
         client_id = _new_client_id()
         if thread_type == "group":
@@ -856,8 +859,18 @@ class Chat:
             where = "POST /api/message/photo"
         body, ctype = build_multipart(
             {}, [("fileContent", filename, mime, data)])
-        return {"data": self._post_multipart(url, body, ctype, where),
-                "client_id": client_id}
+        sent = self._post_multipart(url, body, ctype, where)
+        if not sent:
+            # Zalo tra 200/error_code=0 nhung khong tao tin nao
+            # (data rong) — phai bao loi that: neu tra ok, route
+            # se tra ok:true + message local, UI hien anh nhu da
+            # gui trong khi ben kia khong nhan duoc (thanh cong
+            # gia — loi cam 07/11). Tin gui thanh cong that luon
+            # co data {msgId, ...}.
+            raise ZaloChatError(
+                "photo: Zalo tra ve khong co ma tin — anh chua duoc "
+                "tao (data rong sau khi giai ma)")
+        return {"data": sent, "client_id": client_id}
 
     def send_voice(self, thread_type, thread_id, filename, data,
                    mime="audio/aac"):

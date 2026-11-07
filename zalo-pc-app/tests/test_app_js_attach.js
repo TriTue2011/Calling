@@ -34,9 +34,10 @@ function makeEl() {
 }
 
 const els = {};
-let fetchMode = "ok"; // ok | error-json | reject | bad-json
+let fetchMode = "ok"; // ok | error-json | reject | bad-json | hang
 let failAtSendfile = 0; // 0 = khong fail rieng le; n>0: sendfile thu n tra loi 405
 let sendfileCount = 0;
+let imageStuck = false; // true: Image khong bao gio goi onload/onerror (giai ma ket)
 const fetchCalls = [];
 const sandbox = {
   document: {
@@ -56,6 +57,21 @@ const sandbox = {
         return { status: 502,
                  json: async () => ({ error: "chat: POST /api/message/photo network status=405" }) };
       }
+    }
+    if (fetchMode === "hang") {
+      // Treo mai nhung ton trong AbortSignal (nhu trinh duyet that):
+      // abort -> reject AbortError; khong thi khong bao gio resolve.
+      return new Promise((resolve, reject) => {
+        const sig = opts && opts.signal;
+        const onAbort = () => {
+          const e = new Error("The user aborted a request.");
+          e.name = "AbortError";
+          reject(e);
+        };
+        if (!sig) return; // khong co signal: treo vinh vien
+        if (sig.aborted) onAbort();
+        else sig.addEventListener("abort", onAbort);
+      });
     }
     if (fetchMode === "reject") throw new Error("Failed to fetch");
     if (fetchMode === "bad-json") {
@@ -81,17 +97,18 @@ const sandbox = {
     constructor() {
       this.naturalWidth = 800;
       this.naturalHeight = 600;
-      setTimeout(() => { if (this.onload) this.onload(); }, 0);
+      if (!imageStuck) setTimeout(() => { if (this.onload) this.onload(); }, 0);
     }
   },
   URL: { createObjectURL: () => "blob:x" },
   setInterval: () => 0,
   clearInterval: () => {},
   setTimeout, clearTimeout,
-  Date, console, process, fetchCalls,
+  Date, console, process, fetchCalls, AbortController,
 };
 sandbox.__setFetchMode = (m) => { fetchMode = m; };
 sandbox.__setFailAtSendfile = (n) => { failAtSendfile = n; sendfileCount = 0; };
+sandbox.__setImageStuck = (v) => { imageStuck = v; };
 
 const src = fs.readFileSync(
   path.join(__dirname, "..", "zalo_pc_app", "static", "app.js"), "utf-8");
@@ -274,6 +291,76 @@ const test = `
     "no thread must not fetch");
   assert(notice().textContent.indexOf("Chưa mở đoạn chat") !== -1,
     "no thread needs a specific message, got: " + JSON.stringify(notice().textContent));
+
+  // --- Test 16: fetch treo -> timeout cua apiForm phai bao loi ---
+  // (loi cam 07/11: khong co timeout thi UI ket o "Dang gui..."
+  // mai, khong co loi nao). Test 15 de currentThread = null nen
+  // mo lai thread truoc.
+  currentThread = { id: "20001", type: "user" };
+  notice().textContent = "";
+  API_FORM_TIMEOUT_MS = 100;
+  __setFetchMode("hang");
+  const t16 = await sendChatFile({ name: "anh.jpg", type: "image/jpeg", size: 120 });
+  assert(t16.ok === false,
+    "hung fetch must fail, got: " + JSON.stringify(t16));
+  assert(notice().textContent.indexOf("hết thời gian chờ") !== -1,
+    "hung fetch must show the timeout error, got: " + JSON.stringify(notice().textContent));
+  assert(document.getElementById("btn-chat-attach").disabled === false,
+    "attach button must be re-enabled after timeout");
+  __setFetchMode("ok");
+  API_FORM_TIMEOUT_MS = 90000;
+
+  // --- Test 17: giai ma anh ket -> gui voi 0x0, khong treo ---
+  notice().textContent = "";
+  IMAGE_DIMS_TIMEOUT_MS = 50;
+  __setImageStuck(true);
+  const before9 = sendfileCalls().length;
+  const t17 = await sendChatFile({ name: "anh.jpg", type: "image/jpeg", size: 120 });
+  __setImageStuck(false);
+  IMAGE_DIMS_TIMEOUT_MS = 5000;
+  assert(t17.ok === true,
+    "stuck image decode must still send, got: " + JSON.stringify(t17));
+  assert(sendfileCalls().length === before9 + 1,
+    "stuck decode must reach the server");
+  const stuckForm = sendfileCalls()[sendfileCalls().length - 1].form;
+  assert(stuckForm.get("width") === "0" && stuckForm.get("height") === "0",
+    "stuck decode must fall back to 0x0, got: "
+    + stuckForm.get("width") + "x" + stuckForm.get("height"));
+
+  // --- Test 18: banner loi gui khong bi xoa khi mo lai thread ---
+  // (loi cam 07/11: gui anh loi, mo lai doan chat de goi thi
+  // loadThreadHistory an banner, tuong la khong co loi gi).
+  notice().textContent = "";
+  __setFetchMode("error-json");
+  await sendChatFile({ name: "x.txt", type: "text/plain", size: 5 });
+  assert(notice().textContent.indexOf("Lỗi gửi file:") !== -1,
+    "setup: send must fail first, got: " + JSON.stringify(notice().textContent));
+  // Lich su tai lai thanh cong (chi sendfile loi) — banner loi gui
+  // van phai con sau khi mo lai thread.
+  __setFetchMode("ok");
+  await loadThreadHistory();
+  assert(notice().hidden === false,
+    "send error must survive reopening the thread");
+  assert(notice().textContent.indexOf("Lỗi gửi file:") !== -1,
+    "send error text must survive, got: " + JSON.stringify(notice().textContent));
+
+  // --- Test 19: loi cua thread khac khong hien sang thread nay ---
+  currentThread = { id: "30001", type: "group" };
+  await loadThreadHistory();
+  assert(notice().hidden === true,
+    "another thread's send error must not show here, got: "
+    + JSON.stringify(notice().textContent));
+  currentThread = { id: "20001", type: "user" };
+
+  // --- Test 20: gui thanh cong xoa loi cu — mo lai thread het banner ---
+  notice().textContent = "";
+  __setFetchMode("ok");
+  await sendChatFile({ name: "hello.txt", type: "text/plain", size: 5 });
+  assert(notice().hidden === true,
+    "setup: success must hide the notice");
+  await loadThreadHistory();
+  assert(notice().hidden === true,
+    "after a success, reopening must not resurrect the old error");
 
   console.log("APP_JS_ATTACH_TESTS_PASSED");
 })().catch((e) => { console.error("APP_JS_ATTACH_TESTS_FAILED", e); process.exit(1); });
