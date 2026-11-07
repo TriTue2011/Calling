@@ -8,7 +8,15 @@ Scenarios are switched via flags on the MockZalo instance:
   scan_mode:    "ok" | "reject" | "timeout" | "trust"
   confirm_mode: "ok" | "reject" | "no_sek"
   reqqr_mode:   "ok" | "rate_limit" | "force_plaintext_once"
-  logininfo_mode: "ok" | "error102"
+  logininfo_mode: "ok" | "error102" | "nested_config" |
+  "no_endpoints". "ok" tra shape THAT cua getLoginInfo (bundle
+  compact-app-pc @11816376: toan bo data CHINH LA config —
+  zpw_chts_new / zpw_ctrs_new / zpw_service_map_new / zpw_conf /
+  zpw_ws o TOP-LEVEL cua data, khong phai duoi data.config).
+  "nested_config" tra shape cu (poll URLs duoi data.config) de
+  chung minh fallback van doc duoc. "no_endpoints" tra thanh
+  cong nhung khong co poll URLs o dau ca (phien that nhung
+  server khong cap endpoint — truong hop live 2026-11-07).
   friends_mode / groups_mode: "ok" | "error602" | "empty" | "rate429"
     "empty" simulates an account with no friends / no groups:
     friends data is [], groups data is {groups: [], hasMore: False,
@@ -97,6 +105,11 @@ class MockZalo:
         self.confirm_mode = "ok"
         self.reqqr_mode = "ok"
         self.logininfo_mode = "ok"
+        # Ctrl long-poll simulation (99101): khi dat, /lp-ctl/ tra
+        # mot event file_done cho fileId "file-1" voi URL nay (de
+        # test gui file end-to-end qua poller that); None thi tra
+        # controls rong.
+        self.ctrl_file_url = None
         # Contacts error simulation: "ok" | "error602" (server rejects
         # the call with the real 602 message, as in the 2026-11-05 bug)
         # | "rate429" (HTTP 429, the live 2026-11-05 rate limit).
@@ -338,6 +351,8 @@ class MockZalo:
             return 200, self._group_history(qs, headers, raw_qs)
         if path == "/lp-msg/":
             return 200, self._poll(qs, headers, raw_qs)
+        if path == "/lp-ctl/":
+            return 200, self._ctrl_poll(qs, headers, raw_qs)
         if path in ("/api/message/typing", "/api/group/typing",
                     "/api/message/seen", "/api/group/seen"):
             return 200, self._chat_event(path, qs, headers, raw_qs)
@@ -470,6 +485,28 @@ class MockZalo:
             "lastActionId": "100",
             "lastActionIdOther": "50",
             "queueStatus": {}})
+
+    def _ctrl_poll(self, qs, headers, raw_qs=""):
+        """Ctrl long-poll (99101 getControllFromPolling): GET
+        <poll-url>/?zpw_ver&zpw_type&params=<cursor>&ts=<unix>.
+        Tra envelope hai lop nhu kenh tin nhan. Khi ctrl_file_url
+        duoc dat, tra mot event file_done cho fileId "file-1" voi
+        URL do (mock cua file upload tra fileId "file-1"); khong
+        thi tra controls rong."""
+        self._check_postlogin(qs, headers, raw_qs, "ctrl poll")
+        assert qs.get("params"), "ctrl poll can params (con tro)"
+        assert qs.get("ts", "").isdigit(), "ctrl poll can ts (unix)"
+        controls = []
+        if self.ctrl_file_url:
+            controls.append({"controlId": "c-file-1",
+                             "content": {"act_type": "file_done",
+                                         "fileId": "file-1",
+                                         "data": {"url":
+                                                  self.ctrl_file_url}}})
+        return self._postlogin_envelope({"controls": controls,
+                                         "lastActionId": "77",
+                                         "lastActionIdOther": "60",
+                                         "queueStatus": {}})
 
     def _chat_event(self, path, qs, headers, raw_qs=""):
         """typing (11144/11196) / seen (11150/11167): GET, params AES."""
@@ -1019,6 +1056,14 @@ class MockZalo:
         assert headers.get("Cookie") == "zpw_sek=sek-test", (
             "getLoginInfo needs zpw_sek cookie, got: %r"
             % (headers.get("Cookie"),))
+        # Shape THAT cua getLoginInfo (bundle compact-app-pc
+        # @11816376: client resolve {config: e.data.data, ...} —
+        # toan bo data CHINH LA config; zpw_chts_new / zpw_ctrs_new /
+        # zpw_service_map_new / zpw_conf / zpw_ws o TOP-LEVEL cua
+        # data, khong phai duoi data.config. App cu chi doc
+        # data.config nen khong bao gio thay poll URLs tren
+        # response that (live 2026-11-07: QR xong, getLoginInfo
+        # thanh cong, nhung "khong co zpw_chts_new" mai).
         data = {
             "dkey": "dkey-test",
             "zpw_enk": TEST_SESSION_KEY,
@@ -1026,18 +1071,45 @@ class MockZalo:
             # QUICK_MESSAGE chi co trong map nay, khong hard-code
             # trong bundle (SERVICE-MAP.md §1). Mock tra ve chinh
             # mock base de test HTTP end-to-end di qua resolve.
-            "config": {"zpw_service_map_new": {
-                           "reaction": self.base,
-                           "quick_message": self.base},
-                       "zpw_ws": "wss://mock.invalid/ws",
-                       # Sync long-poll endpoints (bundle
-                       # setEndpoints): zpw_chts_new = W (tin nhan,
-                       # 99100), zpw_ctrs_new = q (dieu khien,
-                       # 99101); zpw_conf lp_* timeout (giay).
-                       "zpw_chts_new": [self.base + "/lp-msg"],
-                       "zpw_ctrs_new": [self.base + "/lp-ctl"],
-                       "zpw_conf": {"lp_msg_timeout": 30,
-                                    "lp_ctl_timeout": 30}}}
+            "zpw_service_map_new": {
+                "reaction": self.base,
+                "quick_message": self.base},
+            "zpw_service_map_v3": {},
+            "zpw_ws": "wss://mock.invalid/ws",
+            # Sync long-poll endpoints (bundle setEndpoints):
+            # zpw_chts_new = W (tin nhan, 99100), zpw_ctrs_new = q
+            # (dieu khien, 99101); zpw_conf lp_* timeout (giay).
+            "zpw_chts_new": [self.base + "/lp-msg"],
+            "zpw_ctrs_new": [self.base + "/lp-ctl"],
+            "zpw_conf": {"lp_msg_timeout": 30,
+                         "lp_ctl_timeout": 30},
+            "phone_number": "+84000000000",
+            "current_time": 1762345600,
+            "settings": {}}
+        if self.logininfo_mode == "nested_config":
+            # Shape cu (sai): poll URLs duoi data.config — chi de
+            # chung minh fallback cua app van doc duoc.
+            data = {
+                "dkey": "dkey-test",
+                "zpw_enk": TEST_SESSION_KEY,
+                "config": {"zpw_service_map_new": {
+                               "reaction": self.base,
+                               "quick_message": self.base},
+                           "zpw_ws": "wss://mock.invalid/ws",
+                           "zpw_chts_new": [self.base + "/lp-msg"],
+                           "zpw_ctrs_new": [self.base + "/lp-ctl"],
+                           "zpw_conf": {"lp_msg_timeout": 30,
+                                        "lp_ctl_timeout": 30}}}
+        elif self.logininfo_mode == "no_endpoints":
+            # Thanh cong nhung khong cap poll URLs o dau ca.
+            data = {
+                "dkey": "dkey-test",
+                "zpw_enk": TEST_SESSION_KEY,
+                "zpw_service_map_new": {},
+                "zpw_ws": "",
+                "zpw_conf": {"lp_msg_timeout": 30,
+                             "lp_ctl_timeout": 30},
+                "settings": {}}
         if "zcid" in qs:
             assert qs.get("type") == "30", qs
             assert qs.get("client_version") == "695", qs

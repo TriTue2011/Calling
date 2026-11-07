@@ -48,10 +48,13 @@ def patch_domains(mock):
     protocol.GROUP_DOMAIN = mock.base
 
 
-def kept_state(tmp, poll_urls, enk):
+def kept_state(tmp, poll_urls, enk, ctl_urls=None):
     """AppState voi phien cu da luu: zpw_sek con han, poll URLs /
     zpw_enk tuy theo truong hop (phien truoc a83d1e6 khong co
-    poll_msg_urls; phien luu loi co the thieu ca zpw_enk)."""
+    poll_msg_urls; phien luu loi co the thieu ca zpw_enk).
+    ctl_urls mac dinh [] (phien cu luu truoc khi co kenh ctrl) —
+    truyen day du ca hai kenh khi test truong hop "da du
+    endpoints, khong can refresh"."""
     state = app_server.AppState(tmp)
     sess = session_mod.new_session("dev-1", "testhost")
     sess.update({
@@ -60,7 +63,8 @@ def kept_state(tmp, poll_urls, enk):
         "zpw_sek": "sek-test", "zpw_kt": "kt-test",
         "zpw_enk": enk,
         "poll_msg_urls": list(poll_urls),
-        "poll_ctl_urls": [],
+        "poll_ctl_urls": list(ctl_urls) if ctl_urls is not None
+        else [],
         "status": session_mod.STATUS_LOGGED_IN,
     })
     state.store.save(sess)
@@ -88,12 +92,16 @@ def test_kept_session_with_endpoints_starts_no_refresh():
         patch_domains(mock)
         app_server.PARAM_CIPHER_KEY = None
         state = kept_state(tempfile.mkdtemp(),
-                           [mock.base + "/lp-msg"], TEST_SESSION_KEY)
+                           [mock.base + "/lp-msg"], TEST_SESSION_KEY,
+                           ctl_urls=[mock.base + "/lp-ctl"])
         assert state.start_sync() is True
         assert state.sync_status() == "running"
         assert state.public_status()["sync"] == "running"
-        # Da co endpoint thi KHONG goi getLoginInfo them.
+        # Da co du endpoint (ca tin nhan lan ctrl) thi KHONG goi
+        # getLoginInfo them; ca hai kenh deu chay.
         assert logininfo_hits(mock) == [], mock.seen
+        assert state.ctrl is not None
+        assert state.file_async.feeder_running is True
         wait_for(lambda: state.inbox.messages_for("user", "20001"),
                  what="tin den vao Inbox")
         state.stop_sync()

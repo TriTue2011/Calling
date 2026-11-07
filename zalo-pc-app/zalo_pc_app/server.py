@@ -519,6 +519,12 @@ class AppState:
         # refresh ("refresh_failed") apart from a session the
         # server genuinely gave no endpoints to ("no_endpoints").
         self.sync_error = ""
+        # Chan doan hinh dang response getLoginInfo lan cuoi (ten
+        # key cua data/config, khong ghi gia tri) — chi co khi
+        # refresh tra ve khong co poll URLs; {} khi chua co loi
+        # dang ghi. Hien o /api/status (sync_debug) de doc log
+        # la biet server tra gi.
+        self.sync_debug = {}
         # Background sync-retry loop (main() only) + manual-retry
         # cooldown for POST /api/sync/retry.
         self._sync_retry_thread = None
@@ -552,7 +558,10 @@ class AppState:
                 "engine": engine_seam.SEAM.status(),
                 "sync": self.sync_status(),
                 "sync_error": self.sync_error,
+                "ctrl": self.ctrl_status(),
                 "app_user": app_user}
+        if self.sync_debug:
+            base["sync_debug"] = dict(self.sync_debug)
         if logged:
             base.update({"login": True, "uid": uid,
                          "phonenum": phonenum})
@@ -980,7 +989,25 @@ class AppState:
         data = qr_login.decode_response(payload, enk)
         if not isinstance(data, dict):
             data = {}
-        config = data.get("config", {}) or {}
+        # HINH DANG response (bundle compact-app-pc @11816376):
+        # client resolve {config: e.data.data,
+        # UIN: e.data.data.dkey, decryptKey: e.data.data.zpw_enk}
+        # — toan bo data CHINH LA config. zpw_chts_new /
+        # zpw_ctrs_new / zpw_service_map_new / zpw_conf / zpw_ws o
+        # TOP-LEVEL cua data, khong phai duoi data.config. Ban cu
+        # chi doc data["config"] nen tren response that khong bao
+        # gio thay poll URLs (live 2026-11-07: QR xong, getLoginInfo
+        # thanh cong, nhung "khong co zpw_chts_new" mai, ca hai
+        # kenh khong mo duoc). Doc top-level truoc, roi fallback
+        # sang data.config (shape cu) neu top-level thieu.
+        # _data_keys / _config_keys chi la chan doan (ten key,
+        # khong ghi gia tri) de lan sau doc log la biet server
+        # tra gi thay vi chi biet "khong co zpw_chts_new".
+        nested = data.get("config")
+        config = dict(nested) if isinstance(nested, dict) else {}
+        for key, value in data.items():
+            if key != "config":
+                config[key] = value
         # Kenh sync long-poll (bundle setEndpoints): W = zpw_chts_new
         # (tin nhan, 99100), q = zpw_ctrs_new (dieu khien, 99101),
         # X/Q = zpw_conf lp_msg_timeout / lp_ctl_timeout (giay).
@@ -1004,7 +1031,9 @@ class AppState:
                                   (config.get("zpw_ctrs_new") or [])
                                   if isinstance(u, str) and u],
                 "poll_msg_timeout": msg_timeout if msg_timeout > 0 else 30,
-                "poll_ctl_timeout": ctl_timeout if ctl_timeout > 0 else 30}
+                "poll_ctl_timeout": ctl_timeout if ctl_timeout > 0 else 30,
+                "_data_keys": sorted(data.keys()),
+                "_config_keys": sorted(config.keys())}
 
     def qr_status(self):
         with self.lock:
@@ -1140,8 +1169,21 @@ class AppState:
             return False
         if not info.get("poll_msg_urls"):
             self.sync_error = "no_endpoints_from_server"
+            # Chan doan hinh dang response (ten key thoi, khong ghi
+            # gia tri/bi mat) — de lan sau doc log la biet server
+            # tra gi thay vi chi biet "khong co zpw_chts_new".
+            # Quet QR lai KHONG sua duoc truong hop nay (dinh chinh
+            # user 23:24 07/11: sau QR app phai tu lay duoc kenh);
+            # app se tu thu lai qua vong retry.
+            self.sync_debug = {
+                "logininfo_data_keys": info.get("_data_keys", []),
+                "logininfo_config_keys": info.get("_config_keys", []),
+            }
             print("[sync-poll] getLoginInfo tra ve khong co "
-                  "zpw_chts_new; can quet QR lai de lay kenh sync",
+                  "zpw_chts_new (data keys: %s; config keys: %s); "
+                  "se tu thu lai"
+                  % (self.sync_debug["logininfo_data_keys"],
+                     self.sync_debug["logininfo_config_keys"]),
                   flush=True)
             return False
         with self.lock:
@@ -1167,6 +1209,7 @@ class AppState:
                 cur["dkey"] = info["dkey"]
             self.store.save(cur)
         self.sync_error = ""
+        self.sync_debug = {}
         return True
 
     def start_sync(self):
@@ -1189,12 +1232,19 @@ class AppState:
         ban cu chan o zpw_enk truoc ca khi refresh, nen phien cu
         thieu enk khong bao gio duoc sua."""
         with self._sync_lock:
-            if self.sync is not None:
-                return True
+            sync_running = self.sync is not None
             sess = dict(self.session) if self.session else None
+        if sync_running:
+            # Sync da chay: dam bao kenh ctrl cung chay (kenh ctrl
+            # co the chet rieng khi sync van song — KickOut -69 chi
+            # dung ctrl; start_sync cu tra True ngay ma khong kiem
+            # tra, nen kenh ctrl chet thi khong ai mo lai).
+            self._ensure_ctrl_poller()
+            return True
         if not sess or not sess.get("zpw_sek"):
             return False
-        if not sess.get("poll_msg_urls") or not sess.get("zpw_enk"):
+        if not sess.get("poll_msg_urls") or not sess.get("zpw_enk") \
+                or not sess.get("poll_ctl_urls"):
             if not self._refresh_poll_endpoints(sess):
                 print("[sync-poll] chua mo duoc kenh nhan tin den; "
                       "se thu lai (xem sync_error o /api/status)",
@@ -1244,37 +1294,122 @@ class AppState:
             # Kenh ctrl (99101, zpw_ctrs_new): event
             # voice_aac_success mang URL ghi am cho send_voice (loi
             # 114) va file_done mang URL file cho send_file (loi 405
-            # sharefile_full). Mo kem kenh tin nhan, dung chung
-            # transport (cung cookie zpw_sek); thieu endpoint thi
-            # chi ghi log — send_voice/send_file se loi ro (khong
-            # gui buoc 2 khong co fileUrl) thay vi im lang.
-            ctl_urls = cur.get("poll_ctl_urls") or []
-            if ctl_urls:
-                try:
-                    ctrl = ctrl_poll_mod.CtrlPoller(
-                        transport, ctl_urls, cur["zpw_enk"],
-                        uid, self.voice_async,
-                        ctl_timeout=cur.get("poll_ctl_timeout", 30),
-                        cursor=self.cursor_store.load("ctrl", uid),
-                        on_cursor=lambda c: self._save_sync_cursor(
-                            "ctrl", c),
-                        on_group_event=self._on_ctrl_group_event,
-                        on_reaction=self._on_ctrl_reaction,
-                        file_registry=self.file_async)
-                except ValueError as e:
-                    print("[sync-poll] kenh ctrl khong mo duoc: %s"
-                          % e, flush=True)
-                    ctrl = None
-                if ctrl is not None:
-                    ctrl.start()
-                    self.ctrl = ctrl
-                    print("[sync-poll] da mo kenh ctrl (99101, %d "
-                          "endpoint)" % len(ctrl.urls), flush=True)
-            else:
-                print("[sync-poll] khong co zpw_ctrs_new — kenh "
-                      "ctrl (99101) chua mo; gui ghi am se loi ro "
-                      "thay vi gui khong URL", flush=True)
+            # sharefile_full). Mo kem kenh tin nhan; thieu endpoint
+            # thi chi ghi log — send_voice/send_file se loi ro
+            # (khong gui buoc 2 khong co fileUrl) thay vi im lang.
+            self._spawn_ctrl_poller_locked()
             return True
+
+    def _spawn_ctrl_poller_locked(self):
+        """Tao + start CtrlPoller tu phien hien tai. CHI goi khi
+        dang giu _sync_lock (khong goi mang, khong lay self.lock).
+        Tra True neu poller chay. Thieu endpoint/enk thi chi ghi
+        log, tra False — sync van chay, send_voice/send_file se
+        loi ro thay vi gui buoc 2 khong co fileUrl."""
+        cur = self.session
+        if cur is None or not cur.get("zpw_sek") \
+                or not cur.get("zpw_enk"):
+            return False
+        ctl_urls = cur.get("poll_ctl_urls") or []
+        if not ctl_urls:
+            print("[sync-poll] khong co zpw_ctrs_new — kenh "
+                  "ctrl (99101) chua mo; gui ghi am/file se loi ro "
+                  "thay vi gui khong URL", flush=True)
+            return False
+        try:
+            ctrl = ctrl_poll_mod.CtrlPoller(
+                make_transport(cur["zpw_sek"]), ctl_urls,
+                cur["zpw_enk"], cur.get("uid", ""), self.voice_async,
+                ctl_timeout=cur.get("poll_ctl_timeout", 30),
+                cursor=self.cursor_store.load(
+                    "ctrl", cur.get("uid", "")),
+                on_cursor=lambda c: self._save_sync_cursor("ctrl", c),
+                on_group_event=self._on_ctrl_group_event,
+                on_reaction=self._on_ctrl_reaction,
+                file_registry=self.file_async)
+        except ValueError as e:
+            print("[sync-poll] kenh ctrl khong mo duoc: %s"
+                  % e, flush=True)
+            return False
+        ctrl.start()
+        self.ctrl = ctrl
+        print("[sync-poll] da mo kenh ctrl (99101, %d endpoint)"
+              % len(ctrl.urls), flush=True)
+        return True
+
+    def _ensure_ctrl_poller(self):
+        """Dam bao kenh ctrl chay (dung khi sync da chay, hoac tu
+        vong retry). Neu ctrl dang chay thi khong lam gi; neu chet
+        thi mo lai; neu thieu poll_ctl_urls thi refresh getLoginInfo
+        mot lan truoc. KHONG mo lai khi ctrl bi da (kicked_out).
+        Khong giu khoa nao khi vao (refresh goi mang + lay
+        self.lock); chi giu _sync_lock trong tung buoc ngan."""
+        with self._sync_lock:
+            ctrl = self.ctrl
+            if ctrl is not None and ctrl.is_alive():
+                return True
+            if ctrl is not None and ctrl.kicked_out:
+                return False
+            ctl_urls = ((self.session or {}).get("poll_ctl_urls")
+                        or [])
+        if not ctl_urls:
+            sess = dict(self.session) if self.session else None
+            if not sess or not sess.get("zpw_sek"):
+                return False
+            if not self._refresh_poll_endpoints(sess):
+                return False
+            with self._sync_lock:
+                ctl_urls = ((self.session or {}).get("poll_ctl_urls")
+                            or [])
+            if not ctl_urls:
+                return False
+        with self._sync_lock:
+            ctrl = self.ctrl
+            if ctrl is not None and ctrl.is_alive():
+                return True
+            if ctrl is not None and ctrl.kicked_out:
+                return False
+            return self._spawn_ctrl_poller_locked()
+
+    def _ctrl_needs_restart(self):
+        """True khi sync dang chay nhung kenh ctrl khong chay va
+        khong bi da — vong retry nen goi start_sync() de mo lai
+        (start_sync se goi _ensure_ctrl_poller). False khi sync
+        chua chay (duong retry sync lo) hoac ctrl bi da."""
+        with self._sync_lock:
+            if self.sync is None:
+                return False
+            ctrl = self.ctrl
+            if ctrl is None:
+                return True
+            if ctrl.kicked_out:
+                return False
+            return not ctrl.is_alive()
+
+    def ctrl_status(self):
+        """Trang thai kenh ctrl (99101) cho /api/status:
+        running / no_endpoints / stopped / kicked_out / logged_out.
+        - running: poller dang chay (event file_done/voice ve duoc).
+        - no_endpoints: phien co that nhung khong co zpw_ctrs_new
+          (getLoginInfo khong cap) — app tu thu lai, quet QR lai
+          KHONG sua duoc (kenh phai tu mo sau QR).
+        - stopped: co endpoint nhung poller chua chay / da dung.
+        - kicked_out: server bao dung (-69), khong tu mo lai.
+        - logged_out: chua dang nhap."""
+        with self._sync_lock:
+            sess = self.session
+            ctrl = self.ctrl
+        if not sess or not sess.get("zpw_sek"):
+            return "logged_out"
+        if ctrl is not None:
+            if ctrl.kicked_out:
+                return "kicked_out"
+            if ctrl.is_alive():
+                return "running"
+            return "stopped"
+        if not (sess.get("poll_ctl_urls") or []):
+            return "no_endpoints"
+        return "stopped"
 
     def start_sync_retry_thread(self):
         """Vong retry nen cho kenh sync (chi main() goi): cu
@@ -1297,11 +1432,17 @@ class AppState:
             time.sleep(SYNC_RETRY_INTERVAL_SECONDS)
             try:
                 sess = self.session
-                if sess and sess.get("zpw_sek") \
-                        and self.sync is None \
+                if not sess or not sess.get("zpw_sek"):
+                    continue
+                # Sync xuong o trang thai thu lai duoc -> mo lai;
+                # sync chay nhung ctrl chet -> mo lai ctrl
+                # (start_sync se goi _ensure_ctrl_poller).
+                # Khong thu lai sau kicked_out (server bao dung).
+                if (self.sync is None
                         and self.sync_status() in (
                             "no_endpoints", "refresh_failed",
-                            "stopped"):
+                            "stopped")) \
+                        or self._ctrl_needs_restart():
                     self.start_sync()
             except Exception:  # noqa: BLE001 - retry nen khong chet
                 pass
@@ -1324,7 +1465,9 @@ class AppState:
         - running: poller dang chay (tin den se ve).
         - no_endpoints: phien co that nhung server khong cap
           endpoint (getLoginInfo tra ve khong co zpw_chts_new) —
-          chi luc nay moi can quet QR lai.
+          app tu thu lai qua vong retry; quet QR lai KHONG sua
+          duoc truong hop nay (kenh phai tu mo sau QR — dinh chinh
+          user 23:24 07/11).
         - refresh_failed: getLoginInfo refresh loi (sync_error
           giu kieu/ma loi) — thu lai duoc, chua ket luan la
           thieu endpoint.
@@ -1717,7 +1860,16 @@ class Handler(BaseHTTPRequestHandler):
                                                 None),
                              file_async_timeout=getattr(
                                  STATE, "file_async_timeout",
-                                 chat_mod.FILE_ASYNC_WAIT_SECONDS))
+                                 chat_mod.FILE_ASYNC_WAIT_SECONDS),
+                             # Trang thai kenh live de send_file /
+                             # send_voice bao ro nguyen nhan + cach
+                             # sua khi kenh ctrl xuong (thay vi chi
+                             # "kenh ctrl chua chay").
+                             ctrl_status=lambda: {
+                                 "ctrl": STATE.ctrl_status(),
+                                 "sync": STATE.sync_status(),
+                                 "sync_error": STATE.sync_error,
+                             })
 
     def _read_raw(self):
         try:

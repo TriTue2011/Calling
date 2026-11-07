@@ -669,6 +669,16 @@ class CtrlPoller:
         self._thread.start()
         return True
 
+    def is_alive(self):
+        """True khi poller dang chay (thread song + chua bi da).
+        Dung de server.py quyet dinh co can mo lai kenh ctrl
+        khong khi sync van chay (KickOut -69 chi dung ctrl;
+        run() thoat thi _thread chet, is_alive False)."""
+        if self.kicked_out:
+            return False
+        thread = self._thread
+        return thread is not None and thread.is_alive()
+
     def stop(self):
         self.registry.feeder_running = False
         if self.file_registry is not None:

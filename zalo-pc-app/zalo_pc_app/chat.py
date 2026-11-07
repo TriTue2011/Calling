@@ -691,7 +691,8 @@ class Chat:
     def __init__(self, http_get, device_id, zpw_enk,
                  http_post_multipart=None, http_post=None, sleep=None,
                  voice_async=None, voice_async_timeout=None,
-                 file_async=None, file_async_timeout=None):
+                 file_async=None, file_async_timeout=None,
+                 ctrl_status=None):
         self.http_get = http_get
         self.device_id = device_id
         self.zpw_enk = zpw_enk
@@ -735,6 +736,60 @@ class Chat:
             timeout = FILE_ASYNC_WAIT_SECONDS
         self.file_async_timeout = (timeout if timeout > 0
                                    else FILE_ASYNC_WAIT_SECONDS)
+        # Trang thai kenh live (callable tra dict {"ctrl", "sync",
+        # "sync_error"} — server nap bang AppState.ctrl_status() /
+        # sync_status()) de loi gui file/ghi am khi kenh ctrl xuong
+        # noi ro nguyen nhan + cach sua thay vi chi "kenh ctrl chua
+        # chay". None = khong co thong tin live, loi giu nguyen.
+        self._ctrl_status_fn = ctrl_status
+
+    def _ctrl_status_info(self):
+        """Dict trang thai kenh live (best-effort); {} khi khong co
+        ham trang thai hoac ham loi."""
+        fn = self._ctrl_status_fn
+        if fn is None:
+            return {}
+        try:
+            info = fn()
+        except Exception:
+            return {}
+        return info if isinstance(info, dict) else {}
+
+    def _ctrl_hint(self):
+        """Hau to huong dan khi kenh ctrl xuong, dua tren trang
+        thai live ("" khi khong co thong tin live).
+        - no_endpoints (server khong cap poll URLs): app tu thu
+          lai; quet QR lai KHONG sua duoc (kenh phai tu mo sau QR)
+          -> chi duong thu tay POST /api/sync/retry.
+        - refresh_failed + 600 (phien het han): quet QR lai.
+        - kicked_out (server bao dung -69): quet QR lai mo phien
+          moi.
+        - stopped (kenh dung): thu POST /api/sync/retry."""
+        info = self._ctrl_status_info()
+        if not info:
+            return ""
+        ctrl = info.get("ctrl", "") or "?"
+        sync = info.get("sync", "") or "?"
+        sync_error = str(info.get("sync_error", ""))
+        if "600" in sync_error:
+            hint = ("phien het han (600) — quet QR lai de dang "
+                    "nhap lai")
+        elif ctrl == "kicked_out":
+            hint = ("kenh ctrl bi server da ra (-69) — quet QR lai "
+                    "de mo phien moi")
+        elif ctrl == "no_endpoints":
+            hint = ("kenh sync/ctrl chua co endpoint (getLoginInfo "
+                    "khong tra poll URLs) — app dang tu thu lai, "
+                    "thu POST /api/sync/retry de mo lai kenh")
+        elif ctrl == "stopped":
+            hint = "kenh ctrl da dung — thu POST /api/sync/retry " \
+                   "de mo lai kenh"
+        elif ctrl == "logged_out":
+            hint = "chua dang nhap Zalo — quet QR de dang nhap"
+        else:
+            hint = ("kiem tra /api/status roi thu POST "
+                    "/api/sync/retry")
+        return " (kenh ctrl: %s; sync: %s — %s)" % (ctrl, sync, hint)
 
     # -- co so -----------------------------------------------------------
     def _unwrap(self, status, payload, where):
@@ -1041,12 +1096,13 @@ class Chat:
             raise ZaloChatError(
                 "chat: gui file chua nhan duoc URL file — khong co "
                 "kenh cho event async ctrl file_done (99101); "
-                "khong gui buoc 2 khong co fileUrl", error_code=0)
+                "khong gui buoc 2 khong co fileUrl"
+                + self._ctrl_hint(), error_code=0)
         if not getattr(waiter, "feeder_running", True):
             raise ZaloChatError(
                 "chat: gui file chua nhan duoc URL file — kenh ctrl "
                 "(99101) chua chay; khong gui buoc 2 khong co "
-                "fileUrl", error_code=0)
+                "fileUrl" + self._ctrl_hint(), error_code=0)
         got = waiter.wait(file_id, self.file_async_timeout)
         file_url = None
         if isinstance(got, dict):
@@ -1057,7 +1113,8 @@ class Chat:
                 "chat: gui file het %.0f giay cho event async ctrl "
                 "file_done ma khong thay URL file cho fileId da "
                 "upload xong; khong gui buoc 2 khong co fileUrl"
-                % self.file_async_timeout, error_code=0)
+                % self.file_async_timeout + self._ctrl_hint(),
+                error_code=0)
         # -- buoc 2: gui bang fileId -----------------------------------
         item = {"fileId": file_id,
                 "checksum": hashlib.md5(data).hexdigest(),
@@ -1340,12 +1397,13 @@ class Chat:
                 "chat: gui ghi am chua nhan duoc URL ghi am "
                 "(amr/aac) — khong co kenh cho event async ctrl "
                 "voice_aac_success (99101); khong gui buoc 2 "
-                "khong co fileUrl", error_code=0)
+                "khong co fileUrl" + self._ctrl_hint(), error_code=0)
         if not getattr(waiter, "feeder_running", True):
             raise ZaloChatError(
                 "chat: gui ghi am chua nhan duoc URL ghi am "
                 "(amr/aac) — kenh ctrl (99101) chua chay; "
-                "khong gui buoc 2 khong co fileUrl",
+                "khong gui buoc 2 khong co fileUrl"
+                + self._ctrl_hint(),
                 error_code=0)
         got = waiter.wait(file_id, self.voice_async_timeout)
         file_url, aac_url, event_key = \
@@ -1357,7 +1415,8 @@ class Chat:
                 "ctrl voice_aac_success ma khong thay URL ghi am "
                 "(amr/aac) cho fileId da upload xong; khong gui "
                 "buoc 2 khong co fileUrl"
-                % self.voice_async_timeout, error_code=0)
+                % self.voice_async_timeout + self._ctrl_hint(),
+                error_code=0)
         # -- buoc 2: gui bang fileId -----------------------------------
         item = {"fileId": file_id,
                 "checksum": hashlib.md5(data).hexdigest(),
