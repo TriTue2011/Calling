@@ -705,6 +705,56 @@ def test_server_sendfile_validation():
         mock.stop()
 
 
+def test_send_photo_uses_files_domain():
+    """Loi that 2026-11-07 06:50 +07 (user, ban 16a223c): gui anh 1-1
+    cho Dai ca bi banner «Lỗi gửi file: chat: POST /api/message/photo
+    network status=405» — 405 tu Zalo upstream, khong phai tu route
+    app (route /api/thread/<id>/sendfile van nhan, chi sai host khi
+    goi sang Zalo). NGUYEN NHAN: send_photo POST len
+    {chat-wpa}/api/message/photo (1-1) / {group-wpa}/api/group/sendpt
+    (nhom), nhung bundle PC that (bang lenh 231 muc, ham
+    _sendPhoto: domainType FILE, commandId 11152/11164) + SERVICE-MAP
+    §3.2 deu noi hai duong nay o files-wpa — chat-wpa/group-wpa
+    khong phuc vu duong nay nen tra 405. Mock cu khong bat duoc vi
+    patch_domains() gan ca ba domain ve cung mock.base (mock chi
+    phan biet theo path) — test nay gan domain GIA KHAC NHAU de bat
+    dung host, va chan _post_multipart de khong can mang that."""
+    urls = []
+
+    def fake_post(self, url, body_bytes, content_type, where):
+        urls.append(url)
+        return {}
+
+    orig_post = chat_mod.Chat._post_multipart
+    orig_chat = chat_mod.CHAT_DOMAIN
+    orig_files = chat_mod.FILES_DOMAIN
+    orig_group = chat_mod.GROUP_DOMAIN
+    chat_mod.Chat._post_multipart = fake_post
+    try:
+        chat_mod.CHAT_DOMAIN = "https://chat-wpa.test"
+        chat_mod.FILES_DOMAIN = "https://files-wpa.test"
+        chat_mod.GROUP_DOMAIN = "https://group-wpa.test"
+        chat = chat_mod.Chat(lambda *a, **k: (200, {}), "dev-1",
+                             TEST_SESSION_KEY)
+        png = b"\x89PNG\r\n\x1a\n" + b"x" * 20
+        chat.send_photo("user", "20001", "anh.png", png, "image/png",
+                        800, 600)
+        chat.send_photo("group", "30001", "anh.png", png, "image/png",
+                        800, 600)
+    finally:
+        chat_mod.Chat._post_multipart = orig_post
+        chat_mod.CHAT_DOMAIN = orig_chat
+        chat_mod.FILES_DOMAIN = orig_files
+        chat_mod.GROUP_DOMAIN = orig_group
+    assert len(urls) == 2, urls
+    assert urls[0].startswith(
+        "https://files-wpa.test/api/message/photo"), urls
+    assert "type=2" in urls[0], urls
+    assert urls[1].startswith(
+        "https://files-wpa.test/api/group/sendpt"), urls
+    assert "type=11" in urls[1], urls
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -36,7 +36,7 @@ zpw_enk>` + cookie `zpw_sek`; response envelope hai lop giai ma bang
 | Lich su nhom | GET `{group-wpa}/api/group/history` (11240) `{grid, count}` |
 | Lich su 1-1 | KHONG CO endpoint — UI hien thong bao gioi han + tin da gui trong phien |
 | Dinh kem file 1-1 / nhom | POST multipart `{files-wpa}/api/message/sharefile_full` (11146) / `/api/group/sharefile_full` (11191), `params=<AES {toid\|grid, clientId}>`, `&type=2/11`, FormData `fileContent` |
-| Gui anh 1-1 / nhom | POST multipart `{chat-wpa}/api/message/photo` (11152) / `{group-wpa}/api/group/sendpt` (11164), `params=<AES {clientId, desc, width, height, toid\|grid}>`, `&type=2/11`, FormData `fileContent` (width/height doc tu anh that o UI, 0 neu khong biet) |
+| Gui anh 1-1 / nhom | POST multipart `{files-wpa}/api/message/photo` (11152) / `{files-wpa}/api/group/sendpt` (11164), `params=<AES {clientId, desc, width, height, toid\|grid}>`, `&type=2/11`, FormData `fileContent` (width/height doc tu anh that o UI, 0 neu khong biet). SUA 2026-11-07: host la files-wpa (bundle _sendPhoto domainType FILE); gui len chat-wpa/group-wpa bi 405 (loi that 07/11) |
 | Gui file ghi am 1-1 / nhom | POST multipart `{files-wpa}/api/message/voicemp3` (11148) / `/api/group/sendmp3` (11169), `params=<AES {toid\|grid, clientId}>`, `&type=2/11`, FormData `fileContent` = file da ghi |
 | Dang go | GET `{chat-wpa}/api/message/typing` (11144) `{toid, destType:"USER", imei}` / `{group-wpa}/api/group/typing` (11196) `{grid, imei}` — UI goi toi da 1 lan/4 s khi go |
 | Da xem | GET `{chat-wpa}/api/message/seen` (11150) / `{group-wpa}/api/group/seen` (11167) `{msg_ids:[...]}` — UI goi sau khi tai lich su |

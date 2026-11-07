@@ -27,12 +27,15 @@ Endpoint da dung (ma lenh trong ngoac):
   Dinh kem file nhom: POST multipart {files-wpa}/api/group/
                  sharefile_full (11191), params {grid, clientId},
                  & type=11
-  Gui anh 1-1:   POST multipart {chat-wpa}/api/message/photo (11152)
+  Gui anh 1-1:   POST multipart {files-wpa}/api/message/photo (11152)
                  FormData fileContent + params AES {clientId, desc,
-                 width, height, toid}, & type=2
-  Gui anh nhom:  POST multipart {group-wpa}/api/group/sendpt (11164)
+                 width, height, toid}, & type=2 — HOST LA files-wpa
+                 (bundle: _sendPhoto domainType FILE; loi that
+                 2026-11-07: gui len chat-wpa bi 405).
+  Gui anh nhom:  POST multipart {files-wpa}/api/group/sendpt (11164)
                  params {clientId, desc, width, height, visibility,
-                 grid}, & type=11
+                 grid}, & type=11 — cung files-wpa (khong phai
+                 group-wpa).
   Gui file ghi am 1-1 / nhom — DUONG HAI BUOC (upload-manager):
     Buoc 1: POST multipart {files-wpa}/api/message/voice/upload
     (12060) / /api/group/voice/upload (12063), moi chunk la FormData
@@ -832,14 +835,14 @@ class Chat:
             params = {"clientId": client_id, "desc": filename,
                       "width": int(width), "height": int(height),
                       "visibility": visibility, "grid": str(thread_id)}
-            url = _multipart_url(GROUP_DOMAIN, "/api/group/sendpt",
+            url = _multipart_url(FILES_DOMAIN, "/api/group/sendpt",
                                  params, self.zpw_enk, TYPE_FILE_GROUP)
             where = "POST /api/group/sendpt"
         else:
             params = {"clientId": client_id, "desc": filename,
                       "width": int(width), "height": int(height),
                       "toid": str(thread_id)}
-            url = _multipart_url(CHAT_DOMAIN, "/api/message/photo",
+            url = _multipart_url(FILES_DOMAIN, "/api/message/photo",
                                  params, self.zpw_enk, TYPE_FILE_USER)
             where = "POST /api/message/photo"
         body, ctype = build_multipart(
