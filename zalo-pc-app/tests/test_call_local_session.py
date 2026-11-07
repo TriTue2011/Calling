@@ -258,6 +258,12 @@ def test_fromid_delivered_e2e():
             except Exception:  # noqa: BLE001
                 pass
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat (poll se loi
+        # nhanh, join kip): khong thi daemon thread con in retry
+        # ra stdout luc interpreter tat -> abort 134
+        # (_enter_buffered_busy) du test da pass het — loi co san,
+        # thay tren base bea4f0a (xem ghi chu o sync_poll.run).
+        app_server.STATE.stop_sync()
 
 
 def test_uid64_and_missing_fromid_e2e():
@@ -300,6 +306,9 @@ def test_uid64_and_missing_fromid_e2e():
             except Exception:  # noqa: BLE001
                 pass
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat (xem
+        # test_fromid_delivered_e2e — tranh abort 134 luc shutdown).
+        app_server.STATE.stop_sync()
 
 
 def test_uid64_ignored_when_fromid_present_e2e():
@@ -336,6 +345,9 @@ def test_uid64_ignored_when_fromid_present_e2e():
             except Exception:  # noqa: BLE001
                 pass
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat (xem
+        # test_fromid_delivered_e2e — tranh abort 134 luc shutdown).
+        app_server.STATE.stop_sync()
 
 
 def test_group_call_peer_session_none_e2e():
@@ -379,6 +391,9 @@ def test_group_call_peer_session_none_e2e():
             except Exception:  # noqa: BLE001
                 pass
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat (xem
+        # test_fromid_delivered_e2e — tranh abort 134 luc shutdown).
+        app_server.STATE.stop_sync()
 
 
 if __name__ == "__main__":

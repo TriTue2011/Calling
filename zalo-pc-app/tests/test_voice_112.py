@@ -125,6 +125,16 @@ class _ImmediateVoiceWaiter:
         return {"amr": VOICE_AMR_URL, "aac": VOICE_AAC_URL}
 
 
+class _ImmediateFileWaiter:
+    """Waiter gia: event ctrl file_done da den truoc (cache-hit
+    cua bundle) — tra ngay {"url"}."""
+
+    feeder_running = True
+
+    def wait(self, file_id, timeout_s):
+        return {"url": "https://f1-file-dl.zdn.vn/test.docx"}
+
+
 def patch_domains(mock):
     protocol.AUTH_DOMAIN = mock.base
     protocol.VOICECALL_DOMAIN = mock.base
@@ -149,7 +159,9 @@ def make_chat(mock, sleep=None):
     t = app_server.make_transport("sek-test")
     return chat_mod.Chat(t, "dev-1", TEST_SESSION_KEY,
                          voice_async=_ImmediateVoiceWaiter(),
-                         voice_async_timeout=5.0, sleep=sleep)
+                         voice_async_timeout=5.0,
+                         file_async=_ImmediateFileWaiter(),
+                         file_async_timeout=5.0, sleep=sleep)
 
 
 def _uploaded_chunk(mock, path, occurrence=0):
@@ -356,25 +368,72 @@ def test_voice_114_step2_item_has_no_ftype():
 
 
 def test_file_params_match_bundle():
-    """sharefile_full: KHONG DOI — bundle sendFile ghep
-    '"clientId":"<id>"' — clientId STRING, chi {toid|grid,
-    clientId}."""
+    """File thuong di DUONG HAI BUOC (bundle sendFileByChunkV2 ->
+    uploadFile -> sendMsgAsync -> _sendMsgFileAsync ->
+    sendMsgFileAsync): buoc 1 chunk len asyncfile/upload voi params
+    CHI {totalChunk, fileName, clientId NUMBER, totalSize, imei,
+    chunkId, toid|grid} (KHONG fileType — chi Voice moi co; KHONG
+    checksum — bundle xoa truoc khi gui); buoc 2 la item
+    getFileAsyncItem: {fileId, checksum (md5 hex), checksumSha "",
+    extension, totalSize, fileName, clientId NUMBER, fType 1,
+    fileCount 0, fdata "{}", toid|grid, imei (chi 1-1), zsource -1}
+    + fileUrl tu event ctrl file_done. clientId la NUMBER o ca hai
+    buoc, giong nhau giua upload va buoc 2 (JSON.stringify cua
+    upload-manager) — KHAC voi duong truc tiep sharefile_full cu
+    (clientId STRING ghep tay, code chet 0 caller, Zalo tra 405
+    live 2026-11-07)."""
     mock = MockZalo().start()
     try:
         patch_domains(mock)
         chat = make_chat(mock)
+        data = b"hello file"
         res = chat.send_file("user", "20001", "hello.txt",
-                             b"hello file", "text/plain")
-        body = res["data"]["body"]
-        assert set(body.keys()) == {"toid", "clientId"}, body
-        assert isinstance(body["clientId"], str), body
-        assert body["clientId"] == str(res["client_id"]), body
+                             data, "text/plain")
+        assert res["data"]["msgId"] == "msg-file-1", res
+        upload = mock.file_upload_bodies[0]["body"]
+        assert set(upload.keys()) == {
+            "totalChunk", "fileName", "clientId", "totalSize",
+            "imei", "chunkId", "toid"}, upload
+        assert upload["totalChunk"] == 1, upload
+        assert upload["chunkId"] == 1, upload
+        assert upload["fileName"] == "hello.txt", upload
+        assert upload["totalSize"] == len(data), upload
+        assert isinstance(upload["clientId"], int), upload
+        assert upload["clientId"] == res["client_id"], upload
+        body = mock.file_send_bodies[0]["body"]
+        assert set(body.keys()) == {
+            "fileId", "checksum", "checksumSha", "extension",
+            "totalSize", "fileName", "clientId", "fType",
+            "fileCount", "fdata", "toid", "imei", "zsource",
+            "fileUrl"}, body
+        assert body["fileId"] == "file-1", body
+        assert body["checksum"] == hashlib.md5(data).hexdigest(), body
+        assert body["checksumSha"] == "", body
+        assert body["extension"] == "txt", body
+        assert body["totalSize"] == len(data), body
+        assert body["fileName"] == "hello.txt", body
+        assert isinstance(body["clientId"], int), body
+        assert body["clientId"] == res["client_id"], body
+        assert body["fType"] == 1, body
+        assert body["fileCount"] == 0, body
+        assert body["fdata"] == "{}", body
+        assert body["toid"] == "20001", body
+        assert body["imei"] == "dev-1", body
+        assert body["zsource"] == -1, body
+        assert body["fileUrl"] == \
+            "https://f1-file-dl.zdn.vn/test.docx", body
         res = chat.send_file("group", "30001", "bao-cao.pdf",
                              b"%PDF-fake", "application/pdf")
-        body = res["data"]["body"]
-        assert set(body.keys()) == {"grid", "clientId"}, body
-        assert isinstance(body["clientId"], str), body
-        assert body["clientId"] == str(res["client_id"]), body
+        body = mock.file_send_bodies[1]["body"]
+        assert set(body.keys()) == {
+            "fileId", "checksum", "checksumSha", "extension",
+            "totalSize", "fileName", "clientId", "fType",
+            "fileCount", "fdata", "grid", "zsource",
+            "fileUrl"}, body
+        assert body["extension"] == "pdf", body
+        assert body["grid"] == "30001", body
+        assert "imei" not in body, body
+        assert body["clientId"] == res["client_id"], body
     finally:
         mock.stop()
 
@@ -573,6 +632,9 @@ def test_server_voice_two_step_succeeds():
             httpd.shutdown()
     finally:
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat: tranh abort 134
+        # luc shutdown (xem ghi chu o sync_poll.run).
+        app_server.STATE.stop_sync()
 
 
 FFMPEG = shutil.which("ffmpeg")
@@ -684,6 +746,9 @@ def test_server_voice_webm_browser_shape_arrives_as_aac():
             httpd.shutdown()
     finally:
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat: tranh abort 134
+        # luc shutdown (xem ghi chu o sync_poll.run).
+        app_server.STATE.stop_sync()
 
 
 def test_server_voice_webm_112_once_retries_same_aac():
@@ -732,6 +797,9 @@ def test_server_voice_webm_112_once_retries_same_aac():
             httpd.shutdown()
     finally:
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat: tranh abort 134
+        # luc shutdown (xem ghi chu o sync_poll.run).
+        app_server.STATE.stop_sync()
 
 
 def test_server_voice_send_112_surfaces_not_faked():
@@ -752,6 +820,9 @@ def test_server_voice_send_112_surfaces_not_faked():
             httpd.shutdown()
     finally:
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat: tranh abort 134
+        # luc shutdown (xem ghi chu o sync_poll.run).
+        app_server.STATE.stop_sync()
 
 
 def test_server_voice_chunk_112_once_succeeds_via_retry():
@@ -772,6 +843,9 @@ def test_server_voice_chunk_112_once_succeeds_via_retry():
             httpd.shutdown()
     finally:
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat: tranh abort 134
+        # luc shutdown (xem ghi chu o sync_poll.run).
+        app_server.STATE.stop_sync()
 
 
 def test_voice_step2_endpoint_confirmed_asyncfile_msg():

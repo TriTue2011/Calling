@@ -173,6 +173,9 @@ def test_server_sendfile_empty_data_returns_502():
         httpd.shutdown()
     finally:
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat: tranh abort 134
+        # luc shutdown (xem ghi chu o sync_poll.run).
+        state.stop_sync()
 
 
 if __name__ == "__main__":

@@ -416,6 +416,9 @@ def test_server_voice_sends_file_url_from_ctrl_registry():
             httpd.shutdown()
     finally:
         mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat: tranh abort 134
+        # luc shutdown (xem ghi chu o sync_poll.run).
+        state.stop_sync()
 
 
 def test_server_voice_without_ctrl_event_fails_honestly():
@@ -437,6 +440,211 @@ def test_server_voice_without_ctrl_event_fails_honestly():
             assert mock.voice_send_calls == 0, mock.voice_send_calls
         finally:
             httpd.shutdown()
+    finally:
+        mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat: tranh abort 134
+        # luc shutdown (xem ghi chu o sync_poll.run).
+        state.stop_sync()
+
+
+# -- file thuong: CHO EVENT ASYNC ctrl `file_done` TRUOC KHI GUI
+#    BUOC 2 (loi 405 sharefile_full, 2026-11-07) -------------------
+# Bang chung bundle (giong voice, xem docstring dau file):
+# `_processCtrlMessages` gom controls theo act_type,
+# `case "file_done"` -> `_processFileAsyncDoneEvent` ->
+# `handleEventFromCtrl({fileId, url}, "FILE")`; data cua event la
+# {url}. Handler cho File (`__waitAsyncFileInfo`): `t.fileUrl = a`
+# (chuoi URL) — fileUrl la thu wait GATE, giong voice. zca-js
+# 2.1.2 cung doi event (uploadCallbacks theo fileId) truoc khi
+# gui asyncfile/msg cho "others".
+
+FILE_URL = "https://f1-file-dl.zdn.vn/test.docx"
+
+
+class FakeFileWaiter:
+    """Waiter gia cho test file: tra ve URL da dinh san, hoac
+    None (gia lap event khong bao gio den). Ghi lai lan goi."""
+
+    def __init__(self, url=None, feeder_running=True):
+        self.url = url
+        self.feeder_running = feeder_running
+        self.calls = []
+
+    def wait(self, file_id, timeout_s):
+        self.calls.append((file_id, timeout_s))
+        if self.url is None:
+            return None
+        return {"url": self.url}
+
+
+def make_file_chat(mock, waiter=None, timeout=5.0, sleep=None):
+    t = app_server.make_transport("sek-test")
+    return chat_mod.Chat(t, "dev-1", TEST_SESSION_KEY,
+                         file_async=waiter,
+                         file_async_timeout=timeout, sleep=sleep)
+
+
+def test_extract_file_async_from_ctrl_payload():
+    """Payload ctrl da giai ma: controls[] voi content.data la
+    CHUOI JSON {url} hoac dict {url} -> tach duoc {fileId, url};
+    act_type khac bi bo qua."""
+    data = {"controls": [
+        {"content": {"act_type": "file_done", "fileId": "file-1",
+                      "data": json.dumps({"url": FILE_URL})}},
+        {"content": {"act_type": "file_done", "fileId": "file-2",
+                      "data": {"url": FILE_URL}}},
+        {"content": {"act_type": "voice_aac_success",
+                      "fileId": "file-voice-1",
+                      "data": {"5": AMR_URL}}},
+    ]}
+    got = ctrl_mod.extract_file_async(data)
+    assert got == [{"fileId": "file-1", "url": FILE_URL},
+                   {"fileId": "file-2", "url": FILE_URL}], got
+
+
+def test_extract_file_async_ignores_malformed():
+    """Event thieu fileId / thieu url / data khong phai JSON ->
+    bo qua, khong do (kenh ctrl con nhieu loai event)."""
+    data = {"controls": [
+        {"content": {"act_type": "file_done",
+                      "data": {"url": FILE_URL}}},
+        {"content": {"act_type": "file_done", "fileId": "file-bad",
+                      "data": "khong-phai-json"}},
+        {"content": {"act_type": "file_done", "fileId": "file-empty",
+                      "data": {}}},
+    ]}
+    assert ctrl_mod.extract_file_async(data) == []
+    assert ctrl_mod.extract_file_async({}) == []
+    assert ctrl_mod.extract_file_async(None) == []
+
+
+def test_file_registry_deliver_before_wait_returns_immediately():
+    """Event den TRUOC khi wait dang ky (bundle getFileIdData
+    cache-hit): wait tra ngay, khong cho."""
+    reg = ctrl_mod.FileAsyncRegistry()
+    reg.deliver("file-1", FILE_URL)
+    started = time.time()
+    got = reg.wait("file-1", timeout_s=5.0)
+    assert time.time() - started < 1.0, "phai tra ngay tu cache"
+    assert got == {"url": FILE_URL}, got
+
+
+def test_file_registry_wait_then_deliver_and_timeout():
+    """Wait dang ky truoc, deliver tu thread khac -> wait tra ve
+    URL; fileId khong ai deliver -> het timeout tra None."""
+    reg = ctrl_mod.FileAsyncRegistry()
+    box = {}
+
+    def _wait():
+        box["got"] = reg.wait("file-1", timeout_s=5.0)
+
+    th = threading.Thread(target=_wait)
+    th.start()
+    time.sleep(0.2)
+    reg.deliver("file-1", FILE_URL)
+    th.join(timeout=5)
+    assert box["got"] == {"url": FILE_URL}, box
+    started = time.time()
+    assert reg.wait("file-khong-co", timeout_s=0.3) is None
+    assert time.time() - started >= 0.3
+
+
+def test_file_waits_for_ctrl_event_and_sends_file_url():
+    """Waiter tra {url} -> buoc 2 phai gui kem fileUrl (giong
+    fileAsync sau wait cua bundle)."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        waiter = FakeFileWaiter(FILE_URL)
+        chat = make_file_chat(mock, waiter=waiter)
+        res = chat.send_file("user", "20001", "bao-cao.docx",
+                             b"PK\x03\x04" + b"x" * 20,
+                             "application/vnd.openxmlformats-officedocument"
+                             ".wordprocessingml.document")
+        assert res["data"]["msgId"] == "msg-file-1", res
+        assert mock.file_send_calls == 1, mock.file_send_calls
+        assert waiter.calls == [("file-1", 5.0)], waiter.calls
+        sent = mock.file_send_bodies[0]["body"]
+        assert sent["fileUrl"] == FILE_URL, sent
+    finally:
+        mock.stop()
+
+
+def test_file_never_sends_step2_without_async_url():
+    """Event KHONG bao gio den -> het timeout thi loi ro rang va
+    KHONG gui buoc 2 (khong gui "hi vong" nhu code cu — do chinh
+    la cai gay ra 114 live o voice)."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        waiter = FakeFileWaiter(None)
+        chat = make_file_chat(mock, waiter=waiter, timeout=0.5)
+        try:
+            chat.send_file("user", "20001", "bao-cao.docx",
+                           b"PK\x03\x04" + b"x" * 20,
+                           "application/vnd.openxmlformats-officedocument"
+                           ".wordprocessingml.document")
+            raise AssertionError("expected ZaloChatError on timeout")
+        except chat_mod.ZaloChatError as e:
+            assert "file" in str(e).lower() or "async" in str(e) \
+                or "ctrl" in str(e) or "URL" in str(e), e
+        assert mock.file_upload_calls == 1, mock.file_upload_calls
+        assert mock.file_send_calls == 0, mock.file_send_calls
+    finally:
+        mock.stop()
+
+
+def test_file_no_waiter_or_ctrl_down_fails_fast():
+    """Khong co waiter, hoac kenh ctrl chua chay (feeder_running
+    False) -> loi NGAY, khong doi het timeout roi moi loi, va
+    khong gui buoc 2."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        for waiter in (None, FakeFileWaiter(
+                FILE_URL, feeder_running=False)):
+            chat = make_file_chat(mock, waiter=waiter, timeout=30.0)
+            started = time.time()
+            try:
+                chat.send_file("user", "20001", "bao-cao.docx",
+                               b"PK\x03\x04" + b"x" * 20,
+                               "application/vnd.openxmlformats"
+                               "-officedocument.wordprocessingml"
+                               ".document")
+                raise AssertionError("expected ZaloChatError, waiter=%r"
+                                     % (waiter,))
+            except chat_mod.ZaloChatError:
+                pass
+            assert time.time() - started < 5.0, \
+                "phai loi nhanh, khong doi het timeout"
+        assert mock.file_send_calls == 0, mock.file_send_calls
+    finally:
+        mock.stop()
+
+
+def test_file_chunk_response_url_does_not_skip_wait():
+    """Chunk-response CO url VAN PHAI DOI EVENT: truong url trong
+    chunk-response thuoc nhanh DUPLICATE/cache — bundle khong bao
+    gio lay URL tu do (handleSendChunkResp chi doc finished/
+    fileId). Mock tra chunk cuoi kem url nhung event KHONG bao gio
+    den -> het timeout thi loi ro rang va KHONG gui buoc 2
+    (waiter VAN duoc goi)."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        mock.file_upload_extra = {"url": FILE_URL}
+        waiter = FakeFileWaiter(None)
+        chat = make_file_chat(mock, waiter=waiter, timeout=0.5)
+        try:
+            chat.send_file("user", "20001", "bao-cao.docx",
+                           b"PK\x03\x04" + b"x" * 20,
+                           "application/vnd.openxmlformats-officedocument"
+                           ".wordprocessingml.document")
+            raise AssertionError("expected ZaloChatError on timeout")
+        except chat_mod.ZaloChatError:
+            pass
+        assert waiter.calls == [("file-1", 0.5)], waiter.calls
+        assert mock.file_send_calls == 0, mock.file_send_calls
     finally:
         mock.stop()
 

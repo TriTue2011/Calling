@@ -172,6 +172,24 @@ class MockZalo:
         # _chat_upload de tai lieu hoa loi that 2026-11-05).
         self.voice_upload_mode = "ok"
         self.voice_upload_calls = 0
+        # File thuong (Word/Excel/PDF — DUONG HAI BUOC asyncfile,
+        # khong phai sharefile_full chet): "ok" | "empty".
+        # file_upload_* dem/ghi cac lan goi chunk asyncfile/upload;
+        # file_send_* dem/ghi cac lan goi buoc 2 asyncfile/msg.
+        # "empty" o buoc 2 tra envelope data rong ({} — Zalo tra
+        # 200/error_code=0 nhung khong tao tin nao) de pin rang
+        # client phai bao loi that thay vi tra ok:true (loi cam
+        # 07/11, giong send_photo truoc khi sua).
+        self.file_upload_calls = 0
+        self.file_upload_bodies = []
+        # file_upload_extra: truong phu THEM vao data cua chunk
+        # cuoi (vd. {"url": ...}) — de pin rang buoc 2 KHONG duoc
+        # lay fileUrl tu response chunk (loi 114): bundle chi lay
+        # URL tu async event file_done qua waitAsyncFileInfo.
+        self.file_upload_extra = {}
+        self.file_send_mode = "ok"
+        self.file_send_calls = 0
+        self.file_send_bodies = []
         # voice_upload_extra: truong phu THEM vao data cua chunk
         # cuoi (vd. {"url": ..., "amr": ..., "aac": ...}) — de pin
         # rang buoc 2 KHONG duoc lay fileUrl/aacUrl tu response
@@ -468,18 +486,20 @@ class MockZalo:
         return self._postlogin_envelope({"ok": True})
 
     def _chat_upload(self, path, qs, headers, raw_body=""):
-        """Gui file/anh/voice (11146/11191/11148/11169/11152/11164):
+        """Gui anh/voice truc tiep (11152/11164, voicemp3 cu):
         POST multipart, fileContent + query params=<AES {toid|grid,
         clientId}> & type=2 (1-1) / 11 (nhom). raw_body o day la
         str (mock do_POST decode latin-1 — anh that la binary).
-        Kieu clientId theo bundle (xem chat.py): voice/file la
-        STRING (sendVoice/sendFile ghep chuoi JSON bang tay, co
-        dau ngoac kep: '"clientId":"<id>"'), anh la NUMBER
-        (JSON.stringify). Mock mo hinh hoa loi that 2026-11-06:
-        voice/file gui clientId dang NUMBER bi server tu choi
-        bang inner 112 chung chung — day la GIA THUYET co bang
-        chung bundle (khong phai bang chung truc tiep tu server);
-        kiem chung that van can retest live cua user."""
+        sharefile_full KHONG con o day: duong truc tiep do CHEt
+        (0 caller trong bundle) va Zalo tra 405 — xem route_post.
+        Kieu clientId theo bundle (xem chat.py): voice la STRING
+        (sendVoice ghep chuoi JSON bang tay, co dau ngoac kep:
+        '"clientId":"<id>"'), anh la NUMBER (JSON.stringify).
+        Mock mo hinh hoa loi that 2026-11-06: voice gui clientId
+        dang NUMBER bi server tu choi bang inner 112 chung chung
+        — day la GIA THUYET co bang chung bundle (khong phai bang
+        chung truc tiep tu server); kiem chung that van can retest
+        live cua user."""
         assert headers.get("Cookie"), "chat upload needs Cookie"
         assert qs.get("zpw_ver") == "695", qs
         assert qs.get("zpw_type") == "30", qs
@@ -533,13 +553,6 @@ class MockZalo:
                 # chung. Xem ghi chu o docstring ham nay.
                 return self._postlogin_envelope_error(
                     112, "Lỗi không xác định")
-        if path in ("/api/message/sharefile_full",
-                    "/api/group/sharefile_full") \
-                and not isinstance(body.get("clientId"), str):
-            # Cung mau thuan wire nhu voice (bundle sendFile ghep
-            # '"clientId":"<id>"'); mo hinh hoa bang 112 nhu tren.
-            return self._postlogin_envelope_error(
-                112, "Lỗi không xác định")
         return self._postlogin_envelope(
             {"msgId": "msg-file-1", "clientId": body["clientId"],
              "body": body})
@@ -606,19 +619,86 @@ class MockZalo:
         last = {"finished": 1, "fileId": "file-voice-1"}
         last.update(self.voice_upload_extra)
         return self._postlogin_envelope(last)
+
+    def _chat_file_upload(self, path, qs, headers, raw_body=""):
+        """Upload file thuong theo chunk — buoc 1 cua duong hai
+        buoc (bundle compact-app-pc, upload-manager /
+        getInfoUploadFileFromData): POST multipart
+        {files-wpa}/api/message/asyncfile/upload (11776) /
+        /api/group/asyncfile/upload (13000), FormData chunkContent
+        = 1 chunk (mac dinh 256_000 byte, getDefaultChunkSize),
+        query params=<AES {totalChunk, fileName, clientId NUMBER,
+        totalSize, imei, chunkId, toid|grid}> & type=2/11.
+        KHONG co fileType (chi Voice moi co, buildSendChunksInfo),
+        KHONG co checksum (bundle `delete` no khoi params truoc
+        khi gui — checksum chi o buoc 2), KHONG isE2EE/jxl.
+        clientId la NUMBER (JSON.stringify cua upload-manager).
+        Chunk chua cuoi tra data {finished: 0}; chunk cuoi
+        (chunkId == totalChunk) tra {finished: 1, fileId} — dung
+        dieu kien hoan tat cua handleSendChunkResp (finished &&
+        fileId). Cac chunk phai den dung thu tu chunkId 1..N."""
+        assert headers.get("Cookie"), "file upload needs Cookie"
+        assert qs.get("zpw_ver") == "695", qs
+        assert qs.get("zpw_type") == "30", qs
+        ctype = headers.get("Content-Type") or ""
+        assert "multipart/form-data" in ctype, ctype
+        assert 'name="chunkContent"' in raw_body, "needs chunkContent"
+        assert "filename=" in raw_body, "needs filename"
+        key = base64.b64decode(TEST_SESSION_KEY)
+        plain = _openssl_aes(key, base64.b64decode(qs["params"]),
+                             decrypt=True)
+        body = json.loads(plain.decode("utf-8"))
+        assert body.get("clientId"), body
+        assert isinstance(body.get("clientId"), int) and not \
+            isinstance(body.get("clientId"), bool), body
+        assert isinstance(body.get("totalChunk"), int) \
+            and body["totalChunk"] >= 1, body
+        assert isinstance(body.get("chunkId"), int) \
+            and 1 <= body["chunkId"] <= body["totalChunk"], body
+        assert body.get("fileName"), body
+        assert isinstance(body.get("totalSize"), int) \
+            and body["totalSize"] > 0, body
+        assert body.get("imei"), body
+        assert "fileType" not in body, body
+        assert "checksum" not in body, body
+        self.file_upload_bodies.append({"path": path, "body": body})
+        is_group = path.startswith("/api/group/")
+        if is_group:
+            assert body.get("grid"), body
+            assert qs.get("type") == "11", qs
+        else:
+            assert body.get("toid"), body
+            assert qs.get("type") == "2", qs
+        self.file_upload_calls += 1
+        if body["chunkId"] < body["totalChunk"]:
+            return self._postlogin_envelope({"finished": 0})
+        last = {"finished": 1, "fileId": "file-1"}
+        last.update(self.file_upload_extra)
+        return self._postlogin_envelope(last)
+
     def _chat_asyncfile_msg(self, path, qs, headers, raw_body="",
                             raw_qs=""):
         """Gui tin sau khi upload xong — buoc 2 cua duong hai buoc
         (bundle: API sendMsgFileAsync 11777/13001; input la dung
-        item getFileAsyncItem tra ve): POST form params=<AES JSON
-        {fileId, checksum (md5 hex cua file AAC), checksumSha: "",
-        totalSize, clientId NUMBER, toid|grid, imei (chi 1-1),
-        zsource, fileUrl (BAT BUOC — URL ghi am tu event async
-        ctrl voice_aac_success qua kenh ctrl 99101; gui khong co
-        fileUrl la cai gay ra 114 live 2026-11-06), aacUrl (khi co
-        amr), secureKey (chi khi async data co no)}>. fType LOAI TRU
-        (extData Voice duy nhat lan duoc khong co fType — mock khong
-        doi). Tra envelope {msgId, clientId, body} nhu _chat_upload."""
+        item getFileAsyncItem tra ve): POST form params=<AES JSON>.
+        Voice: {fileId, checksum (md5 hex cua file AAC),
+        checksumSha: "", totalSize, clientId NUMBER, toid|grid,
+        imei (chi 1-1), zsource, fileUrl (BAT BUOC — URL ghi am tu
+        event async ctrl voice_aac_success qua kenh ctrl 99101; gui
+        khong co fileUrl la cai gay ra 114 live 2026-11-06), aacUrl
+        (khi co amr), secureKey (chi khi async data co no)}>. fType
+        LOAI TRU (extData Voice duy nhat lan duoc khong co fType —
+        mock khong doi). File: them {extension (sau dau cham cuoi,
+        rong neu khong co), fileName (NFC), fType: 1 (FILE_FTYPE
+        FILE=1), fileCount: 0, fdata: "{}"} — bundle
+        getFileAsyncItem + extData cua call site MSG_FILE; zca-js
+        2.1.2 sendMessage "others" khop het tru mot diem: no viet
+        `extention` (sai chinh ta) — bundle exe thang nen dung
+        `extension`. Tra envelope {msgId, clientId, body} nhu
+        _chat_upload (msgId "msg-file-1" cho File, "msg-voice-1"
+        cho Voice). file_send_mode "empty" tra data rong ({}) o
+        buoc 2 cua File — client phai bao loi that (xem
+        test_send_file_empty_data_errors)."""
         self._check_common(qs, headers, "asyncfile msg")
         m = re.search(r"(?:^|&)params=([^&]*)", raw_body or "")
         assert m, "asyncfile msg needs params form body"
@@ -646,6 +726,24 @@ class MockZalo:
         else:
             assert body.get("toid"), body
             assert body.get("imei"), body
+        if "fileName" in body:
+            # File thuong (getFileAsyncItem): them extension,
+            # fileName, fType=1, fileCount=0, fdata="{}".
+            assert isinstance(body.get("extension"), str), body
+            assert "." not in body["extension"], body
+            assert len(body["extension"]) < 7, body
+            assert isinstance(body.get("fileName"), str) \
+                and body["fileName"], body
+            assert body.get("fType") == 1, body
+            assert body.get("fileCount") == 0, body
+            assert body.get("fdata") == "{}", body
+            self.file_send_bodies.append({"path": path, "body": body})
+            self.file_send_calls += 1
+            if self.file_send_mode == "empty":
+                return self._postlogin_envelope({})
+            return self._postlogin_envelope(
+                {"msgId": "msg-file-1", "clientId": body["clientId"],
+                 "body": body})
         self.voice_send_bodies.append({"path": path, "body": body})
         self.voice_send_calls += 1
         if self.voice_send_mode == "error112":
@@ -669,14 +767,30 @@ class MockZalo:
                              "data": {}}
             return 200, self._group_info_multi(qs, headers, raw_body)
         if path in ("/api/message/sharefile_full",
-                    "/api/group/sharefile_full",
-                    "/api/message/voicemp3", "/api/group/sendmp3",
+                    "/api/group/sharefile_full"):
+            # Duong truc tiep CHEt (0 caller trong bundle PC that;
+            # API sendFile khong ai goi, giong sendVoice chet cua
+            # voicemp3) — Zalo upstream tu choi bang HTTP 405 (live
+            # 2026-11-07 09:xx +07: banner «POST /api/message/
+            # sharefile_full network status=405» khi gui Word/Excel/
+            # PDF). Mock tra dung 405 nhu server that: client nao
+            # con goi duong nay se loi thay vi duoc gia vo thanh
+            # cong. Duong that la 2 buoc asyncfile (upload 11776/
+            # 13000 + asyncfile/msg 11777/13001) — xem
+            # _chat_file_upload / _chat_asyncfile_msg.
+            return 405, {"error_code": 405,
+                         "error_message": "Method Not Allowed"}
+        if path in ("/api/message/voicemp3", "/api/group/sendmp3",
                     "/api/message/photo", "/api/group/sendpt"):
             return 200, self._chat_upload(path, qs, headers, raw_body)
         if path in ("/api/message/voice/upload",
                     "/api/group/voice/upload"):
             return 200, self._chat_voice_upload(path, qs, headers,
                                                 raw_body)
+        if path in ("/api/message/asyncfile/upload",
+                    "/api/group/asyncfile/upload"):
+            return 200, self._chat_file_upload(path, qs, headers,
+                                               raw_body)
         if path in ("/api/message/asyncfile/msg",
                     "/api/group/asyncfile/msg"):
             return 200, self._chat_asyncfile_msg(

@@ -50,11 +50,24 @@ class _ImmediateVoiceWaiter:
                 "aac": "https://f1-voice-aac-dl.zdn.vn/test.aac"}
 
 
+class _ImmediateFileWaiter:
+    """Waiter gia: event ctrl file_done da den truoc (cache-hit
+    cua bundle: getFileIdData) — tra ngay {"url"} (loi 405
+    sharefile_full)."""
+
+    feeder_running = True
+
+    def wait(self, file_id, timeout_s):
+        return {"url": "https://f1-file-dl.zdn.vn/test.docx"}
+
+
 def make_chat(mock):
     t = app_server.make_transport("sek-test")
     return chat_mod.Chat(t, "dev-1", TEST_SESSION_KEY,
                          voice_async=_ImmediateVoiceWaiter(),
-                         voice_async_timeout=5.0)
+                         voice_async_timeout=5.0,
+                         file_async=_ImmediateFileWaiter(),
+                         file_async_timeout=5.0)
 
 
 def test_send_text_user_and_group():
@@ -186,18 +199,51 @@ def test_send_file_photo_voice():
     try:
         patch_domains(mock)
         chat = make_chat(mock)
+        # File thuong di DUONG HAI BUOC asyncfile (upload 11776/
+        # 13000 + asyncfile/msg 11777/13001) — sharefile_full
+        # (11146/11191) la code chet (0 caller trong bundle) va
+        # Zalo tra 405 (live 2026-11-07). clientId la NUMBER o ca
+        # hai buoc (JSON.stringify cua upload-manager), giong nhau
+        # giua upload va buoc 2; fileUrl lay tu event ctrl
+        # file_done (waiter gia), KHONG lay tu chunk-response.
         res = chat.send_file("user", "20001", "hello.txt",
                              b"hello file", "text/plain")
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
-        # clientId tren day la STRING (bundle sendFile ghep chuoi
-        # JSON bang tay) — xem test_voice_112.py.
-        assert res["data"]["clientId"] == str(res["client_id"]), res
+        assert res["file_id"] == "file-1", res
+        user_client_id = res["client_id"]
         res = chat.send_file("group", "30001", "bao-cao.pdf",
                              b"%PDF-fake", "application/pdf")
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
-        assert res["data"]["clientId"] == str(res["client_id"]), res
+        assert res["file_id"] == "file-1", res
+        group_client_id = res["client_id"]
+        # Buoc 2 cua File: item getFileAsyncItem (xem
+        # test_voice_112.py::test_file_params_match_bundle).
+        sent = mock.file_send_bodies[0]["body"]
+        assert sent["fileId"] == "file-1", sent
+        assert sent["extension"] == "txt", sent
+        assert sent["fileName"] == "hello.txt", sent
+        assert sent["fType"] == 1, sent
+        assert sent["fileCount"] == 0, sent
+        assert sent["fdata"] == "{}", sent
+        assert sent["fileUrl"] == \
+            "https://f1-file-dl.zdn.vn/test.docx", sent
+        assert sent["zsource"] == -1, sent
+        assert sent["clientId"] == user_client_id, sent
+        assert sent["toid"] == "20001", sent
+        assert sent["imei"] == "dev-1", sent
+        sent_group = mock.file_send_bodies[1]["body"]
+        assert sent_group["extension"] == "pdf", sent_group
+        assert sent_group["fileName"] == "bao-cao.pdf", sent_group
+        assert sent_group["clientId"] == group_client_id, sent_group
+        assert "imei" not in sent_group, sent_group
+        assert sent_group["grid"] == "30001", sent_group
+        # Upload chunk 1-1 + nhom dung cung clientId nhu buoc 2.
+        assert mock.file_upload_bodies[0]["body"]["clientId"] == \
+            user_client_id, mock.file_upload_bodies
+        assert mock.file_upload_bodies[1]["body"]["clientId"] == \
+            group_client_id, mock.file_upload_bodies
         res = chat.send_photo("user", "20001", "anh.jpg",
                               b"\xff\xd8\xff\xe0FAKEJPEGDATA", "image/jpeg",
                               800, 600)
@@ -228,16 +274,80 @@ def test_send_file_photo_voice():
         assert res["data"]["clientId"] == res["client_id"], res
         assert res["file_id"] == "file-voice-1", res
         seen = [p for p, _, _ in mock.seen]
-        for want in ("/api/message/sharefile_full",
-                     "/api/group/sharefile_full",
+        for want in ("/api/message/asyncfile/upload",
+                     "/api/group/asyncfile/upload",
                      "/api/message/photo", "/api/group/sendpt",
                      "/api/message/voice/upload",
-                     "/api/group/voice/upload",
-                     "/api/message/asyncfile/msg",
-                     "/api/group/asyncfile/msg"):
+                     "/api/group/voice/upload"):
             assert seen.count(want) == 1, (want, seen)
+        # asyncfile/msg: 2 lan moi phia (file + voice).
+        assert seen.count("/api/message/asyncfile/msg") == 2, seen
+        assert seen.count("/api/group/asyncfile/msg") == 2, seen
+        # Duong truc tiep sharefile_full CHEt — khong bao gio duoc
+        # goi nua (goi la mock tra 405 nhu Zalo that, live
+        # 2026-11-07).
+        assert not [p for p in seen if "sharefile" in p], seen
     finally:
         mock.stop()
+
+
+def test_send_file_empty_data_errors():
+    """Buoc 2 tra data rong (200/error_code=0 nhung khong tao tin
+    nao) -> send_file phai bao loi that ("khong co ma tin"), KHONG
+    tra ok:true — cung dang thanh cong gia nhu send_photo truoc
+    khi sua (loi cam 07/11). Route tra 502, khong phai 200 ok."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        mock.file_send_mode = "empty"
+        chat = make_chat(mock)
+        try:
+            chat.send_file("user", "20001", "bao-cao.docx",
+                           b"PK\x03\x04" + b"x" * 20,
+                           "application/vnd.openxmlformats-officedocument"
+                           ".wordprocessingml.document")
+            raise AssertionError("expected ZaloChatError on empty data")
+        except chat_mod.ZaloChatError as e:
+            assert "khong co ma tin" in str(e), str(e)
+        assert mock.file_upload_calls == 1, mock.file_upload_calls
+        assert mock.file_send_calls == 1, mock.file_send_calls
+    finally:
+        mock.stop()
+    # Route-level: 502, khong ok:true.
+    global BASE
+    mock = MockZalo().start()
+    tmp = tempfile.mkdtemp(prefix="zalo-pc-file-empty-test-")
+    try:
+        patch_domains(mock)
+        mock.file_send_mode = "empty"
+        state = app_server.AppState(tmp)
+        app_server.STATE = state
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), app_server.Handler)
+        port = httpd.server_address[1]
+        BASE = "http://127.0.0.1:%d" % port
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        login_via_mock()
+        state.file_async.deliver("file-1",
+                                 "https://f1-file-dl.zdn.vn/test.docx")
+        mbody, mctype = chat_mod.build_multipart(
+            {"type": "user"},
+            [("file", "bao-cao.docx",
+              "application/vnd.openxmlformats-officedocument"
+              ".wordprocessingml.document", b"PK\x03\x04" + b"x" * 20)])
+        status, body = api("POST", "/api/thread/20001/sendfile",
+                           mbody, {"Content-Type": mctype})
+        assert status == 502, body
+        assert body.get("ok") is not True, body
+        assert "khong co ma tin" in body["error"], body
+        httpd.shutdown()
+    finally:
+        mock.stop()
+        # Dung poller sync/ctrl SAU KHI mock tat (poll se loi
+        # nhanh, join kip): khong thi daemon thread con in retry
+        # ra stdout luc interpreter tat -> abort 134
+        # (_enter_buffered_busy) du test da pass het — loi co san,
+        # thay tren base bea4f0a (xem ghi chu o sync_poll.run).
+        state.stop_sync()
 
 
 def test_typing_and_seen():
@@ -350,6 +460,12 @@ def test_server_thread_routes():
             "file-voice-1",
             "https://f1-voice-aac-dl.zdn.vn/test.amr",
             "https://f1-voice-aac-dl.zdn.vn/test.aac")
+        # Event ctrl file_done da den truoc (registry cua AppState)
+        # — giong voice: neu khong, send_file doi het timeout roi
+        # loi thay vi gui buoc 2 khong co fileUrl; mock tra fileId
+        # "file-1" dinh san nen deliver truoc duoc.
+        state.file_async.deliver(
+            "file-1", "https://f1-file-dl.zdn.vn/test.docx")
 
         # (poll_mode "empty" da dat truoc login — xem dau test.)
 
@@ -475,6 +591,9 @@ def test_server_thread_routes():
         httpd.shutdown()
     finally:
         mock.stop()
+        # Dung poller sync/ctrl (xem test_send_file_empty_data_errors
+        # — tranh abort 134 luc shutdown).
+        state.stop_sync()
 
 
 def test_attach_validation():
@@ -561,7 +680,8 @@ def test_attach_validation():
             raise AssertionError("expected ValueError on empty send_file")
         except ValueError as e:
             assert "rong (0 byte)" in str(e), str(e)
-        assert not [p for p, _, _ in mock.seen if "sharefile" in p]
+        assert not [p for p, _, _ in mock.seen
+                    if "sharefile" in p or "asyncfile" in p]
     finally:
         mock.stop()
 
@@ -569,7 +689,7 @@ def test_attach_validation():
 def test_server_sendfile_validation():
     """Endpoint /api/thread/<id>/sendfile sau sua: file rong -> 400
     (khong goi Zalo); gif/heic gui kind=photo -> ha xuong file (200,
-    sharefile_full, khong phai photo); anh that -> photo (200,
+    asyncfile/upload, khong phai photo); anh that -> photo (200,
     sendpt); anh gia -> 400; loi Zalo -> 502 voi loi ro rang."""
     global BASE
     mock = MockZalo().start()
@@ -583,16 +703,24 @@ def test_server_sendfile_validation():
         BASE = "http://127.0.0.1:%d" % port
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         login_via_mock()
+        # Event ctrl file_done da den truoc (registry cua AppState)
+        # — neu khong, send_file doi het timeout roi loi thay vi
+        # gui buoc 2 khong co fileUrl (giong loi 114 cua voice);
+        # mock tra fileId "file-1" dinh san nen deliver truoc duoc.
+        state.file_async.deliver("file-1",
+                                 "https://f1-file-dl.zdn.vn/test.docx")
 
-        def sharefile_calls():
-            return [p for p, _, _ in mock.seen if "sharefile" in p]
+        def file_upload_calls():
+            return [p for p, _, _ in mock.seen
+                    if p in ("/api/message/asyncfile/upload",
+                             "/api/group/asyncfile/upload")]
 
         def photo_calls():
             return [p for p, _, _ in mock.seen
                     if p in ("/api/message/photo", "/api/group/sendpt")]
 
         # File rong (case live cua user: iptv-udpxy.m3u, 0 byte).
-        before = len(sharefile_calls())
+        before = len(file_upload_calls())
         mbody, mctype = chat_mod.build_multipart(
             {"type": "user"},
             [("file", "iptv-udpxy.m3u", "application/octet-stream", b"")])
@@ -600,7 +728,7 @@ def test_server_sendfile_validation():
                            mbody, {"Content-Type": mctype})
         assert status == 400, body
         assert "rong (0 byte)" in body["error"], body
-        assert len(sharefile_calls()) == before, mock.seen
+        assert len(file_upload_calls()) == before, mock.seen
 
         # File .m3u khong rong: duoi khong bi chan, gui duoc.
         mbody, mctype = chat_mod.build_multipart(
@@ -621,7 +749,7 @@ def test_server_sendfile_validation():
                            mbody, {"Content-Type": mctype})
         assert status == 200 and body["ok"] is True, body
         assert body["message"]["kind"] == "file", body
-        assert len(sharefile_calls()) == before + 2, mock.seen
+        assert len(file_upload_calls()) == before + 2, mock.seen
         assert photo_calls() == [], mock.seen
 
         # HEIC gui kind=photo -> cung ha xuong tep.
@@ -710,6 +838,9 @@ def test_server_sendfile_validation():
         httpd.shutdown()
     finally:
         mock.stop()
+        # Dung poller sync/ctrl (xem test_send_file_empty_data_errors
+        # — tranh abort 134 luc shutdown).
+        state.stop_sync()
 
 
 def test_server_sendfile_logs():
@@ -729,6 +860,10 @@ def test_server_sendfile_logs():
         BASE = "http://127.0.0.1:%d" % port
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         login_via_mock()
+        # Event ctrl file_done da den truoc (registry cua AppState)
+        # — xem test_server_sendfile_validation.
+        state.file_async.deliver("file-1",
+                                 "https://f1-file-dl.zdn.vn/test.docx")
 
         # Gui file thanh cong -> log co entry + ok.
         mbody, mctype = chat_mod.build_multipart(
@@ -758,6 +893,9 @@ def test_server_sendfile_logs():
         httpd.shutdown()
     finally:
         mock.stop()
+        # Dung poller sync/ctrl (xem test_send_file_empty_data_errors
+        # — tranh abort 134 luc shutdown).
+        state.stop_sync()
 
 
 def test_send_photo_uses_files_domain():

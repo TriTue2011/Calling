@@ -89,7 +89,7 @@ const sandbox = {
     }
     if (fetchMode === "error-json") {
       return { status: 502,
-               json: async () => ({ error: "chat: POST /api/message/sharefile_full error_code=133 File rong" }) };
+               json: async () => ({ error: "chat: POST /api/message/asyncfile/upload chunk 1/1 error_code=133 File rong" }) };
     }
     // Tra message nhu server that: kind/file_name theo dung file
     // vua gui (de test duoc bubble anh hien dang hinh khi co

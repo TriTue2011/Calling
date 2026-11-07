@@ -1739,8 +1739,9 @@ _NOT_SUPPORTED = [
      "1-1 /api/message/sms 11151, nhóm /api/group/sendmsg 11163, "
      "clientId NUMBER + ttl)."),
     (2, "send_file", "tin_nhan", "chat",
-     "Đính kèm file thuộc khung chat (1-1 sharefile_full 11146, "
-     "nhóm 11191)."),
+     "Đính kèm file thuộc khung chat (đường hai bước asyncfile: "
+     "upload 11776/13000 + asyncfile/msg 11777/13001; "
+     "sharefile_full 11146/11191 là đường chết, Zalo trả 405)."),
     (3, "send_image", "tin_nhan", "chat",
      "Gửi ảnh thuộc khung chat (upload 12651/12652 rồi send "
      "11152/11164)."),

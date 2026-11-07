@@ -501,8 +501,17 @@ class AppState:
         # vi gui buoc 2 khong co fileUrl). voice_async_timeout mac
         # dinh 120 s nhu bundle (upload_file_timeout_wait_ctrl_event).
         self.voice_async = ctrl_poll_mod.VoiceAsyncRegistry()
+        # Registry URL file async + timeout (loi 405 sharefile_full
+        # — xem chat.send_file): CtrlPoller nap registry khi event
+        # file_done ve; Chat.send_file doi registry truoc khi gui
+        # buoc 2. Cung quy tac nhu voice: registry ton tai ca khi
+        # kenh ctrl chua chay (khi do send_file loi ro thay vi gui
+        # buoc 2 khong co fileUrl); timeout mac dinh 120 s nhu
+        # bundle.
+        self.file_async = ctrl_poll_mod.FileAsyncRegistry()
         self.ctrl = None
         self.voice_async_timeout = chat_mod.VOICE_ASYNC_WAIT_SECONDS
+        self.file_async_timeout = chat_mod.FILE_ASYNC_WAIT_SECONDS
         # Last sync start/refresh failure, as "Type" or "Type
         # error_code=N" only — never a value (no sek/enk/uid, no
         # server message text). "" means no failure recorded.
@@ -1234,10 +1243,11 @@ class AppState:
                   % len(poller.urls), flush=True)
             # Kenh ctrl (99101, zpw_ctrs_new): event
             # voice_aac_success mang URL ghi am cho send_voice (loi
-            # 114). Mo kem kenh tin nhan, dung chung transport
-            # (cung cookie zpw_sek); thieu endpoint thi chi ghi
-            # log — send_voice se loi ro (khong gui buoc 2 khong
-            # co fileUrl) thay vi im lang.
+            # 114) va file_done mang URL file cho send_file (loi 405
+            # sharefile_full). Mo kem kenh tin nhan, dung chung
+            # transport (cung cookie zpw_sek); thieu endpoint thi
+            # chi ghi log — send_voice/send_file se loi ro (khong
+            # gui buoc 2 khong co fileUrl) thay vi im lang.
             ctl_urls = cur.get("poll_ctl_urls") or []
             if ctl_urls:
                 try:
@@ -1249,7 +1259,8 @@ class AppState:
                         on_cursor=lambda c: self._save_sync_cursor(
                             "ctrl", c),
                         on_group_event=self._on_ctrl_group_event,
-                        on_reaction=self._on_ctrl_reaction)
+                        on_reaction=self._on_ctrl_reaction,
+                        file_registry=self.file_async)
                 except ValueError as e:
                     print("[sync-poll] kenh ctrl khong mo duoc: %s"
                           % e, flush=True)
@@ -1691,7 +1702,9 @@ class Handler(BaseHTTPRequestHandler):
         """Chat client cho mot phien Zalo (transport mang cookie
         zpw_sek + http_post_multipart cho upload file). Nap
         voice_async registry + timeout cua AppState de send_voice
-        doi event ctrl voice_aac_success truoc buoc 2 (loi 114)."""
+        doi event ctrl voice_aac_success truoc buoc 2 (loi 114),
+        va file_async registry + timeout de send_file doi event
+        ctrl file_done truoc buoc 2 (loi 405 sharefile_full)."""
         transport = make_transport(sess["zpw_sek"])
         return chat_mod.Chat(transport, sess["device_id"],
                              sess["zpw_enk"],
@@ -1699,7 +1712,12 @@ class Handler(BaseHTTPRequestHandler):
                                                  None),
                              voice_async_timeout=getattr(
                                  STATE, "voice_async_timeout",
-                                 chat_mod.VOICE_ASYNC_WAIT_SECONDS))
+                                 chat_mod.VOICE_ASYNC_WAIT_SECONDS),
+                             file_async=getattr(STATE, "file_async",
+                                                None),
+                             file_async_timeout=getattr(
+                                 STATE, "file_async_timeout",
+                                 chat_mod.FILE_ASYNC_WAIT_SECONDS))
 
     def _read_raw(self):
         try:

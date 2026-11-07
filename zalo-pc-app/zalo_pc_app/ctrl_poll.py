@@ -29,6 +29,12 @@ Zalo PC 26.11.10):
   (asyncfile/msg 11777/13001). Event voice CHI co amr/aac — khong
   co secureKey (secureKey chi xuat hien o mapVoiceResponse, tuc la
   passthrough tu chunk-response, va chi dung cho E2EE/pcloud).
+  `_processFileAsyncDoneEvent(e)` (file thuong): moi event co
+  fileId + data.url -> `handleEventFromCtrl({fileId, url}, "FILE")`;
+  handler dien `fileUrl = url` (chuoi) vao fileAsync truoc buoc 2
+  — cung gate nhu voice, chi khac dang event (url thang thay vi
+  amr/aac). FileAsyncRegistry o day la ban sao cua
+  VoiceAsyncRegistry cho dang do ({"url"} thay vi {"amr", "aac"}).
 
   `__waitAsyncFileInfo` cung doc cache truoc (`getFileIdData`):
   event den TRUOC khi wait dang ky van duoc nhan ngay. Registry o
@@ -43,8 +49,9 @@ QUYET DINH THIET KE (ghi ro, chua chung minh bang live):
     rieng trong response cua no. Hanh vi nay can live kiem chung
     cung voi viec event voice_aac_success co ve that khong.
   - Poller nay xu ly event voice_aac_success (phuc vu send_voice)
-    VA chuyen cac act_type khac co y nghia cho webhook: "group"
-    -> group_event, "reactions"/"reacts"/"reactGroups" ->
+    VA file_done (phuc vu send_file) — xem extract_voice_async /
+    extract_file_async; cac act_type khac co y nghia cho webhook:
+    "group" -> group_event, "reactions"/"reacts"/"reactGroups" ->
     reaction (xem extract_group_events / extract_reactions).
     Cac act_type khong biet van bo qua im lang.
   - Khong replay chunk cuoi khi het gio nhu bundle (replay last
@@ -67,6 +74,10 @@ from .sync_poll import (ERR_STOP_RETRY, KickOut, PollCursor,
 # act_type cua event voice trong payload ctrl (bundle
 # _processCtrlMessages: case "voice_aac_success").
 CTRL_VOICE_ACT = "voice_aac_success"
+
+# act_type cua event file trong payload ctrl (bundle
+# _processCtrlMessages: case "file_done").
+CTRL_FILE_ACT = "file_done"
 
 # Key SO cua URL trong data cua event voice (bundle
 # VOICE_TYPE={AMR:5, AAC:6}).
@@ -131,6 +142,46 @@ def extract_voice_async(data):
         if not amr and not aac:
             continue
         out.append({"fileId": str(file_id), "amr": amr, "aac": aac})
+    return out
+
+
+def extract_file_async(data):
+    """Tach cac event file_done tu payload ctrl da giai ma
+    -> [{"fileId", "url"}]. Event thieu fileId, thieu url, hoac
+    sai dinh dang thi bo qua — kenh ctrl con nhieu loai event
+    khac, khong duoc do vi mot event la.
+
+    Bang chung bundle (compact-app-pc, _processCtrlMessages):
+    `case "file_done"` -> `_processFileAsyncDoneEvent(e)`: moi
+    event co fileId + data.url (data la CHUOI JSON hoac dict) ->
+    `handleEventFromCtrl({fileId, url}, "FILE")`.
+
+    data: dict da giai ma cua mot lan poll ctrl, co key
+    "controls" la list cac {content: {act_type, fileId, data}}."""
+    out = []
+    if not isinstance(data, dict):
+        return out
+    controls = data.get("controls")
+    if not isinstance(controls, list):
+        return out
+    for ctrl in controls:
+        if not isinstance(ctrl, dict):
+            continue
+        content = ctrl.get("content")
+        if not isinstance(content, dict):
+            continue
+        if content.get("act_type") != CTRL_FILE_ACT:
+            continue
+        file_id = content.get("fileId")
+        if not file_id:
+            continue
+        urls = _event_data(content.get("data"))
+        if not urls:
+            continue
+        url = _url(urls.get("url"))
+        if not url:
+            continue
+        out.append({"fileId": str(file_id), "url": url})
     return out
 
 
@@ -384,10 +435,78 @@ class VoiceAsyncRegistry:
             self._events.pop(str(file_id), None)
 
 
+class FileAsyncRegistry:
+    """Kho ket qua event async file theo fileId — BAN SAO cua
+    VoiceAsyncRegistry cho dang event file_done (xem
+    extract_file_async): deliver() luu {"url"}, wait() tra ngay
+    neu da co (cache-hit cua bundle: getFileIdData), khong thi
+    cho toi timeout roi tra None. feeder_running: True khi
+    CtrlPoller dang chay va nap registry. Chi luu URL (khong luu
+    noi dung file, khong log URL)."""
+
+    def __init__(self, max_entries=200):
+        self._lock = threading.Lock()
+        self._results = {}  # fileId -> {"url"}
+        self._events = {}   # fileId -> threading.Event
+        self.feeder_running = False
+        self._max = max(1, int(max_entries or 200))
+
+    def deliver(self, file_id, url=None):
+        """Ghi nhan event cho fileId; tra True neu co URL hop le
+        (False thi bo qua — khong danh thuc waiter)."""
+        url = _url(url)
+        if not url:
+            return False
+        fid = str(file_id)
+        with self._lock:
+            self._results[fid] = {"url": url}
+            event = self._events.get(fid)
+            if event is None:
+                event = self._events[fid] = threading.Event()
+            while len(self._results) > self._max:
+                oldest = next(iter(self._results))
+                self._results.pop(oldest, None)
+                self._events.pop(oldest, None)
+            event.set()
+        return True
+
+    def wait(self, file_id, timeout_s=120.0):
+        """Doi event cho fileId toi da timeout_s giay. Tra dict
+        {"url"} neu co, None neu het gio. Tra NGAY neu event da
+        den truoc."""
+        fid = str(file_id)
+        with self._lock:
+            cached = self._results.get(fid)
+            if cached is not None:
+                return dict(cached)
+            event = self._events.get(fid)
+            if event is None:
+                event = self._events[fid] = threading.Event()
+        try:
+            timeout = float(timeout_s)
+        except (TypeError, ValueError):
+            timeout = 120.0
+        if timeout <= 0:
+            return None
+        if not event.wait(timeout):
+            return None
+        with self._lock:
+            got = self._results.get(fid)
+        return dict(got) if got is not None else None
+
+    def discard(self, file_id):
+        """Xoa muc cua fileId (sau khi da dung xong)."""
+        with self._lock:
+            self._results.pop(str(file_id), None)
+            self._events.pop(str(file_id), None)
+
+
 class CtrlPoller:
     """Long-poll kenh dieu khien 99101 chay nen: GET lien tuc toi
     zpw_ctrs_new, giai ma payload, tach event voice_aac_success
-    giao cho VoiceAsyncRegistry.
+    giao cho VoiceAsyncRegistry va file_done giao cho
+    FileAsyncRegistry (None thi bo qua event file — send_file loi
+    ro thay vi doi mai).
 
     http_get(url, timeout) -> (status, json) — giong transport
     cua Chat/Signaling (mang cookie zpw_sek). Loi mang -> backoff
@@ -396,7 +515,7 @@ class CtrlPoller:
     def __init__(self, http_get, poll_urls, zpw_enk, own_id,
                  registry, ctl_timeout=30, cursor=None,
                  on_cursor=None, on_group_event=None,
-                 on_reaction=None):
+                 on_reaction=None, file_registry=None):
         urls = [u for u in (poll_urls or []) if u]
         if not urls:
             raise ValueError("ctrl_poll: can it nhat 1 poll URL "
@@ -408,6 +527,9 @@ class CtrlPoller:
         self.zpw_enk = zpw_enk
         self.own_id = str(own_id or "")
         self.registry = registry
+        # Registry file (co the None): nap khi event file_done ve;
+        # feeder_running cua no duoc bat/tat cung poller nhu voice.
+        self.file_registry = file_registry
         try:
             self.ctl_timeout = int(ctl_timeout or 30)
         except (TypeError, ValueError):
@@ -476,6 +598,10 @@ class CtrlPoller:
         for event in extract_voice_async(data):
             self.registry.deliver(event["fileId"], event["amr"],
                                   event["aac"])
+        if self.file_registry is not None:
+            for event in extract_file_async(data):
+                self.file_registry.deliver(event["fileId"],
+                                           event["url"])
         group_events = extract_group_events(data)
         reactions = extract_reactions(data)
         before = self.cursor.to_dict()
@@ -529,11 +655,15 @@ class CtrlPoller:
                     return
         finally:
             self.registry.feeder_running = False
+            if self.file_registry is not None:
+                self.file_registry.feeder_running = False
 
     def start(self):
         if self._thread and self._thread.is_alive():
             return False
         self.registry.feeder_running = True
+        if self.file_registry is not None:
+            self.file_registry.feeder_running = True
         self._stop.clear()
         self._thread = threading.Thread(target=self.run, daemon=True)
         self._thread.start()
@@ -541,6 +671,8 @@ class CtrlPoller:
 
     def stop(self):
         self.registry.feeder_running = False
+        if self.file_registry is not None:
+            self.file_registry.feeder_running = False
         self._stop.set()
         thread, self._thread = self._thread, None
         if thread is not None:

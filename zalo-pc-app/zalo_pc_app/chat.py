@@ -21,12 +21,26 @@ Endpoint da dung (ma lenh trong ngoac):
   (SERVICE-MAP.md §3.1).
   Lich su nhom:  GET {group-wpa}/api/group/history (11240)
                  body {grid, count}
-  Dinh kem file 1-1: POST multipart {files-wpa}/api/message/
-                 sharefile_full (11146), query params=<AES
-                 {toid, clientId}> & type=2, FormData fileContent
-  Dinh kem file nhom: POST multipart {files-wpa}/api/group/
-                 sharefile_full (11191), params {grid, clientId},
-                 & type=11
+  Dinh kem file 1-1 / nhom — DUONG HAI BUOC (upload-manager,
+  giong ghi am; xem send_file):
+    Buoc 1: POST multipart {files-wpa}/api/message/asyncfile/
+    upload (11776) / /api/group/asyncfile/upload (13000), moi
+    chunk la FormData chunkContent (chunk 256_000 byte), params
+    AES {totalChunk, fileName, clientId NUMBER, totalSize, imei,
+    chunkId, toid|grid} (KHONG fileType/checksum) & type=2/11;
+    chunk cuoi tra data {finished: 1, fileId}.
+    Buoc 1.5: DOI event ctrl file_done {fileId, url} (kenh ctrl
+    99101) truoc buoc 2 — xem ctrl_poll.py.
+    Buoc 2: POST form {files-wpa}/api/message/asyncfile/msg
+    (11777) / /api/group/asyncfile/msg (13001), params AES la
+    item getFileAsyncItem: {fileId, checksum (md5 hex),
+    checksumSha: "", extension, totalSize, fileName, clientId
+    NUMBER, fType: 1, fileCount: 0, fdata: "{}", toid|grid,
+    imei (chi 1-1), zsource: -1} + fileUrl (tu event file_done).
+  DUONG TRUC TIEP sharefile_full (11146/11191) DA BO: API sendFile
+  co dinh nghia nhung KHONG CO caller nao trong bundle (giong
+  sendVoice chet cua voicemp3) va Zalo tra HTTP 405 khi goi
+  (live 2026-11-07: gui Word/Excel/PDF bi banner 405).
   Gui anh 1-1:   POST multipart {files-wpa}/api/message/photo (11152)
                  FormData fileContent + params AES {clientId, desc,
                  width, height, toid}, & type=2 — HOST LA files-wpa
@@ -120,6 +134,7 @@ import hashlib
 import json
 import re
 import time
+import unicodedata
 import urllib.parse
 import uuid
 
@@ -164,6 +179,14 @@ VOICE_112_RETRY_DELAY_SECONDS = 2.0
 # nen body thieu fileUrl ma event async moi mang ve (amr/aac).
 VOICE_ASYNC_WAIT_SECONDS = 120.0
 
+# -- doi event async ctrl file (loi 405 sharefile_full) ---------------
+# Cung gate nhu voice, chi khac dang event: sau chunk cuoi cua
+# file thuong, bundle DOI event ctrl `file_done` {fileId, url} qua
+# waitAsyncFileInfo truoc buoc 2 (handler dien fileUrl = url vao
+# fileAsync); timeout mac dinh cung 12e4 ms. Xem ctrl_poll.py
+# (FileAsyncRegistry) + send_file.
+FILE_ASYNC_WAIT_SECONDS = 120.0
+
 
 def _voice_urls_from_async_data(data):
     """(file_url, aac_url, secure_key) tu du lieu async cua tin
@@ -202,6 +225,37 @@ def _voice_secure_key(data):
 # 1..totalChunk; chunk cuoi tra {finished: 1, fileId}.
 VOICE_CHUNK_SIZE = 256000
 
+# -- upload file thuong theo chunk (duong hai buoc) -------------------
+# CUNG getDefaultChunkSize nhu voice (settings.sharefile.
+# chunk_size_file, mac dinh 256e3 byte) — chunk gui tuan tu,
+# chunkId 1..totalChunk; chunk cuoi tra {finished: 1, fileId}.
+FILE_CHUNK_SIZE = 256000
+
+
+def _file_extension(filename):
+    """extension cua ten file theo bundle (getExtension): phan sau
+    dau cham CUOI, rong neu khong co dau cham hoac phan duoi dai
+    >= 7 ky tu; giu nguyen hoa/thuong (bundle khong ha)."""
+    name = filename or ""
+    idx = name.rfind(".")
+    if idx < 0:
+        return ""
+    ext = name[idx + 1:]
+    return ext if len(ext) < 7 else ""
+
+
+def _normalize_filename(filename):
+    """Ten file truoc khi gui theo bundle
+    (formatFileNameBeforeSend): Unicode normalize() — mac dinh
+    NFC o JS."""
+    name = filename or ""
+    if not isinstance(name, str):
+        return name
+    try:
+        return unicodedata.normalize("NFC", name)
+    except (TypeError, ValueError):
+        return name
+
 
 class ZaloChatError(RuntimeError):
     """Loi Zalo tra ve qua envelope (error_code != 0), mang theo ma
@@ -231,10 +285,11 @@ class ZaloChatError(RuntimeError):
 #    max_size_share_file_v3, restricted_ext_file) chi co luc dang
 #    nhap zca-js; phien PC o day khong co — dung cac cap cung cua
 #    Node.js lam gioi han mac dinh.
-# Duong truyen VAN LA phien PC (endpoint bundle exe: sharefile_full
-# 11146/11191, photo 11152/11164) — chi hanh vi / dinh dang / tham
-# so khop Node.js. Cho nao exe va Node.js mau thuan ve wire thi
-# giu theo exe (xem ghi chu o _new_client_id / send_file).
+# Duong truyen VAN LA phien PC (endpoint bundle exe: asyncfile
+# upload 11776/13000 + asyncfile/msg 11777/13001, photo 11152/
+# 11164) — chi hanh vi / dinh dang / tham so khop Node.js. Cho nao
+# exe va Node.js mau thuan ve wire thi giu theo exe (xem ghi chu
+# o _new_client_id / send_file).
 MAX_FILE_BYTES = 150 * 1024 * 1024
 MAX_PHOTO_BYTES = 25 * 1024 * 1024
 PHOTO_EXTS = frozenset({"jpg", "jpeg", "png", "webp"})
@@ -635,7 +690,8 @@ class Chat:
 
     def __init__(self, http_get, device_id, zpw_enk,
                  http_post_multipart=None, http_post=None, sleep=None,
-                 voice_async=None, voice_async_timeout=None):
+                 voice_async=None, voice_async_timeout=None,
+                 file_async=None, file_async_timeout=None):
         self.http_get = http_get
         self.device_id = device_id
         self.zpw_enk = zpw_enk
@@ -664,6 +720,21 @@ class Chat:
             timeout = VOICE_ASYNC_WAIT_SECONDS
         self.voice_async_timeout = (timeout if timeout > 0
                                     else VOICE_ASYNC_WAIT_SECONDS)
+        # Doi event async ctrl file (loi 405 sharefile_full — xem
+        # send_file): file_async la object co .wait(file_id,
+        # timeout_s) -> {"url"} | None va .feeder_running; server
+        # nap bang ctrl_poll.FileAsyncRegistry + CtrlPoller. None
+        # = khong co kenh cho event — send_file loi ro thay vi
+        # gui mu.
+        self.file_async = file_async
+        try:
+            timeout = float(file_async_timeout
+                            if file_async_timeout is not None
+                            else FILE_ASYNC_WAIT_SECONDS)
+        except (TypeError, ValueError):
+            timeout = FILE_ASYNC_WAIT_SECONDS
+        self.file_async_timeout = (timeout if timeout > 0
+                                   else FILE_ASYNC_WAIT_SECONDS)
 
     # -- co so -----------------------------------------------------------
     def _unwrap(self, status, payload, where):
@@ -841,38 +912,184 @@ class Chat:
     # -- gui file / anh / voice ------------------------------------------
     def send_file(self, thread_type, thread_id, filename, data,
                   mime="application/octet-stream"):
-        """11146 (1-1) / 11191 (nhom): multipart fileContent.
-        Kiem tra truoc (validate_attachment): ten thieu / file rong
-        / file qua lon -> ValueError voi loi ro rang, khong goi Zalo.
-        clientId la STRING tren duong nay (bundle sendFile ghep
-        chuoi JSON bang tay: '{"toid":"<id>", "clientId":"<id>"}'
-        — co dau ngoac kep; gia tri van la epoch-ms cua
-        protocol.new_client_id, chi khac kieu JSON). Ghi chu cu noi
-        "exe dung number" la SAI doi voi file/voice — number chi
-        dung cho text/anh/link (JSON.stringify). Gui NUMBER o day
-        bi server tu choi bang 112 chung chung (live 2026-11-06
-        tren duong voice; cung mau thuan wire). Thu lai gioi han
-        khi gap 112 (xem _post_multipart_retry).
-        """
+        """Gui file thuong (Word/Excel/PDF/...) — DUONG HAI BUOC
+        cua upload-manager (bundle PC 26.11.10; xem ghi chu o dau
+        module):
+        Buoc 1: POST multipart chunkContent len asyncfile/upload
+        11776 (1-1) / 13000 (nhom), moi chunk 256_000 byte, params
+        AES {totalChunk, fileName, clientId NUMBER, totalSize, imei,
+        chunkId, toid|grid} (KHONG fileType — chi Voice moi co;
+        KHONG checksum — bundle xoa truoc khi gui; KHONG
+        isE2EE/jxl), & type=2/11. Chunk cuoi tra data {finished: 1,
+        fileId}.
+        Buoc 1.5: DOI event ctrl `file_done` {fileId, url} qua
+        waitAsyncFileInfo (kenh ctrl 99101 — xem ctrl_poll.py),
+        toi da FILE_ASYNC_WAIT_SECONDS (mac dinh 120 s nhu bundle).
+        Buoc 2: POST form params=<AES JSON> len asyncfile/msg
+        11777 (1-1) / 13001 (nhom), body la item getFileAsyncItem:
+        {fileId, checksum (md5 hex cua toan file), checksumSha: "",
+        extension, totalSize, fileName, clientId NUMBER, fType: 1,
+        fileCount: 0, fdata: "{}", toid|grid, imei (chi 1-1),
+        zsource: -1} + fileUrl (tu event file_done — DOI truoc
+        buoc 2, xem ctrl_poll.py).
+        Response giai ma rong (None/{}) -> ZaloChatError "khong co
+        ma tin": Zalo tra 200/error_code=0 nhung khong tao tin nao
+        thi khong duoc bao thanh cong (loi cam 07/11, giong
+        send_photo). Kiem tra truoc (validate_attachment): ten
+        thieu / file rong / file qua lon -> ValueError voi loi ro
+        rang, khong goi Zalo. Thu lai gioi han khi gap 112 o CA
+        hai buoc (tam thoi theo bundle; dung cung clientId/body
+        de server dedup, tranh gui trung).
+
+        GHI CHU TRUNG THUC VE DUONG CU (DA XAC NHAN CHET, vong
+        405 2026-11-07 — khong con la suy luan theo shape):
+        API sendFile truc tiep (11146/11191, POST multipart
+        fileContent len sharefile_full) co 0 caller trong bundle
+        JS — khong co code nao goi no (giong sendVoice chet cua
+        voicemp3/sendmp3, live van 112). Live 2026-11-07 09:xx
+        +07: gui Word/Excel/PDF cho Dai ca bi banner «chat: POST
+        /api/message/sharefile_full network status=405» — Zalo
+        upstream tu choi duong chet do. Host KHONG phai nguyen
+        nhan o day: send_file cu da dung FILES_DOMAIN
+        (files-wpa) dung nhu bundle (apiFileDomain), khac voi loi
+        405 cua anh (e0d6eed: send_photo sai host chat-wpa).
+        Duong that duy nhat trong JS la sendFileByChunkV2 (2 call
+        site: File va Photo) -> uploadFile -> sendMsgAsync ->
+        _sendMsgFileAsync -> API sendMsgFileAsync (15136113).
+        zca-js 2.1.2 khop hoan toan: uploadAttachment dung
+        asyncfile/upload, sendMessage "others" dung asyncfile/msg
+        — khong co sharefile_full trong ca thu vien.
+        Chi tiet item (getFileAsyncItem, 4552015): extension =
+        getExtension(fileName) (sau dau cham cuoi, rong neu dai
+        >= 7); fileName = formatFileNameBeforeSend (Unicode
+        normalize); fType = FILE_FTYPE.FILE = 1 (Ne={FILE:1,
+        FOLDER:2}); fileCount = totalFile||0 (gui 1 file rieng
+        -> 0); fdata = JSON.stringify(fdata || {}) (file thuong
+        -> "{}"). zca-js viet `extention` (sai chinh ta) o buoc 2
+        — bundle exe thang nen dung `extension`. zca-js khong gui
+        imei o buoc 2, bundle thi them imei cho 1-1
+        (sendMsgFileAsync) — app gui theo bundle, giong voice.
+        Chunk 256_000 byte = getDefaultChunkSize cua bundle
+        (settings.sharefile.chunk_size_file neu >= 64_000, khong
+        thi 256e3); chunkId 1..totalChunk (zca-js cung vay).
+        KHONG lay fileUrl tu chunk-response (truong url do thuoc
+        nhanh DUPLICATE/cache — giong bai hoc 114 cua voice):
+        LUON doi event file_done, het gio / kenh ctrl chua chay /
+        khong co waiter -> loi ro, KHONG gui buoc 2."""
         validate_attachment("file", filename, mime, data)
+        file_name = _normalize_filename(filename)
+        extension = _file_extension(file_name)
+        is_group = thread_type == "group"
         client_id = _new_client_id()
-        if thread_type == "group":
-            url = _multipart_url(
-                FILES_DOMAIN, "/api/group/sharefile_full",
-                {"grid": str(thread_id), "clientId": str(client_id)},
-                self.zpw_enk, TYPE_FILE_GROUP)
-            where = "POST /api/group/sharefile_full"
+        total_size = len(data)
+        total_chunks = (total_size + FILE_CHUNK_SIZE - 1) \
+            // FILE_CHUNK_SIZE
+        if is_group:
+            upload_path = "/api/group/asyncfile/upload"
+            send_path = "/api/group/asyncfile/msg"
+            type_param = TYPE_FILE_GROUP
         else:
-            url = _multipart_url(
-                FILES_DOMAIN, "/api/message/sharefile_full",
-                {"toid": str(thread_id), "clientId": str(client_id)},
-                self.zpw_enk, TYPE_FILE_USER)
-            where = "POST /api/message/sharefile_full"
-        body, ctype = build_multipart(
-            {}, [("fileContent", filename, mime, data)])
-        return {"data": self._post_multipart_retry(url, body, ctype,
-                                                   where),
-                "client_id": client_id}
+            upload_path = "/api/message/asyncfile/upload"
+            send_path = "/api/message/asyncfile/msg"
+            type_param = TYPE_FILE_USER
+        # -- buoc 1: upload chunked ------------------------------------
+        file_id = None
+        upload_data = {}
+        for chunk_id in range(1, total_chunks + 1):
+            chunk = data[(chunk_id - 1) * FILE_CHUNK_SIZE:
+                         chunk_id * FILE_CHUNK_SIZE]
+            params = {"totalChunk": total_chunks,
+                      "fileName": file_name,
+                      "clientId": client_id,
+                      "totalSize": total_size,
+                      "imei": self.device_id,
+                      "chunkId": chunk_id}
+            if is_group:
+                params["grid"] = str(thread_id)
+            else:
+                params["toid"] = str(thread_id)
+            url = _multipart_url(FILES_DOMAIN, upload_path, params,
+                                 self.zpw_enk, type_param)
+            body, ctype = build_multipart(
+                {}, [("chunkContent", file_name,
+                      "application/octet-stream", chunk)])
+            upload_data = self._post_multipart_retry(
+                url, body, ctype,
+                "POST %s chunk %d/%d" % (upload_path, chunk_id,
+                                         total_chunks))
+            if chunk_id == total_chunks:
+                if not isinstance(upload_data, dict) \
+                        or not upload_data.get("finished") \
+                        or not upload_data.get("fileId"):
+                    raise ZaloChatError(
+                        "chat: upload file xong nhung Zalo khong "
+                        "tra fileId (finished/fileId thieu): %r"
+                        % (upload_data,), error_code=0)
+                file_id = upload_data["fileId"]
+        # -- buoc 1.5: doi event async ctrl file_done ----------------
+        # Bundle DOI event (waitAsyncFileInfo) truoc buoc 2 de lay
+        # URL file; chunk-response chi co {finished:1, fileId} —
+        # bundle KHONG BAO GIO lay URL tu chunk-response (truong
+        # url trong chunk-response thuoc nhanh DUPLICATE/cache),
+        # nen ham nay LUON doi event (wait tra ngay neu event da
+        # ve truoc — cache-hit cua bundle). Het gio / khong co
+        # kenh ctrl / khong co waiter -> loi ro, KHONG gui buoc 2
+        # (gui buoc 2 khong co fileUrl la cai gay ra 114 live o
+        # voice).
+        waiter = self.file_async
+        if waiter is None:
+            raise ZaloChatError(
+                "chat: gui file chua nhan duoc URL file — khong co "
+                "kenh cho event async ctrl file_done (99101); "
+                "khong gui buoc 2 khong co fileUrl", error_code=0)
+        if not getattr(waiter, "feeder_running", True):
+            raise ZaloChatError(
+                "chat: gui file chua nhan duoc URL file — kenh ctrl "
+                "(99101) chua chay; khong gui buoc 2 khong co "
+                "fileUrl", error_code=0)
+        got = waiter.wait(file_id, self.file_async_timeout)
+        file_url = None
+        if isinstance(got, dict):
+            url = got.get("url")
+            file_url = url if isinstance(url, str) and url else None
+        if not file_url:
+            raise ZaloChatError(
+                "chat: gui file het %.0f giay cho event async ctrl "
+                "file_done ma khong thay URL file cho fileId da "
+                "upload xong; khong gui buoc 2 khong co fileUrl"
+                % self.file_async_timeout, error_code=0)
+        # -- buoc 2: gui bang fileId -----------------------------------
+        item = {"fileId": file_id,
+                "checksum": hashlib.md5(data).hexdigest(),
+                "checksumSha": "",
+                "extension": extension,
+                "totalSize": total_size,
+                "fileName": file_name,
+                "clientId": client_id,
+                "fType": 1,
+                "fileCount": 0,
+                "fdata": "{}",
+                "zsource": -1,
+                "fileUrl": file_url}
+        if is_group:
+            item["grid"] = str(thread_id)
+        else:
+            item["toid"] = str(thread_id)
+            item["imei"] = self.device_id
+        send_data = self._post_form_retry(
+            FILES_DOMAIN, send_path, item, "POST %s" % send_path)
+        if not send_data:
+            # Zalo tra 200/error_code=0 nhung khong tao tin nao
+            # (data rong) — phai bao loi that: neu tra ok, route
+            # se tra ok:true + message local, UI hien file nhu da
+            # gui trong khi ben kia khong nhan duoc (thanh cong
+            # gia — loi cam 07/11, giong send_photo truoc khi sua).
+            # Tin gui thanh cong that luon co data {msgId, ...}.
+            raise ZaloChatError(
+                "file: Zalo tra ve khong co ma tin — file chua duoc "
+                "tao (data rong sau khi giai ma)")
+        return {"data": send_data, "client_id": client_id,
+                "file_id": file_id}
 
     def send_photo(self, thread_type, thread_id, filename, data,
                    mime="image/jpeg", width=0, height=0, visibility=0,
