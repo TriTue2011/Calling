@@ -378,13 +378,18 @@ def test_server_thread_routes():
             ["Chao ca nhom", "Chao Ban A", "Toi vua gui"], body
 
         # Gui text 1-1: thanh cong, lich su sau do chi co tin vua gui
-        # (khong co lich su cu qua HTTPS) + thong bao gioi han.
+        # (khong co lich su cu qua HTTPS) — tin vua gui da ghi xuong
+        # DB local (message_store) nen unavailable False + bao ro
+        # lich su chi tu khi bat dau luu (DB partial).
         status, body = api_json("POST", "/api/thread/20001/send",
                                 {"type": "user", "message": "Chao ban"})
         assert status == 200 and body["ok"] is True, body
         status, body = api("GET", "/api/thread/20001/history?type=user")
         assert [m["text"] for m in body["messages"]] == ["Chao ban"], body
-        assert body.get("unavailable") is True, body
+        assert body.get("unavailable") is False, body
+        assert "chi co tu khi app bat dau luu" in body.get("notice", ""), \
+            body
+        assert body.get("source") == "db+inbox", body
 
         # Gui rong -> 400, khong goi Zalo.
         status, body = api_json("POST", "/api/thread/20001/send",

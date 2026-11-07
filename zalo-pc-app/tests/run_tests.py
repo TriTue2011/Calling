@@ -16,6 +16,8 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
          "test_view_decision.py", "test_webhooks.py", "test_chat.py",
          "test_incoming.py",
          "test_sync_start.py",
+         "test_sync_cursor.py", "test_message_store.py",
+         "test_ctrl_webhooks.py",
          "test_voice_transcode.py", "test_voice_112.py",
          "test_voice_async_114.py",
          "test_services.py", "test_server_smoke.py"]

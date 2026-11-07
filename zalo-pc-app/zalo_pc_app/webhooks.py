@@ -29,15 +29,38 @@ What actually fires TODAY (read this before assuming coverage):
     (/api/call/request success + error, /api/call/end): every
     outgoing call attempt the app itself makes produces a call
     event, because the app is the source of that event.
-  * message / group_event / reaction — CONFIGURED + HOOKED, but
-    NOT firing end-to-end yet. There is no incoming-event source in
-    the PC app: no sync channel (O3 WebSocket, stage 2, not built)
-    delivers incoming messages/group events/reactions to this
-    process, so nothing calls dispatch_message() /
-    dispatch_group_event() / dispatch_reaction() yet. The hook
-    functions exist in this module precisely so the sync agent can
-    call them (one line each) when O3 lands — do NOT claim message
-    webhooks work end-to-end until that source exists.
+  * message — fires NOW. SyncPoller (HTTP long-poll 99100) ->
+    server.py _on_sync_message -> dispatch_message (wired +
+    tested). Incoming messages also land in the durable SQLite
+    store (message_store.py) alongside dispatch.
+  * group_event / reaction — fires NOW via the ctrl channel.
+    CtrlPoller (HTTP long-poll 99101) -> server.py
+    _on_ctrl_group_event / _on_ctrl_reaction ->
+    dispatch_group_event / dispatch_reaction (wired + unit-tested;
+    the exact live payload shape still needs a live check).
+    NOTE: the "O3 WebSocket" mentioned in older notes is NOT the
+    only channel — the exe has a real WebSocket alongside
+    long-poll 99100, and the app uses ONLY HTTP long-poll
+    99100/99101, which is a complete channel for these events.
+  * offline / missed messages — SyncPoller persists its cursor
+    to disk after every batch (cursor_store.py) and resumes from
+    the saved cursor (PollCursor.from_dict), so the server returns
+    queued messages since then. Missed messages are only
+    backfilled while the server still holds them in its queue
+    (the server-side retention window is unproven — needs a live
+    test). NOTE on ACK: DELETE_QUEUE_ACK (557/558) lives on the
+    E2EE signal channel, which the app does not have; on the HTTP
+    channel the exe's ACK equivalent is persisting the advanced
+    cursor + polling with it (see sync_poll.py / cursor_store.py).
+  * 1-1 history — read from the local SQLite DB
+    (message_store.py), which holds messages recorded since the
+    app started storing them. The exe reads its own local SQLite
+    DB; there is no 1-1 cloud-history endpoint in the bundle
+    (getCloudMessage commands 12504-12508 are group-only, via
+    getGroupCloudDomain). Group history already comes from 11240.
+  * Do NOT claim the live shapes are proven until a live check
+    shows a real group event / reaction / missed message arriving
+    through these paths.
 
 Safety rules (same spirit as the session store):
   * Config lives in <DATA_DIR>/webhooks.json, mode 0600, written
@@ -426,8 +449,10 @@ class WebhookDispatcher:
 
 # -- hook points ----------------------------------------------------------
 # server.py calls dispatch_call_event() from /api/call/request (sent
-# + error) and /api/call/end (ended). The sync agent (O3) calls the
-# other three from its listener, one line each, when it has events.
+# + error) and /api/call/end (ended); _on_sync_message() calls
+# dispatch_message() (long-poll 99100); _on_ctrl_group_event() /
+# _on_ctrl_reaction() call dispatch_group_event() /
+# dispatch_reaction() (long-poll 99101).
 
 def dispatch_call_event(dispatcher, call_entry, account_id):
     """Call event from a call_log record (sent/error/ended). Fires
@@ -439,10 +464,11 @@ def dispatch_call_event(dispatcher, call_entry, account_id):
 
 
 def dispatch_message(dispatcher, msg, account_id):
-    """HOOK for the sync channel (O3, not built yet): call with each
-    incoming message. Self-sent messages are skipped by default
-    (addon anti-loop rule); only a self message carrying
-    self_reply=true (owner keyword command) is forwarded."""
+    """HOOK for the sync channel (long-poll 99100): called from
+    server.py _on_sync_message with each incoming message.
+    Self-sent messages are skipped by default (addon anti-loop
+    rule); only a self message carrying self_reply=true (owner
+    keyword command) is forwarded."""
     if dispatcher is None:
         return False
     if msg and (msg.get("isSelf") or msg.get("is_self")) \
@@ -453,7 +479,9 @@ def dispatch_message(dispatcher, msg, account_id):
 
 
 def dispatch_group_event(dispatcher, data, account_id):
-    """HOOK for the sync channel (O3, not built yet)."""
+    """HOOK for the ctrl channel (long-poll 99101): called from
+    server.py _on_ctrl_group_event with each group event the
+    CtrlPoller extracts (see ctrl_poll.extract_group_events)."""
     if dispatcher is None:
         return False
     return dispatcher.dispatch(
@@ -461,7 +489,9 @@ def dispatch_group_event(dispatcher, data, account_id):
 
 
 def dispatch_reaction(dispatcher, reaction, account_id):
-    """HOOK for the sync channel (O3, not built yet)."""
+    """HOOK for the ctrl channel (long-poll 99101): called from
+    server.py _on_ctrl_reaction with each reaction the CtrlPoller
+    extracts (see ctrl_poll.extract_reactions)."""
     if dispatcher is None:
         return False
     return dispatcher.dispatch(

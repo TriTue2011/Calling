@@ -348,15 +348,17 @@ def test_server_incoming_e2e():
             "Chao ban, toi la BenBap", by_id
         assert by_id["30001"]["unread"] == 1, by_id
 
-        # Lich su 1-1: tin den hien, van bao gioi han lich su cu
-        # (khong endpoint) — dung cum tu cu de test cu van bat.
+        # Lich su 1-1: tin den hien; tin den da ghi xuong DB local
+        # (message_store) nen unavailable False + bao ro lich su chi
+        # tu khi app bat dau luu (DB partial, khong phai day du).
         status, body = api("GET", "/api/thread/20001/history?type=user")
         assert status == 200, body
-        assert body.get("unavailable") is True, body
-        assert "chua lay duoc qua HTTPS" in body.get("notice", ""), body
+        assert body.get("unavailable") is False, body
+        assert "chi co tu khi app bat dau luu" in body.get("notice", ""), \
+            body
         assert [m["text"] for m in body["messages"]] == \
             ["Chao ban, toi la BenBap"], body
-        assert body.get("source") == "inbox+session", body
+        assert body.get("source") == "db+inbox", body
         assert body.get("requested") == 50, body
         assert body.get("returned") == 1, body
         # Mo thread = da doc: summary het unread o thread nay.

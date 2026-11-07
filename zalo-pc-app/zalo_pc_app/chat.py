@@ -333,6 +333,15 @@ HISTORY_USER_UNAVAILABLE = (
     "sync; chi lich su cu truoc phien nay la chua co."
 )
 
+# Thong bao khi lich su 1-1 doc tu DB local cua app (message_store):
+# DB chi co tin tu khi app bat dau luu (sau ban webhook), tin cu
+# hon van chua co — noi ro de khong tuong la day du.
+HISTORY_USER_DB_PARTIAL = (
+    "Lich su 1-1 chi co tu khi app bat dau luu tin xuong DB local "
+    "(tin cu hon chua co); tin den moi van hien truc tiep qua "
+    "kenh sync."
+)
+
 # E2EE: hoi thoai 1-1 bat E2EE co the khong di duong sms thuong.
 # Gui thu; neu server tu choi thi loi hien ro o UI, khong gia vo.
 E2EE_NOTE = (

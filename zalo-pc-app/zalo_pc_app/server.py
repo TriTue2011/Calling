@@ -73,8 +73,10 @@ from . import call_log
 from . import chat as chat_mod
 from . import contacts as contacts_mod
 from . import ctrl_poll as ctrl_poll_mod
+from . import cursor_store as cursor_store_mod
 from . import engine_seam
 from . import media_endpoints
+from . import message_store as message_store_mod
 from . import protocol
 from . import qr_login
 from . import services as services_mod
@@ -293,8 +295,9 @@ class AppState:
         self.calls = call_log.CallLog()
         # WEBHOOK HOOK (webhooks.py): config in <data_dir>/webhooks.json
         # (mode 0600) + dispatcher. Call events fire from the /api/call
-        # handlers below; message/group_event/reaction dispatchers are
-        # hooked in webhooks.py for the sync channel (O3) to call.
+        # handlers below; message events fire from _on_sync_message
+        # (SyncPoller 99100), group_event/reaction from
+        # _on_ctrl_group_event / _on_ctrl_reaction (CtrlPoller 99101).
         self.webhook_store = webhooks_mod.WebhookStore(
             os.path.join(data_dir, webhooks_mod.FILENAME))
         self.webhook_dispatcher = webhooks_mod.WebhookDispatcher(
@@ -306,6 +309,18 @@ class AppState:
         # 99100 (tin 1-1 + nhom, ca hai chieu) — nguon cho lich su
         # ghep + /api/thread/*/updates + /api/inbox/summary.
         self.inbox = sync_poll_mod.Inbox()
+        # Con tro sync tren dia (cursor_store.py) + ban ghi tin ben
+        # (message_store.py) — webhook missing pieces: con tro poll
+        # luu xuong dia sau moi batch (restart van poll tiep tu cho
+        # cu, server bu tin lo); tin den/gui ghi xuong SQLite de
+        # restart khong mat + lich su 1-1 doc tu DB. DB gan voi uid
+        # tai khoan hien tai (doi uid thi xoa — xem set_account).
+        self.cursor_store = cursor_store_mod.SyncCursorStore(
+            os.path.join(data_dir, cursor_store_mod.FILENAME))
+        self.message_store = message_store_mod.MessageStore(
+            os.path.join(data_dir, message_store_mod.FILENAME))
+        if self.session and self.session.get("uid"):
+            self.message_store.set_account(self.session["uid"])
         # Sync poller (long-poll 99100): chay nen khi co phien +
         # poll_msg_urls; None khi chua co endpoint (phien cu) hoac
         # chua dang nhap. Duoc bao ve boi _sync_lock (start/stop
@@ -840,19 +855,31 @@ class AppState:
         # Dang xuat: dung kenh sync + xoa tin den trong phien.
         self.stop_sync()
         self.inbox.clear()
+        # Dang xuat: con tro + ban ghi tin thuoc ve tai khoan cu
+        # — xoa de tai khoan khac dang nhap sau khong poll bang
+        # con tro cu / khong doc lich su cu (message_store cung
+        # xoa khi set_account doi uid, day la lop phong thu them).
+        self.cursor_store.clear()
+        self.message_store.clear()
 
     # -- sync long-poll (tin den) --------------------------------------
     def _on_sync_message(self, thread_type, thread_id, msg):
-        """Callback moi tin den tu SyncPoller: ghi Inbox + day
-        webhook message (dispatch_message tu choi tin tu gui, theo
-        quy tac chong lap cua addon — xem webhooks.py). Chi log
-        so luong, khong log noi dung tin."""
+        """Callback moi tin den tu SyncPoller: ghi Inbox + ghi DB
+        ben + day webhook message (dispatch_message tu choi tin tu
+        gui, theo quy tac chong lap cua addon — xem webhooks.py).
+        Chi log so luong, khong log noi dung tin."""
         try:
             is_new = self.inbox.record(thread_type, thread_id, msg)
         except Exception:
             return
         if not is_new:
             return
+        # Ban ghi ben TRUOC khi dispatch: neu webhook loi / app
+        # tat ngay sau do, tin van con trong DB de bu sau.
+        try:
+            self.message_store.record(thread_type, thread_id, msg)
+        except Exception:
+            pass
         try:
             account_id = (self.session or {}).get("uid", "")
             webhooks_mod.dispatch_message(
@@ -864,6 +891,38 @@ class AppState:
                  "content": msg.get("text", ""),
                  "isSelf": bool(msg.get("is_self", False))},
                 account_id)
+        except Exception:
+            pass
+
+    def _save_sync_cursor(self, channel, cursor):
+        """Luu con tro mot kenh (msg/ctrl) xuong dia sau moi batch
+        (SyncCursorStore — khong bao gio nem loi)."""
+        try:
+            uid = (self.session or {}).get("uid", "")
+            self.cursor_store.save(channel, cursor.to_dict(), uid)
+        except Exception:
+            pass
+
+    def _on_ctrl_group_event(self, event):
+        """Callback event nhom tu CtrlPoller (99101): day webhook
+        group_event theo shape da co trong webhooks.py. Chi log
+        dang event, khong log noi dung."""
+        try:
+            account_id = (self.session or {}).get("uid", "")
+            webhooks_mod.dispatch_group_event(
+                self.webhook_dispatcher, event, account_id)
+        except Exception:
+            pass
+
+    def _on_ctrl_reaction(self, event):
+        """Callback reaction tu CtrlPoller (99101): day webhook
+        reaction theo shape da co trong webhooks.py (event la
+        dict {threadId, msgId, uidFrom, icon, type} — xem
+        ctrl_poll.extract_reactions)."""
+        try:
+            account_id = (self.session or {}).get("uid", "")
+            webhooks_mod.dispatch_reaction(
+                self.webhook_dispatcher, event, account_id)
         except Exception:
             pass
 
@@ -984,12 +1043,20 @@ class AppState:
                     self.sync_error = "no_endpoints_from_server"
                 return False
             transport = make_transport(cur["zpw_sek"])
+            uid = cur.get("uid", "")
+            # DB gan voi uid tai khoan (doi uid thi xoa lich su cu);
+            # con tro khoi tao tu dia (restart van poll tiep tu
+            # cho cu — server bu tin lo trong hang doi).
+            self.message_store.set_account(uid)
             try:
                 poller = sync_poll_mod.SyncPoller(
                     transport, cur.get("poll_msg_urls"),
-                    cur["zpw_enk"], cur.get("uid", ""),
+                    cur["zpw_enk"], uid,
                     on_message=self._on_sync_message,
-                    msg_timeout=cur.get("poll_msg_timeout", 30))
+                    msg_timeout=cur.get("poll_msg_timeout", 30),
+                    cursor=self.cursor_store.load("msg", uid),
+                    on_cursor=lambda c: self._save_sync_cursor(
+                        "msg", c))
             except ValueError as e:
                 self.sync_error = self._sync_error_text(e)
                 print("[sync-poll] %s" % self.sync_error, flush=True)
@@ -1010,8 +1077,13 @@ class AppState:
                 try:
                     ctrl = ctrl_poll_mod.CtrlPoller(
                         transport, ctl_urls, cur["zpw_enk"],
-                        cur.get("uid", ""), self.voice_async,
-                        ctl_timeout=cur.get("poll_ctl_timeout", 30))
+                        uid, self.voice_async,
+                        ctl_timeout=cur.get("poll_ctl_timeout", 30),
+                        cursor=self.cursor_store.load("ctrl", uid),
+                        on_cursor=lambda c: self._save_sync_cursor(
+                            "ctrl", c),
+                        on_group_event=self._on_ctrl_group_event,
+                        on_reaction=self._on_ctrl_reaction)
                 except ValueError as e:
                     print("[sync-poll] kenh ctrl khong mo duoc: %s"
                           % e, flush=True)
@@ -1294,8 +1366,10 @@ class Handler(BaseHTTPRequestHandler):
         # ghep theo kieu Node.js (chat.merge_messages: trung khoa
         # thi ban Zalo thang, sap theo ts, cat N tin cuoi).
         # 1-1: KHONG co endpoint HTTPS (ca Node.js cung khong co)
-        # — tra thong bao gioi han trung thuc + tin den trong
-        # phien (Inbox) + tin da gui trong phien (chat.py).
+        # — doc tu DB local (message_store: tin den/gui da ghi
+        # xuong dia tu khi app bat dau luu) + ghep tin den trong
+        # phien (Inbox) + tin da gui trong phien (chat.py). DB
+        # trong thi tra thong bao gioi han trung thuc cu.
         # count theo Node.js (routes/api.js): so nguyen 1..1000,
         # ngoai khoang -> 400 (khong clamp lam nhu cu).
         # Mo thread = da doc: xoa unread cua thread do o Inbox.
@@ -1330,8 +1404,24 @@ class Handler(BaseHTTPRequestHandler):
                     result = chat.history_group(thread_id, count)
                     source = "zalo"
                 else:
-                    result = chat.history_user_unavailable()
-                    source = "inbox+session"
+                    # 1-1: KHONG co endpoint HTTPS (ca Node.js cung
+                    # khong co) — doc tu DB local (message_store):
+                    # tin den/gui da ghi xuong dia tu khi app bat
+                    # dau luu. DB trong thi giu thong bao gioi han
+                    # trung thuc cu; DB co tin thi bao ro la lich
+                    # su CHUA DU (chi tu khi bat dau luu).
+                    db_msgs = STATE.message_store.messages_for(
+                        thread_type, thread_id, count)
+                    if db_msgs:
+                        result = {
+                            "messages": db_msgs, "has_more": False,
+                            "unavailable": False,
+                            "notice": chat_mod.HISTORY_USER_DB_PARTIAL,
+                        }
+                        source = "db+inbox"
+                    else:
+                        result = chat.history_user_unavailable()
+                        source = "inbox+session"
                 cached = (STATE.inbox.messages_for(thread_type, thread_id)
                           + STATE.chat_store.sent_for(thread_type,
                                                       thread_id))
@@ -1477,6 +1567,8 @@ class Handler(BaseHTTPRequestHandler):
                     client_id=res["client_id"])
                 STATE.chat_store.record_sent(thread_type, thread_id,
                                              local)
+                STATE.message_store.record(thread_type, thread_id,
+                                           local)
                 return self._send_json({"ok": True, "data": res["data"],
                                         "message": local})
             if action == "sendlink":
@@ -1500,6 +1592,8 @@ class Handler(BaseHTTPRequestHandler):
                     client_id=res["client_id"])
                 STATE.chat_store.record_sent(thread_type, thread_id,
                                              local)
+                STATE.message_store.record(thread_type, thread_id,
+                                           local)
                 return self._send_json({"ok": True, "data": res["data"],
                                         "message": local})
             if action == "typing":
@@ -1562,6 +1656,8 @@ class Handler(BaseHTTPRequestHandler):
                     client_id=res["client_id"])
                 STATE.chat_store.record_sent(thread_type, thread_id,
                                              local)
+                STATE.message_store.record(thread_type, thread_id,
+                                           local)
                 return self._send_json({"ok": True, "data": res["data"],
                                         "message": local})
             # sendvoice: file ghi am cua trinh duyet (MediaRecorder).
@@ -1593,6 +1689,7 @@ class Handler(BaseHTTPRequestHandler):
                 thread_type, thread_id, "voice", text=aac_name,
                 file_name=aac_name, client_id=res["client_id"])
             STATE.chat_store.record_sent(thread_type, thread_id, local)
+            STATE.message_store.record(thread_type, thread_id, local)
             return self._send_json({"ok": True, "data": res["data"],
                                     "message": local,
                                     "converted_to_aac": converted,

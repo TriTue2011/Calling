@@ -140,8 +140,11 @@ class PollCursor:
             return
         reset = data.get("resetLastActionId")
         if reset is not None and str(reset) not in ("", "0", "NaN"):
+            # Exe: nhay TOI id reset, lastActionIdOther ve "1"
+            # (khong giu ca hai o id cu nhu ban cu), xoa trang
+            # thai queue — hang doi cu het han.
             self.last_action_id = str(reset)
-            self.last_action_id_other = str(reset)
+            self.last_action_id_other = "1"
             self.queues = {}
             return
         if data.get("lastActionId") is not None:
@@ -157,6 +160,41 @@ class PollCursor:
                     if isinstance(ids, list):
                         entry["ids"] = [str(v) for v in ids[:10]]
                     self.queues[str(name)] = entry
+
+    def to_dict(self):
+        """Trang thai con tro dang dict JSON — de luu xuong dia
+        (xem cursor_store.py)."""
+        return {
+            "lastActionId": self.last_action_id,
+            "lastActionIdOther": self.last_action_id_other,
+            "queues": {name: dict(info)
+                       for name, info in self.queues.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Khoi tao con tro tu dict da luu (hoac tu mac dinh khi
+        du lieu thieu/hong — khong doan)."""
+        cursor = cls()
+        if isinstance(data, dict):
+            last = data.get("lastActionId")
+            if last not in (None, ""):
+                cursor.last_action_id = str(last)
+            other = data.get("lastActionIdOther")
+            if other not in (None, ""):
+                cursor.last_action_id_other = str(other)
+            queues = data.get("queues")
+            if isinstance(queues, dict):
+                clean = {}
+                for name, info in queues.items():
+                    if isinstance(info, dict) and "lastId" in info:
+                        entry = {"lastId": str(info["lastId"])}
+                        ids = info.get("ids")
+                        if isinstance(ids, list):
+                            entry["ids"] = [str(v) for v in ids[:10]]
+                        clean[str(name)] = entry
+                cursor.queues = clean
+        return cursor
 
 
 def _content_text(item):
@@ -334,7 +372,8 @@ class SyncPoller:
     roi poll lai; KickOut (-69) -> dung han."""
 
     def __init__(self, http_get, poll_urls, zpw_enk, own_id,
-                 on_message=None, msg_timeout=30):
+                 on_message=None, msg_timeout=30, cursor=None,
+                 on_cursor=None):
         urls = [u for u in (poll_urls or []) if u]
         if not urls:
             raise ValueError("sync_poll: can it nhat 1 poll URL "
@@ -350,7 +389,24 @@ class SyncPoller:
             self.msg_timeout = 30
         if self.msg_timeout <= 0:
             self.msg_timeout = 30
-        self.cursor = PollCursor()
+        # Con tro khoi tao tu dia (SyncCursorStore) thay vi luon
+        # "1","1" — restart van poll tiep tu cho cu, server tra
+        # tin trong hang doi ke tu do (bu tin lo). cursor co the
+        # la PollCursor hoac dict da luu.
+        if isinstance(cursor, PollCursor):
+            self.cursor = cursor
+        elif isinstance(cursor, dict):
+            self.cursor = PollCursor.from_dict(cursor)
+        else:
+            self.cursor = PollCursor()
+        # on_cursor(cursor) duoc goi sau moi batch lam con tro doi
+        # — caller luu xuong dia (cursor_store.py). Luu loi khong
+        # lam chet poller.
+        self.on_cursor = on_cursor
+        # Chan doan batch vua xu ly (khong log noi dung tin):
+        # so tin + so queue offline co tin cho.
+        self.last_batch = {"messages": 0, "offline_queues": 0,
+                           "at": 0}
         self._idx = 0
         self._stop = threading.Event()
         self._thread = None
@@ -398,10 +454,39 @@ class SyncPoller:
         if data is None:
             return "empty"
         messages = extract_messages(data, self.own_id)
+        before = self.cursor.to_dict()
         self.cursor.update_from(data)
+        # Tin offline: server gui queueStatus co queue co ids (tin
+        # cho trong hang doi luc app tat) hoac firstPollOffline.
+        # Xu ly het batch roi con tro tien (luu dia) chinh la ACK
+        # tuong duong DELETE_QUEUE_ACK tren kenh HTTP: exe khong co
+        # ACK rieng ngoai viec luu con tro + poll tiep bang con
+        # tro moi (557/558 nam tren kenh signal E2EE ma app khong
+        # co — xem cursor_store.py / bao cao webhook). Chi log so
+        # luong, khong log noi dung tin.
+        offline = 0
+        status = data.get("queueStatus")
+        if isinstance(status, dict):
+            for info in status.values():
+                if isinstance(info, dict) and info.get("ids"):
+                    offline += 1
+        if data.get("firstPollOffline"):
+            offline = max(offline, 1)
+        self.last_batch = {"messages": len(messages),
+                           "offline_queues": offline,
+                           "at": time.time()}
         if self.on_message is not None:
             for thread_type, thread_id, msg in messages:
                 self.on_message(thread_type, thread_id, msg)
+        if offline and messages and not sys.is_finalizing():
+            print("[sync-poll] xu ly %d tin offline tu %d queue"
+                  % (len(messages), offline), flush=True)
+        if self.on_cursor is not None \
+                and self.cursor.to_dict() != before:
+            try:
+                self.on_cursor(self.cursor)
+            except Exception:  # noqa: BLE001 - luu con tro loi
+                pass
         return "ok"
 
     def run(self):

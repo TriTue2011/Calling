@@ -42,9 +42,11 @@ QUYET DINH THIET KE (ghi ro, chua chung minh bang live):
     long-poll cung cap nhat mot con tro, vi moi kenh co queueStatus
     rieng trong response cua no. Hanh vi nay can live kiem chung
     cung voi viec event voice_aac_success co ve that khong.
-  - Poller nay CHI xu ly event voice_aac_success (phuc vu
-    send_voice); cac act_type khac duoc bo qua im lang — group_event
-    / reaction van cho kenh ctrl day du (xem ghi chu o sync_poll).
+  - Poller nay xu ly event voice_aac_success (phuc vu send_voice)
+    VA chuyen cac act_type khac co y nghia cho webhook: "group"
+    -> group_event, "reactions"/"reacts"/"reactGroups" ->
+    reaction (xem extract_group_events / extract_reactions).
+    Cac act_type khong biet van bo qua im lang.
   - Khong replay chunk cuoi khi het gio nhu bundle (replay last
     chunk sau 30 s doi voi file nho): o day het timeout thi loi ro
     rang, khong gui buoc 2 (xem chat.send_voice). Replay la viec
@@ -132,6 +134,182 @@ def extract_voice_async(data):
     return out
 
 
+def extract_group_events(data):
+    """Tach cac event nhom tu payload ctrl da giai ma
+    -> [{"threadId", "group_id", "type", "act", "data"}].
+
+    Bang chung bundle (compact-app-pc, _processCtrlMessages):
+    controls co content.act_type == "group" duoc gom ve
+    `_processGroupCtrlEvents_old` — moi item co data la dict
+    (hoac chuoi JSON) voi groupId + act (vd "group_type") +
+    time + sourceId. act/groupId co the nam trong data hoac
+    o muc content — ham nay doc ca hai cho. Event thieu
+    groupId hoac thieu act thi bo qua; trung trong mot batch
+    thi chi lay mot.
+    """
+    out = []
+    seen = set()
+    if not isinstance(data, dict):
+        return out
+    controls = data.get("controls")
+    if not isinstance(controls, list):
+        return out
+    for ctrl in controls:
+        if not isinstance(ctrl, dict):
+            continue
+        content = ctrl.get("content")
+        if not isinstance(content, dict):
+            continue
+        if content.get("act_type") != "group":
+            continue
+        parsed = _event_data(content.get("data"))
+        group_id = ""
+        act = ""
+        if isinstance(parsed, dict):
+            group_id = (parsed.get("groupId")
+                        or parsed.get("group_id")
+                        or parsed.get("idTo") or "")
+            act = parsed.get("act") or parsed.get("type") or ""
+        if not group_id:
+            group_id = (content.get("groupId")
+                        or content.get("group_id")
+                        or content.get("idTo") or "")
+        if not act:
+            act = content.get("act") or content.get("type") or ""
+        if not group_id or not act:
+            continue
+        detail = parsed if isinstance(parsed, dict) else content
+        try:
+            detail_key = json.dumps(detail, ensure_ascii=False,
+                                    sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            detail_key = str(detail)
+        key = (str(group_id), str(act), detail_key)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "threadId": str(group_id),
+            "group_id": str(group_id),
+            "type": str(act),
+            "act": str(act),
+            "data": detail,
+        })
+    return out
+
+
+def _reaction_icon(entry):
+    """Icon cua mot reaction: rIcon (chuoi) hoac icon; dang khac
+    -> None."""
+    if not isinstance(entry, dict):
+        return None
+    for field in ("rIcon", "icon"):
+        value = entry.get(field)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _reaction_thread(item):
+    """Thread cua mot reaction: idTo, tru "0" (exe chuan hoa
+    "0"==idTo thanh uidFrom — phia nhan, uidFrom la doi phuong
+    1-1)."""
+    if not isinstance(item, dict):
+        return ""
+    thread = str(item.get("idTo") or "")
+    if thread in ("", "0"):
+        thread = str(item.get("uidFrom") or "")
+    if not thread:
+        thread = str(item.get("threadId")
+                     or item.get("groupId") or "")
+    return thread
+
+
+def extract_reactions(data):
+    """Tach cac reaction tu payload ctrl da giai ma
+    -> [{"threadId", "msgId", "uidFrom", "icon", "type"}].
+
+    Bang chung bundle (compact-app-pc, _processCtrlMessages):
+    payload ctrl co key "reactions" / "reacts" / "reactGroups";
+    moi muc co idTo, msgId, cliMsgId, content (chuoi JSON voi
+    danh sach rMsg), uidFrom; muc rMsg co rMsgId, rIcon (chuoi),
+    rType (so). Ham chuan hoa cua exe (processReactionMessages)
+    tra ve {idTo, lastReceiveReactId, rClientMsgId, rMsgId,
+    reactions}. Exe cung chuan hoa "0"==idTo thanh uidFrom.
+
+    Ham nay chap nhan ca dang muc phang (msgId/rMsgId + rIcon
+    o muc goc) lan dang long nhau (content.rMsg, reactions) va
+    bo qua muc thieu thread/msg — khong doan truong. Icon co the
+    rong (vd event go reaction, chua co bang chung hinh dang
+    cu the) — van dispatch khi du thread/msg/nguoi tha.
+    Trung trong mot batch thi chi lay mot. "type" la loai thread
+    (0 = 1-1, 1 = nhom) theo ten key — "reactGroups" la nhom,
+    "reactions"/"reacts" la 1-1; thread_id moi la can cu dinh
+    tuyen chinh xac.
+    """
+    out = []
+    seen = set()
+    if not isinstance(data, dict):
+        return out
+    for key in ("reactions", "reacts", "reactGroups"):
+        items = data.get(key)
+        if not isinstance(items, list):
+            continue
+        thread_kind = 1 if key == "reactGroups" else 0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            thread = _reaction_thread(item)
+            if not thread:
+                continue
+            nested = _event_data(item.get("content"))
+            entries = []
+            if isinstance(nested, dict) \
+                    and isinstance(nested.get("rMsg"), list):
+                entries = [e for e in nested["rMsg"]
+                           if isinstance(e, dict)]
+            elif isinstance(item.get("reactions"), list):
+                entries = [e for e in item["reactions"]
+                           if isinstance(e, dict)]
+            if entries:
+                for entry in entries:
+                    msg_id = (entry.get("rMsgId")
+                              or entry.get("msgId")
+                              or item.get("msgId") or "")
+                    sender = (entry.get("uidFrom")
+                              or item.get("uidFrom") or "")
+                    icon = _reaction_icon(entry) \
+                        or _reaction_icon(item)
+                    if not msg_id or not sender:
+                        continue
+                    dedup = (thread, str(msg_id), str(sender),
+                             icon or "")
+                    if dedup in seen:
+                        continue
+                    seen.add(dedup)
+                    out.append({"threadId": thread,
+                                "msgId": str(msg_id),
+                                "uidFrom": str(sender),
+                                "icon": icon or "",
+                                "type": thread_kind})
+                continue
+            msg_id = item.get("rMsgId") or item.get("msgId") or ""
+            sender = item.get("uidFrom") or ""
+            icon = _reaction_icon(item)
+            if not msg_id or not sender:
+                continue
+            dedup = (thread, str(msg_id), str(sender), icon or "")
+            if dedup in seen:
+                continue
+            seen.add(dedup)
+            out.append({"threadId": thread,
+                        "msgId": str(msg_id),
+                        "uidFrom": str(sender),
+                        "icon": icon or "",
+                        "type": thread_kind})
+    return out
+
+
 class VoiceAsyncRegistry:
     """Kho ket qua event async voice theo fileId (giong local map
     fileId->data cua bundle: setFileIdData/getFileIdData).
@@ -216,7 +394,9 @@ class CtrlPoller:
     roi poll lai; KickOut (-69) -> dung han (giong SyncPoller)."""
 
     def __init__(self, http_get, poll_urls, zpw_enk, own_id,
-                 registry, ctl_timeout=30):
+                 registry, ctl_timeout=30, cursor=None,
+                 on_cursor=None, on_group_event=None,
+                 on_reaction=None):
         urls = [u for u in (poll_urls or []) if u]
         if not urls:
             raise ValueError("ctrl_poll: can it nhat 1 poll URL "
@@ -234,7 +414,23 @@ class CtrlPoller:
             self.ctl_timeout = 30
         if self.ctl_timeout <= 0:
             self.ctl_timeout = 30
-        self.cursor = PollCursor()
+        # Con tro khoi tao tu dia (SyncCursorStore) — nhu
+        # SyncPoller; rieng kenh ctrl, luu qua on_cursor.
+        if isinstance(cursor, PollCursor):
+            self.cursor = cursor
+        elif isinstance(cursor, dict):
+            self.cursor = PollCursor.from_dict(cursor)
+        else:
+            self.cursor = PollCursor()
+        self.on_cursor = on_cursor
+        # on_group_event(event) / on_reaction(event): goi cho moi
+        # event nhom / reaction tach duoc (xem extract_*); loi o
+        # callback khong lam chet poller.
+        self.on_group_event = on_group_event
+        self.on_reaction = on_reaction
+        # Chan doan batch vua xu ly (khong log noi dung).
+        self.last_batch = {"group_events": 0, "reactions": 0,
+                           "at": 0}
         self._idx = 0
         self._stop = threading.Event()
         self._thread = None
@@ -280,7 +476,31 @@ class CtrlPoller:
         for event in extract_voice_async(data):
             self.registry.deliver(event["fileId"], event["amr"],
                                   event["aac"])
+        group_events = extract_group_events(data)
+        reactions = extract_reactions(data)
+        before = self.cursor.to_dict()
         self.cursor.update_from(data)
+        for event in group_events:
+            if self.on_group_event is not None:
+                try:
+                    self.on_group_event(event)
+                except Exception:  # noqa: BLE001 - callback loi
+                    pass
+        for event in reactions:
+            if self.on_reaction is not None:
+                try:
+                    self.on_reaction(event)
+                except Exception:  # noqa: BLE001 - callback loi
+                    pass
+        self.last_batch = {"group_events": len(group_events),
+                           "reactions": len(reactions),
+                           "at": time.time()}
+        if self.on_cursor is not None \
+                and self.cursor.to_dict() != before:
+            try:
+                self.on_cursor(self.cursor)
+            except Exception:  # noqa: BLE001 - luu con tro loi
+                pass
         return "ok"
 
     def run(self):
