@@ -92,6 +92,7 @@ __all__ = [
     "build_p2p_confirm",
     "build_p2p_media",
     "parse_p2p",
+    "socket_family_for_relays",
 ]
 
 # ---------------------------------------------------------------- constants
@@ -205,6 +206,28 @@ def parse_servers_string(s):
         servers.append(RelayServer(rtp[0], rtp[1], rtcp[0], rtcp[1]))
     # A trailing unpaired single is dropped: no RTCP, not valid.
     return servers
+
+
+def socket_family_for_relays(relays):
+    """Socket family a transport needs for `relays`.
+
+    AF_INET6 only when EVERY relay address is IPv6, else
+    AF_INET (IPv4 is the default: the parser emits IPv4
+    servers first and the captures show IPv4 relays). A single
+    socket cannot serve both families; an IPv6-only list on an
+    AF_INET socket fails every sendto with EAFNOSUPPORT, which
+    _send_to counts as send_errors and never raises — the
+    silent failure that left the 07/11 call with probe_tx=0.
+    """
+    for relay in relays:
+        for ip in (relay.rtp_ip, relay.rtcp_ip):
+            try:
+                fam = ipaddress.ip_address(ip)
+            except ValueError:
+                continue
+            if not isinstance(fam, ipaddress.IPv6Address):
+                return socket.AF_INET
+    return socket.AF_INET6
 
 
 # ---------------------------------------------------------------- extendData
@@ -323,10 +346,10 @@ class TransportConfig:
     capture the setup local session and the RTP SSRC are the
     same value (LE in setup, BE in RTP). It exists only so tests
     can inject a fixed value.
-    ``call_counter`` defaults to 1. Observed values in captures
-    were 11/11/12 and rise across calls, but their exact
-    semantics (per-peer vs global counter) are UNKNOWN, so no
-    observed value is baked in as a default.
+    ``call_counter`` defaults to 11 for the caller / 12 for the
+    callee (the wire values in all three captures: outgoing 11,
+    incoming 12; the Init ctor writes (role^1)+11). Override it
+    explicitly when the real counter is known.
     ``call_session`` defaults to fresh random bytes with the
     last byte 0x2b (the invariant seen in all captures).
     ``peer_session`` is the peer's session/SSRC (int u32 or
@@ -347,7 +370,7 @@ class TransportConfig:
     encode_frame: object = None
     decode_frame: object = None
     local_ssrc: int | None = None
-    call_counter: int = 1
+    call_counter: int | None = None
     call_session: bytes | None = None
     is_caller: bool = True
     local_addr: str | None = None  # "IP:port" we report in P2P ack
@@ -412,6 +435,10 @@ class TransportConfig:
             raise ValueError(
                 "call_type: must be 1 (audio 1-1) or 5 (audio group), "
                 "got %r" % (self.call_type,))
+        if self.call_counter is None:
+            # Wire values in all three captures: outgoing 11,
+            # incoming 12 (Init ctor writes (role^1)+11).
+            self.call_counter = 11 if self.is_caller else 12
         if not 0 <= self.call_counter <= 0xFFFF:
             raise ValueError("call_counter: must fit in u16")
         if self.call_session is None:
@@ -443,18 +470,23 @@ def build_probe(seq=0, timestamp_ms=None, probe_id=DEVICE_CONST_PROBE_ID,
                 const2=DEVICE_CONST_PROBE_C2):
     """Probe 26B (echo burst, before setup by ~0.23 s).
 
-    Layout (disasm §7.1): [0]=0x01 [1]=0x01 [2..5]=00
-    [6..7]=seq LE u16 [8..9]=00 [10..13]=probe-id LE
-    [14..17]=const LE [18..19]=5 LE [20]=digit count
-    [21..]=ASCII timestamp-ms tail, NUL-padded to 26 bytes.
-    The tail is a MILLISECOND TIMESTAMP (base ~287 ms after
-    engine start in the capture), NOT a sequence number.
-    ``timestamp_ms`` defaults to the monotonic ms clock.
+    Layout (disasm-200b-probe-tail.md (vi).1, measured on hex —
+    the old disasm-udp4200-setup.md §7.1 layout was off by one
+    byte): [0]=0x01 [1]=0x01 [2..5]=00 [6..7]=seq LE u16
+    [8..9]=00 [10..13]=probe-id LE [14..17]=const LE
+    [18..19]=5 LE [20]=00 [21]=digit count [22]=00
+    [23..]=ASCII timestamp-ms tail, NUL-padded to 26 bytes.
+    The tail is a MILLISECOND TIMESTAMP (base ~65-288 ms after
+    engine start in the captures), NOT a sequence number.
+    ``timestamp_ms`` should be ms since the engine/transport
+    started (small: 3 digits in the burst, so the packet is
+    26B); it defaults to the monotonic ms clock, which after a
+    long uptime makes the packet longer than 26B.
     """
     if timestamp_ms is None:
         timestamp_ms = int(time.monotonic() * 1000)
     tail = str(int(timestamp_ms)).encode("ascii")
-    total = max(26, 21 + len(tail))
+    total = max(26, 23 + len(tail))
     pkt = bytearray(total)
     pkt[0] = 0x01
     pkt[1] = 0x01
@@ -462,21 +494,25 @@ def build_probe(seq=0, timestamp_ms=None, probe_id=DEVICE_CONST_PROBE_ID,
     struct.pack_into("<I", pkt, 10, probe_id & 0xFFFFFFFF)
     struct.pack_into("<I", pkt, 14, const2 & 0xFFFFFFFF)
     struct.pack_into("<H", pkt, 18, 5)
-    pkt[20] = len(tail)
-    pkt[21:21 + len(tail)] = tail
+    pkt[21] = len(tail)
+    pkt[23:23 + len(tail)] = tail
     return bytes(pkt)
 
 
 def parse_probe(data):
-    """Parse a probe/echo packet (26/27/28/40B variants)."""
-    if len(data) < 21 or data[0] != 0x01 or data[1] != 0x01:
+    """Parse a probe/echo packet (26/27/28/40B variants).
+
+    Corrected tail layout (branch D, measured on hex):
+    [21]=digit count, [22]=0x00, ASCII tail at [23..23+count].
+    """
+    if len(data) < 24 or data[0] != 0x01 or data[1] != 0x01:
         raise ValueError("not a probe packet: len=%d head=%s"
                          % (len(data), bytes(data[:2]).hex()))
     (seq,) = struct.unpack_from("<H", data, 6)
     (probe_id,) = struct.unpack_from("<I", data, 10)
     (const2,) = struct.unpack_from("<I", data, 14)
-    ndigits = data[20]
-    tail = bytes(data[21:21 + ndigits])
+    ndigits = data[21]
+    tail = bytes(data[23:23 + ndigits])
     try:
         timestamp_ms = int(tail.decode("ascii"))
     except ValueError:
@@ -936,12 +972,19 @@ class Udp4200Transport:
         self.bind_addr = bind_addr
         # Test seam: a callable returning a UDP-socket-like object
         # (bind/settimeout/sendto/recvfrom/getsockname/close).
-        # Default is a real AF_INET UDP socket. The seam exists
-        # because some sandboxes block loopback UDP (sendto ->
-        # EPERM), so loopback tests run through an in-memory
-        # fabric instead; production always uses real sockets.
+        # Default is a real UDP socket of the family the relays
+        # need (AF_INET6 only when every relay address is IPv6;
+        # an IPv6-only list on an AF_INET socket fails every
+        # sendto with EAFNOSUPPORT, counted as send_errors and
+        # never raised — see socket_family_for_relays). The seam
+        # exists because some sandboxes block loopback UDP
+        # (sendto -> EPERM), so loopback tests run through an
+        # in-memory fabric instead; production always uses real
+        # sockets.
+        self._socket_family = socket_family_for_relays(config.relays)
         self._socket_factory = socket_factory or (
-            lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+            lambda: socket.socket(self._socket_family,
+                                  socket.SOCK_DGRAM))
         self.state = "idle"
         self.mode = "relay"
         self.selected_relay = None
@@ -966,6 +1009,10 @@ class Udp4200Transport:
         self._relay_info = {}  # relay addr -> {arrived_at, session, ...}
         self._last_setup_refresh = 0.0
         self._last_ping = 0.0
+        # Engine-relative clock for the probe tail (the tail is a
+        # timestamp since the transport started, not monotonic ms
+        # since boot — see build_probe). Re-based in start().
+        self._probe_t0 = time.monotonic()
         self._last_hello = 0.0
         self._last_rtcp = 0.0
         self._highest_rx_seq = None
@@ -986,9 +1033,17 @@ class Udp4200Transport:
             raise RuntimeError("transport already started "
                                "(state=%s)" % self.state)
         self._sock = self._socket_factory()
-        self._sock.bind(self.bind_addr)
+        bind_addr = self.bind_addr
+        if (self._socket_family == socket.AF_INET6
+                and bind_addr == ("0.0.0.0", 0)):
+            # An AF_INET6 socket cannot bind an IPv4 wildcard.
+            bind_addr = ("::", 0)
+        self._sock.bind(bind_addr)
         self._sock.settimeout(0.2)
         self.state = "probing"
+        # Re-base the probe timestamp clock at the moment probing
+        # actually starts (closest to the engine's start time).
+        self._probe_t0 = time.monotonic()
         self._send_probe_burst()
         self._send_setup_init()
         self.state = "handshaking"
@@ -1122,14 +1177,32 @@ class Udp4200Transport:
             return True
         except (OSError, AttributeError) as exc:
             self.counters["send_errors"] += 1
-            self._last_error = "send to %s failed: %s" % (addr, exc)
+            idx = self._relay_index(addr)
+            self._last_error = (
+                "send to relay #%d failed: %s" % (idx, exc)
+                if idx is not None else "send failed: %s" % (exc,))
             return False
+
+    def _relay_index(self, addr):
+        """Index of a relay by its RTP/RTCP address, or None.
+
+        Lets diagnostics name a relay without its address (no
+        IPs in logs or UI errors).
+        """
+        for i, relay in enumerate(self.config.relays):
+            if relay.rtp_addr() == addr or relay.rtcp_addr() == addr:
+                return i
+        return None
 
     def _send_probe_burst(self):
         burst = max(1, int(self.config.probe_burst))
+        # Engine-relative ms (small in the burst, so the packet is
+        # the real 26B): the tail is a timestamp since the
+        # transport started, not monotonic ms since boot.
+        ts_ms = int((time.monotonic() - self._probe_t0) * 1000)
         for relay in self.config.relays:
             for i in range(burst):
-                probe = build_probe(seq=i)
+                probe = build_probe(seq=i, timestamp_ms=ts_ms)
                 if self._send_to(probe, relay.rtp_addr()):
                     self.counters["probe_tx"] += 1
 
@@ -1189,10 +1262,10 @@ class Udp4200Transport:
             port = self._sock.getsockname()[1]
         except (OSError, AttributeError):
             pass
-        ip = "127.0.0.1"
+        ip = "::1" if self._socket_family == socket.AF_INET6 else "127.0.0.1"
         if self.peer_reflexive is not None:
             # Learn the source IP the peer would see (no packet sent).
-            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            probe = socket.socket(self._socket_family, socket.SOCK_DGRAM)
             try:
                 probe.connect(self.peer_reflexive)
                 ip = probe.getsockname()[0]
@@ -1247,7 +1320,7 @@ class Udp4200Transport:
                 self._dispatch(data, addr)
             except Exception as exc:  # noqa: BLE001 - one bad packet
                 self.counters["recv_errors"] += 1
-                self._last_error = "dispatch %s: %s" % (addr, exc)
+                self._last_error = "dispatch failed: %s" % (exc,)
 
     def _dispatch(self, data, addr):
         if not data:
@@ -1285,16 +1358,16 @@ class Udp4200Transport:
             info = parse_type02(data)
         except ValueError as exc:
             self.counters["recv_errors"] += 1
-            self._last_error = "bad type-02 from %s: %s" % (addr, exc)
+            self._last_error = "bad type-02: %s" % (exc,)
             return
         self.counters["type02_rx"] += 1
         relay = self._relay_for_addr(addr)
         if relay is None:
-            # Unknown sender: still record it by address so a
-            # relay list mismatch is visible in status, but do
-            # not select it.
-            self._last_error = ("type-02 from unlisted relay %s "
-                                "(not in config.relays)" % (addr,))
+            # Unknown sender: do not select it. The address is
+            # recorded in _relay_info only (never in _last_error,
+            # which surfaces in the UI error).
+            self._last_error = ("type-02 from unlisted relay "
+                                "(not in config.relays)")
             return
         self._relay_info[addr] = {
             "arrived_at": time.monotonic(),
@@ -1316,7 +1389,7 @@ class Udp4200Transport:
             info = parse_type02_keepalive(data)
         except ValueError as exc:
             self.counters["recv_errors"] += 1
-            self._last_error = "bad type-02 25B from %s: %s" % (addr, exc)
+            self._last_error = "bad type-02 25B: %s" % (exc,)
             return
         if info["kind"] == "keepalive":
             self.counters["keepalive_rx"] += 1
@@ -1373,7 +1446,7 @@ class Udp4200Transport:
             pkt = parse_p2p(data)
         except ValueError as exc:
             self.counters["recv_errors"] += 1
-            self._last_error = "bad P2P from %s: %s" % (addr, exc)
+            self._last_error = "bad P2P: %s" % (exc,)
             return
         subtype = pkt["subtype"]
         if pkt["call_session"] != self.config.call_session:

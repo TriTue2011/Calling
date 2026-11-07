@@ -702,6 +702,65 @@ def test_srtp_hooks_unavailable_without_lib():
     raise AssertionError("expected SrtpUnavailable")
 
 
+def test_wait_selected_error_includes_diagnostics():
+    # The 07/11 live error named only the missing type-02, so the
+    # failure could not be diagnosed from the message. The error
+    # must now carry the transport counters + a hint, and must
+    # never carry a relay address.
+    class _FakeTransport:
+        selected_relay = None
+        state = "handshaking"
+        counters = {"probe_tx": 0, "setup_init_tx": 0, "send_errors": 14,
+                    "type02_rx": 0, "unknown_rx": 0, "recv_errors": 0,
+                    "ping_reply_rx": 0}
+        _last_error = "send to relay #0 failed: boom"
+        config = None
+
+    try:
+        media_endpoints.MediaEndpoints._wait_selected(
+            _FakeTransport(), 0.01)
+    except RuntimeError as exc:
+        msg = str(exc)
+        assert "no relay selected" in msg
+        assert "probe_tx=0" in msg and "send_errors=14" in msg
+        assert "type02_rx=0" in msg and "unknown_rx=0" in msg
+        assert "last_error=send to relay #0 failed: boom" in msg
+        assert "hint: no probe/setup datagram left the socket" in msg
+    else:
+        raise AssertionError("no timeout raised")
+
+
+def test_wait_selected_error_sent_but_silent_hint():
+    # Probes/setups left the socket and nothing came back: the
+    # hint must say so, and the relay families must be listed
+    # (shape only — no addresses).
+    class _FakeConfig:
+        relays = [RelayServer("203.0.113.1", 4200, "203.0.113.1", 4201),
+                  RelayServer("2001:db8::1", 4200, "2001:db8::2", 4201)]
+
+    class _FakeTransport:
+        selected_relay = None
+        state = "handshaking"
+        counters = {"probe_tx": 140, "setup_init_tx": 7, "send_errors": 0,
+                    "type02_rx": 0, "unknown_rx": 0, "recv_errors": 0,
+                    "ping_reply_rx": 0}
+        _last_error = None
+        config = _FakeConfig()
+
+    try:
+        media_endpoints.MediaEndpoints._wait_selected(
+            _FakeTransport(), 0.01)
+    except RuntimeError as exc:
+        msg = str(exc)
+        assert "probe_tx=140" in msg and "setup_init_tx=7" in msg
+        assert "relays=2 (v4=1, v6=1)" in msg
+        assert "203.0.113" not in msg and "2001:db8" not in msg
+        assert "hint: probes/setups were sent but nothing came back" \
+            in msg
+    else:
+        raise AssertionError("no timeout raised")
+
+
 if __name__ == "__main__":
     failed = []
     tests = [v for k, v in sorted(globals().items())

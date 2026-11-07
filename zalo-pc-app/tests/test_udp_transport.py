@@ -257,10 +257,19 @@ def test_probe_verbatim():
     assert struct.unpack_from("<I", pkt, 10)[0] == 0x003E9765
     assert struct.unpack_from("<I", pkt, 14)[0] == 0x012F833C
     assert struct.unpack_from("<H", pkt, 18)[0] == 5
-    assert pkt[20] == 3 and pkt[21:24] == b"287"
-    assert pkt[24:26] == b"\x00\x00"
+    # Corrected tail layout (disasm-200b-probe-tail.md (vi).1,
+    # measured on hex): [20]=00, [21]=digit count, [22]=00,
+    # ASCII tail at [23..], NUL padding to 26 bytes.
+    assert pkt[20] == 0x00
+    assert pkt[21] == 3 and pkt[22] == 0x00
+    assert pkt[23:26] == b"287"
     info = ut.parse_probe(pkt)
     assert info["seq"] == 5 and info["timestamp_ms"] == 287
+    # A 5-digit tail is a 28B packet (23 + 5), same layout.
+    pkt = ut.build_probe(seq=1, timestamp_ms=12345)
+    assert len(pkt) == 28
+    assert pkt[21] == 5 and pkt[23:28] == b"12345"
+    assert ut.parse_probe(pkt)["timestamp_ms"] == 12345
 
 
 def test_rtp_build_parse():
@@ -523,6 +532,95 @@ def test_send_pcm_without_relay_raises():
             assert "no relay selected" in str(exc)
         else:
             raise AssertionError("send_pcm without relay did not raise")
+    finally:
+        tr.stop()
+
+
+def test_socket_family_for_relays():
+    v4 = [ut.RelayServer("203.0.113.1", 4200, "203.0.113.1", 4201)]
+    assert ut.socket_family_for_relays(v4) == socket.AF_INET
+    v6 = [ut.RelayServer("2001:db8::1", 4200, "2001:db8::2", 4201)]
+    assert ut.socket_family_for_relays(v6) == socket.AF_INET6
+    assert ut.socket_family_for_relays(v4 + v6) == socket.AF_INET
+
+
+def test_call_counter_default_by_role():
+    relay = [ut.RelayServer("203.0.113.1", 4200, "203.0.113.1", 4201)]
+    assert make_config(relay).call_counter == 11  # caller: wire value
+    assert make_config(relay, is_caller=False).call_counter == 12
+    assert make_config(relay, call_counter=5).call_counter == 5
+
+
+def test_ipv6_transport_picks_af_inet6_family():
+    # IPv6-only relays must not silently fail on an AF_INET
+    # socket: the transport picks AF_INET6 for the socket.
+    cfg = make_config(
+        [ut.RelayServer("2001:db8::1", 4200, "2001:db8::2", 4201)])
+    assert ut.Udp4200Transport(cfg)._socket_family == socket.AF_INET6
+    cfg = make_config(
+        [ut.RelayServer("203.0.113.1", 4200, "203.0.113.1", 4201)])
+    assert ut.Udp4200Transport(cfg)._socket_family == socket.AF_INET
+
+
+class _FailingSocket:
+    """A socket whose sendto always fails (IPv6-on-IPv4 style)."""
+
+    def bind(self, addr):
+        self._addr = ("127.0.0.1", 50001)
+
+    def getsockname(self):
+        return self._addr
+
+    def settimeout(self, timeout):
+        pass
+
+    def sendto(self, data, addr):
+        raise OSError("boom")
+
+    def recvfrom(self, n):
+        raise socket.timeout("timed out")
+
+    def close(self):
+        pass
+
+
+def test_send_error_names_relay_index_not_address():
+    # _last_error must never carry a relay IP (no IPs in logs/UI).
+    cfg = make_config(
+        [ut.RelayServer("2001:db8::1", 4200, "2001:db8::2", 4201)],
+        probe_burst=1)
+    tr = ut.Udp4200Transport(cfg, socket_factory=_FailingSocket)
+    try:
+        tr.start()
+        time.sleep(0.3)
+        assert tr.counters["probe_tx"] == 0
+        assert tr.counters["send_errors"] > 0
+        assert "2001:db8" not in (tr._last_error or "")
+        assert "relay #0" in (tr._last_error or "")
+    finally:
+        tr.stop()
+
+
+def test_probe_burst_is_26_bytes_engine_relative():
+    # The burst probe must be the real 26B shape: the tail is ms
+    # since the transport started (small), not monotonic ms
+    # since boot (large after a long uptime).
+    seen = []
+
+    class _CaptureSocket(_FailingSocket):
+        def sendto(self, data, addr):
+            seen.append(bytes(data))
+            raise OSError("boom")
+
+    cfg = make_config(
+        [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)],
+        probe_burst=1)
+    tr = ut.Udp4200Transport(cfg, socket_factory=_CaptureSocket)
+    try:
+        tr.start()
+        assert seen, "no probe was sent"
+        assert len(seen[0]) == 26, len(seen[0])
+        assert ut.parse_probe(seen[0])["timestamp_ms"] < 10000
     finally:
         tr.stop()
 

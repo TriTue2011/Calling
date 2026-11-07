@@ -706,6 +706,74 @@ def _extend_data_dict(extend_data, srtp_mode):
 
 # ------------------------------------------------------------------ provider
 
+def _describe_wait_failure(transport):
+    """Diagnostic summary for a relay-selection timeout.
+
+    Counters and relay families ONLY — never relay IPs/ports,
+    never the token. The next live test can be judged from this
+    alone:
+      * probe_tx==0 + send_errors>0: no datagram ever left the
+        socket (wrong address family, unreachable network).
+      * probe_tx>0 + type02_rx==0 + unknown_rx==0: the path is
+        silent in both directions (UDP blocked, or the relay
+        rejected the setup without answering).
+      * unknown_rx>0 / recv_errors>0: replies arrived but were
+        not recognized as type-02.
+      * type02_rx>0: a type-02 arrived but was not selected
+        (see last_error — e.g. an unlisted sender).
+    """
+    counters = getattr(transport, "counters", None)
+    if not isinstance(counters, dict):
+        counters = {}
+
+    def _n(name):
+        try:
+            return int(counters.get(name) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    relays_txt = ""
+    config = getattr(transport, "config", None)
+    relays = getattr(config, "relays", None) if config is not None else None
+    if isinstance(relays, (list, tuple)) and relays:
+        v4 = v6 = 0
+        for r in relays:
+            try:
+                fam = ipaddress.ip_address(str(getattr(r, "rtp_ip", "")))
+            except ValueError:
+                continue
+            if isinstance(fam, ipaddress.IPv6Address):
+                v6 += 1
+            else:
+                v4 += 1
+        relays_txt = "; relays=%d (v4=%d, v6=%d)" % (len(relays), v4, v6)
+    last_error = getattr(transport, "_last_error", None) or "none"
+    summary = (" | probe_tx=%d setup_init_tx=%d send_errors=%d "
+               "type02_rx=%d unknown_rx=%d recv_errors=%d "
+               "ping_reply_rx=%d%s; last_error=%s"
+               % (_n("probe_tx"), _n("setup_init_tx"), _n("send_errors"),
+                  _n("type02_rx"), _n("unknown_rx"), _n("recv_errors"),
+                  _n("ping_reply_rx"), relays_txt, last_error))
+    if _n("send_errors") > 0 and _n("probe_tx") == 0 \
+            and _n("setup_init_tx") == 0:
+        hint = ("hint: no probe/setup datagram left the socket "
+                "(send_errors=%d) — check the relay address "
+                "family / socket" % _n("send_errors"))
+    elif _n("type02_rx") > 0:
+        hint = ("hint: type-02 arrived but was not selected "
+                "(see last_error)")
+    elif _n("unknown_rx") > 0 or _n("recv_errors") > 0:
+        hint = ("hint: unrecognized packets arrived "
+                "(unknown_rx=%d, recv_errors=%d)"
+                % (_n("unknown_rx"), _n("recv_errors")))
+    else:
+        hint = ("hint: probes/setups were sent but nothing came "
+                "back in the wait — the UDP path to the relay or "
+                "the relay's reply may be blocked, or the setup "
+                "was rejected")
+    return summary + "; " + hint
+
+
 class MediaEndpoints:
     """Phase-2 provider: real relay allocation via Udp4200Transport.
 
@@ -1006,9 +1074,11 @@ class MediaEndpoints:
     @staticmethod
     def _wait_selected(transport, timeout):
         """Poll for `transport.selected_relay` up to `timeout`
-        seconds; raise RuntimeError (naming the missing type-02)
-        on timeout. A fake/loopback transport selects
-        synchronously, so tests do not wait."""
+        seconds; raise RuntimeError (naming the missing type-02
+        plus the transport's counters, so the next live test can
+        be diagnosed from the message alone) on timeout. A
+        fake/loopback transport selects synchronously, so tests
+        do not wait."""
         deadline = time.monotonic() + max(0.0, float(timeout))
         while True:
             selected = getattr(transport, "selected_relay", None)
@@ -1019,8 +1089,9 @@ class MediaEndpoints:
                 raise RuntimeError(
                     "no relay selected within %.1fs (transport "
                     "state=%s): no type-02 52B arrived from any "
-                    "relay, so there is no address to put in 11301"
-                    % (timeout, state))
+                    "relay, so there is no address to put in 11301%s"
+                    % (timeout, state,
+                       _describe_wait_failure(transport)))
             time.sleep(0.02)
 
     # -- lifecycle -------------------------------------------------
