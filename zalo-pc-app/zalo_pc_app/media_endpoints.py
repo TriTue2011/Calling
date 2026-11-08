@@ -472,6 +472,82 @@ def describe_requestcall_shape(data):
     return "; ".join(parts)
 
 
+def requestcall_status(data):
+    """(status, msg) of a decoded 11300 response. The real success
+    case (live 2026-11-06) carries status 0 and msg ""; any other
+    status is a server-side refusal of the requestcall itself,
+    with msg carrying the reason. status absent (the mock's
+    {"ok": True} shape) means unknown and is treated as accepted
+    — the mock must not be forced to invent a status field."""
+    if not isinstance(data, dict):
+        return None, ""
+    status = _find_in_requestcall_data(data, "status")
+    msg = _find_in_requestcall_data(data, "msg")
+    return status, (msg if isinstance(msg, str) else "")
+
+
+def requestcall_accepted(data):
+    """True when a decoded 11300 response does NOT refuse the
+    call: status absent (unknown) or 0. Any other status is a
+    refusal — the caller must not proceed to step 2 with it."""
+    status, _msg = requestcall_status(data)
+    return status is None or status in (0, "0")
+
+
+def describe_request_shape(data, code="11301"):
+    """One-line shape summary of a decoded request-step (11301 /
+    12434) response: top-level key names + scalar status / msg /
+    ok / error_code values ONLY. Never the values of session /
+    token / sessId / body keys — the mock echoes the request body,
+    which carries the session, so no nested content is ever
+    expanded. Safe for the call log and /api/calls diag."""
+    if data is None:
+        return "%s data: None" % code
+    if not isinstance(data, dict):
+        if isinstance(data, (str, bytes, bytearray)):
+            return "%s data: %s[%d]" % (code, type(data).__name__,
+                                        len(data))
+        return "%s data: %s" % (code, type(data).__name__)
+    parts = ["%s keys: [%s]" % (code, ", ".join(
+        sorted(map(str, data))))]
+    for key in ("status", "ok", "error_code"):
+        if key in data and isinstance(data[key], (int, str, bool)):
+            parts.append("%s=%s" % (key, data[key]))
+    msg = data.get("msg") or data.get("error_message") \
+        or data.get("error")
+    if isinstance(msg, str) and msg:
+        parts.append("msg=%s" % msg[:120])
+    return "; ".join(parts)
+
+
+def request_step_outcome(resp):
+    """Did the server accept a request step (11301 / 12434)?
+    Returns (accepted, status, msg). accepted=False when the
+    decoded response carries a non-zero status / error_code, or
+    ok is False. status absent (the mock success shape {"ok":
+    True}) counts as accepted — the mock must not invent a
+    rejection the real server was never seen to make. The inner
+    error_code case never reaches here (Signaling._call raises
+    ServerRejectedError for it); this covers the data-level
+    status the envelope check cannot see."""
+    if not isinstance(resp, dict):
+        return True, None, ""
+    status = resp.get("status")
+    err = resp.get("error_code")
+    ok = resp.get("ok")
+    msg = resp.get("msg") or resp.get("error_message") \
+        or resp.get("error")
+    if not isinstance(msg, str):
+        msg = ""
+    if status is not None and status not in (0, "0"):
+        return False, status, msg
+    if err is not None and err not in (0, "0"):
+        return False, err, msg
+    if ok is False:
+        return False, status, msg
+    return True, status, msg
+
+
 def _normalize_relays(relays, servers=None):
     """Normalize every accepted relay shape to list[RelayServer].
 

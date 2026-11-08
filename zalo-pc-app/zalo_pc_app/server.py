@@ -243,6 +243,18 @@ def _log_call(msg):
     print("[call] %s" % msg, flush=True)
 
 
+def _describe_session_value(session):
+    """Session presence + length ONLY, never the value (the 11301
+    session is the sessId token — a secret). Used in the step-2
+    send log so the next live round can judge whether step 2
+    carried a real session without ever seeing it."""
+    if session is None:
+        return "missing"
+    if isinstance(session, (str, bytes, bytearray)):
+        return "present[%d]" % len(session)
+    return "present[%s]" % type(session).__name__
+
+
 # Ring timeout for an outgoing call nobody answers (seconds).
 # The real client ends an unanswered call after ~30s (pcap file 2:
 # media 5.74-35.26s = 29.52s, teardown voicecall stream 35.33-36.22s;
@@ -400,7 +412,29 @@ def _ring_timeout_fire(call_id):
     sess = STATE.session
     if not sess or not sess.get("zpw_sek"):
         sess = None
-    _terminate_call(call_id, "ring_timeout", sess)
+    diag = active.get("diag") or {}
+    ended, signal, zalo_ok, zalo_error, _data = _terminate_call(
+        call_id, "ring_timeout", sess)
+    if ended is None:
+        return
+    # One-line diagnosis summary: a single line from `docker logs`
+    # carries everything the no-ring question needs (11300/11301
+    # status, the relay addresses actually used, the cancel
+    # outcome) — the user pastes this line alone and the cause can
+    # be judged from it.
+    _log_call("timeout-summary call_id=%s peer=%s toId=%s "
+              "step1_status=%s step2_status=%s request_sent=%s "
+              "rtp=%s rtcp=%s duration=%.0fs zalo_signal=%s "
+              "zalo_ok=%s%s"
+              % (ended["call_id"], ended.get("peer", ""),
+                 ended.get("thread_id", ""),
+                 diag.get("step1_status"), diag.get("step2_status"),
+                 ended.get("request_sent"),
+                 diag.get("rtp"), diag.get("rtcp"),
+                 max(0.0, float(ended.get("ended_at") or 0)
+                     - float(ended.get("started_at") or 0)),
+                 signal, zalo_ok,
+                 (" zalo_error=" + zalo_error) if zalo_error else ""))
 
 
 def _arm_ring_timer(call_id):
@@ -2546,7 +2580,73 @@ class Handler(BaseHTTPRequestHandler):
                 # are not (the stdlib-only image), the transport
                 # still handshakes and the call signals, but voice
                 # stays unwired — never a crash, never a lie.
+                # Call diagnostics (2026-11-08): step-1 outcome.
+                # Log the 11300 shape + status/msg (shape only,
+                # never values), and refuse a server-side 11300
+                # rejection instead of proceeding to step 2 with
+                # garbage. status 0 = accepted (real success case,
+                # live 2026-11-06); any other status is a refusal,
+                # msg carries the reason; status absent (the mock
+                # {"ok": True} shape) = unknown, treated as
+                # accepted.
+                step1_status, step1_msg = \
+                    media_endpoints.requestcall_status(data)
+                step1_shape = \
+                    media_endpoints.describe_requestcall_shape(data)
+                _log_call("step1 call_id=%s status=%s%s %s"
+                          % (call_id, step1_status,
+                             (" msg=" + step1_msg[:120])
+                             if step1_msg else "",
+                             step1_shape))
+                if not media_endpoints.requestcall_accepted(data):
+                    raise RuntimeError(
+                        "11300 bi tu choi: status=%s%s" % (
+                            step1_status,
+                            (" msg=" + step1_msg[:120])
+                            if step1_msg else ""))
+                # Snapshot the live call first: record_start closes
+                # it when a new call supersedes it, and the log must
+                # say so (with its duration) instead of letting the
+                # earlier call vanish silently. Moved up (was after
+                # step 2): the diag + the early end on a rejected
+                # step 2 need the entry to exist already.
+                prev_active = STATE.calls.snapshot()["active"]
+                sent_entry = STATE.calls.record_start(
+                    call_id, peer, thread_id, call_type)
+                STATE.calls.record_diag(
+                    call_id, {"step1_status": step1_status,
+                              "step1_msg": step1_msg[:120]})
+                if (prev_active is not None
+                        and str(prev_active["call_id"]) != str(call_id)):
+                    _log_call(
+                        "end call_id=%s reason=superseded_by_new_call "
+                        "duration=%.0fs" % (
+                            prev_active["call_id"],
+                            max(0.0, time.time()
+                                - float(prev_active["started_at"] or 0))))
+                    # Withdraw the superseded invitation on the wire
+                    # AND stop its transport: without a cancel the
+                    # previous peer keeps ringing (same ghost-call
+                    # bug as the missing end signal), and for_call
+                    # started a transport for it that nothing else
+                    # ever stops. Best-effort; a failure is logged,
+                    # never breaks the new call.
+                    media_endpoints.ENDPOINTS.stop_call(
+                        int(prev_active["call_id"]))
+                    _sig, _ok, _err, _data = _send_end_signal(
+                        prev_active, sess)
+                    if _sig != "none":
+                        _log_call(
+                            "end call_id=%s reason=superseded_by_new_call "
+                            "zalo_signal=%s zalo_ok=%s%s"
+                            % (prev_active["call_id"], _sig, _ok,
+                               (" zalo_error=" + _err) if _err else ""))
+                _log_call("start call_id=%s peer=%s thread=%s type=%s"
+                          % (call_id, peer, thread_id, call_type))
                 request_sent, request_error = True, ""
+                server_rejected_step2 = False
+                step2_status, step2_msg = None, ""
+                step_code = "12434" if call_type == "group" else "11301"
                 endpoints = None
                 try:
                     hooks = {}
@@ -2610,65 +2710,86 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as exc:  # noqa: BLE001 - best-effort
                     request_sent, request_error = False, str(exc)
                 if endpoints is not None:
+                    # Log what goes into step 2 BEFORE sending: the
+                    # relay addresses actually used + session
+                    # presence/length (never the session value) +
+                    # codec — the live no-ring question ("did 11301
+                    # carry a real relay?") is answered by this
+                    # line alone.
+                    _log_call("step2 send call_id=%s rtp=%s rtcp=%s "
+                              "session=%s codec=%s"
+                              % (call_id, endpoints["rtp_address"],
+                                 endpoints["rtcp_address"],
+                                 _describe_session_value(
+                                     endpoints["session"]),
+                                 endpoints["codec"]))
+                    step2_resp = None
                     try:
                         if call_type == "group":
-                            sig.send_request_group(
+                            step2_resp = sig.send_request_group(
                                 thread_id, call_id, type_request,
                                 body.get("data"), endpoints["session"],
                                 body.get("partners"), thread_id)
                         else:
-                            sig.send_request(
+                            step2_resp = sig.send_request(
                                 thread_id, endpoints["rtcp_address"],
                                 endpoints["rtp_address"],
                                 endpoints["codec"],
                                 endpoints["session"], call_id,
                                 endpoints["extend_data"])
-                        # 11301 accepted: attach the media engine
+                        # Step 2 accepted: attach the media engine
                         # to the started transport (best-effort;
                         # never breaks the call when it fails).
                         engine_seam.SEAM.attach_pc_media(
                             media_endpoints.ENDPOINTS.active_record(
                                 call_id))
+                    except signaling_mod.ServerRejectedError as exc:
+                        # The server refused step 2 (inner
+                        # error_code, e.g. 114): an explicit
+                        # refusal, not a network failure — the call
+                        # ends early below (server_rejected).
+                        request_sent, request_error = False, str(exc)
+                        server_rejected_step2 = True
                     except Exception as exc:  # noqa: BLE001 - best-effort
                         request_sent, request_error = False, str(exc)
-                # Snapshot the live call first: record_start closes
-                # it when a new call supersedes it, and the log must
-                # say so (with its duration) instead of letting the
-                # earlier call vanish silently.
-                prev_active = STATE.calls.snapshot()["active"]
-                sent_entry = STATE.calls.record_start(call_id, peer, thread_id,
-                                         call_type)
+                    if step2_resp is not None:
+                        # The response itself may carry the refusal
+                        # (data-level status, which the envelope
+                        # check cannot see): read it, log its shape,
+                        # and treat a non-zero status as a rejection.
+                        accepted, step2_status, step2_msg = \
+                            media_endpoints.request_step_outcome(
+                                step2_resp)
+                        _log_call("step2 resp call_id=%s %s"
+                                  % (call_id,
+                                     media_endpoints.describe_request_shape(
+                                         step2_resp, step_code)))
+                        if not accepted:
+                            request_sent = False
+                            request_error = (
+                                "may chu tu choi %s: status=%s%s"
+                                % (step_code, step2_status,
+                                   (" msg=" + step2_msg[:120])
+                                   if step2_msg else ""))
+                            server_rejected_step2 = True
+                    STATE.calls.record_diag(call_id, {
+                        "step2_status": step2_status,
+                        "step2_msg": step2_msg[:120],
+                        "rtp": endpoints["rtp_address"],
+                        "rtcp": endpoints["rtcp_address"],
+                        "session_present":
+                            endpoints["session"] is not None,
+                        "session_len": (
+                            len(endpoints["session"])
+                            if isinstance(endpoints["session"],
+                                          (str, bytes, bytearray))
+                            else None),
+                        "codec": endpoints["codec"]})
                 STATE.calls.record_request(call_id, request_sent,
                                            request_error)
-                if (prev_active is not None
-                        and str(prev_active["call_id"]) != str(call_id)):
-                    _log_call(
-                        "end call_id=%s reason=superseded_by_new_call "
-                        "duration=%.0fs" % (
-                            prev_active["call_id"],
-                            max(0.0, time.time()
-                                - float(prev_active["started_at"] or 0))))
-                    # Withdraw the superseded invitation on the wire
-                    # AND stop its transport: without a cancel the
-                    # previous peer keeps ringing (same ghost-call
-                    # bug as the missing end signal), and for_call
-                    # started a transport for it that nothing else
-                    # ever stops. Best-effort; a failure is logged,
-                    # never breaks the new call.
-                    media_endpoints.ENDPOINTS.stop_call(
-                        int(prev_active["call_id"]))
-                    _sig, _ok, _err, _data = _send_end_signal(
-                        prev_active, sess)
-                    if _sig != "none":
-                        _log_call(
-                            "end call_id=%s reason=superseded_by_new_call "
-                            "zalo_signal=%s zalo_ok=%s%s"
-                            % (prev_active["call_id"], _sig, _ok,
-                               (" zalo_error=" + _err) if _err else ""))
-                _log_call("start call_id=%s peer=%s thread=%s type=%s"
-                          % (call_id, peer, thread_id, call_type))
-                _log_call("step2 call_id=%s request_sent=%s%s"
-                          % (call_id, request_sent,
+                _log_call("step2 call_id=%s request_sent=%s "
+                          "step2_status=%s%s"
+                          % (call_id, request_sent, step2_status,
                              (" error=" + request_error)
                              if request_error else ""))
                 # Ring timeout: if nobody answers within
@@ -2676,8 +2797,10 @@ class Handler(BaseHTTPRequestHandler):
                 # on the wire, reason ring_timeout) instead of
                 # staying "sent" forever — see _ring_timeout_fire.
                 # Only when step 2 was sent: without it the peer
-                # never rang, so there is nothing to time out.
-                if request_sent:
+                # never rang, so there is nothing to time out. A
+                # server-rejected step 2 never arms the timer
+                # either — that call ends early below instead.
+                if request_sent and not server_rejected_step2:
                     _arm_ring_timer(call_id)
                 # WEBHOOK HOOK (webhooks.py): call.sent fires NOW —
                 # the app is the source, no sync channel needed.
@@ -2690,11 +2813,24 @@ class Handler(BaseHTTPRequestHandler):
                 # never reach the browser (or a log). Only its
                 # SHAPE (key names + counts) is returned, so the UI
                 # can still show what the response carried.
+                if server_rejected_step2:
+                    # The server said no to step 2: withdraw the
+                    # 11300 invitation with cancel NOW (reason
+                    # server_rejected) instead of leaving the call
+                    # "sent" with no timer — the old code left it
+                    # live forever, and the peer never rang. The
+                    # call.sent webhook above already fired; the
+                    # end webhook fires from _terminate_call.
+                    _terminate_call(call_id, "server_rejected", sess)
+                    return self._send_json(
+                        {"ok": True, "data_shape": step1_shape,
+                         "call_id": call_id,
+                         "request_sent": False,
+                         "request_error": request_error,
+                         "ended_reason": "server_rejected"})
                 return self._send_json(
                     {"ok": True,
-                     "data_shape":
-                         media_endpoints.describe_requestcall_shape(
-                             data),
+                     "data_shape": step1_shape,
                      "call_id": call_id,
                      "request_sent": request_sent,
                      "request_error": request_error})

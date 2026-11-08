@@ -130,11 +130,16 @@ class MockZalo:
         # call with CANCEL, so a rejected/slow cancel needs the same
         # local-first treatment as a rejected/slow endcall.
         self.cancel_mode = "ok"
-        # Voicecall request-step simulation (§7l): "ok" | "error114".
-        # "error114" makes the follow-up `request` (11301) /
-        # `group/request` (12434) step fail with the real server's
-        # inner 114, so tests can prove the app treats that step as
-        # best-effort (the call itself still succeeds).
+        # Voicecall request-step simulation (§7l): "ok" | "error114"
+        # | "status_error". "error114" makes the follow-up `request`
+        # (11301) / `group/request` (12434) step fail with the real
+        # server's inner 114, so tests can prove the app treats that
+        # step as best-effort (the call itself still succeeds).
+        # "status_error" makes the step return a decoded data with
+        # a non-zero status instead (the shape a live data-level
+        # rejection would take): the app must read the status and
+        # end the call early (server_rejected), not treat the step
+        # as sent.
         self.request_mode = "ok"
         # 11300 response material (§7n): when set (a dict), it is
         # merged into the decoded requestcall response data, so a
@@ -1392,6 +1397,13 @@ class MockZalo:
                     or self.request_mode == "error114"):
                 return self._postlogin_envelope_error(
                     114, "Tham số không hợp lệ")
+            if self.request_mode == "status_error":
+                # Data-level refusal: transport ok, inner
+                # error_code 0, but the decoded data carries a
+                # non-zero status (see request_step_outcome).
+                return self._postlogin_envelope(
+                    {"ok": False, "status": 7,
+                     "msg": "callee unreachable"})
             self._record_voice_step(call_id, sub, body)
             return self._postlogin_envelope(
                 {"ok": True, "path": path, "body": body})

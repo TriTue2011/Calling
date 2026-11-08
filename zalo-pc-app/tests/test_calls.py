@@ -93,10 +93,14 @@ def test_no_secrets_in_snapshot():
         assert secret not in blob, secret
     allowed = {"call_id", "peer", "thread_id", "type", "status",
                "started_at", "ended_at", "detail", "request_sent",
-               "request_detail", "answered_at", "answer_source"}
+               "request_detail", "answered_at", "answer_source",
+               "diag"}
     # "answered_at" (epoch seconds) and "answer_source" ("api" /
     # "media") are not secrets — the 2026-11-08 answered fix adds
     # them to every entry, so the allow-list grows with them.
+    # "diag" (2026-11-08 call diagnostics: step1/step2 status,
+    # relay addresses, session presence + length) is shapes and
+    # counts only — never a session or token value.
     for c in log.snapshot()["calls"]:
         assert set(c) == allowed, set(c)
 

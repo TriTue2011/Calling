@@ -21,6 +21,18 @@ from . import protocol
 from .crypto import decode_postlogin_data, session_aes_encrypt
 
 
+class ServerRejectedError(RuntimeError):
+    """The Zalo server refused a voicecall step (outer or inner
+    error_code != 0, e.g. inner 114 "Tham so khong hop le").
+    A subclass of RuntimeError so old `except RuntimeError`
+    handlers still catch it; `server.py` catches THIS type
+    specifically to end a rejected call early (reason
+    `server_rejected`) instead of leaving it "sent" with no
+    timer. Network failures and decrypt failures stay plain
+    RuntimeError — they are NOT a server refusal (the request
+    may or may not have arrived)."""
+
+
 class Signaling:
     def __init__(self, http_get, device_id, zpw_enk, cookie=""):
         self.http_get = http_get
@@ -38,12 +50,20 @@ class Signaling:
             raise RuntimeError("voicecall %s: network status=%s"
                                % (path, status))
         if payload.get("error_code") != 0:
-            raise RuntimeError("voicecall %s: error_code=%s %s" % (
+            raise ServerRejectedError("voicecall %s: error_code=%s %s" % (
                 path, payload.get("error_code"),
                 payload.get("error_message", "")))
         # Two-layer envelope: outer data is an AES-encrypted string;
-        # decode it to the inner {error_code, data} first.
-        return decode_postlogin_data(payload, self.zpw_enk)
+        # decode it to the inner {error_code, data} first. An inner
+        # error_code is a server refusal too (same type, same
+        # message) — the caller can tell it apart from a network
+        # or decrypt failure.
+        try:
+            return decode_postlogin_data(payload, self.zpw_enk)
+        except RuntimeError as exc:
+            if str(exc).startswith("response inner error_code="):
+                raise ServerRejectedError(str(exc)) from exc
+            raise
 
     def request_call(self, callee_id, call_id, codec=None,
                      type_request=protocol.CALL_TYPE_AUDIO_1_1):

@@ -34,6 +34,12 @@ means the request step was never attempted, e.g. entries recorded
 before §7l) and `request_detail` (the request step's error text
 when it failed, "" otherwise).
 
+Each entry also carries `diag` (a dict of call-signaling
+diagnostics, 2026-11-08): step-1/step-2 status + msg, the relay
+addresses actually used, session presence + length, codec. Only
+shapes/counts/presence — never a session or token value, so the
+snapshot stays safe to log and to serve on /api/calls.
+
 The log is process memory only (a restart clears it) and capped at
 50 records — it is a monitor, not an archive.
 """
@@ -73,7 +79,8 @@ class CallLog:
                      "status": "sent", "started_at": now,
                      "ended_at": None, "detail": "",
                      "request_sent": None, "request_detail": "",
-                     "answered_at": None, "answer_source": ""}
+                     "answered_at": None, "answer_source": "",
+                     "diag": {}}
             self._calls.append(entry)
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
@@ -112,6 +119,22 @@ class CallLog:
                     return dict(c)
             return None
 
+    def record_diag(self, call_id, diag):
+        """Merge diagnostic fields (11300/11301 status + msg, relay
+        addresses, session presence + length, codec) into a live
+        call's `diag` dict. The caller stores shapes/counts/
+        presence only — never a session or token value. Unknown
+        ids (or non-live entries) are ignored."""
+        if not isinstance(diag, dict):
+            return None
+        with self._lock:
+            for c in self._calls:
+                if c["call_id"] == str(call_id) \
+                        and c["status"] in LIVE_STATUSES:
+                    c.setdefault("diag", {}).update(diag)
+                    return dict(c)
+            return None
+
     def record_error(self, call_id, peer, thread_id, call_type, detail):
         now = time.time()
         with self._lock:
@@ -120,7 +143,8 @@ class CallLog:
                      "status": "error", "started_at": now,
                      "ended_at": now, "detail": detail or "",
                      "request_sent": None, "request_detail": "",
-                     "answered_at": None, "answer_source": ""}
+                     "answered_at": None, "answer_source": "",
+                     "diag": {}}
             self._calls.append(entry)
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
