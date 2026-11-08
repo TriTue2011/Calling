@@ -341,19 +341,29 @@ def test_extend_data_unknown_keys_dropped():
     provider.stop_all()
 
 
-def _expected_minimal_extend_data(srtp_mode=0, call_type=1):
+def _expected_minimal_extend_data(srtp_mode=0, is_video=False):
     """Engine-default extendData (disassembly): the minimal dict
     for_call builds when the 11300 response carries no extendData.
     Values are the engine's reset/parse-fail defaults
     (_parseExtendData 0x8d9fbb: packetMode=2, srtpMode=0, srtcp=0,
     sP2P=0, gccMode=0, gcc bytes=0, fecTP=0, maxFT=60) plus
-    callType from the call and platform=3 (the 11300
-    request-param struct default, parser 0x71f670 init [+0x04]=3
-    — the only numeric platform evidence in the disassembly;
-    all extendData keys are optional for the peer parser, so a
-    wrong platform value cannot block the call, it only differs
-    from the real client's value if the real value is not 3)."""
-    return {"p2p": "", "callType": call_type, "platform": 3,
+    callType as a 0/1 audio/video flag (0 = voice, 1 = video)
+    and platform=3 (the 11300 request-param struct default,
+    parser 0x71f670 init [+0x04]=3 — the only numeric platform
+    evidence in the disassembly; all extendData keys are optional
+    for the peer parser, so a wrong platform value cannot block
+    the call, it only differs from the real client's value if
+    the real value is not 3).
+    callType is NOT the typeRequest enum (1/3/5/6): the group
+    builder (12434, VA 0x717450) maps the makeCall type byte
+    5 (group audio) -> callType 0 and 6 (group video) ->
+    callType 1, i.e. callType is 0 for audio, 1 for video.
+    The 00db2b9 fix wrongly put the 1-1/group enum (1/5) here,
+    which made the server treat voice calls as video calls
+    (live 2026-11-08: BenBap's phone showed an incoming VIDEO
+    call)."""
+    return {"p2p": "", "callType": 1 if is_video else 0,
+            "platform": 3,
             "packetMode": 2, "gccMode": 0, "srtpMode": srtp_mode,
             "sP2P": 0, "srtcp": 0, "gccAudio": 0, "gccSVLR": 0,
             "gccEarlyCall": 0, "maxFT": 60, "fecTP": 0}
@@ -396,14 +406,43 @@ def test_extend_data_minimal_keeps_given_srtp_mode():
     provider.stop_all()
 
 
-def test_extend_data_minimal_group_call_type():
-    """Goi nhom (call_type=5) dung callType=5 trong extendData
-    toi thieu — cung luat nhu 1-1 (callType=1)."""
+def test_extend_data_minimal_group_audio_call_type_is_zero():
+    """Goi nhom THOAI (call_type=5) dung callType=0 trong
+    extendData toi thieu — callType la co 0/1 thoai/video,
+    khong phai enum typeRequest 1/3/5/6 (xem
+    _expected_minimal_extend_data)."""
     provider = _provider()
     out = provider.for_call(**_good_kwargs(
         call_type="group", call_id=CALL_ID + 7))
     got = json.loads(out["extend_data"])
-    assert got == _expected_minimal_extend_data(call_type=5), got
+    assert got == _expected_minimal_extend_data(), got
+    provider.stop_all()
+
+
+def test_extend_data_voice_call_type_is_zero():
+    """Goi 1-1 THOAI dung callType=0 trong extendData toi
+    thieu — live 2026-11-08: callType=1 (sai, tu 00db2b9)
+    khien may BenBap hien «Cuoc goi video den» thay vi
+    cuoc goi thoai."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(call_id=CALL_ID + 8))
+    got = json.loads(out["extend_data"])
+    assert got["callType"] == 0, got
+    assert got == _expected_minimal_extend_data(), got
+    provider.stop_all()
+
+
+def test_extend_data_video_call_type_is_one():
+    """Duong video cho TUONG LAI (user muon co ca video call):
+    for_call(is_video=True) dung callType=1 trong extendData
+    toi thieu. Video chua duoc lam (server van chi goi thoai,
+    typeRequest 1/5) — test nay chi chung minh co video da
+    duoc noi san qua flag is_video."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(
+        is_video=True, call_id=CALL_ID + 9))
+    got = json.loads(out["extend_data"])
+    assert got == _expected_minimal_extend_data(is_video=True), got
     provider.stop_all()
 
 

@@ -789,16 +789,34 @@ _MINIMAL_EXTEND_DATA = {
 }
 
 
-def _extend_data_dict(extend_data, srtp_mode, call_type=1):
+def _extend_data_dict(extend_data, srtp_mode, is_video=False):
     """Normalize extendData to a dict for TransportConfig.
 
     Explicit dict/JSON string wins (normalized by
     `udp_transport.normalize_extend_data`). Otherwise build the
     minimal engine-default dict (`_MINIMAL_EXTEND_DATA`) plus
-    `callType` (1 for a 1-1 audio call, 5 for group audio) and
-    `srtpMode` (the 11300 value when the response carries one,
-    else 0 — the engine default; 0 is valid per the validator,
-    only {1, 2, 3} are non-zero modes). Never returns None.
+    `callType` (a 0/1 audio/video flag: 0 for a voice call, 1
+    for a video call) and `srtpMode` (the 11300 value when the
+    response carries one, else 0 — the engine default; 0 is
+    valid per the validator, only {1, 2, 3} are non-zero modes).
+    Never returns None.
+
+    `callType` is NOT the typeRequest enum (1/3/5/6): the group
+    builder (12434, VA 0x717450) maps the makeCall type byte
+    5 (group audio) -> callType 0 and 6 (group video) ->
+    callType 1, i.e. callType is 0 for audio, 1 for video.
+    The 00db2b9 fix wrongly put the 1-1/group enum (1/5) here,
+    which made the server treat voice calls as video calls
+    (live 2026-11-08: BenBap's phone showed an incoming VIDEO
+    call). The 1-1/group distinction lives in `typeRequest`
+    (11300) and in `TransportConfig.call_type`, never in
+    extendData's callType.
+
+    `is_video` is False by default (voice calls — what this
+    app places today). It is the hook for the future video-call
+    feature the user wants: when video is implemented, the
+    caller passes is_video=True (and server.py must derive
+    typeRequest 3/6 instead of 1/5 at the same time).
 
     The minimal dict exists because the real client ALWAYS sends
     extendData in 11301 (builder 416 at VA 0x72eed0 inserts all
@@ -821,7 +839,7 @@ def _extend_data_dict(extend_data, srtp_mode, call_type=1):
     mode = (srtp_mode if isinstance(srtp_mode, int)
             and not isinstance(srtp_mode, bool) else 0)
     minimal = dict(_MINIMAL_EXTEND_DATA)
-    minimal["callType"] = call_type
+    minimal["callType"] = 1 if is_video else 0
     minimal["srtpMode"] = mode
     return normalize_extend_data(minimal)
 
@@ -974,7 +992,7 @@ class MediaEndpoints:
                  codec=None, relays=None, servers=None, token=None,
                  session=None, local_session=None, peer_session=None,
                  call_session=None, call_counter=None, srtp_key=None,
-                 extend_data=None, srtp_mode=None,
+                 extend_data=None, srtp_mode=None, is_video=False,
                  zrtc_config=None, requestcall_data=None,
                  protect_rtp=None, unprotect_rtp=None,
                  encode_frame=None, decode_frame=None,
@@ -1149,10 +1167,16 @@ class MediaEndpoints:
         # (never None): the real client always sends it in 11301,
         # and _extend_data_dict fills the engine defaults when the
         # 11300 response carries none — see its docstring.
+        # `is_video` only selects extendData's callType flag
+        # (0 = voice, 1 = video); the 1-1/group `call_type`
+        # (1/5) never goes into extendData. Voice is the default
+        # (this app only places voice calls today); video is a
+        # future feature — when it lands, the caller must also
+        # switch typeRequest to 3/6 in server.py.
         if codec is None:
             codec = "opus"  # UNCONFIRMED default (see module docstring)
         codec = str(codec)
-        ext_dict = _extend_data_dict(extend_data, srtp_mode, call_type)
+        ext_dict = _extend_data_dict(extend_data, srtp_mode, is_video)
         extend_str = (json.dumps(ext_dict, separators=(",", ":"),
                                  ensure_ascii=False)
                       if ext_dict else None)
