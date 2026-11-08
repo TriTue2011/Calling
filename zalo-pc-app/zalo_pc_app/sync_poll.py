@@ -97,6 +97,41 @@ ERR_STOP_RETRY = -69
 RETRY_BASE_SECONDS = 3.0
 RETRY_MAX_SECONDS = 60.0
 
+# So loi lien tiep toi da truoc khi poller tu dung de AppState mo
+# lai voi endpoints moi (loi live 08/11: poll tra ve khong phai
+# JSON lien tuc, backoff leo toi 60s van loi — retry mu mai voi
+# cung URL cu khong bao gio khoi phuc). 5 loi ~ 3+6+12+24s backoff.
+MAX_CONSEC_ERRORS = 5
+
+
+class NonJsonResponse(ValueError):
+    """HTTP tra ve body khong phai JSON (loi live 08/11: ca hai
+    poller bao JSONDecodeError — khong ai biet server tra gi).
+    ValueError subclass de chat.py / contacts.py (bat
+    (TypeError, ValueError)) van bat nhu cu. Mang status +
+    preview (100 ky tu dau, da go ky tu dieu khien) + do dai
+    body de chan doan — KHONG mang noi dung tin / secret
+    (preview chi lay tu body loi cua server, thuong la trang
+    HTML loi). empty=True khi body rong / chi khoang trang:
+    long-poll het han phia server — poller coi nhu "empty",
+    khong dem loi."""
+
+    def __init__(self, status, body_text=""):
+        self.status = status
+        if isinstance(body_text, (bytes, bytearray)):
+            text = bytes(body_text).decode("utf-8", errors="replace")
+        else:
+            text = body_text or ""
+        self.body_len = len(text)
+        # empty khi body rong hoac chi khoang trang (long-poll
+        # het han phia server): poller coi nhu "empty".
+        self.empty = not text[:200].strip()
+        preview = " ".join(text.split())[:100]
+        self.preview = preview
+        super().__init__(
+            "HTTP %s tra ve khong phai JSON (%d bytes)"
+            % (status, self.body_len))
+
 # Tran RAM cho Inbox (Node.js giu 5000 tin/nhom TREN DIA; native
 # dot nay chi giu RAM): 1000 tin/thread, cu nhat bi cat khi tran.
 INBOX_MAX_PER_THREAD = 1000
@@ -413,6 +448,13 @@ class SyncPoller:
         self.kicked_out = False
         self.last_error = ""
         self.polls = 0  # dem so lan poll (chan doan, khong log nd)
+        # Chan doan loi keo dai (loi live 08/11): dem loi lien
+        # tiep (reset ve 0 khi poll thanh cong), auth_failed=True
+        # khi server tra 401/403 (phien het han), stopped_reason
+        # ghi ly do run() thoat ("" | "persistent_errors").
+        self.consec_errors = 0
+        self.auth_failed = False
+        self.stopped_reason = ""
 
     def _poll_url(self):
         base = self.urls[self._idx % len(self.urls)].rstrip("/")
@@ -424,21 +466,85 @@ class SyncPoller:
         """Mot lan long-poll. Tra ve "ok" | "empty" | "rotated".
         Timeout cuc bo -> xoay endpoint, tra "rotated". Loi HTTP /
         loi giai ma -> RuntimeError (caller backoff). Server bao
-        dung -> KickOut."""
+        dung -> KickOut.
+
+        Phan loai loi (loi live 08/11 — poll tra ve khong phai
+        JSON lien tuc ma log chi noi "JSONDecodeError"):
+          - NonJsonResponse body rong -> "empty" (long-poll het
+            han phia server): poll lai ngay, KHONG dem loi.
+          - NonJsonResponse co body -> RuntimeError ro rang co
+            status + preview body, xoay endpoint.
+          - HTTP 401/403 -> RuntimeError "phien het han" +
+            auth_failed=True (phien chet, retry mu khong cuu
+            duoc — can quet QR lai).
+        Moi loi RuntimeError deu ghi last_error + dem
+        consec_errors (reset ve 0 khi poll thanh cong); run()
+        tu dung poller khi dem dat MAX_CONSEC_ERRORS."""
+        try:
+            result = self._poll_once()
+        except KickOut:
+            raise
+        except RuntimeError as e:
+            # Loi da co thong diep ro (JSON / 401 / error_code):
+            # chi ghi lai last_error + dem loi, giu nguyen
+            # thong diep.
+            self.last_error = str(e)
+            self.consec_errors += 1
+            raise
+        except Exception as e:  # noqa: BLE001 - mang loi -> backoff
+            self.last_error = ("sync_poll: poll loi mang: %s"
+                               % type(e).__name__)
+            self.consec_errors += 1
+            raise RuntimeError(self.last_error)
+        # Poll thanh cong (ke ca "rotated"): phien van song —
+        # xoa co auth_failed cua mot lan 401 thoang qua truoc
+        # do; 401 keo dai thi khong bao gio toi day (moi poll
+        # deu 401) nen co van giu den khi poller tu dung.
+        self.auth_failed = False
+        return result
+
+    def _poll_once(self):
+        """Than poll_once: tra ve "ok" | "empty" | "rotated",
+        nem RuntimeError / KickOut. Loi thanh cong ("ok" /
+        "empty" / "rotated") reset consec_errors + xoa
+        last_error — loi cu khong con hien tren /api/status."""
         url = self._poll_url()
         try:
             status, payload = self.http_get(url,
                                             timeout=self.msg_timeout + 5)
         except TimeoutError:
             self._idx = (self._idx + 1) % len(self.urls)
+            self.consec_errors = 0
+            self.last_error = ""
             return "rotated"
-        except Exception as e:  # noqa: BLE001 - mang loi -> backoff
-            raise RuntimeError("sync_poll: poll loi mang: %s"
-                               % type(e).__name__)
+        except NonJsonResponse as e:
+            # Body khong phai JSON: rong -> "empty" (long-poll
+            # het han phia server); khong rong -> loi ro co
+            # status + preview, xoay endpoint (loi co the chi
+            # o mot endpoint).
+            if e.empty:
+                self.consec_errors = 0
+                self.last_error = ""
+                return "empty"
+            self._idx = (self._idx + 1) % len(self.urls)
+            raise RuntimeError(
+                "sync_poll: poll tra ve khong phai JSON "
+                "(status=%s, body='%s')" % (e.status, e.preview))
         self.polls += 1
+        if status in (401, 403):
+            # Phien het han (zpw_sek invalid): bao ro thay vi
+            # "network status=401" roi retry mu — phien chet thi
+            # refresh getLoginInfo cung khong cuu duoc, can
+            # quet QR lai (sync_status -> "auth_failed").
+            self.auth_failed = True
+            raise RuntimeError(
+                "sync_poll: poll: phien het han (HTTP %s) "
+                "- quet QR lai" % status)
         if status != 200 or not isinstance(payload, dict):
             raise RuntimeError("sync_poll: network status=%s" % status)
         if payload.get("data") == "":
+            self.consec_errors = 0
+            self.last_error = ""
             return "empty"
         code = payload.get("error_code")
         if code == ERR_STOP_RETRY:
@@ -452,6 +558,8 @@ class SyncPoller:
             raise RuntimeError("sync_poll: error_code=%s" % code)
         data = decode_postlogin_data(payload, self.zpw_enk)
         if data is None:
+            self.consec_errors = 0
+            self.last_error = ""
             return "empty"
         messages = extract_messages(data, self.own_id)
         before = self.cursor.to_dict()
@@ -487,6 +595,8 @@ class SyncPoller:
                 self.on_cursor(self.cursor)
             except Exception:  # noqa: BLE001 - luu con tro loi
                 pass
+        self.consec_errors = 0
+        self.last_error = ""
         return "ok"
 
     def run(self):
@@ -496,7 +606,13 @@ class SyncPoller:
         (30s) khi khong co tin, nen vong < 1 giay la bat thuong —
         san nay ngan tight-loop doi Zalo neu endpoint tra ngay
         lap tuc (va giu mock test o ~1 poll/giay). Tre tin toi
-        da 1 giay la chap nhan duoc cho chat."""
+        da 1 giay la chap nhan duoc cho chat.
+
+        Loi keo dai (consec_errors >= MAX_CONSEC_ERRORS): tu
+        dung thay vi retry mu mai voi cung URL cu (loi live
+        08/11 — backoff toi 60s van loi). AppState mo lai
+        poller voi endpoints moi qua start_sync() / vong retry
+        nen (xem server.sync_status / _sync_retry_loop)."""
         backoff = RETRY_BASE_SECONDS
         while not self._stop.is_set():
             started = time.time()
@@ -516,6 +632,15 @@ class SyncPoller:
                 if not sys.is_finalizing():
                     print("[sync-poll] %s; retry sau %.0fs"
                           % (self.last_error, backoff), flush=True)
+                if self.consec_errors >= MAX_CONSEC_ERRORS:
+                    self.stopped_reason = "persistent_errors"
+                    if not sys.is_finalizing():
+                        print("[sync-poll] dung poller sau %d loi "
+                              "lien tiep: %s; se tu mo lai qua "
+                              "vong retry"
+                              % (self.consec_errors, self.last_error),
+                              flush=True)
+                    return
                 if self._stop.wait(backoff):
                     return
                 backoff = min(backoff * 2, RETRY_MAX_SECONDS)
@@ -523,6 +648,16 @@ class SyncPoller:
             elapsed = time.time() - started
             if elapsed < 1.0 and self._stop.wait(1.0 - elapsed):
                 return
+
+    def is_alive(self):
+        """True khi poller dang chay (thread song + chua bi da).
+        Giong CtrlPoller.is_alive (9463ee0) — server.py dung de
+        quyet dinh sync_status() / co can mo lai khong khi
+        poller da chet nhung tham chieu van ton tai."""
+        if self.kicked_out:
+            return False
+        thread = self._thread
+        return thread is not None and thread.is_alive()
 
     def start(self):
         if self._thread and self._thread.is_alive():

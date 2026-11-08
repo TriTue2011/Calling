@@ -68,8 +68,10 @@ import urllib.parse
 
 from . import protocol
 from .crypto import decode_postlogin_data
-from .sync_poll import (ERR_STOP_RETRY, KickOut, PollCursor,
-                        RETRY_BASE_SECONDS, RETRY_MAX_SECONDS)
+from .sync_poll import (ERR_STOP_RETRY, KickOut,
+                        MAX_CONSEC_ERRORS, NonJsonResponse,
+                        PollCursor, RETRY_BASE_SECONDS,
+                        RETRY_MAX_SECONDS)
 
 # act_type cua event voice trong payload ctrl (bundle
 # _processCtrlMessages: case "voice_aac_success").
@@ -559,6 +561,12 @@ class CtrlPoller:
         self.kicked_out = False
         self.last_error = ""
         self.polls = 0  # dem so lan poll (chan doan, khong log nd)
+        # Nhu SyncPoller (loi live 08/11): dem loi lien tiep,
+        # auth_failed khi 401/403, stopped_reason khi run() tu
+        # dung sau loi keo dai.
+        self.consec_errors = 0
+        self.auth_failed = False
+        self.stopped_reason = ""
 
     def _poll_url(self):
         base = self.urls[self._idx % len(self.urls)].rstrip("/")
@@ -570,21 +578,63 @@ class CtrlPoller:
         """Mot lan long-poll ctrl. Tra ve "ok" | "empty" |
         "rotated". Timeout cuc bo -> xoay endpoint, tra "rotated".
         Loi HTTP / loi giai ma -> RuntimeError (caller backoff).
-        Server bao dung -> KickOut."""
+        Server bao dung -> KickOut.
+
+        Phan loai loi giong SyncPoller.poll_once (loi live 08/11):
+        NonJsonResponse rong -> "empty" (khong dem loi); co body
+        -> RuntimeError ro co status + preview; 401/403 -> "phien
+        het han" + auth_failed=True. Moi loi RuntimeError ghi
+        last_error + dem consec_errors; run() tu dung poller
+        khi dem dat MAX_CONSEC_ERRORS."""
+        try:
+            result = self._poll_once()
+        except KickOut:
+            raise
+        except RuntimeError as e:
+            self.last_error = str(e)
+            self.consec_errors += 1
+            raise
+        except Exception as e:  # noqa: BLE001 - mang loi -> backoff
+            self.last_error = ("ctrl_poll: poll loi mang: %s"
+                               % type(e).__name__)
+            self.consec_errors += 1
+            raise RuntimeError(self.last_error)
+        # Poll thanh cong: xoa co auth_failed cua mot lan 401
+        # thoang qua (xem SyncPoller.poll_once).
+        self.auth_failed = False
+        return result
+
+    def _poll_once(self):
+        """Than poll_once — xem SyncPoller._poll_once."""
         url = self._poll_url()
         try:
             status, payload = self.http_get(
                 url, timeout=self.ctl_timeout + 5)
         except TimeoutError:
             self._idx = (self._idx + 1) % len(self.urls)
+            self.consec_errors = 0
+            self.last_error = ""
             return "rotated"
-        except Exception as e:  # noqa: BLE001 - mang loi -> backoff
-            raise RuntimeError("ctrl_poll: poll loi mang: %s"
-                               % type(e).__name__)
+        except NonJsonResponse as e:
+            if e.empty:
+                self.consec_errors = 0
+                self.last_error = ""
+                return "empty"
+            self._idx = (self._idx + 1) % len(self.urls)
+            raise RuntimeError(
+                "ctrl_poll: poll tra ve khong phai JSON "
+                "(status=%s, body='%s')" % (e.status, e.preview))
         self.polls += 1
+        if status in (401, 403):
+            self.auth_failed = True
+            raise RuntimeError(
+                "ctrl_poll: poll: phien het han (HTTP %s) "
+                "- quet QR lai" % status)
         if status != 200 or not isinstance(payload, dict):
             raise RuntimeError("ctrl_poll: network status=%s" % status)
         if payload.get("data") == "":
+            self.consec_errors = 0
+            self.last_error = ""
             return "empty"
         code = payload.get("error_code")
         if code == ERR_STOP_RETRY:
@@ -594,6 +644,8 @@ class CtrlPoller:
             raise RuntimeError("ctrl_poll: error_code=%s" % code)
         data = decode_postlogin_data(payload, self.zpw_enk)
         if data is None:
+            self.consec_errors = 0
+            self.last_error = ""
             return "empty"
         for event in extract_voice_async(data):
             self.registry.deliver(event["fileId"], event["amr"],
@@ -627,11 +679,15 @@ class CtrlPoller:
                 self.on_cursor(self.cursor)
             except Exception:  # noqa: BLE001 - luu con tro loi
                 pass
+        self.consec_errors = 0
+        self.last_error = ""
         return "ok"
 
     def run(self):
         """Vong poll lien tuc cho toi stop() — giong SyncPoller.run
-        (backoff 3s, nhan doi, tran 60s; san 1 giay moi vong)."""
+        (backoff 3s, nhan doi, tran 60s; san 1 giay moi vong).
+        Loi keo dai (consec_errors >= MAX_CONSEC_ERRORS): tu
+        dung de AppState mo lai (xem SyncPoller.run)."""
         backoff = RETRY_BASE_SECONDS
         try:
             while not self._stop.is_set():
@@ -646,6 +702,15 @@ class CtrlPoller:
                     if not sys.is_finalizing():
                         print("[ctrl-poll] %s; retry sau %.0fs"
                               % (self.last_error, backoff), flush=True)
+                    if self.consec_errors >= MAX_CONSEC_ERRORS:
+                        self.stopped_reason = "persistent_errors"
+                        if not sys.is_finalizing():
+                            print("[ctrl-poll] dung poller sau %d "
+                                  "loi lien tiep: %s; se tu mo lai "
+                                  "qua vong retry"
+                                  % (self.consec_errors,
+                                     self.last_error), flush=True)
+                        return
                     if self._stop.wait(backoff):
                         return
                     backoff = min(backoff * 2, RETRY_MAX_SECONDS)

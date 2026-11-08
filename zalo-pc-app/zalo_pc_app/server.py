@@ -134,8 +134,25 @@ CONTACTS_BACKOFF_MAX_SECONDS = 300
 # endpoint is rate-limited to one attempt per 30 seconds so neither
 # path hammers getLoginInfo. Kicked-out sessions are never retried
 # (the server told us to stop).
+# The loop WAKES every SYNC_RETRY_CHECK_SECONDS (60s) so a poller
+# that stopped itself after persistent errors (loi live 08/11) is
+# respawned quickly, but it ATTEMPTS a restart at most once per
+# SYNC_RETRY_INTERVAL_SECONDS (300s) — the attempt guard uses the
+# same _sync_last_retry_at timestamp as POST /api/sync/retry.
+SYNC_RETRY_CHECK_SECONDS = 60
 SYNC_RETRY_INTERVAL_SECONDS = 300
 SYNC_RETRY_COOLDOWN_SECONDS = 30
+
+
+def _poller_is_alive(poller):
+    """True khi poller dang chay. Poller that (SyncPoller /
+    CtrlPoller) co is_alive(); fake cu trong test chi co
+    kicked_out thi mac dinh True — tranh AttributeError khi
+    doc trang thai."""
+    is_alive = getattr(poller, "is_alive", None)
+    if callable(is_alive):
+        return bool(is_alive())
+    return True
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -165,7 +182,19 @@ class _Transport:
                                                 self.cookie_value))
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return resp.status, json.loads(resp.read().decode("utf-8"))
+                raw = resp.read()
+                # Giai ma mot lan (utf-8-sig bo BOM neu co);
+                # body khong phai JSON -> NonJsonResponse mang
+                # status + preview (loi live 08/11: ca hai poller
+                # bao JSONDecodeError — khong ai biet server tra
+                # gi, status bao nhieu). Bare json.loads o day
+                # tung vang JSONDecodeError tran ra ngoai.
+                text = raw.decode("utf-8-sig", errors="replace")
+                try:
+                    return resp.status, json.loads(text)
+                except json.JSONDecodeError:
+                    raise sync_poll_mod.NonJsonResponse(
+                        resp.status, text)
         except urllib.error.HTTPError as e:
             try:
                 body = json.loads(e.read().decode("utf-8"))
@@ -675,6 +704,18 @@ class AppState:
         self._contacts_refreshing = False
         self._contacts_refresh_token = 0
 
+    def _ctrl_error_text(self):
+        """Loi cuoi cua kenh ctrl cho /api/status (ctrl_error):
+        poller.last_error khi kenh ton tai, "" khi chua co kenh
+        hoac kenh dang tot. Chi chup nhanh tham chieu poller
+        duoi _sync_lock roi doc last_error (ghi/xoa last_error
+        la phep gan str nguyen tu duoi GIL)."""
+        with self._sync_lock:
+            ctrl = self.ctrl
+        if ctrl is None:
+            return ""
+        return getattr(ctrl, "last_error", "") or ""
+
     # -- session helpers -------------------------------------------------
     def public_status(self, app_user=""):
         # Read the session fields under self.lock, then call
@@ -694,6 +735,12 @@ class AppState:
                 "sync": self.sync_status(),
                 "sync_error": self.sync_error,
                 "ctrl": self.ctrl_status(),
+                # ctrl_error: loi cuoi cua kenh ctrl (neu co) —
+                # chan doan tren /api/status, giong sync_error.
+                # Lay tu poller.last_error (da duoc _poll_once
+                # xoa khi poll thanh cong) nen chi hien loi
+                # dang ton tai, khong phai loi cu da khoi phuc.
+                "ctrl_error": self._ctrl_error_text(),
                 "app_user": app_user}
         if self.sync_debug:
             base["sync_debug"] = dict(self.sync_debug)
@@ -1367,8 +1414,32 @@ class AppState:
         ban cu chan o zpw_enk truoc ca khi refresh, nen phien cu
         thieu enk khong bao gio duoc sua."""
         with self._sync_lock:
-            sync_running = self.sync is not None
+            poller = self.sync
             sess = dict(self.session) if self.session else None
+        # Phien het han (401/403 — poller danh dau auth_failed):
+        # dung retry mu, bao ro de user quet QR lai. Phien chet
+        # thi refresh getLoginInfo cung khong cuu duoc; poller
+        # se tu dung sau N loi lien tiep, khong mo lai o day.
+        if poller is not None \
+                and getattr(poller, "auth_failed", False):
+            self.sync_error = getattr(poller, "last_error", "") \
+                or "auth_failed"
+            return False
+        # Poller ton tai nhung thread da chet (tu dung sau loi
+        # keo dai): coi nhu chua chay. Don tham chieu cu ngay
+        # (pha 3 tra True ngay neu self.sync khong phai None)
+        # de pha 3 tao poller moi; ban cu chi kiem `is not
+        # None` nen POST /api/sync/retry cung khong mo lai
+        # duoc poller da chet.
+        sync_running = poller is not None \
+            and _poller_is_alive(poller)
+        need_refresh = False
+        if poller is not None and not sync_running:
+            need_refresh = getattr(poller, "stopped_reason", "") \
+                == "persistent_errors"
+            with self._sync_lock:
+                if self.sync is poller:
+                    self.sync = None
         if sync_running:
             # Sync da chay: dam bao kenh ctrl cung chay (kenh ctrl
             # co the chet rieng khi sync van song — KickOut -69 chi
@@ -1378,8 +1449,11 @@ class AppState:
             return True
         if not sess or not sess.get("zpw_sek"):
             return False
+        # Poller chet vi loi keo dai (persistent_errors) thi
+        # refresh endpoints truoc: URL cu co the het han, dung
+        # lai URL cu chi lap lai loi.
         if not sess.get("poll_msg_urls") or not sess.get("zpw_enk") \
-                or not sess.get("poll_ctl_urls"):
+                or not sess.get("poll_ctl_urls") or need_refresh:
             if not self._refresh_poll_endpoints(sess):
                 print("[sync-poll] chua mo duoc kenh nhan tin den; "
                       "se thu lai (xem sync_error o /api/status)",
@@ -1432,7 +1506,15 @@ class AppState:
             # sharefile_full). Mo kem kenh tin nhan; thieu endpoint
             # thi chi ghi log — send_voice/send_file se loi ro
             # (khong gui buoc 2 khong co fileUrl) thay vi im lang.
-            self._spawn_ctrl_poller_locked()
+            # Chi mo khi chua co kenh nao dang chay: mo lai sync
+            # sau khi poller chet ma ctrl van song thi khong tao
+            # trung kenh ctrl (le thread + 2 poller cung doc mot
+            # kenh). Khong mo lai kenh bi da (kicked_out) — nhu
+            # _ensure_ctrl_poller.
+            ctrl = self.ctrl
+            if ctrl is None or (not _poller_is_alive(ctrl)
+                                and not ctrl.kicked_out):
+                self._spawn_ctrl_poller_locked()
             return True
 
     def _spawn_ctrl_poller_locked(self):
@@ -1481,7 +1563,7 @@ class AppState:
         self.lock); chi giu _sync_lock trong tung buoc ngan."""
         with self._sync_lock:
             ctrl = self.ctrl
-            if ctrl is not None and ctrl.is_alive():
+            if ctrl is not None and _poller_is_alive(ctrl):
                 return True
             if ctrl is not None and ctrl.kicked_out:
                 return False
@@ -1500,7 +1582,7 @@ class AppState:
                 return False
         with self._sync_lock:
             ctrl = self.ctrl
-            if ctrl is not None and ctrl.is_alive():
+            if ctrl is not None and _poller_is_alive(ctrl):
                 return True
             if ctrl is not None and ctrl.kicked_out:
                 return False
@@ -1519,17 +1601,20 @@ class AppState:
                 return True
             if ctrl.kicked_out:
                 return False
-            return not ctrl.is_alive()
+            return not _poller_is_alive(ctrl)
 
     def ctrl_status(self):
         """Trang thai kenh ctrl (99101) cho /api/status:
-        running / no_endpoints / stopped / kicked_out / logged_out.
+        running / no_endpoints / stopped / kicked_out /
+        auth_failed / logged_out.
         - running: poller dang chay (event file_done/voice ve duoc).
         - no_endpoints: phien co that nhung khong co zpw_ctrs_new
           (getLoginInfo khong cap) — app tu thu lai, quet QR lai
           KHONG sua duoc (kenh phai tu mo sau QR).
         - stopped: co endpoint nhung poller chua chay / da dung.
         - kicked_out: server bao dung (-69), khong tu mo lai.
+        - auth_failed: server tra 401/403 (phien het han) — can
+          quet QR lai, khong retry mu.
         - logged_out: chua dang nhap."""
         with self._sync_lock:
             sess = self.session
@@ -1539,7 +1624,9 @@ class AppState:
         if ctrl is not None:
             if ctrl.kicked_out:
                 return "kicked_out"
-            if ctrl.is_alive():
+            if getattr(ctrl, "auth_failed", False):
+                return "auth_failed"
+            if _poller_is_alive(ctrl):
                 return "running"
             return "stopped"
         if not (sess.get("poll_ctl_urls") or []):
@@ -1547,11 +1634,13 @@ class AppState:
         return "stopped"
 
     def start_sync_retry_thread(self):
-        """Vong retry nen cho kenh sync (chi main() goi): cu
-        SYNC_RETRY_INTERVAL_SECONDS thu start_sync() mot lan khi
-        phien dang dang nhap ma kenh dang xuong o trang thai thu
-        lai duoc. Khong bao gio thu lai sau kicked_out (server
-        bao dung). An toan khi goi nhieu lan."""
+        """Vong retry nen cho kenh sync (chi main() goi): kiem tra
+        moi SYNC_RETRY_CHECK_SECONDS (60s), thu start_sync() mot
+        lan khi phien dang dang nhap ma kenh dang xuong o trang
+        thai thu lai duoc, toi da 1 lan moi
+        SYNC_RETRY_INTERVAL_SECONDS (300s). Khong bao gio thu lai
+        sau kicked_out (server bao dung) hay auth_failed (phien
+        het han, can quet QR). An toan khi goi nhieu lan."""
         with self._sync_lock:
             if self._sync_retry_thread is not None \
                     and self._sync_retry_thread.is_alive():
@@ -1564,20 +1653,30 @@ class AppState:
 
     def _sync_retry_loop(self):
         while True:
-            time.sleep(SYNC_RETRY_INTERVAL_SECONDS)
+            time.sleep(SYNC_RETRY_CHECK_SECONDS)
             try:
                 sess = self.session
                 if not sess or not sess.get("zpw_sek"):
                     continue
-                # Sync xuong o trang thai thu lai duoc -> mo lai;
-                # sync chay nhung ctrl chet -> mo lai ctrl
-                # (start_sync se goi _ensure_ctrl_poller).
-                # Khong thu lai sau kicked_out (server bao dung).
-                if (self.sync is None
-                        and self.sync_status() in (
-                            "no_endpoints", "refresh_failed",
-                            "stopped")) \
-                        or self._ctrl_needs_restart():
+                # sync_status() bao "stopped" ca khi poller ton
+                # tai nhung thread da chet (tu dung sau loi keo
+                # dai) — ban cu doi `self.sync is None` nen
+                # khong bao gio mo lai poller ket trong backoff
+                # (self.sync van tro toi no). Khong thu lai sau
+                # kicked_out hay auth_failed (hai trang thai do
+                # khong nam trong danh sach thu lai duoc duoi
+                # day). Kiem tra moi 60s nhung thu toi da 1 lan
+                # / 300s (dung chung _sync_last_retry_at voi
+                # POST /api/sync/retry) de khong hammer
+                # getLoginInfo.
+                needs_sync = self.sync_status() in (
+                    "no_endpoints", "refresh_failed", "stopped")
+                if needs_sync or self._ctrl_needs_restart():
+                    now = time.time()
+                    if now - self._sync_last_retry_at \
+                            < SYNC_RETRY_INTERVAL_SECONDS:
+                        continue
+                    self._sync_last_retry_at = now
                     self.start_sync()
             except Exception:  # noqa: BLE001 - retry nen khong chet
                 pass
@@ -1595,7 +1694,7 @@ class AppState:
     def sync_status(self):
         """Trang thai kenh sync cho /api/status (khong lo secret):
         running / no_endpoints / refresh_failed / stopped /
-        logged_out / kicked_out.
+        logged_out / kicked_out / auth_failed.
 
         - running: poller dang chay (tin den se ve).
         - no_endpoints: phien co that nhung server khong cap
@@ -1606,7 +1705,12 @@ class AppState:
         - refresh_failed: getLoginInfo refresh loi (sync_error
           giu kieu/ma loi) — thu lai duoc, chua ket luan la
           thieu endpoint.
-        - stopped: co endpoint nhung poller chua chay.
+        - stopped: co endpoint nhung poller chua chay / da dung
+          (tu dung sau loi keo dai, hoac chua mo). Khi poller
+          chet ma con loi cuoi thi sync_error giu loi do de
+          /api/status thay ro ly do.
+        - auth_failed: server tra 401/403 (phien het han) — can
+          quet QR lai, khong retry mu.
         - logged_out / kicked_out: chua dang nhap / server bao
           dung poll (-69).
 
@@ -1618,7 +1722,21 @@ class AppState:
         if poller is not None:
             if poller.kicked_out:
                 return "kicked_out"
-            return "running"
+            if getattr(poller, "auth_failed", False):
+                last_error = getattr(poller, "last_error", "")
+                if last_error:
+                    self.sync_error = last_error
+                return "auth_failed"
+            # Ban cu tra "running" chi can poller ton tai — app
+            # bao "running" trong khi thread da chet (loi live
+            # 08/11: ca hai poller loi JSON ma /api/status van
+            # "running"). Gio kiem tra thread con song khong.
+            if _poller_is_alive(poller):
+                return "running"
+            last_error = getattr(poller, "last_error", "")
+            if last_error:
+                self.sync_error = last_error
+            return "stopped"
         sess = self.session
         if not sess or not sess.get("zpw_sek"):
             return "logged_out"
