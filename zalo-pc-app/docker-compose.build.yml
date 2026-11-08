@@ -47,6 +47,12 @@ services:
       # LAN, giống Portainer stack hiện tại). Chỉ dùng trong LAN, đừng
       # forward cổng này ra Internet (trang QR không có mật khẩu riêng).
       - "8080:8080"
+      # Media UDP 4200 cho gọi đi: peer/relay nối vào cổng này để lập
+      # đường hầm media; không map thì cuộc gọi không đổ chuông được
+      # (báo nhỡ ngay dù máy chủ chấp nhận 11300/11301). Khác cổng
+      # 8080, cổng này CẦN mở ra Internet (qua NAT/firewall) để
+      # bên kia/relay nối vào được.
+      - "4200:4200/udp"
     volumes:
       # GIỮ NGUYÊN host path chứa phiên đăng nhập — KHÔNG đổi, KHÔNG xóa.
       # Không cần chown tay: entrypoint tự chown thư mục data về app:app
