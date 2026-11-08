@@ -123,6 +123,11 @@ PING_INTERVAL = 0.1                  # ping keepalive, seconds (~10 Hz:
                                     # 2026-11-08), so match the real cadence.
 HELLO_INTERVAL = 0.5                 # P2P hello retransmit, seconds
 RTCP_INTERVAL = 5.0                  # minimal RTCP RR cadence, seconds
+PROBE_SETUP_DELAY = 0.2              # probe burst -> setup init gap,
+                                    # seconds (the real client sends
+                                    # setup ~0.23 s after the probe —
+                                    # bao-cao.md B.2/B.10; the app sent
+                                    # them back-to-back, ~4 ms apart).
 
 
 class MissingTransportParam(Exception):
@@ -242,21 +247,31 @@ def socket_family_for_relays(relays):
 
 # ---------------------------------------------------------------- extendData
 
-# The 23 extendData keys (disasm-signal416-extenddata.md); ALL
-# optional. srtpKey/srtpNoSeq/srtpRTCP are NOT here — they are keys
-# of zrtc_config, not extendData (confirmed correction).
+# The 24 extendData keys: the 23 keys of _parseExtendData
+# (disasm-signal416-extenddata.md §3.1) + `supportCallBusy`,
+# which the serializer 0x8e1183 builds but the parser does not
+# read. `video` and `extraInfo` are NESTED objects on the wire
+# (the parser reads "video" as an object, then "codec" inside;
+# the serializer builds sub-objects) — the flat "video.codec" /
+# "extraInfo.*" spellings are only INPUT aliases, converted to
+# nested objects below. srtpKey/srtpNoSeq/srtpRTCP are NOT here
+# — they are keys of zrtc_config, not extendData (confirmed
+# correction).
 EXTEND_DATA_KEYS = frozenset([
-    "p2p", "callType", "video.codec", "newZrtc", "packetMode",
+    "p2p", "callType", "video", "newZrtc", "packetMode",
     "gccMode", "gccAudio", "gccEarlyCall", "gccSVLR", "srtpMode",
     "srtcp", "sP2P", "maxFT", "platform", "fecTP",
     "supportHevcDecode", "tpType", "spTcp", "serverAddr",
-    "select2side", "extraInfo.type", "extraInfo.id",
-    "serverResult", "numServers",
+    "select2side", "extraInfo", "serverResult", "numServers",
+    "supportCallBusy",
 ])
-# NOTE: the list above names 24 strings because "extraInfo.type"
-# and "extraInfo.id" are two sub-keys of one extraInfo object;
-# the disassembly counts 23 keys with extraInfo as one entry.
-# The set form is what validation uses.
+
+
+def _as_extend_int(value):
+    """An extendData int value, or None (a bool is not an int)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
 
 
 def normalize_extend_data(data):
@@ -266,6 +281,15 @@ def normalize_extend_data(data):
       to defaults on parse errors instead of failing).
     * ``srtpMode`` must be an int in {1, 2, 3}; otherwise it is
       reset together with ``srtcp`` and ``sP2P`` to 0.
+    * ``video`` / ``extraInfo`` are nested objects on the wire:
+      {"video": {"codec": str}} and {"extraInfo": {"type": int,
+      "id": int}} — the flat "video.codec" / "extraInfo.type" /
+      "extraInfo.id" spellings are accepted as input aliases
+      and converted to the nested form; unknown sub-keys are
+      dropped.
+    * ``serverAddr`` / ``serverResult`` must be lists (their
+      element shape is unproven — disasm §3.1.2); anything else
+      is dropped. ``numServers`` must be an int.
     Returns a new dict (or None for a None input).
     """
     if data is None:
@@ -274,6 +298,33 @@ def normalize_extend_data(data):
         raise MissingTransportParam(
             "extend_data: must be a dict or None, got %r" % type(data))
     out = {k: v for k, v in data.items() if k in EXTEND_DATA_KEYS}
+    # Nested video / extraInfo (wire shape) + flat aliases.
+    video = out.pop("video", None)
+    if isinstance(video, dict):
+        codec = video.get("codec")
+        out["video"] = {"codec": codec if isinstance(codec, str)
+                        else ""}
+    elif "video.codec" in data:
+        codec = data["video.codec"]
+        out["video"] = {"codec": codec if isinstance(codec, str)
+                        else ""}
+    extra = out.pop("extraInfo", None)
+    if isinstance(extra, dict):
+        etype = _as_extend_int(extra.get("type"))
+        eid = _as_extend_int(extra.get("id"))
+        out["extraInfo"] = {"type": etype if etype is not None else 0,
+                            "id": eid if eid is not None else 0}
+    elif "extraInfo.type" in data or "extraInfo.id" in data:
+        etype = _as_extend_int(data.get("extraInfo.type"))
+        eid = _as_extend_int(data.get("extraInfo.id"))
+        out["extraInfo"] = {"type": etype if etype is not None else 0,
+                            "id": eid if eid is not None else 0}
+    for key in ("serverAddr", "serverResult"):
+        if key in out and not isinstance(out[key], list):
+            del out[key]
+    if "numServers" in out \
+            and _as_extend_int(out["numServers"]) is None:
+        del out["numServers"]
     mode = out.get("srtpMode")
     if mode is not None and (not isinstance(mode, int)
                              or isinstance(mode, bool)
@@ -563,7 +614,10 @@ def build_setup_init(local_ssrc, call_counter, call_session,
 
 
 def build_setup_refresh(local_ssrc, relay_session, token):
-    """Setup refresh 177B (byte[1]=0x01, every ~6 s, main relay only).
+    """Setup refresh 177B (byte[1]=0x01, every ~6 s, to every
+    relay that answered type-02 — 2026-11-08 step 3: the real
+    client refreshes all relays it set up, not just the
+    selected one).
 
     [0]=0x01 [1]=0x01 [2..9]=00 [10..13]=local SSRC LE
     [14..17]=relay session 4B (from type-02) [18..19]=02 00
@@ -970,11 +1024,16 @@ class Udp4200Transport:
     Media path (relay): ``[0x03][relay session 4B][RTP...]``
     uplink, ``[0x04][RTP...]`` downlink. Media path (P2P):
     ``0x7f`` header + RTP at offset 9, subtype 0x06.
-    P2P starts as soon as a reflexive peer address arrives in
-    type-02 (hello -> ack -> confirm); once the P2P handshake
-    completes, ``mode`` flips to ``"p2p"`` and media leaves via
-    P2P while the relay is kept as a fallback (setup refresh
-    every 6 s + ping every 6 s + inbound 1 Hz keepalive counted).
+    P2P starts ONLY after the peer has answered, when the
+    server calls ``begin_p2p()`` (2026-11-08, step 3): hello
+    -> ack -> confirm; once the P2P handshake completes,
+    ``mode`` flips to ``"p2p"`` and media leaves via P2P while
+    the relay is kept as a fallback (setup refresh every 6 s to
+    EVERY relay that answered type-02 + ping every 0.1 s +
+    inbound 1 Hz keepalive counted). The type-02 tail is our
+    OWN reflexive address until the peer has done Init, so
+    helloing to it before the answer would be talking to
+    ourselves — _send_hello refuses that address outright.
     In the captures relay media lasts only ~1 s before P2P
     takes over; this transport switches as soon as P2P is
     confirmed, which is the same rule.
@@ -1047,6 +1106,15 @@ class Udp4200Transport:
         self._hello_count = 0
         self._p2p_acked = False
         self._p2p_confirmed = False
+        # P2P hello gate (2026-11-08, step 3 / D4): False until
+        # begin_p2p() is called explicitly — i.e. until the peer
+        # has answered. The transport NEVER starts the P2P hello
+        # handshake on its own (the old code called begin_p2p()
+        # from _on_type02, so it helloed all through ringing —
+        # 61 hellos in the 30 s pcap — to its own reflexive
+        # address, because the type-02 tail during ringing is
+        # OUR address: the relay does not know the peer yet).
+        self._p2p_started = False
         self._peer_ssrc = config.peer_session  # learned if None
         self._last_error = None
         self._jitter = JitterBuffer(config.jitter_buffer_size)
@@ -1094,6 +1162,10 @@ class Udp4200Transport:
         # actually starts (closest to the engine's start time).
         self._probe_t0 = time.monotonic()
         self._send_probe_burst()
+        # Probe -> setup gap (2026-11-08, step 3 / D7): the real
+        # client waits ~0.23 s after the probe burst before setup
+        # (bao-cao.md B.2/B.10); the app sent them back-to-back.
+        time.sleep(PROBE_SETUP_DELAY)
         self._send_setup_init()
         self.state = "handshaking"
         self._last_setup_refresh = time.monotonic()
@@ -1176,14 +1248,54 @@ class Udp4200Transport:
     def begin_p2p(self, peer_ip=None, peer_port=None):
         """(Re)start the P2P hello handshake to a peer address.
 
-        Defaults to the reflexive address from type-02. Hello is
-        retransmitted by the scheduler until an ack arrives.
+        This is the ONLY way the hello handshake starts
+        (2026-11-08, step 3): the server calls it when the peer
+        has answered (call state "answered" — see server.py
+        _mark_answered). It is NEVER called from _on_type02 any
+        more — the old auto-start helloed all through ringing to
+        our own reflexive address. Defaults to the reflexive
+        address from type-02; _send_hello refuses to hello to
+        our own address (see _is_own_reflexive), so the
+        handshake only really starts once a real peer address is
+        known (a later type-02 tail, or an explicit peer
+        address here).
         """
         if peer_ip is not None and peer_port is not None:
             self.peer_reflexive = (peer_ip, peer_port)
+        self._p2p_started = True
         self._hello_count = 0
         self._last_hello = 0.0  # send immediately on next tick
         self._send_hello()
+
+    def _is_own_reflexive(self, addr):
+        """True when `addr` is our own reflexive address — i.e.
+        the relay echoing us back, not the peer.
+
+        Detection: the relay reports the source port it sees for
+        our Init packets, and in this deployment (Docker NAT)
+        that mapped port equals our bound port (live PCAP
+        2026-11-08: local ephemeral 58180, type-02 tail
+        113.22.187.193|58180). So a tail whose PORT equals our
+        bound port is us. LIMIT: if a NAT remapped our port, the
+        tail port would differ from our bound port and this
+        check would miss — then the hello could loop back to our
+        own socket and self-handshake (the fabric test proved
+        it: hello_tx=1, ack_tx=1, confirm_tx=1 with itself).
+        A peer can only false-positive here if its mapped port
+        coincidentally equals our bound ephemeral port (~1 in
+        30000, and only delays P2P initiation — the peer's
+        incoming hello is still answered via _on_p2p).
+        """
+        if addr is None or self._sock is None:
+            return False
+        try:
+            own_port = self._sock.getsockname()[1]
+        except (OSError, AttributeError, TypeError):
+            return False
+        try:
+            return int(addr[1]) == int(own_port)
+        except (TypeError, ValueError, IndexError):
+            return False
 
     def status(self):
         """Snapshot: state, selected relay, mode, counters.
@@ -1279,12 +1391,22 @@ class Udp4200Transport:
                 self.counters["setup_init_tx"] += 1
 
     def _send_setup_refresh(self):
-        if self.selected_relay is None or not self.relay_session:
+        # 2026-11-08 (step 3 / D5): refresh EVERY relay that
+        # answered type-02, not just the selected one — the real
+        # client (F2) refreshes all 4 relays it set up, every
+        # 6 s. Each relay gets its OWN relay session (from
+        # _relay_info); a relay that never answered has no
+        # session and gets no refresh.
+        if not self._relay_info:
             return
-        pkt = build_setup_refresh(self.config.local_ssrc,
-                                  self.relay_session, self.config.token)
-        if self._send_to(pkt, self.selected_relay.rtp_addr()):
-            self.counters["setup_refresh_tx"] += 1
+        for addr, info in list(self._relay_info.items()):
+            session = info.get("relay_session")
+            if not session:
+                continue
+            pkt = build_setup_refresh(self.config.local_ssrc,
+                                      session, self.config.token)
+            if self._send_to(pkt, addr):
+                self.counters["setup_refresh_tx"] += 1
 
     def _send_ping(self):
         if self.selected_relay is None or not self.relay_session:
@@ -1297,6 +1419,13 @@ class Udp4200Transport:
 
     def _send_hello(self):
         if self.peer_reflexive is None or self._p2p_confirmed:
+            return
+        # Never hello to our own reflexive address (2026-11-08,
+        # step 3 / D4): the type-02 tail during ringing is OUR
+        # address — the relay echoes us because the peer has not
+        # done Init yet. Helloing there is talking to ourselves
+        # (61 hellos in the 30 s pcap, to 113.22.187.193:58180).
+        if self._is_own_reflexive(self.peer_reflexive):
             return
         pkt = build_p2p_hello(self._role_byte(),
                               self.config.call_session, self._hello_count)
@@ -1354,6 +1483,7 @@ class Udp4200Transport:
                     self._send_ping()
                     self._last_ping = now
                 if (self.peer_reflexive is not None
+                        and self._p2p_started
                         and not self._p2p_confirmed
                         and now - self._last_hello >= cfg.hello_interval):
                     self._send_hello()
@@ -1458,15 +1588,27 @@ class Udp4200Transport:
             "relay_session": info["relay_session"],
             "reflexive": (info["reflexive_ip"], info["reflexive_port"]),
         }
+        # The type-02 tail is a reflexive address: OUR OWN address
+        # while the peer has not done Init (the relay echoes us),
+        # the PEER's address once the relay knows it (after the
+        # peer's Init). Refresh it on every type-02 — the first
+        # one arrives during ringing (our own address), a later
+        # one may carry the peer's. _send_hello refuses to hello
+        # to our own address, so a self-tail can never start a
+        # self-handshake.
+        self.peer_reflexive = (info["reflexive_ip"],
+                               info["reflexive_port"])
         if self.selected_relay is None:
             # First type-02 wins and sticks (initSuccessTime
             # rule; UDP challenger never replaces a UDP best).
             self.selected_relay = relay
             self.relay_session = info["relay_session"]
-            self.peer_reflexive = (info["reflexive_ip"],
-                                   info["reflexive_port"])
             self.state = "connected"
-            self.begin_p2p()
+            # NO begin_p2p() here (2026-11-08, step 3): the P2P
+            # hello handshake starts only when the peer has
+            # answered (server.py _mark_answered calls
+            # begin_p2p()). Auto-starting here helloed all
+            # through ringing to our own reflexive address.
 
     def _on_type02_25(self, data, addr):
         try:

@@ -564,7 +564,11 @@ def _mark_answered(call_id, source):
     is disarmed (an answered call is never ring-timed-out), a
     [call] answered line is logged, a call webhook event fires,
     and an answerack (11304) is sent best-effort on a daemon
-    thread for 1-1 calls."""
+    thread for 1-1 calls. It also starts the P2P hello handshake
+    (transport.begin_p2p, best-effort): only now — after the
+    answer — does the relay know the peer's address, so only
+    now can the hello go to the peer instead of to ourselves
+    (2026-11-08, step 3)."""
     snap = STATE.calls.snapshot()
     live = None
     for c in snap["calls"]:
@@ -580,6 +584,23 @@ def _mark_answered(call_id, source):
     if entry is None:
         return None
     _disarm_ring_timer(call_id)
+    # Start the P2P hello handshake NOW (2026-11-08, step 3):
+    # the peer has answered, so the relay knows the peer's
+    # address and the type-02 tail is the peer (not us). The
+    # transport never hellos on its own any more — before this
+    # fix it helloed all through ringing to our own reflexive
+    # address (61 hellos in the 30 s pcap). Defensive getattr:
+    # an older fake transport without begin_p2p() must not
+    # break the answer path.
+    try:
+        record = media_endpoints.ENDPOINTS.active_record(
+            entry["call_id"])
+        transport = (record or {}).get("transport")
+        begin_p2p = getattr(transport, "begin_p2p", None)
+        if callable(begin_p2p):
+            begin_p2p()
+    except Exception:  # noqa: BLE001 - P2P start is best-effort
+        pass
     _log_call("answered call_id=%s source=%s"
               % (entry["call_id"], source))
     webhooks_mod.dispatch_call_event(
@@ -2833,11 +2854,30 @@ class Handler(BaseHTTPRequestHandler):
                     media_endpoints.requestcall_status(data)
                 step1_shape = \
                     media_endpoints.describe_requestcall_shape(data)
-                _log_call("step1 call_id=%s status=%s%s %s"
+                # rtpIP/rtcpIP values (2026-11-08, step 1): the
+                # shape string above never carries values (it is
+                # also the API response's data_shape), so the
+                # actual designated addresses are appended here,
+                # on the LOG line only — relay IPs are public
+                # diagnostic info, not secrets, and the live
+                # no-ring question needs them visible. The same
+                # allocation feeds the step1 diag below.
+                try:
+                    _step1_alloc = media_endpoints.\
+                        allocation_from_requestcall_data(data)
+                except Exception:  # noqa: BLE001 - log/diag only
+                    _step1_alloc = {}
+                _step1_addrs = ""
+                if _step1_alloc.get("rtp_ip") \
+                        or _step1_alloc.get("rtcp_ip"):
+                    _step1_addrs = (" rtpIP=%s rtcpIP=%s" % (
+                        _step1_alloc.get("rtp_ip") or "-",
+                        _step1_alloc.get("rtcp_ip") or "-"))
+                _log_call("step1 call_id=%s status=%s%s %s%s"
                           % (call_id, step1_status,
                              (" msg=" + step1_msg[:120])
                              if step1_msg else "",
-                             step1_shape))
+                             step1_shape, _step1_addrs))
                 if not media_endpoints.requestcall_accepted(data):
                     raise RuntimeError(
                         "11300 bi tu choi: status=%s%s" % (
@@ -2856,6 +2896,16 @@ class Handler(BaseHTTPRequestHandler):
                 STATE.calls.record_diag(
                     call_id, {"step1_status": step1_status,
                               "step1_msg": step1_msg[:120]})
+                # rtpIP/rtcpIP (2026-11-08, step 1): the relay
+                # addresses the 11300 response designates — the
+                # step1 log line above carries their values; the
+                # diag carries them too, so /api/calls shows which
+                # addresses 11300 named (IP:port only, never
+                # session/token values). _step1_alloc was computed
+                # with the log line above.
+                STATE.calls.record_diag(
+                    call_id, {"rtp_ip": _step1_alloc.get("rtp_ip"),
+                              "rtcp_ip": _step1_alloc.get("rtcp_ip")})
                 if (prev_active is not None
                         and str(prev_active["call_id"]) != str(call_id)):
                     _log_call(
@@ -2957,9 +3007,10 @@ class Handler(BaseHTTPRequestHandler):
                     # carry a real relay?") is answered by this
                     # line alone.
                     _log_call("step2 send call_id=%s rtp=%s rtcp=%s "
-                              "session=%s codec=%s"
+                              "rtp_source=%s session=%s codec=%s"
                               % (call_id, endpoints["rtp_address"],
                                  endpoints["rtcp_address"],
+                                 endpoints.get("rtp_source", "selected"),
                                  _describe_session_value(
                                      endpoints["session"]),
                                  endpoints["codec"]))
@@ -3017,6 +3068,8 @@ class Handler(BaseHTTPRequestHandler):
                         "step2_msg": step2_msg[:120],
                         "rtp": endpoints["rtp_address"],
                         "rtcp": endpoints["rtcp_address"],
+                        "rtp_source": endpoints.get("rtp_source",
+                                                    "selected"),
                         "session_present":
                             endpoints["session"] is not None,
                         "session_len": (

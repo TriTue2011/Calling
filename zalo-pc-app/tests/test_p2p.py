@@ -187,6 +187,13 @@ def test_p2p_handshake_and_media_loopback():
     tr.set_pcm_callback(got_pcm.append)
     try:
         tr.start()
+        # 2026-11-08 (buoc 3): P2P hello chi bat dau khi peer da
+        # tra loi — khong con tu hello ngay sau type-02. Fake
+        # relay o day tra type-02 mang dia chi cua PEER (trang
+        # thai SAU khi tra loi: relay da biet peer), nen test
+        # goi begin_p2p() ro rang de mo phong "peer da tra loi"
+        # roi moi doi P2P.
+        tr.begin_p2p()
         deadline = time.time() + 5
         while time.time() < deadline and tr.mode != "p2p":
             time.sleep(0.05)

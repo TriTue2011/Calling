@@ -324,9 +324,12 @@ def test_allocation_from_requestcall_data():
     assert out["session"] == "sess-xyz", out
     # srtpMode=2 from 11300 is kept inside the minimal
     # engine-default extendData (2026-11-08: 11301 always sends
-    # extendData, never just {"srtpMode": ...}).
+    # extendData, never just {"srtpMode": ...}); the relay list
+    # here is one server (10.0.0.1:4200/4201), so numServers=1
+    # and serverAddr carries its RTP address.
     assert json.loads(out["extend_data"]) == \
-        _expected_minimal_extend_data(srtp_mode=2), out
+        _expected_minimal_extend_data(
+            srtp_mode=2, server_addr=["10.0.0.1:4200"]), out
     provider.stop_all()
 
 
@@ -341,7 +344,8 @@ def test_extend_data_unknown_keys_dropped():
     provider.stop_all()
 
 
-def _expected_minimal_extend_data(srtp_mode=0, is_video=False):
+def _expected_minimal_extend_data(srtp_mode=0, is_video=False,
+                                  num_servers=1, server_addr=None):
     """Engine-default extendData (disassembly): the minimal dict
     for_call builds when the 11300 response carries no extendData.
     Values are the engine's reset/parse-fail defaults
@@ -361,12 +365,34 @@ def _expected_minimal_extend_data(srtp_mode=0, is_video=False):
     The 00db2b9 fix wrongly put the 1-1/group enum (1/5) here,
     which made the server treat voice calls as video calls
     (live 2026-11-08: BenBap's phone showed an incoming VIDEO
-    call)."""
+    call).
+    2026-11-08 (buoc 2): du 24 key — 23 key cua serializer
+    0x8e1183 + callType. Cac key moi so voi ban 13 key:
+    video (object, codec "" cho thoai — khong co video codec),
+    newZrtc/tpType/spTcp/select2side/supportCallBusy = 0
+    (default cua parser; tpType/spTcp = 0 vi transport la UDP),
+    supportHevcDecode = 0 (app khong giai ma HEVC — khong co
+    video), extraInfo {type: 0, id: 0} (gia tri that chua biet,
+    0/0 = default cua parser), serverResult = [] (dang phan tu
+    chua chung minh duoc), numServers = so relay tu 11300,
+    serverAddr = dia chi RTP "IP:port" cua cac relay tu 11300
+    (suy luan tot nhat tu disasm §3.1.2: phan tu duoc trich ra
+    thanh chuoi roi parse dang "IP:port"; parser cua peer BO QUA
+    vong lap nay o duong 1-1 ([edi+0x5d]==0) nen gia tri chi co
+    y nghia neu may chu tu kiem tra)."""
+    if server_addr is None:
+        server_addr = ["127.0.0.1:4200"]
     return {"p2p": "", "callType": 1 if is_video else 0,
-            "platform": 3,
+            "video": {"codec": ""},
+            "newZrtc": 0, "platform": 3,
             "packetMode": 2, "gccMode": 0, "srtpMode": srtp_mode,
             "sP2P": 0, "srtcp": 0, "gccAudio": 0, "gccSVLR": 0,
-            "gccEarlyCall": 0, "maxFT": 60, "fecTP": 0}
+            "tpType": 0, "spTcp": 0, "gccEarlyCall": 0, "maxFT": 60,
+            "extraInfo": {"type": 0, "id": 0},
+            "supportCallBusy": 0, "supportHevcDecode": 0,
+            "serverResult": [], "numServers": num_servers,
+            "select2side": 0, "serverAddr": server_addr,
+            "fecTP": 0}
 
 
 def test_extend_data_built_when_11300_has_none():
@@ -443,6 +469,160 @@ def test_extend_data_video_call_type_is_one():
         is_video=True, call_id=CALL_ID + 9))
     got = json.loads(out["extend_data"])
     assert got == _expected_minimal_extend_data(is_video=True), got
+    provider.stop_all()
+
+
+# ------------------------------------------------------------------ step 1
+# (2026-11-08): rtpIP/rtcpIP trong response 11300
+
+def _requestcall_with_rtpip(rtp_ip, rtcp_ip, relays=None):
+    """Response 11300 gia (servers + sessId + fromId/toId +
+    rtpIP/rtcpIP). Dia chi TEST-NET, khong phai gia tri that."""
+    if relays is None:
+        relays = [{"rtpaddr": "127.0.0.1:4200",
+                   "rtcpaddr": "127.0.0.1:4201"}]
+    return {"servers": relays, "sessId": FAKE_TOKEN,
+            "fromId": FAKE_LOCAL_SESSION, "toId": 0x55667788,
+            "rtpIP": rtp_ip, "rtcpIP": rtcp_ip}
+
+
+def test_allocation_extracts_rtpip_rtcpip():
+    """allocation lay rtpIP/rtcpIP tu 11300 (top-level) — D8:
+    truoc day bo qua hai key nay, khong log, khong doi chieu
+    voi relay da chon."""
+    alloc = media_endpoints.allocation_from_requestcall_data(
+        _requestcall_with_rtpip("203.0.113.9:4200",
+                                "203.0.113.9:4201"))
+    assert alloc["rtp_ip"] == "203.0.113.9:4200", alloc
+    assert alloc["rtcp_ip"] == "203.0.113.9:4201", alloc
+    # Cung lay duoc tu params (parser request-param cua engine
+    # doc params.rtpIP/params.rtcpIP — disasm-relay-acquisition
+    # A.2).
+    alloc2 = media_endpoints.allocation_from_requestcall_data(
+        {"params": {"rtpIP": "198.51.100.7:4200",
+                    "rtcpIP": "198.51.100.7:4201"}})
+    assert alloc2["rtp_ip"] == "198.51.100.7:4200", alloc2
+    assert alloc2["rtcp_ip"] == "198.51.100.7:4201", alloc2
+    # Khong co key -> khong co gia tri (khong phat minh).
+    assert "rtp_ip" not in media_endpoints.\
+        allocation_from_requestcall_data({"servers": []})
+
+
+def test_describe_requestcall_shape_includes_rtpip():
+    """Shape cua 11300 (log step1 + data_shape) ghi rtpIP/rtcpIP
+    — CHI DANG (do dai chuoi), khong bao gio gia tri: data_shape
+    tra ve API khong duoc chua gia tri nao (xem
+    test_real_11300_shape_2026_11_06_delivered_e2e). Gia tri that
+    nam o dong log step1 (server.py append tu allocation) va o
+    diag /api/calls (rtp_ip/rtcp_ip)."""
+    shape = media_endpoints.describe_requestcall_shape(
+        _requestcall_with_rtpip("203.0.113.9:4200",
+                                "203.0.113.9:4201"))
+    assert "rtpIP: str[16 chars]" in shape, shape
+    assert "rtcpIP: str[16 chars]" in shape, shape
+    assert "203.0.113.9" not in shape, shape
+
+
+def test_rtpip_used_when_different_from_selected():
+    """rtpIP/rtcpIP KHAC relay da chon -> 11301 dung
+    rtpIP/rtcpIP (gia dinh buoc 1: may chu chi dinh 1 relay cu
+    the; neu app dung relay khac thi co the khong route duoc).
+    Nguon dia chi duoc ghi ro trong rtp_source."""
+    provider = _provider()
+    out = provider.for_call(
+        call_id=CALL_ID + 11, callee_id="20001",
+        requestcall_data=_requestcall_with_rtpip(
+            "203.0.113.9:4200", "203.0.113.9:4201"),
+        protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
+    assert out["rtp_address"] == "203.0.113.9:4200", out
+    assert out["rtcp_address"] == "203.0.113.9:4201", out
+    assert out["rtp_source"] == "rtpIP", out
+    provider.stop_all()
+
+
+def test_rtpip_matching_selected_uses_selected():
+    """rtpIP/rtcpIP TRUNG relay da chon -> 11301 dung relay da
+    chon, rtp_source="selected" (khong doi gi)."""
+    provider = _provider()
+    out = provider.for_call(
+        call_id=CALL_ID + 12, callee_id="20001",
+        requestcall_data=_requestcall_with_rtpip(
+            "127.0.0.1:4200", "127.0.0.1:4201"),
+        protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
+    assert out["rtp_address"] == "127.0.0.1:4200", out
+    assert out["rtcp_address"] == "127.0.0.1:4201", out
+    assert out["rtp_source"] == "selected", out
+    provider.stop_all()
+
+
+def test_rtpip_bare_ip_pairs_with_selected_port():
+    """rtpIP/rtcpIP dang IP tran (khong port) -> ghep voi port
+    cua relay da chon cung phia (port la thuoc tinh cua dich
+    vu relay, 4200 trong moi capture)."""
+    provider = _provider()
+    out = provider.for_call(
+        call_id=CALL_ID + 13, callee_id="20001",
+        requestcall_data=_requestcall_with_rtpip(
+            "203.0.113.9", "203.0.113.9"),
+        protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
+    assert out["rtp_address"] == "203.0.113.9:4200", out
+    assert out["rtcp_address"] == "203.0.113.9:4201", out
+    assert out["rtp_source"] == "rtpIP", out
+    provider.stop_all()
+
+
+def test_rtpip_absent_uses_selected():
+    """Khong co rtpIP/rtcpIP trong 11300 -> hanh vi cu: 11301
+    dung relay da chon, rtp_source="selected"."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(call_id=CALL_ID + 14))
+    assert out["rtp_address"] == "127.0.0.1:4200", out
+    assert out["rtcp_address"] == "127.0.0.1:4201", out
+    assert out["rtp_source"] == "selected", out
+    provider.stop_all()
+
+
+# ------------------------------------------------------------------ step 2
+# (2026-11-08): extendData du key cua serializer 0x8e1183
+
+def test_extend_data_complete_keys():
+    """extendData toi thieu gio du 24 key (23 key cua serializer
+    0x8e1183 + callType): video/extraInfo la OBJECT long nhau
+    (khong phai key phang "video.codec"), serverAddr la list
+    dia chi RTP cua relay, numServers = so relay."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(call_id=CALL_ID + 15))
+    got = json.loads(out["extend_data"])
+    assert got == _expected_minimal_extend_data(), got
+    assert isinstance(got["video"], dict), got
+    assert got["video"] == {"codec": ""}, got
+    assert isinstance(got["extraInfo"], dict), got
+    assert got["extraInfo"] == {"type": 0, "id": 0}, got
+    assert got["serverAddr"] == ["127.0.0.1:4200"], got
+    assert got["numServers"] == 1, got
+    assert got["serverResult"] == [], got
+    assert got["callType"] == 0, got
+    assert got["platform"] == 3, got
+    assert got["supportCallBusy"] == 0, got
+    assert got["supportHevcDecode"] == 0, got
+    provider.stop_all()
+
+
+def test_extend_data_num_servers_counts_relays():
+    """numServers + serverAddr theo dung so relay tu 11300 (2
+    relay -> numServers=2, serverAddr co 2 dia chi RTP)."""
+    provider = _provider()
+    out = provider.for_call(
+        call_id=CALL_ID + 16, callee_id="20001",
+        relays=[RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201),
+                RelayServer("127.0.0.2", 4200, "127.0.0.2", 4201)],
+        token=FAKE_TOKEN, session=FAKE_SESSION,
+        local_session=FAKE_LOCAL_SESSION,
+        protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
+    got = json.loads(out["extend_data"])
+    assert got == _expected_minimal_extend_data(
+        num_servers=2,
+        server_addr=["127.0.0.1:4200", "127.0.0.2:4200"]), got
     provider.stop_all()
 
 
@@ -720,9 +900,17 @@ def test_sessid_154_is_token():
     assert out["transport"].config.token == SESSID_154.encode(), out
     assert len(out["transport"].config.token_raw) == 115, out
     # zrtc_config carries srtpMode=2 here: kept inside the minimal
-    # engine-default extendData (2026-11-08), not alone.
+    # engine-default extendData (2026-11-08), not alone. The
+    # fixture's 11300 advertises 5 servers (each with v4+v6
+    # addresses) — numServers counts ADVERTISED servers (5),
+    # not the 10 family-split relays, and serverAddr carries
+    # one RTP address per server, IPv4 preferred.
     assert json.loads(out["extend_data"]) == \
-        _expected_minimal_extend_data(srtp_mode=2), out
+        _expected_minimal_extend_data(
+            srtp_mode=2, num_servers=5,
+            server_addr=["127.0.0.1:4200", "192.0.2.2:4210",
+                         "192.0.2.3:4220", "192.0.2.4:4230",
+                         "192.0.2.5:4240"]), out
     provider.stop_all()
 
 

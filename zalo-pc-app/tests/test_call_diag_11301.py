@@ -123,8 +123,9 @@ def _calls_by_id(base):
 
 def test_step1_and_step2_diag_logged():
     """Duong goi thanh cong phai log du chan doan: step1 (11300)
-    status + shape; step2 send (dia chi relay + session chi co/
-    khong + do dai); step2 resp (shape). /api/calls diag ghi du
+    status + shape (gom rtpIP/rtcpIP — 2026-11-08 buoc 1); step2
+    send (dia chi relay + nguon dia chi rtp_source + session chi
+    co/khong + do dai); step2 resp (shape). /api/calls diag ghi du
     cac truong; KHONG ro ri gia tri session (sessId 154 ky tu)
     ra log hay API."""
     mock = MockZalo().start()
@@ -142,7 +143,8 @@ def test_step1_and_step2_diag_logged():
         log = captured.getvalue()
         assert ("[call] step1 call_id=%s status=0" % eff_id) in log, log
         assert ("[call] step2 send call_id=%s rtp=127.0.0.1:4200 "
-                "rtcp=127.0.0.1:4201 session=present[154] codec=opus"
+                "rtcp=127.0.0.1:4201 rtp_source=selected "
+                "session=present[154] codec=opus"
                 % eff_id) in log, log
         assert ("[call] step2 resp call_id=%s 11301 keys:" % eff_id) \
             in log, log
@@ -160,6 +162,12 @@ def test_step1_and_step2_diag_logged():
         assert diag["step2_status"] is None, entry
         assert diag["rtp"] == "127.0.0.1:4200", entry
         assert diag["rtcp"] == "127.0.0.1:4201", entry
+        # 2026-11-08 buoc 1: diag ghi nguon dia chi 11301 dung
+        # (rtpIP cua mock trung relay da chon -> "selected") va
+        # rtpIP/rtcpIP goc tu 11300 (IP tran o fixture nay).
+        assert diag["rtp_source"] == "selected", entry
+        assert diag["rtp_ip"] == "127.0.0.1", entry
+        assert diag["rtcp_ip"] == "127.0.0.1", entry
         assert diag["session_present"] is True, entry
         assert diag["session_len"] == 154, entry
         assert diag["codec"] == "opus", entry

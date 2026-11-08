@@ -469,6 +469,23 @@ def describe_requestcall_shape(data):
         _val = _find_in_requestcall_data(data, _key)
         if _val is not None:
             parts.append("%s: %s" % (_key, _describe_id_value(_val)))
+    # rtpIP/rtcpIP (2026-11-08, step 1 / D8): the relay addresses
+    # the 11300 response designates. Recorded by SHAPE ONLY here
+    # (this string is also the /api/call/request response's
+    # data_shape, which never carries values — see the docstring):
+    # a string value is "rtpIP: str[N chars]", any other type is
+    # its type name. The ACTUAL addresses go into the [call]
+    # step1 log line (server.py appends them from the allocation)
+    # and into the /api/calls diag (rtp_ip/rtcp_ip) — relay IPs
+    # are public diagnostic info, not secrets, but they do not
+    # belong in a shape string.
+    for _key in ("rtpIP", "rtcpIP"):
+        _val = _find_in_requestcall_data(data, _key)
+        if _val is not None:
+            if isinstance(_val, str):
+                parts.append("%s: str[%d chars]" % (_key, len(_val)))
+            else:
+                parts.append("%s: %s" % (_key, type(_val).__name__))
     return "; ".join(parts)
 
 
@@ -596,6 +613,40 @@ def _normalize_relays(relays, servers=None):
     return out
 
 
+def _server_addr_list(servers, relay_list):
+    """(numServers, serverAddr) values for extendData, from the
+    11300 `servers` value (2026-11-08, step 2).
+
+    The count is the number of SERVERS the 11300 response
+    advertised — one entry per server dict — NOT the length of
+    the normalized relay list: `_relay_servers_from_dict`
+    splits each server dict into an IPv4 and an IPv6
+    RelayServer (5 dicts -> 10 relays), but the server
+    advertised 5 servers, and the real client's numServers is
+    the length of ITS server list (one struct per server, v4+v6
+    inside). serverAddr carries one RTP address per server —
+    IPv4 preferred (the family this deployment's transport
+    uses; `_relay_servers_from_dict` emits v4 first), IPv6
+    when a server has no IPv4 RTP address.
+    When the relays were passed directly (no `servers` list of
+    dicts — e.g. a raw string or a list of RelayServer), the
+    normalized list IS the server list: one address per relay.
+    Returns a list of "IP:port" strings (possibly empty).
+    """
+    if isinstance(servers, (list, tuple)) and servers \
+            and all(isinstance(entry, dict) for entry in servers):
+        addrs = []
+        for entry in servers:
+            relays = _relay_servers_from_dict(entry)
+            if relays:
+                first = relays[0]
+                addrs.append(_format_ip_port(first.rtp_ip,
+                                             first.rtp_port))
+        return addrs
+    return [_format_ip_port(relay.rtp_ip, relay.rtp_port)
+            for relay in (relay_list or [])]
+
+
 def _format_ip_port(ip, port):
     """One relay address as an "IP:port" string for 11301: IPv6
     is bracketed ("[2001:db8::1]:4200") — the unbracketed form
@@ -605,10 +656,58 @@ def _format_ip_port(ip, port):
     return "%s:%d" % (ip, port)
 
 
+def _resolve_11301_addresses(rtp_ip_raw, rtcp_ip_raw, selected):
+    """The rtpAddress/rtcpAddress for 11301, from the 11300
+    response's `rtpIP`/`rtcpIP` vs the selected relay
+    (2026-11-08, step 1 / D8).
+
+    Returns (rtp_address, rtcp_address, source) with source
+    "rtpIP" when the 11300-designated addresses are used and
+    "selected" when the selected relay's addresses are used.
+
+    Rule: when BOTH rtpIP and rtcpIP parse as addresses AND at
+    least one differs from the selected relay, 11301 uses
+    rtpIP/rtcpIP — the hypothesis is the server designates one
+    specific relay and may not route an invitation that names a
+    different one (the live no-ring case: the server accepted
+    11301 with the selected relay's addresses but never rang
+    the peer). A bare IP (no port) pairs with the selected
+    relay's port on the same side — ASSUMPTION, documented: the
+    port is a property of the relay service (4200 in every
+    capture; the transport is Udp4200Transport). When either
+    value is missing or unparseable, or both match the selected
+    relay, the selected relay is used unchanged.
+    """
+    selected_rtp = _format_ip_port(selected.rtp_ip, selected.rtp_port)
+    selected_rtcp = _format_ip_port(selected.rtcp_ip,
+                                    selected.rtcp_port)
+    if not isinstance(rtp_ip_raw, str) or not rtp_ip_raw \
+            or not isinstance(rtcp_ip_raw, str) or not rtcp_ip_raw:
+        return selected_rtp, selected_rtcp, "selected"
+    rtp_parsed = _parse_addr_value(rtp_ip_raw)
+    rtcp_parsed = _parse_addr_value(rtcp_ip_raw)
+    if rtp_parsed is None or rtcp_parsed is None:
+        return selected_rtp, selected_rtcp, "selected"
+    rtp_ip, rtp_port = rtp_parsed
+    rtcp_ip, rtcp_port = rtcp_parsed
+    if rtp_port is None:
+        rtp_port = selected.rtp_port
+    if rtcp_port is None:
+        rtcp_port = selected.rtcp_port
+    rtp_address = _format_ip_port(rtp_ip, rtp_port)
+    rtcp_address = _format_ip_port(rtcp_ip, rtcp_port)
+    if rtp_address == selected_rtp and rtcp_address == selected_rtcp:
+        return selected_rtp, selected_rtcp, "selected"
+    return rtp_address, rtcp_address, "rtpIP"
+
+
 def _find_in_requestcall_data(data, key):
     """Search `key` in a decoded 11300 response, in the places the
-    disassembly puts it: top level, nested `data`, and inside
-    `zrtc_config`. Returns None when absent everywhere."""
+    disassembly puts it: top level, nested `data`, `params`
+    (the request-param parser 0x71f670 reads `params.rtpIP` /
+    `params.rtcpIP` / `params.sessId` — disasm-relay-acquisition
+    A.2), and inside `zrtc_config`. Returns None when absent
+    everywhere."""
     if not isinstance(data, dict):
         return None
     if key in data:
@@ -616,6 +715,13 @@ def _find_in_requestcall_data(data, key):
     inner = data.get("data")
     if isinstance(inner, dict) and key in inner:
         return inner[key]
+    params = data.get("params")
+    if isinstance(params, dict) and key in params:
+        return params[key]
+    if isinstance(inner, dict):
+        params2 = inner.get("params")
+        if isinstance(params2, dict) and key in params2:
+            return params2[key]
     cfg = data.get("zrtc_config")
     if isinstance(cfg, dict) and key in cfg:
         return cfg[key]
@@ -672,7 +778,11 @@ def allocation_from_requestcall_data(data):
     `srtp_key` (from `zrtc_config.srtpKey` — LIVE 2026-11-06
     the real response has none; absent keys are simply missing),
     `srtp_mode`, `codec` (from `zrtc_config.g711`), `extend_data`
-    (from a top-level `extendData` string/dict when present).
+    (from a top-level `extendData` string/dict when present),
+    `rtp_ip` / `rtcp_ip` (from `rtpIP` / `rtcpIP` — the relay
+    addresses the 11300 response designates; 2026-11-08 step 1:
+    for_call compares them with the selected relay and uses
+    them for 11301 when they differ).
     Absent keys are simply missing: `for_call` raises naming
     each one instead of filling in a guess (except `srtp_key`,
     which no longer blocks signaling — see `for_call`).
@@ -747,6 +857,17 @@ def allocation_from_requestcall_data(data):
     ext = _find_in_requestcall_data(data, "extendData")
     if ext is not None:
         out["extend_data"] = ext
+    # rtpIP/rtcpIP (2026-11-08, step 1 / D8): the relay addresses
+    # the 11300 response designates (top-level in the live
+    # response; the native request-param parser reads them under
+    # `params` — disasm-relay-acquisition A.2). Raw strings only
+    # here; for_call parses them and decides whether 11301 uses
+    # them or the selected relay. Absent -> simply missing.
+    for _key, _out_key in (("rtpIP", "rtp_ip"),
+                           ("rtcpIP", "rtcp_ip")):
+        _val = _find_in_requestcall_data(data, _key)
+        if isinstance(_val, str) and _val:
+            out[_out_key] = _val
     return out
 
 
@@ -760,46 +881,130 @@ def _codec_from_g711(g711):
 
 # Minimal extendData the engine would send when the 11300
 # response carries no extendData of its own (the live case:
-# the real 11300 has no `extendData` key). Values are the
-# engine's own defaults from the disassembly — see
-# `_extend_data_dict`. Only keys with a documented default are
-# here; the rest stay absent (every extendData key is optional
-# for the peer parser, missing -> default) rather than guessed:
-# `video`/`extraInfo` are nested objects (the flat "video.codec"
-# / "extraInfo.*" keys in EXTEND_DATA_KEYS are only the
-# normalizer's spelling — their wire shape is a sub-object),
-# `serverAddr`/`serverResult` are arrays whose element shape is
-# unproven, and `newZrtc`/`tpType`/`spTcp`/`supportHevcDecode`/
-# `supportCallBusy`/`select2side`/`numServers` have no documented
-# engine value at 11301 time.
+# the real 11300 has no `extendData` key). 2026-11-08
+# (step 2): the dict now carries ALL 24 keys — the 23 keys
+# the real serializer 0x8e1183 builds (disasm-signal416-
+# extenddata.md §3.1) + callType, which the serializer omits
+# from its key list but the parser 0x8d93c8 reads (and which
+# the live call proved the peer uses to tell voice from video).
+# The order below follows the serializer's build order.
+# Values per key (uncertainty noted where the disassembly does
+# not pin it down):
+#   p2p ""            — empty string (the parser reads it as a
+#                       string; the serializer passes "" through).
+#   callType 0/1      — 0 voice, 1 video (builder group 12434
+#                       VA 0x717450 maps type 5 -> 0, 6 -> 1).
+#   video {codec: ""} — the video codec: "" for a voice call
+#                       (no video codec). For a future video call
+#                       the codec must be a REAL video codec —
+#                       the audio codec ("opus"/"pcmu") is NOT
+#                       the video codec and must never be put
+#                       here, so _extend_data_dict keeps "" even
+#                       when is_video is True until the video
+#                       path supplies one.
+#   newZrtc 0         — 0 (parser default; the serializer's
+#                       branch condition is unknown).
+#   platform 3        — LEAST CERTAIN value in this dict: kept
+#                       at 3 because the disassembly §3.1.3
+#                       could not confirm it; the app has sent 3
+#                       since 00db2b9 and the server accepts it.
+#                       Do not change without new evidence.
+#   packetMode 2      — 2 (UDP packet mode, disasm §3.2.1).
+#   gccMode 0         — 0 (parser default).
+#   srtpMode          — from the 11300 response (0/1/2/3) when
+#                       valid, else 0 (the normalizer resets an
+#                       invalid mode to 0 and zeroes srtcp/sP2P).
+#   sP2P 0 / srtcp 0  — parser defaults (the app does not use
+#                       P2P-SRTP or SRTCP).
+#   gccAudio 0        — 0 (disasm §3.2.2).
+#   gccSVLR 0         — 0 (disasm §3.2.2).
+#   tpType 0          — 0: UDP transport (disasm §3.2.2).
+#   spTcp 0           — 0: UDP transport (disasm §3.2.2).
+#   gccEarlyCall 0    — 0 (disasm §3.2.2).
+#   maxFT 60          — 60 (disasm §3.2.3: max frame time ms).
+#   extraInfo {0,0}   — {"type": 0, "id": 0} (parser default;
+#                       the extraInfo object is otherwise unused
+#                       by the peer in 1-1 calls).
+#   supportCallBusy 0 — 0 (serializer-only: the parser does
+#                       NOT read this key, so the value is inert
+#                       — 0 for "not supported").
+#   supportHevcDecode 0 — 0 (the app cannot decode HEVC).
+#   serverResult []   — [] (the peer does not read this in 1-1
+#                       calls; disasm §3.1.2: the parser checks
+#                       only that it is a list — the app sends an
+#                       empty list because it has no server
+#                       results of its own to report).
+#   numServers N      — the number of SERVERS the 11300
+#                       response advertised (one per server dict
+#                       — see `_server_addr_list`: NOT the length
+#                       of the normalized relay list, which
+#                       splits each server into IPv4+IPv6
+#                       entries). The app has no reason to lie
+#                       about it.
+#   select2side 0     — 0 (parser default).
+#   serverAddr [...]  — one RTP address per advertised server
+#                       as "IP:port" (IPv4 preferred — see
+#                       `_server_addr_list`), from disasm §3.1.2:
+#                       each element is extracted as a string,
+#                       then parsed as "IP:port". BEST-EFFORT
+#                       SHAPE: the exact element shape was never
+#                       captured live — the disassembly only
+#                       proves the parser takes strings from the
+#                       list; the peer's 1-1 handler IGNORES this
+#                       loop entirely (the parser only reads
+#                       serverAddr in the group path), so it
+#                       matters only if the SERVER checks it. The
+#                       RTCP addresses are NOT included — only
+#                       the RTP addresses, because the parser's
+#                       loop extracts one address per server.
+#   fecTP 0           — 0 (parser default).
 _MINIMAL_EXTEND_DATA = {
     "p2p": "",
+    "callType": 0,
+    "video": {"codec": ""},
+    "newZrtc": 0,
     "platform": 3,  # 11300 request-param struct default (parser
     # 0x71f670 init [+0x04]=3); the only numeric platform
     # evidence in the disassembly.
     "packetMode": 2,  # _parseExtendData parse-fail default
     "gccMode": 0,
+    "srtpMode": 0,
     "sP2P": 0,
     "srtcp": 0,
     "gccAudio": 0,
     "gccSVLR": 0,
+    "tpType": 0,
+    "spTcp": 0,
     "gccEarlyCall": 0,
     "maxFT": 60,  # _parseExtendData parse-fail default
+    "extraInfo": {"type": 0, "id": 0},
+    "supportCallBusy": 0,
+    "supportHevcDecode": 0,
+    "serverResult": [],
+    "numServers": 0,
+    "select2side": 0,
+    "serverAddr": [],
     "fecTP": 0,
 }
 
 
-def _extend_data_dict(extend_data, srtp_mode, is_video=False):
+def _extend_data_dict(extend_data, srtp_mode, is_video=False,
+                      server_addrs=None):
     """Normalize extendData to a dict for TransportConfig.
 
     Explicit dict/JSON string wins (normalized by
-    `udp_transport.normalize_extend_data`). Otherwise build the
-    minimal engine-default dict (`_MINIMAL_EXTEND_DATA`) plus
-    `callType` (a 0/1 audio/video flag: 0 for a voice call, 1
-    for a video call) and `srtpMode` (the 11300 value when the
-    response carries one, else 0 — the engine default; 0 is
-    valid per the validator, only {1, 2, 3} are non-zero modes).
-    Never returns None.
+    `udp_transport.normalize_extend_data` — unknown keys
+    dropped, nothing merged in). Otherwise build the full
+    engine-default dict (`_MINIMAL_EXTEND_DATA`, all 24 keys —
+    2026-11-08 step 2) plus `callType` (a 0/1 audio/video flag:
+    0 for a voice call, 1 for a video call) and `srtpMode`
+    (the 11300 value when the response carries one, else 0 —
+    the engine default; 0 is valid per the validator, only
+    {1, 2, 3} are non-zero modes). `server_addrs` (the 11300
+    servers' RTP addresses as "IP:port" strings — see
+    `_server_addr_list`: one per ADVERTISED server, IPv4
+    preferred) fills `numServers` and `serverAddr`. Never
+    returns None.
 
     `callType` is NOT the typeRequest enum (1/3/5/6): the group
     builder (12434, VA 0x717450) maps the makeCall type byte
@@ -841,6 +1046,17 @@ def _extend_data_dict(extend_data, srtp_mode, is_video=False):
     minimal = dict(_MINIMAL_EXTEND_DATA)
     minimal["callType"] = 1 if is_video else 0
     minimal["srtpMode"] = mode
+    # video.codec stays "" even for video (see the
+    # _MINIMAL_EXTEND_DATA comment): the audio codec is not the
+    # video codec; the future video path must supply a real one.
+    minimal["video"] = {"codec": ""}
+    minimal["serverResult"] = []
+    if server_addrs:
+        minimal["numServers"] = len(server_addrs)
+        minimal["serverAddr"] = list(server_addrs)
+    else:
+        minimal["numServers"] = 0
+        minimal["serverAddr"] = []
     return normalize_extend_data(minimal)
 
 
@@ -1000,15 +1216,19 @@ class MediaEndpoints:
                  on_first_media=None):
         """Media fields for one outgoing call's request step (11301).
 
-        Returns {"rtcp_address", "rtp_address", "session",
-        "extend_data", "codec", "transport", "selected_relay",
-        "call_id", "callee_id"} — the first five are exactly what
-        `signaling.Signaling.send_request` / `send_request_group`
-        need; `transport` is the started `Udp4200Transport` (kept
-        in `self.active[call_id]` until `stop_call`).
+        Returns {"rtcp_address", "rtp_address", "rtp_source",
+        "session", "extend_data", "codec", "transport",
+        "selected_relay", "call_id", "callee_id"} — the first five
+        are exactly what `signaling.Signaling.send_request` /
+        `send_request_group` need; `transport` is the started
+        `Udp4200Transport` (kept in `self.active[call_id]` until
+        `stop_call`).
 
-        `rtp_address`/`rtcp_address` are `"IP:port"` strings of
-        the SELECTED relay (first type-02 wins, per disassembly);
+        `rtp_address`/`rtcp_address` are `"IP:port"` strings —
+        the 11300 response's `rtpIP`/`rtcpIP` when they differ
+        from the selected relay (`rtp_source` = "rtpIP"), else
+        the SELECTED relay's addresses (`rtp_source` =
+        "selected"; first type-02 wins, per disassembly).
         `for_call` waits up to `selection_timeout` seconds for
         the selection and raises (after stopping the transport)
         when no relay answers. Addresses are NEVER "".
@@ -1176,7 +1396,9 @@ class MediaEndpoints:
         if codec is None:
             codec = "opus"  # UNCONFIRMED default (see module docstring)
         codec = str(codec)
-        ext_dict = _extend_data_dict(extend_data, srtp_mode, is_video)
+        ext_dict = _extend_data_dict(
+            extend_data, srtp_mode, is_video,
+            server_addrs=_server_addr_list(servers, relay_list))
         extend_str = (json.dumps(ext_dict, separators=(",", ":"),
                                  ensure_ascii=False)
                       if ext_dict else None)
@@ -1234,10 +1456,6 @@ class MediaEndpoints:
             except Exception:  # noqa: BLE001 - stop is best-effort
                 pass
             raise
-        rtp_address = _format_ip_port(selected.rtp_ip,
-                                      selected.rtp_port)
-        rtcp_address = _format_ip_port(selected.rtcp_ip,
-                                       selected.rtcp_port)
         if not selected.rtp_ip or selected.rtp_port <= 0 \
                 or not selected.rtcp_ip or selected.rtcp_port <= 0:
             try:
@@ -1247,7 +1465,20 @@ class MediaEndpoints:
             raise RuntimeError(
                 "selected relay has an empty address (rtp=%r rtcp=%r); "
                 "refusing to send 11301 with empty endpoints"
-                % (rtp_address, rtcp_address))
+                % (_format_ip_port(selected.rtp_ip, selected.rtp_port),
+                   _format_ip_port(selected.rtcp_ip, selected.rtcp_port)))
+        # 11301 addresses (2026-11-08, step 1 / D8): the 11300
+        # response designates rtpIP/rtcpIP — when they differ
+        # from the selected relay, 11301 uses THEM (the server
+        # may not route an invitation naming a different relay
+        # than the one it designated); otherwise the selected
+        # relay. `rtp_source` ("rtpIP" / "selected") records
+        # which one was used, so the live log can tell the next
+        # round whether the designated addresses changed
+        # anything.
+        rtp_address, rtcp_address, rtp_source = \
+            _resolve_11301_addresses(alloc.get("rtp_ip"),
+                                     alloc.get("rtcp_ip"), selected)
         record = {"transport": transport, "srtp_key": srtp_key,
                   "codec": codec, "call_id": call_id,
                   "callee_id": str(callee_id),
@@ -1255,6 +1486,7 @@ class MediaEndpoints:
         self.active[call_id] = record
         return {"rtcp_address": rtcp_address,
                 "rtp_address": rtp_address,
+                "rtp_source": rtp_source,
                 "session": session,
                 "extend_data": extend_str,
                 "codec": codec,

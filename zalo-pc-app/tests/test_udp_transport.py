@@ -378,6 +378,33 @@ def test_extend_data_normalize():
         {"srtpMode": 9, "srtcp": 1, "sP2P": 1})
     assert out == {"srtpMode": 0, "srtcp": 0, "sP2P": 0}
     assert ut.normalize_extend_data(None) is None
+    # 2026-11-08 (buoc 2): video/extraInfo la OBJECT long nhau
+    # tren day (parser doc "video" la object roi moi doc "codec"
+    # ben trong; serializer 0x8e1183 build sub-object) — khong
+    # phai key phang "video.codec". Flat spelling chi la alias
+    # dau vao, duoc chuyen ve dang long nhau o dau ra.
+    out = ut.normalize_extend_data(
+        {"video": {"codec": "opus", "bogus": 1},
+         "extraInfo": {"type": 2, "id": 7, "bogus": 1},
+         "supportCallBusy": 1})
+    assert out == {"video": {"codec": "opus"},
+                   "extraInfo": {"type": 2, "id": 7},
+                   "supportCallBusy": 1}, out
+    out = ut.normalize_extend_data(
+        {"video.codec": "pcmu", "extraInfo.type": 3,
+         "extraInfo.id": 4})
+    assert out == {"video": {"codec": "pcmu"},
+                   "extraInfo": {"type": 3, "id": 4}}, out
+    # serverAddr/serverResult phai la list (dang phan tu chua
+    # chung minh duoc — chi giu list, loai dang khac).
+    out = ut.normalize_extend_data(
+        {"serverAddr": ["203.0.113.1:4200"], "serverResult": [],
+         "numServers": 2})
+    assert out == {"serverAddr": ["203.0.113.1:4200"],
+                   "serverResult": [], "numServers": 2}, out
+    out = ut.normalize_extend_data(
+        {"serverAddr": "203.0.113.1:4200", "numServers": "x"})
+    assert out == {}, out
 
 
 def test_jitter_buffer():
@@ -570,6 +597,157 @@ def test_dispatch_variable_type02_selects_relay():
         assert tr.state == "connected"
     finally:
         tr.stop()
+
+
+def _build_type02_reply(setup_pkt, relay_session, reflexive):
+    """Type-02 reply to a setup init (35 + len(reflexive))."""
+    raw = reflexive.encode("ascii")
+    pkt = bytearray(35 + len(raw))
+    pkt[0] = 0x02
+    pkt[1] = 0x7E
+    pkt[10:14] = setup_pkt[10:14]
+    pkt[18:20] = setup_pkt[18:20]
+    pkt[20] = 0x02
+    pkt[25:29] = setup_pkt[21:25]
+    pkt[29:33] = relay_session
+    struct.pack_into("<H", pkt, 33, len(raw))
+    pkt[35:] = raw
+    return bytes(pkt)
+
+
+def test_no_p2p_hello_while_ringing():
+    """P2P hello KHONG duoc gui trong luc do chuong (2026-11-08,
+    buoc 3): client that gui 0 goi P2P trong 29,5 s do chuong
+    (F2); app gui 61 goi hello toi chinh dia chi cua minh
+    (PCAP du 30 s). Chi begin_p2p() khi peer da tra loi."""
+    fabric = _Fabric()
+    cfg = make_config(
+        [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)],
+        probe_burst=0, setup_refresh_interval=30.0, ping_interval=30.0,
+        hello_interval=0.1, rtcp_interval=30.0)
+    tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
+    try:
+        tr.start()
+        # Fake type-02: tail la dia chi cua PEER (cong khac cong
+        # cua transport) — neu code cu tu hello thi hello_tx > 0.
+        tr._dispatch(_type02_packet("127.0.0.1|59999"),
+                     ("127.0.0.1", 4200))
+        assert tr.selected_relay is not None
+        time.sleep(0.5)
+        assert tr.counters["hello_tx"] == 0, tr.counters
+        # Peer tra loi -> begin_p2p(): hello bat dau chay.
+        tr.begin_p2p()
+        deadline = time.time() + 3
+        while time.time() < deadline and tr.counters["hello_tx"] == 0:
+            time.sleep(0.05)
+        assert tr.counters["hello_tx"] >= 1, tr.counters
+    finally:
+        tr.stop()
+
+
+def test_no_hello_to_own_reflexive_address():
+    """Hello KHONG bao gio gui toi chinh dia chi reflexive cua
+    minh: type-02 trong luc do chuong mang dia chi CUA MINH
+    (relay chua biet peer vi peer chua Init) — hello toi do la
+    tu noi chuyen voi chinh minh. Ngay ca sau begin_p2p() (da
+    tra loi), hello van phai dung cho den khi biet dia chi that
+    cua peer (type-02 sau co tail khac, hoac begin_p2p(ip,
+    port) ro rang)."""
+    fabric = _Fabric()
+    cfg = make_config(
+        [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)],
+        probe_burst=0, setup_refresh_interval=30.0, ping_interval=30.0,
+        hello_interval=0.1, rtcp_interval=30.0)
+    tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
+    try:
+        tr.start()
+        own_port = tr._sock.getsockname()[1]
+        tr._dispatch(_type02_packet("127.0.0.1|%d" % own_port),
+                     ("127.0.0.1", 4200))
+        assert tr.selected_relay is not None
+        assert tr.peer_reflexive == ("127.0.0.1", own_port)
+        time.sleep(0.5)
+        assert tr.counters["hello_tx"] == 0, tr.counters
+        tr.begin_p2p()
+        time.sleep(0.5)
+        assert tr.counters["hello_tx"] == 0, tr.counters
+    finally:
+        tr.stop()
+
+
+def test_setup_refresh_to_all_relays():
+    """Setup refresh 177B moi 6 s gui toi TAT CA relay da tra
+    type-02 (2026-11-08, buoc 3): truoc day chi toi relay da
+    chon; client that (F2) refresh ca 4 relay da setup. Moi
+    refresh mang relay_session RIENG cua relay do."""
+    fabric = _Fabric()
+    sessions = [bytes.fromhex("aaaa0001"), bytes.fromhex("bbbb0002")]
+    relay_socks = []
+    relay_ports = []
+    received = [[], []]
+    stop = threading.Event()
+
+    def make_relay(idx):
+        sock = fabric.new_socket()
+        sock.bind(("127.0.0.1", 0))
+        sock.settimeout(0.2)
+        relay_socks.append(sock)
+        relay_ports.append(sock.getsockname()[1])
+
+        def loop():
+            answered = False
+            while not stop.is_set():
+                try:
+                    data, addr = sock.recvfrom(65535)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                received[idx].append(data)
+                if len(data) == 185 and data[1] == 0x7E \
+                        and not answered:
+                    answered = True
+                    sock.sendto(
+                        _build_type02_reply(
+                            data, sessions[idx], "127.0.0.1|59999"),
+                        addr)
+        return loop
+
+    for i in range(2):
+        threading.Thread(target=make_relay(i), daemon=True).start()
+    cfg = make_config(
+        [ut.RelayServer("127.0.0.1", relay_ports[0],
+                        "127.0.0.1", relay_ports[0]),
+         ut.RelayServer("127.0.0.1", relay_ports[1],
+                        "127.0.0.1", relay_ports[1])],
+        probe_burst=1, setup_refresh_interval=0.3, ping_interval=30.0,
+        hello_interval=30.0, rtcp_interval=30.0)
+    tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
+    try:
+        tr.start()
+        # Both relays must answer type-02 (both in _relay_info).
+        deadline = time.time() + 5
+        while time.time() < deadline and len(tr._relay_info) < 2:
+            time.sleep(0.05)
+        assert len(tr._relay_info) == 2, tr.status()
+        # A refresh round (0.3 s) must reach BOTH relays, each
+        # carrying its own relay session.
+        deadline = time.time() + 3
+        seen = [False, False]
+        while time.time() < deadline and not all(seen):
+            time.sleep(0.05)
+            for idx in range(2):
+                for d in received[idx]:
+                    if len(d) == 177 and d[1] == 0x01 \
+                            and d[14:18] == sessions[idx]:
+                        seen[idx] = True
+        assert seen == [True, True], (
+            [len(r) for r in received], tr.counters)
+    finally:
+        stop.set()
+        tr.stop()
+        for s in relay_socks:
+            s.close()
 
 
 def test_unknown_sample_recorded():
