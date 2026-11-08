@@ -22,6 +22,7 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
          "test_ctrl_webhooks.py",
          "test_file_ctrl_restart.py", "test_qr_auto_endpoints.py",
          "test_poll_json_error.py",
+         "test_file_incoming.py",
          "test_voice_transcode.py", "test_voice_112.py",
          "test_voice_async_114.py",
          "test_photo_silent.py", "test_photo_group.py",
@@ -34,7 +35,8 @@ JS_CHECKS = [["node", "--check", "zalo_pc_app/static/app.js"],
              ["node", "tests/test_app_js_sync.js"],
              ["node", "tests/test_app_js_feedrow.js"],
              ["node", "tests/test_app_js_answered.js"],
-             ["node", "tests/test_app_js_attach.js"]]
+             ["node", "tests/test_app_js_attach.js"],
+             ["node", "tests/test_app_js_filein.js"]]
 
 
 def main():

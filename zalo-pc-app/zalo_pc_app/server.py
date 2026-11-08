@@ -83,6 +83,7 @@ from . import contacts as contacts_mod
 from . import ctrl_poll as ctrl_poll_mod
 from . import cursor_store as cursor_store_mod
 from . import engine_seam
+from . import file_inbox as file_inbox_mod
 from . import media_endpoints
 from . import message_store as message_store_mod
 from . import protocol
@@ -217,6 +218,44 @@ class _Transport:
         Them cho module chat; khong doi hanh vi http_post cu."""
         return self._request(url, "POST", body_bytes, timeout,
                              content_type=content_type)
+
+    def http_get_bytes(self, url, timeout=120, max_bytes=None):
+        """GET tho tra ve bytes (tai file den — xem file_inbox):
+        (status, bytes). Doc theo chunk, dung khi qua max_bytes
+        (neu co) de khong doi day RAM vi file qua lon; cookie
+        zpw_sek kem theo nhu moi loi goi khac. HTTPError -> (code,
+        b""); timeout -> TimeoutError."""
+        req = urllib.request.Request(url, method="GET")
+        req.add_header("User-Agent", "zalo-pc-qr/1.0")
+        if self.cookie_value:
+            req.add_header("Cookie", "%s=%s" % (COOKIE_NAME,
+                                                self.cookie_value))
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                status = resp.status
+                if max_bytes is None:
+                    return status, resp.read()
+                chunks = []
+                remaining = max_bytes + 1
+                while remaining > 0:
+                    chunk = resp.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                data = b"".join(chunks)
+                if len(data) > max_bytes:
+                    raise ValueError("http_get_bytes: qua gioi han "
+                                     "%d byte" % max_bytes)
+                return status, data
+        except urllib.error.HTTPError as e:
+            try:
+                e.read()
+            except Exception:
+                pass
+            return e.code, b""
+        except (TimeoutError, socket.timeout):
+            raise TimeoutError("GET timeout: %s" % url)
 
 
 def make_transport(cookie_value=""):
@@ -685,6 +724,13 @@ class AppState:
             os.path.join(data_dir, message_store_mod.FILENAME))
         if self.session and self.session.get("uid"):
             self.message_store.set_account(self.session["uid"])
+        # FILE INBOX (file_inbox.py): file den qua kenh sync duoc
+        # tai ve dia + registry, de tai xuong / gui lai giu nguyen
+        # ten goc. Getter doc phien tai thoi diem goi (phien co the
+        # doi sau khi khoi tao) — khong giu transport cu.
+        self.file_inbox = file_inbox_mod.FileInbox(
+            os.path.join(data_dir, file_inbox_mod.DOWNLOADS_DIRNAME),
+            http_get_bytes=self._file_http_get_bytes)
         # Sync poller (long-poll 99100): chay nen khi co phien +
         # poll_msg_urls; None khi chua co endpoint (phien cu) hoac
         # chua dang nhap. Duoc bao ve boi _sync_lock (start/stop
@@ -1283,11 +1329,28 @@ class AppState:
         self.message_store.clear()
 
     # -- sync long-poll (tin den) --------------------------------------
+    def _file_http_get_bytes(self, url, timeout=120):
+        """GET bytes cho FileInbox: dung transport cua phien Zalo
+        hien tai (cookie zpw_sek), gioi han kich thuoc o muc
+        MAX_DOWNLOAD_BYTES + 1 de khong doi day RAM. Khong co
+        phien -> FileDownloadError (khong tai)."""
+        sess = self.session
+        if not sess or not sess.get("zpw_sek"):
+            raise file_inbox_mod.FileDownloadError(
+                "chua dang nhap Zalo — khong tai duoc file den")
+        transport = make_transport(sess["zpw_sek"])
+        return transport.http_get_bytes(
+            url, timeout=timeout,
+            max_bytes=file_inbox_mod.MAX_DOWNLOAD_BYTES + 1)
+
     def _on_sync_message(self, thread_type, thread_id, msg):
         """Callback moi tin den tu SyncPoller: ghi Inbox + ghi DB
         ben + day webhook message (dispatch_message tu choi tin tu
         gui, theo quy tac chong lap cua addon — xem webhooks.py).
-        Chi log so luong, khong log noi dung tin."""
+        Chi log so luong, khong log noi dung tin. Tin dinh kem
+        (file/anh co URL tai) duoc tai nen ve dia qua FileInbox
+        (download_async — khong chan kenh sync, loi chi ghi log +
+        registry)."""
         try:
             is_new = self.inbox.record(thread_type, thread_id, msg)
         except Exception:
@@ -1298,6 +1361,18 @@ class AppState:
         # tat ngay sau do, tin van con trong DB de bu sau.
         try:
             self.message_store.record(thread_type, thread_id, msg)
+        except Exception:
+            pass
+        # Tai file den ve dia (chi tin den co dinh kem + URL tai;
+        # tin tu gui khong tai lai — file do chinh minh gui da co
+        # o may gui). Loi khong bao gio nem ra day.
+        try:
+            if isinstance(msg, dict) and not msg.get("is_self") \
+                    and msg.get("kind") \
+                    in file_inbox_mod.AUTO_DOWNLOAD_KINDS \
+                    and msg.get("file_url"):
+                self.file_inbox.download_async(msg, thread_type,
+                                               thread_id)
         except Exception:
             pass
         try:
@@ -1857,6 +1932,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_bytes(self, data, filename, mime="application/octet-stream",
+                    status=200):
+        """Tra ve bytes file (tai file den ve — xem /api/file/
+        download): Content-Disposition attachment voi ten goc
+        (RFC 5987 filename* UTF-8 + filename ASCII du phong)."""
+        safe = "".join(ch if ch.isalnum() or ch in "._- "
+                       else "_" for ch in (filename or "file"))
+        safe = safe.strip() or "file"
+        quoted = urllib.parse.quote(filename or "file", safe="")
+        disp = ("attachment; filename=\"%s\"; filename*=UTF-8''%s"
+                % (safe, quoted))
+        self.send_response(status)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", disp)
+        self.end_headers()
+        self.wfile.write(data)
+
     def _send_redirect(self, location):
         self.send_response(302)
         self.send_header("Location", location)
@@ -2126,6 +2219,70 @@ class Handler(BaseHTTPRequestHandler):
                     last["sender_name"] = names.get(
                         str(last.get("sender_id") or ""), "")
             return self._send_json({"threads": rows})
+        # -- FILE INBOX HOOK (file_inbox.py) --
+        # GET /api/file/download?thread_type=user|group&thread_id=
+        # <id>&msg_id=<id> — tai file den da tai ve dia xuong may
+        # user, giu nguyen ten goc (Content-Disposition attachment).
+        # Chi phuc vu file trong registry + con ton tai o dia (duong
+        # dan lay tu registry, KHONG nhan duong dan tu user — chan
+        # path traversal). Chua tai xong -> 404 + status (pending/
+        # failed) de UI hien dung.
+        if path == "/api/file/download":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            import urllib.parse as _up
+            qs = dict(_up.parse_qsl(_up.urlparse(self.path).query))
+            thread_type = qs.get("thread_type") or "user"
+            thread_id = qs.get("thread_id") or ""
+            msg_id = qs.get("msg_id") or ""
+            if thread_type not in ("user", "group") \
+                    or not thread_id or not msg_id:
+                return self._send_json(
+                    {"error": "thieu thread_type/thread_id/msg_id"},
+                    status=400)
+            rec = STATE.file_inbox.find(thread_type, thread_id, msg_id)
+            if rec is None:
+                return self._send_json(
+                    {"error": "file chua tai ve (msg %s)" % msg_id,
+                     "status": "pending"}, status=404)
+            if rec.get("status") != "downloaded":
+                return self._send_json(
+                    {"error": "file tai ve that bai: %s"
+                     % (rec.get("error") or "khong ro"),
+                     "status": rec.get("status") or "failed"},
+                    status=404)
+            try:
+                with open(rec["local_path"], "rb") as fh:
+                    data = fh.read()
+            except OSError:
+                return self._send_json(
+                    {"error": "file da tai khong con o dia",
+                     "status": "missing"}, status=404)
+            return self._send_bytes(data, rec.get("file_name") or "file")
+        # GET /api/file/list?thread_type=user|group&thread_id=<id>
+        # — file da nhan/tai cua mot thread (de UI gan trang thai
+        # tai xuong + nut chuyen tiep vao bong bong tin).
+        if path == "/api/file/list":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            import urllib.parse as _up
+            qs = dict(_up.parse_qsl(_up.urlparse(self.path).query))
+            thread_type = qs.get("thread_type") or "user"
+            thread_id = qs.get("thread_id") or ""
+            if thread_type not in ("user", "group") or not thread_id:
+                return self._send_json(
+                    {"error": "thieu thread_type/thread_id"}, status=400)
+            files = STATE.file_inbox.list_for_thread(thread_type,
+                                                     thread_id)
+            return self._send_json({
+                "files": [{k: v for k, v in rec.items()
+                           if k != "local_path"}
+                          for rec in files],
+                "thread_id": thread_id, "type": thread_type})
         return self._send_json({"error": "not_found"}, status=404)
 
     def _chat_client(self, sess):
@@ -2491,6 +2648,89 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(
                 {"ok": st == "running", "sync": st,
                  "sync_error": STATE.sync_error})
+        if path == "/api/file/forward":
+            # Gui lai file da nhan sang thread khac, GIU NGUYEN
+            # TEN FILE GOC (yeu cau cua user 08/11): doc bytes tu
+            # dia (chi file trong registry) roi gui qua duong
+            # sendFileByChunkV2 da co (chat.send_file) voi
+            # fileName = ten goc. Body JSON: {thread_type,
+            # thread_id, msg_id, to_thread_type, to_thread_id}.
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            src_type = body.get("thread_type") or "user"
+            src_id = str(body.get("thread_id") or "")
+            msg_id = str(body.get("msg_id") or "")
+            to_type = body.get("to_thread_type") or "user"
+            to_id = str(body.get("to_thread_id") or "")
+            if src_type not in ("user", "group") \
+                    or to_type not in ("user", "group") \
+                    or not src_id or not msg_id or not to_id:
+                return self._send_json(
+                    {"error": "thieu thread_id/msg_id/to_thread_id"},
+                    status=400)
+            try:
+                rec, data = STATE.file_inbox.read_local(
+                    src_type, src_id, msg_id)
+            except file_inbox_mod.FileDownloadError as e:
+                return self._send_json({"error": str(e)}, status=404)
+            try:
+                chat = self._chat_client(sess)
+                res = chat.send_file(to_type, to_id,
+                                     rec["file_name"], data)
+            except Exception as e:  # noqa: BLE001 - loi Zalo -> 502
+                return self._send_json({"error": str(e)}, status=502)
+            STATE.chat_store.record_sent(
+                to_type, to_id,
+                STATE.chat_store.local_message(
+                    to_type, to_id, "file",
+                    text=rec["file_name"], file_name=rec["file_name"],
+                    client_id=str(res.get("client_id") or "")))
+            return self._send_json({
+                "ok": True, "file_name": rec["file_name"],
+                "size_bytes": len(data),
+                "client_id": res.get("client_id"),
+                "to_thread_id": to_id, "to_thread_type": to_type})
+        if path == "/api/file/redownload":
+            # Tai lai file den (khi lan dau loi / file mat khoi
+            # dia): lay URL goc tu registry (da luu luc nhan tin)
+            # roi tai lai bang FileInbox. Body JSON: {thread_type,
+            # thread_id, msg_id}.
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            thread_type = body.get("thread_type") or "user"
+            thread_id = str(body.get("thread_id") or "")
+            msg_id = str(body.get("msg_id") or "")
+            if thread_type not in ("user", "group") \
+                    or not thread_id or not msg_id:
+                return self._send_json(
+                    {"error": "thieu thread_type/thread_id/msg_id"},
+                    status=400)
+            rec = STATE.file_inbox.registry.find(
+                thread_type, thread_id, msg_id)
+            if rec is None or not rec.get("file_url"):
+                return self._send_json(
+                    {"error": "khong co URL goc de tai lai (msg %s)"
+                     % msg_id}, status=404)
+            msg = {"id": msg_id,
+                   "sender_id": rec.get("sender_id") or "",
+                   "sender_name": rec.get("sender_name") or "",
+                   "file_name": rec.get("file_name") or "",
+                   "file_url": rec.get("file_url") or "",
+                   "file_size": rec.get("expected_size"),
+                   "file_checksum": rec.get("checksum") or None}
+            try:
+                new_rec = STATE.file_inbox.download(
+                    msg, thread_type, thread_id)
+            except file_inbox_mod.FileDownloadError as e:
+                return self._send_json({"error": str(e)}, status=502)
+            return self._send_json({"ok": True,
+                                    "file_name": new_rec["file_name"],
+                                    "size_bytes": new_rec["size_bytes"],
+                                    "status": new_rec["status"]})
         if path == "/api/logout":
             # Dang xuat: xoa ca phien Zalo (cu) LAN phien app (moi)
             # — nut "Dang xuat" o sidebar goi endpoint nay roi ve

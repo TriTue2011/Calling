@@ -565,17 +565,85 @@ def _norm_time(value):
     return int(n)
 
 
+def _file_params(item, content):
+    """params dinh kem cua tin file/anh (bundle: content.params la
+    JSON string {fileSize, checksum, fileExt, fType, ...} — xem
+    _normalizeMessageJSON case MSG_FILE; cung chap nhan dict san
+    hoac field top-level). Tra dict (rong khi khong co / hong) —
+    khong bao gio nem loi."""
+    raw = None
+    if isinstance(content, dict):
+        raw = content.get("params")
+    if raw is None:
+        raw = item.get("params")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+# Loai tin dang chuoi cua server (bundle _normalizeMessageType +
+# zca-js getClientMessageType khop nhau): "share.file" la tin
+# file, "chat.photo"/"chat.gif" la anh, "chat.voice" la ghi am,
+# "chat.video.msg" la video. Cac dang cu ("file", "photo", ...)
+# giu lai de test cu + shape khac khong vo.
+_MSG_TYPE_KIND = {
+    "share.file": "file",
+    "chat.photo": "photo",
+    "chat.gif": "photo",
+    "chat.voice": "voice",
+    "chat.video.msg": "video",
+    "file": "file",
+    "sharefile": "file",
+    "photo": "photo",
+    "image": "photo",
+    "voice": "voice",
+    "voicemp3": "voice",
+    "mp3": "voice",
+}
+
+
+def _int_or_none(value):
+    """So nguyen hoac None (best-effort, khong nem loi)."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def normalize_message(item, thread_type="user"):
     """Chuan hoa 1 tin (best-effort — shape lich su nhom that chua
     duoc thay truc tiep): {id, sender_id, text, time, kind, file_name,
+    file_url, file_size, file_checksum, file_ext, f_type,
     sender_name, raw}. Cac key that co the gap: msgId/messageId/id;
     fromId/uidFrom/senderId; message/text/content/body; timestamp/
     createdAt/time/sentAt/ts. Shape poll/zca-js (sync_poll): content
     co the la dict {msg, title} (lay msg, khong thi title); dName la
-    ten hien thi cua nguoi gui; cliMsgId la id client."""
+    ten hien thi cua nguoi gui; cliMsgId la id client.
+
+    Tin dinh kem den (bundle _normalizeMessageJSON + download
+    service): msgType la chuoi ("share.file"/"chat.photo"/
+    "chat.voice"/...); content la dict {title, href, params, ...}:
+      - title = ten file (bundle noi them "." + params.fileExt
+        neu title chua co duoi — xem _normalizeMessageJSON case
+        MSG_FILE; ham nay lam dung luat do),
+      - href = URL tai file (menu download cua bundle chi hien
+        khi message.href co gia tri),
+      - params (JSON string) = {fileSize, checksum, fileExt,
+        fType} (fType 1 = file, 2 = folder).
+    Cac truong file_* tra None/rong khi tin khong co dinh kem."""
     if not isinstance(item, dict):
         return {"id": "", "sender_id": "", "text": str(item),
                 "time": None, "kind": "text", "file_name": "",
+                "file_url": None, "file_size": None,
+                "file_checksum": None, "file_ext": "", "f_type": None,
                 "sender_name": "", "raw": item}
     content = item.get("content")
     if isinstance(content, dict):
@@ -593,19 +661,55 @@ def normalize_message(item, thread_type="user"):
     when = _norm_time(item.get("timestamp") or item.get("createdAt")
                       or item.get("time") or item.get("sentAt")
                       or item.get("ts"))
-    kind = "text"
+    # -- dinh kem den (xem docstring) --------------------------------
+    params = _file_params(item, content)
+    content_dict = content if isinstance(content, dict) else {}
+    msg_type = str(item.get("msgType") or item.get("type") or "")
+    kind = _MSG_TYPE_KIND.get(msg_type)
+    # Hanh vi cu: title/fileName o TOP-LEVEL thi la file (giữ
+    # nguyên để không đổi kind của các shape cũ); content.title
+    # CHỈ đọc khi tin đã là đính kèm theo msgType — tin text có
+    # content {msg, title} vẫn là text, không thành file.
     file_name = (item.get("fileName") or item.get("file_name")
                  or item.get("title") or "")
-    msg_type = str(item.get("msgType") or item.get("type") or "")
-    if file_name or msg_type in ("file", "sharefile"):
-        kind = "file"
-    elif msg_type in ("photo", "image"):
-        kind = "photo"
-    elif msg_type in ("voice", "voicemp3", "mp3"):
-        kind = "voice"
+    if kind is None:
+        kind = "file" if file_name else "text"
+    file_url = (content_dict.get("href")
+                or item.get("fileUrl") or item.get("file_url")
+                or item.get("href") or None)
+    file_size = _int_or_none(
+        params.get("fileSize") if isinstance(params, dict) else None)
+    if file_size is None:
+        file_size = _int_or_none(item.get("fileSize")
+                                 or item.get("file_size")
+                                 or item.get("totalSize"))
+    checksum = (params.get("checksum") if isinstance(params, dict)
+                else None) or item.get("checksum") or None
+    file_ext = ""
+    if isinstance(params, dict) and params.get("fileExt"):
+        file_ext = str(params.get("fileExt") or "").lower()
+    if kind in ("file", "photo", "voice", "video"):
+        if not file_name:
+            file_name = content_dict.get("title") or ""
+        if not file_ext:
+            file_ext = _file_ext(file_name)
+        # Luat bundle (_normalizeMessageJSON case MSG_FILE): title
+        # thieu duoi thi noi "." + fileExt (khong noi trung).
+        if file_name and file_ext \
+                and not str(file_name).lower().endswith("." + file_ext):
+            file_name = "%s.%s" % (file_name, file_ext)
+        if file_name:
+            text = file_name
+    f_type = _int_or_none(
+        params.get("fType") if isinstance(params, dict) else None)
     return {"id": str(msg_id), "sender_id": str(sender),
             "text": str(text), "time": when, "kind": kind,
             "file_name": str(file_name),
+            "file_url": (str(file_url) if file_url else None),
+            "file_size": file_size,
+            "file_checksum": (str(checksum) if checksum else None),
+            "file_ext": file_ext,
+            "f_type": f_type,
             "sender_name": str(item.get("dName") or ""),
             "raw": item}
 

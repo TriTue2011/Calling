@@ -1059,14 +1059,176 @@ function startChatPoll() {
       const seen = new Set(cur.map((m) => String(m.id || m.client_id || "")));
       const fresh = data.messages.filter(
         (m) => !seen.has(String(m.id || m.client_id || "")));
-      if (fresh.length) renderMessages([...cur, ...fresh]);
+      if (fresh.length) {
+        // File moi den co the da tai xong o server: lay lai
+        // trang thai file truoc khi ve de nut Tai xuong hien dung.
+        await refreshThreadFiles();
+        renderMessages([...cur, ...fresh]);
+      }
     } catch (e) { /* tick sau thu lai; khong bao gio pha khung chat */ }
   }, 5000);
 }
 
+// -- file den: tai ve + gui lai (file_inbox.py) ----------------------
+// _threadFiles: msg_id -> ban ghi registry (tu /api/file/list) cua
+// thread dang mo; de bong bong file hien nut Tai xuong / Chuyen
+// tiep + anh den hien dang hinh thay vi bong bong trong.
+let _threadFiles = {};
+function fmtFileSize(n) {
+  if (n === null || n === undefined || n === "" || isNaN(Number(n))) return "";
+  const v = Number(n);
+  if (v < 1024) return v + " B";
+  if (v < 1048576) return (v / 1024).toFixed(1) + " KB";
+  return (v / 1048576).toFixed(1) + " MB";
+}
+function fileDownloadUrl(m) {
+  if (!currentThread || !m || !m.id) return "";
+  return "/api/file/download?thread_type="
+    + encodeURIComponent(currentThread.type === "group" ? "group" : "user")
+    + "&thread_id=" + encodeURIComponent(currentThread.id)
+    + "&msg_id=" + encodeURIComponent(m.id);
+}
+function fileRecord(m) {
+  return (m && m.id && _threadFiles[String(m.id)]) || null;
+}
+async function refreshThreadFiles() {
+  if (!currentThread) return;
+  try {
+    const data = await api("/api/file/list?thread_type="
+      + (currentThread.type === "group" ? "group" : "user")
+      + "&thread_id=" + encodeURIComponent(currentThread.id));
+    const map = {};
+    for (const f of (data.files || [])) map[String(f.msg_id)] = f;
+    _threadFiles = map;
+  } catch (e) { /* giu map cu; nut tai chi an khi co ban ghi */ }
+}
+
+async function redownloadFile(m) {
+  if (!currentThread || !m || !m.id) return;
+  const notice = $("chat-notice");
+  try {
+    const r = await api("/api/file/redownload", "POST", {
+      thread_type: currentThread.type === "group" ? "group" : "user",
+      thread_id: currentThread.id, msg_id: m.id });
+    if (r.error) {
+      notice.hidden = false;
+      notice.textContent = "Tải lại lỗi: " + r.error;
+      return;
+    }
+    await refreshThreadFiles();
+    renderMessages(chatRenderedMessages());
+  } catch (e) {
+    notice.hidden = false;
+    notice.textContent = "Tải lại lỗi: " + (e && e.message ? e.message : e);
+  }
+}
+
+// -- chuyen tiep file den sang thread khac (giu ten goc) --------------
+let _forwardMsg = null;
+function openForwardDialog(m) {
+  _forwardMsg = m;
+  let ov = document.getElementById("forward-overlay");
+  if (!ov) {
+    ov = document.createElement("div");
+    ov.id = "forward-overlay";
+    ov.className = "modal-overlay";
+    ov.innerHTML = "";
+    const box = document.createElement("div");
+    box.className = "modal-box";
+    const title = document.createElement("div");
+    title.className = "modal-title";
+    title.textContent = "Chuyển tiếp file";
+    box.appendChild(title);
+    const name = document.createElement("div");
+    name.id = "forward-name";
+    name.className = "modal-sub";
+    box.appendChild(name);
+    const sel = document.createElement("select");
+    sel.id = "forward-thread";
+    sel.className = "modal-select";
+    box.appendChild(sel);
+    const row = document.createElement("div");
+    row.className = "modal-row";
+    const send = document.createElement("button");
+    send.className = "btn-primary";
+    send.textContent = "Gửi";
+    send.onclick = () => submitForward();
+    const cancel = document.createElement("button");
+    cancel.className = "btn-secondary";
+    cancel.textContent = "Hủy";
+    cancel.onclick = () => { ov.style.display = "none"; };
+    row.appendChild(send);
+    row.appendChild(cancel);
+    box.appendChild(row);
+    const err = document.createElement("div");
+    err.id = "forward-error";
+    err.className = "modal-err";
+    box.appendChild(err);
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+  }
+  document.getElementById("forward-name").textContent =
+    "File: " + (m.file_name || m.text || "");
+  document.getElementById("forward-error").textContent = "";
+  ov.style.display = "flex";
+  _loadForwardThreads();
+}
+async function _loadForwardThreads() {
+  const sel = document.getElementById("forward-thread");
+  sel.innerHTML = "";
+  try {
+    const data = await api("/api/inbox/summary");
+    for (const t of (data.threads || [])) {
+      const opt = document.createElement("option");
+      opt.value = (t.type === "group" ? "group" : "user") + ":" + t.thread_id;
+      opt.textContent = (t.thread_id || "")
+        + ((t.last && t.last.text) ? " — " + t.last.text.slice(0, 40) : "");
+      sel.appendChild(opt);
+    }
+  } catch (e) { /* de trong: user nhap tay o duoi */ }
+  if (!sel.children.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "Chưa có đoạn chat nào — hãy nhắn trước một tin rồi chuyển tiếp";
+    sel.appendChild(opt);
+  }
+}
+async function submitForward() {
+  if (!_forwardMsg || !currentThread) return;
+  const sel = document.getElementById("forward-thread");
+  const errEl = document.getElementById("forward-error");
+  const val = sel.value || "";
+  const parts = val.split(":");
+  if (parts.length < 2 || !parts[1]) {
+    errEl.textContent = "Chưa chọn đoạn chat đích.";
+    return;
+  }
+  const r = await api("/api/file/forward", "POST", {
+    thread_type: currentThread.type === "group" ? "group" : "user",
+    thread_id: currentThread.id, msg_id: _forwardMsg.id,
+    to_thread_type: parts[0], to_thread_id: parts.slice(1).join(":") });
+  if (r.error) {
+    errEl.textContent = "Chuyển tiếp lỗi: " + r.error;
+    return;
+  }
+  document.getElementById("forward-overlay").style.display = "none";
+  const notice = $("chat-notice");
+  notice.hidden = false;
+  notice.textContent = "Đã chuyển tiếp file “" + (r.file_name || "") + "”.";
+}
+
 function bubbleText(m) {
-  if (m.kind === "file") return "Đã gửi file: " + (m.file_name || m.text || "");
-  if (m.kind === "photo") return "Đã gửi ảnh" + (m.file_name ? ": " + m.file_name : "");
+  const out = m.direction === "out" || m.sender_id === "me";
+  if (m.kind === "file") {
+    const size = fmtFileSize(m.file_size);
+    const name = m.file_name || m.text || "File";
+    if (out) return "Đã gửi file: " + name + (size ? " (" + size + ")" : "");
+    return "📎 " + name + (size ? " (" + size + ")" : "");
+  }
+  if (m.kind === "photo") {
+    if (out) return "Đã gửi ảnh" + (m.file_name ? ": " + m.file_name : "");
+    return "📷 Ảnh" + (m.file_name ? ": " + m.file_name : "");
+  }
   if (m.kind === "voice") return "Đã gửi tin nhắn thoại" + (m.file_name ? ": " + m.file_name : "") + " (thu tại trình duyệt)";
   return m.text || "";
 }
@@ -1084,17 +1246,70 @@ function renderMessages(messages) {
       who.textContent = m.sender_name || m.sender_id;
       div.appendChild(who);
     }
-    const imgUrl = m.kind === "photo" ? (m.localUrl || "") : "";
+    const rec = fileRecord(m);
+    const imgUrl = m.kind === "photo"
+      ? (m.localUrl
+        || (rec && rec.status === "downloaded" ? fileDownloadUrl(m) : ""))
+      : "";
     if (imgUrl) {
       // Anh vua gui (localUrl = blob URL cua file vua chon) hien
-      // dang hinh thay vi chu "Da gui anh: <ten file>". Khong co
-      // URL (tai lai lich su / anh den chua co URL) thi ve chu
-      // nhu cu — xem bubbleText.
+      // dang hinh thay vi chu "Da gui anh: <ten file>". Anh den
+      // da tai ve dia cung hien dang hinh qua /api/file/download.
+      // Khong co URL (tai lai lich su / anh den chua tai xong)
+      // thi ve the file o duoi thay vi bong bong trong.
       const img = document.createElement("img");
       img.className = "bubble-img";
       img.src = imgUrl;
       img.alt = m.file_name || "Ảnh đã gửi";
       div.appendChild(img);
+    } else if (!out && (m.kind === "file" || m.kind === "photo")) {
+      // The file den: ten goc + kich thuoc + nut Tai xuong /
+      // Chuyen tiep (khi da tai ve dia) hoac trang thai tai.
+      const card = document.createElement("div");
+      card.className = "bubble-file";
+      const nameEl = document.createElement("div");
+      nameEl.className = "bubble-file-name";
+      const size = fmtFileSize(m.file_size);
+      nameEl.textContent = (m.kind === "file" ? "📎 " : "📷 ")
+        + (m.file_name || m.text || "File đính kèm")
+        + (size ? " (" + size + ")" : "");
+      card.appendChild(nameEl);
+      const actions = document.createElement("div");
+      actions.className = "bubble-actions";
+      if (rec && rec.status === "downloaded") {
+        const a = document.createElement("a");
+        a.className = "btn-text";
+        a.href = fileDownloadUrl(m);
+        a.textContent = "Tải xuống";
+        actions.appendChild(a);
+        const fwd = document.createElement("button");
+        fwd.className = "btn-text";
+        fwd.textContent = "Chuyển tiếp";
+        fwd.onclick = () => openForwardDialog(m);
+        actions.appendChild(fwd);
+      } else if (rec && rec.status === "failed") {
+        const err = document.createElement("span");
+        err.className = "bubble-file-err";
+        err.textContent = "Tải lỗi: " + (rec.error || "không rõ");
+        actions.appendChild(err);
+        const retry = document.createElement("button");
+        retry.className = "btn-text";
+        retry.textContent = "Tải lại";
+        retry.onclick = () => redownloadFile(m);
+        actions.appendChild(retry);
+      } else if (m.file_url) {
+        const wait = document.createElement("span");
+        wait.className = "bubble-file-wait";
+        wait.textContent = "Đang tải về…";
+        actions.appendChild(wait);
+      } else {
+        const none = document.createElement("span");
+        none.className = "bubble-file-wait";
+        none.textContent = "Không có đường dẫn tải";
+        actions.appendChild(none);
+      }
+      card.appendChild(actions);
+      div.appendChild(card);
     } else {
       const text = document.createElement("div");
       text.className = "bubble-text";
@@ -1154,6 +1369,9 @@ async function loadThreadHistory() {
     } else {
       notice.hidden = true;
     }
+    // File cua thread (de bong bong file hien nut Tai xuong /
+    // Chuyen tiep): lay truoc khi ve lan dau.
+    await refreshThreadFiles();
     renderMessages(data.messages || []);
     // Mo thread = da doc: server da xoa unread; cap nhat lai huy
     // hieu o thread list (khong doi lan refresh 15 giay).
