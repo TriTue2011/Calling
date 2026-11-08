@@ -758,14 +758,57 @@ def _codec_from_g711(g711):
     return "opus"
 
 
-def _extend_data_dict(extend_data, srtp_mode):
+# Minimal extendData the engine would send when the 11300
+# response carries no extendData of its own (the live case:
+# the real 11300 has no `extendData` key). Values are the
+# engine's own defaults from the disassembly — see
+# `_extend_data_dict`. Only keys with a documented default are
+# here; the rest stay absent (every extendData key is optional
+# for the peer parser, missing -> default) rather than guessed:
+# `video`/`extraInfo` are nested objects (the flat "video.codec"
+# / "extraInfo.*" keys in EXTEND_DATA_KEYS are only the
+# normalizer's spelling — their wire shape is a sub-object),
+# `serverAddr`/`serverResult` are arrays whose element shape is
+# unproven, and `newZrtc`/`tpType`/`spTcp`/`supportHevcDecode`/
+# `supportCallBusy`/`select2side`/`numServers` have no documented
+# engine value at 11301 time.
+_MINIMAL_EXTEND_DATA = {
+    "p2p": "",
+    "platform": 3,  # 11300 request-param struct default (parser
+    # 0x71f670 init [+0x04]=3); the only numeric platform
+    # evidence in the disassembly.
+    "packetMode": 2,  # _parseExtendData parse-fail default
+    "gccMode": 0,
+    "sP2P": 0,
+    "srtcp": 0,
+    "gccAudio": 0,
+    "gccSVLR": 0,
+    "gccEarlyCall": 0,
+    "maxFT": 60,  # _parseExtendData parse-fail default
+    "fecTP": 0,
+}
+
+
+def _extend_data_dict(extend_data, srtp_mode, call_type=1):
     """Normalize extendData to a dict for TransportConfig.
 
     Explicit dict/JSON string wins (normalized by
-    `udp_transport.normalize_extend_data`). Otherwise, when the
-    11300 config carries a `srtpMode`, emit just that one known
-    key — every other key stays absent rather than invented.
-    Returns None when there is nothing to send.
+    `udp_transport.normalize_extend_data`). Otherwise build the
+    minimal engine-default dict (`_MINIMAL_EXTEND_DATA`) plus
+    `callType` (1 for a 1-1 audio call, 5 for group audio) and
+    `srtpMode` (the 11300 value when the response carries one,
+    else 0 — the engine default; 0 is valid per the validator,
+    only {1, 2, 3} are non-zero modes). Never returns None.
+
+    The minimal dict exists because the real client ALWAYS sends
+    extendData in 11301 (builder 416 at VA 0x72eed0 inserts all
+    7 fields unconditionally; extendData is built by serializer
+    0x8e1183 from engine state), while the real 11300 response
+    carries no `extendData` key — so without this, 11301 went
+    out with only 6/7 fields (no extendData, no subCommand=3)
+    and the server could treat it as a request with no media
+    config and never ring the peer (live 2026-11-08: 5 calls,
+    step2_status=0, ring_timeout 30s).
     """
     if extend_data is not None:
         if isinstance(extend_data, str):
@@ -775,9 +818,12 @@ def _extend_data_dict(extend_data, srtp_mode):
                 raise MissingTransportParam(
                     "extend_data: not valid JSON: %s" % exc) from exc
         return normalize_extend_data(extend_data)
-    if isinstance(srtp_mode, int) and not isinstance(srtp_mode, bool):
-        return normalize_extend_data({"srtpMode": srtp_mode})
-    return None
+    mode = (srtp_mode if isinstance(srtp_mode, int)
+            and not isinstance(srtp_mode, bool) else 0)
+    minimal = dict(_MINIMAL_EXTEND_DATA)
+    minimal["callType"] = call_type
+    minimal["srtpMode"] = mode
+    return normalize_extend_data(minimal)
 
 
 # ------------------------------------------------------------------ provider
@@ -1099,11 +1145,14 @@ class MediaEndpoints:
         # flow until the key source is found — never a lie, and
         # never a guessed key.
 
-        # 5. Codec + extendData.
+        # 5. Codec + extendData. extendData is ALWAYS built now
+        # (never None): the real client always sends it in 11301,
+        # and _extend_data_dict fills the engine defaults when the
+        # 11300 response carries none — see its docstring.
         if codec is None:
             codec = "opus"  # UNCONFIRMED default (see module docstring)
         codec = str(codec)
-        ext_dict = _extend_data_dict(extend_data, srtp_mode)
+        ext_dict = _extend_data_dict(extend_data, srtp_mode, call_type)
         extend_str = (json.dumps(ext_dict, separators=(",", ":"),
                                  ensure_ascii=False)
                       if ext_dict else None)

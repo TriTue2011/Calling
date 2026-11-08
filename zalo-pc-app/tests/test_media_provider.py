@@ -23,6 +23,7 @@ Chay: python3 tests/test_media_provider.py
 
 import base64
 import importlib.util
+import json
 import os
 import sys
 
@@ -31,6 +32,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from zalo_pc_app import media_endpoints  # noqa: E402
 from zalo_pc_app import pc_media  # noqa: E402
+from zalo_pc_app import protocol  # noqa: E402
 from zalo_pc_app import udp_transport  # noqa: E402
 from zalo_pc_app.media_endpoints import MissingTransportParam  # noqa: E402
 from zalo_pc_app.udp_transport import RelayServer  # noqa: E402
@@ -320,7 +322,11 @@ def test_allocation_from_requestcall_data():
         protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
     assert out["codec"] == "pcmu", out
     assert out["session"] == "sess-xyz", out
-    assert out["extend_data"] == '{"srtpMode":2}', out
+    # srtpMode=2 from 11300 is kept inside the minimal
+    # engine-default extendData (2026-11-08: 11301 always sends
+    # extendData, never just {"srtpMode": ...}).
+    assert json.loads(out["extend_data"]) == \
+        _expected_minimal_extend_data(srtp_mode=2), out
     provider.stop_all()
 
 
@@ -332,6 +338,72 @@ def test_extend_data_unknown_keys_dropped():
         extend_data={"srtpMode": 2, "bogus_key": 1},
         call_id=CALL_ID + 3))
     assert out["extend_data"] == '{"srtpMode":2}', out
+    provider.stop_all()
+
+
+def _expected_minimal_extend_data(srtp_mode=0, call_type=1):
+    """Engine-default extendData (disassembly): the minimal dict
+    for_call builds when the 11300 response carries no extendData.
+    Values are the engine's reset/parse-fail defaults
+    (_parseExtendData 0x8d9fbb: packetMode=2, srtpMode=0, srtcp=0,
+    sP2P=0, gccMode=0, gcc bytes=0, fecTP=0, maxFT=60) plus
+    callType from the call and platform=3 (the 11300
+    request-param struct default, parser 0x71f670 init [+0x04]=3
+    — the only numeric platform evidence in the disassembly;
+    all extendData keys are optional for the peer parser, so a
+    wrong platform value cannot block the call, it only differs
+    from the real client's value if the real value is not 3)."""
+    return {"p2p": "", "callType": call_type, "platform": 3,
+            "packetMode": 2, "gccMode": 0, "srtpMode": srtp_mode,
+            "sP2P": 0, "srtcp": 0, "gccAudio": 0, "gccSVLR": 0,
+            "gccEarlyCall": 0, "maxFT": 60, "fecTP": 0}
+
+
+def test_extend_data_built_when_11300_has_none():
+    """11301 LUON gui extendData + subCommand=3 (2026-11-08):
+    response 11300 that khong co key extendData (va khong co
+    srtpMode trong zrtc_config) — truoc day for_call tra
+    extend_data=None nen 11301 chi co 6/7 field, may chu co the
+    coi la request khong co media config nen khong do chuong
+    (5 cuoc lien tiep, step2_status=0, ring_timeout 30s).
+    Client that LUON gui du 7/7 field (builder 416 0x72eed0 chen
+    vo dieu kien; extendData do serializer 0x8e1183 build tu
+    trang thai engine). for_call gio dung extendData toi thieu
+    tu default cua engine, va vc_request them extendData +
+    subCommand=3 khi no non-empty."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(call_id=CALL_ID + 5))
+    assert out["extend_data"] is not None, out
+    got = json.loads(out["extend_data"])
+    assert got == _expected_minimal_extend_data(), got
+    body = protocol.vc_request("20001", "127.0.0.1:4201",
+                               "127.0.0.1:4200", "opus", "sess",
+                               CALL_ID + 5, "dev-1",
+                               out["extend_data"])
+    assert body["extendData"] == out["extend_data"], body
+    assert body["subCommand"] == 3, body
+    provider.stop_all()
+
+
+def test_extend_data_minimal_keeps_given_srtp_mode():
+    """srtp_mode tu 11300 (vd 2) thang trong extendData toi
+    thieu — khong roi ve 0, khong mat cac key default khac."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(
+        srtp_mode=2, call_id=CALL_ID + 6))
+    got = json.loads(out["extend_data"])
+    assert got == _expected_minimal_extend_data(srtp_mode=2), got
+    provider.stop_all()
+
+
+def test_extend_data_minimal_group_call_type():
+    """Goi nhom (call_type=5) dung callType=5 trong extendData
+    toi thieu — cung luat nhu 1-1 (callType=1)."""
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(
+        call_type="group", call_id=CALL_ID + 7))
+    got = json.loads(out["extend_data"])
+    assert got == _expected_minimal_extend_data(call_type=5), got
     provider.stop_all()
 
 
@@ -608,7 +680,10 @@ def test_sessid_154_is_token():
     assert out["srtp"] == "not-wired", out
     assert out["transport"].config.token == SESSID_154.encode(), out
     assert len(out["transport"].config.token_raw) == 115, out
-    assert out["extend_data"] == '{"srtpMode":2}', out
+    # zrtc_config carries srtpMode=2 here: kept inside the minimal
+    # engine-default extendData (2026-11-08), not alone.
+    assert json.loads(out["extend_data"]) == \
+        _expected_minimal_extend_data(srtp_mode=2), out
     provider.stop_all()
 
 
