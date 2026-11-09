@@ -87,7 +87,27 @@ class Stickers:
         return self._with_urls(_as_list(got))
 
     def recommended(self):
-        return self._with_urls(_as_list(self.z.call("getRecommendedStickers", {})))
+        """Zalo tra ve cac BO nhan dan [{id: ma-bo, promoted, stickers:[{id,type}]}] (do
+        that 09/11/2026): lay vai nhan dan dau cua moi bo cho da dang, toi MAX_DETAIL."""
+        packs = _as_list(self.z.call("getRecommendedStickers", {}))
+        flat, depth = [], 0
+        while len(flat) < MAX_DETAIL and depth < 6:
+            added = False
+            for pk in packs:
+                sts = pk.get("stickers") if isinstance(pk, dict) else None
+                if isinstance(sts, list) and depth < len(sts) \
+                        and isinstance(sts[depth], dict):
+                    flat.append({"id": sts[depth].get("id"), "type": sts[depth].get("type", 0),
+                                 "cate_id": pk.get("id", "")})
+                    added = True
+                    if len(flat) >= MAX_DETAIL:
+                        break
+            if not added:
+                break
+            depth += 1
+        if not flat:                                   # dang phang {type, cate_id, sticker_id}
+            flat = packs
+        return self._with_urls(flat)
 
     def category(self, cate_id):
         got = self.z.call("getStickerCategoryDetail", {"cateId": cate_id})

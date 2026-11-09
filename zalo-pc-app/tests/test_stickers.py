@@ -37,7 +37,10 @@ class FakeSvc:
                     {"type": 3, "cate_id": 7, "sticker_id": 102},
                     {"type": 3, "cate_id": 7, "sticker_id": 999}]
         if "/sticker/recommended" in url:
-            return {"data": [{"type": 3, "cate_id": 7, "sticker_id": 101}]}
+            # hinh dang that (09/11/2026): cac BO nhan dan, moi bo co danh sach sticker
+            return [{"id": 7, "promoted": 1, "stickers": [{"id": 101, "type": 3},
+                                                           {"id": 102, "type": 3}]},
+                    {"id": 8, "promoted": 0, "stickers": [{"id": 999, "type": 3}]}]
         if "/category/sticker_detail" in url:
             assert params == {"cid": 7}, params
             return list(DETAIL.values())
@@ -60,7 +63,8 @@ def test_search_fetches_details_prefers_webp_and_skips_failures():
 
 def test_recommended_unwraps_nested_list():
     items = stickers.Stickers(FakeSvc(), {"imei": "X"}).recommended()
-    assert [i["id"] for i in items] == ["101"], items
+    assert [i["id"] for i in items] == ["101", "102"], items   # 999 khong co chi tiet -> bo
+    assert items[0]["cate_id"] == "7", items
 
 
 def test_category_uses_inline_details_without_extra_calls():
