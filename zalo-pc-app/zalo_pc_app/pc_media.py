@@ -228,13 +228,56 @@ def make_srtp_hooks(srtp_key, suite="aes_cm_128_hmac_sha1_80"):
     try:
         from zalo_call.srtp import SrtpSession
     except ImportError as exc:
-        raise SrtpUnavailable(
-            "zalo_call.srtp (libsrtp2) is not available in this "
-            "build: %s — the app PC image is stdlib-only "
-            "(packaging decision (b)); SRTP hooks must be injected "
-            "from a build that bundles libsrtp2-1" % exc) from exc
+        # 2026-11-09: khong con la ngo cut. Image stdlib-only dung SRTP
+        # thuan Python (srtp_pure, doi chieu tung byte voi
+        # @softtynet/zca-js 2.3.13) cho hai suite AES-CM; suite GCM van
+        # can libsrtp2.
+        from . import srtp_pure
+        if suite not in ("aes_cm_128_hmac_sha1_80",
+                         "aes_cm_128_hmac_sha1_32"):
+            raise SrtpUnavailable(
+                "suite %s needs zalo_call.srtp (libsrtp2): %s — the "
+                "pure-Python fallback only does aes_cm_128_hmac_sha1_80/32"
+                % (suite, exc)) from exc
+        SrtpSession = srtp_pure.SrtpSession
     session = SrtpSession(material, suite=suite)
     return session.protect, session.unprotect
+
+
+def plain_media_hooks():
+    """(protect_rtp, unprotect_rtp) khong ma hoa: srtpMode=0 (RTP tran).
+
+    Day la luong goi mac dinh cua @softtynet/zca-js (`enableSrtp` = false,
+    ZaloRtcSession.js:653) — goi khong khoa, extendData.srtpMode = 0."""
+    def _identity(packet):
+        return packet
+    return _identity, _identity
+
+
+def hooks_for_call(srtp_key=None, suite="aes_cm_128_hmac_sha1_80",
+                   codec=None):
+    """Hook media cua mot cuoc goi: (hooks, notes).
+
+    Hook ma hoa (SRTP ttu `srtp_key`, hoac RTP tran khi `srtp_key` None)
+    LUON co — dung de gui khung im lang giu ket noi, khong can libopus.
+    Hook Opus (encode_frame/decode_frame) chi co khi libopus nap duoc;
+    thieu thi `notes["opus"]` ghi ly do va cuoc goi van len (chi chua co
+    tieng that). Khong bao gio ghi gia tri khoa vao notes/log."""
+    if srtp_key is None:
+        protect, unprotect = plain_media_hooks()
+        srtp_note = "plain"
+    else:
+        protect, unprotect = make_srtp_hooks(srtp_key, suite=suite)
+        srtp_note = "srtp"
+    hooks = {"protect_rtp": protect, "unprotect_rtp": unprotect}
+    notes = {"srtp": srtp_note, "opus": "ok"}
+    try:
+        codec = codec or Opus16kCodec()
+        hooks["encode_frame"] = codec.encode
+        hooks["decode_frame"] = codec.decode
+    except OpusUnavailable as exc:
+        notes["opus"] = "unavailable: %s" % exc
+    return hooks, notes
 
 
 def media_hooks_for_call(srtp_key, suite="aes_cm_128_hmac_sha1_80",

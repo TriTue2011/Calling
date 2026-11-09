@@ -516,7 +516,7 @@ def test_relay_flow_loopback():
         [ut.RelayServer("127.0.0.1", relay_port,
                         "127.0.0.1", relay_port)],
         probe_burst=2, setup_refresh_interval=0.5, ping_interval=0.5,
-        rtcp_interval=30.0, hello_interval=5.0)
+        rtcp_interval=30.0, keepalive_media=False, hello_interval=5.0)
     tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
     got_pcm = []
     tr.set_pcm_callback(got_pcm.append)
@@ -624,7 +624,7 @@ def test_no_p2p_hello_while_ringing():
     cfg = make_config(
         [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)],
         probe_burst=0, setup_refresh_interval=30.0, ping_interval=30.0,
-        hello_interval=0.1, rtcp_interval=30.0)
+        hello_interval=0.1, rtcp_interval=30.0, keepalive_media=False)
     tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
     try:
         tr.start()
@@ -657,7 +657,7 @@ def test_no_hello_to_own_reflexive_address():
     cfg = make_config(
         [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)],
         probe_burst=0, setup_refresh_interval=30.0, ping_interval=30.0,
-        hello_interval=0.1, rtcp_interval=30.0)
+        hello_interval=0.1, rtcp_interval=30.0, keepalive_media=False)
     tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
     try:
         tr.start()
@@ -721,7 +721,7 @@ def test_setup_refresh_to_all_relays():
          ut.RelayServer("127.0.0.1", relay_ports[1],
                         "127.0.0.1", relay_ports[1])],
         probe_burst=1, setup_refresh_interval=0.3, ping_interval=30.0,
-        hello_interval=30.0, rtcp_interval=30.0)
+        hello_interval=30.0, rtcp_interval=30.0, keepalive_media=False)
     tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
     try:
         tr.start()
@@ -928,6 +928,125 @@ def test_status_scrubs_addresses():
     blob = json.dumps(st)
     assert "203.0.113.9" not in blob, blob
     assert "198.51.100.7" not in blob, blob
+
+
+# ----------------------------------------------- keepalive media (2026-11-09)
+# Ben nhan Zalo bao "tin hieu yeu" neu khong nhan duoc >= 14 goi am thanh
+# moi 2 s hoac thieu bao cao RTCP trong 4 s (zca-js 2.3.13 ZaloRtcSession:
+# audio_recheck_sock / durationCheckNoReportSec). Cac test duoi day khoa
+# hanh vi: co tieng that thi tieng thang, khong co thi khung Opus im lang.
+
+def _connected(fabric, **overrides):
+    """Transport da toi relay + type-02, kem danh sach goi relay nhan."""
+    relay_sock = fabric.new_socket()
+    relay_sock.bind(("127.0.0.1", 0))
+    relay_sock.settimeout(0.2)
+    relay_port = relay_sock.getsockname()[1]
+    dummy = fabric.new_socket()
+    dummy.bind(("127.0.0.1", 0))
+    dummy_port = dummy.getsockname()[1]
+    received = []
+    stop = threading.Event()
+
+    def fake_relay():
+        answered = False
+        while not stop.is_set():
+            try:
+                data, addr = relay_sock.recvfrom(65535)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            received.append(data)
+            if len(data) == 185 and data[1] == 0x7E and not answered:
+                answered = True
+                relay_sock.sendto(_build_type02_reply(
+                    data, RELAY_SESSION, "127.0.0.1|%d" % dummy_port), addr)
+
+    thr = threading.Thread(target=fake_relay, daemon=True)
+    thr.start()
+    kw = dict(probe_burst=1, setup_refresh_interval=30.0,
+              ping_interval=30.0, hello_interval=30.0)
+    kw.update(overrides)
+    cfg = make_config([ut.RelayServer("127.0.0.1", relay_port,
+                                      "127.0.0.1", relay_port)], **kw)
+    tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
+    tr.start()
+    deadline = time.time() + 5
+    while time.time() < deadline and tr.selected_relay is None:
+        time.sleep(0.02)
+    assert tr.selected_relay is not None, tr.status()
+
+    def close():
+        stop.set()
+        tr.stop()
+        relay_sock.close()
+
+    return tr, received, close
+
+
+def _media_payloads(received):
+    return [ut.parse_rtp(d[5:]) for d in list(received) if d[:1] == b"\x03"]
+
+
+def test_keepalive_silence_flows_without_voice():
+    tr, received, close = _connected(_Fabric())
+    try:
+        time.sleep(1.5)
+        rtp = _media_payloads(received)
+        # >= 14 goi/2 s la nguong cua ben nhan; do 1.5 s phai vuot xa.
+        assert len(rtp) >= 30, len(rtp)
+        assert all(p["payload"] == ut.OPUS_SILENCE_FRAME for p in rtp)
+        seqs = [p["seq"] for p in rtp]
+        assert all((b - a) & 0xFFFF == 1 for a, b in zip(seqs, seqs[1:]))
+        st = tr.status()["counters"]
+        assert st["keepalive_tx"] >= 30 and st["rtp_tx"] == 0, st
+    finally:
+        close()
+
+
+def test_rtcp_report_arrives_well_inside_4_seconds():
+    tr, received, close = _connected(_Fabric())
+    try:
+        time.sleep(1.3)
+        rtcp = [d for d in list(received) if d[:1] == b"\x05"]
+        assert len(rtcp) >= 2, len(rtcp)       # 0,5 s/lan -> >= 2 trong 1,3 s
+        assert tr.config.rtcp_interval <= 1.0
+    finally:
+        close()
+
+
+def test_real_voice_preempts_keepalive():
+    # Dat nhip keepalive rat dai de vong lich khong tu gui; goi truc tiep.
+    tr, received, close = _connected(
+        _Fabric(), keepalive_media_interval=3600.0)
+    try:
+        tr.send_pcm(b"\x07" * 640)
+        before = tr.status()["counters"]["keepalive_tx"]
+        tr._maybe_send_keepalive_media(time.monotonic())
+        assert tr.status()["counters"]["keepalive_tx"] == before   # vua co tieng
+        tr._maybe_send_keepalive_media(time.monotonic() + 7200)
+        assert tr.status()["counters"]["keepalive_tx"] == before + 1
+    finally:
+        close()
+
+
+def test_keepalive_can_be_turned_off_and_needs_protect_hook():
+    tr, received, close = _connected(_Fabric(), keepalive_media=False)
+    try:
+        time.sleep(0.4)
+        assert _media_payloads(received) == []
+        assert tr.status()["counters"]["keepalive_tx"] == 0
+    finally:
+        close()
+    tr, received, close = _connected(_Fabric(), protect_rtp=None,
+                                     unprotect_rtp=None)
+    try:
+        time.sleep(0.4)
+        assert _media_payloads(received) == []       # khong hook -> khong gui
+        assert tr.state in ("connected", "handshaking")  # va khong sap
+    finally:
+        close()
 
 
 def main():

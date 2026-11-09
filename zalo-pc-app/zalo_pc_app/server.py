@@ -314,6 +314,24 @@ _CALL_ID_LOCK = threading.Lock()
 _CALL_ID_COUNTER = 0
 
 
+SRTP_MODES = ("off", "key")
+
+
+def _srtp_mode_for_call(body):
+    """Che do SRTP cua cuoc goi di.
+
+    "off" (mac dinh): RTP tran, extendData.srtpMode=0 — luong mac dinh cua
+    @softtynet/zca-js 2.3.13 (`enableSrtp` = false). "key" (THU): ben goi
+    tu sinh khoa SRTP, gui trong extendData (srtpMode=1 + srtpKey) nhu
+    `buildZrtcExtendData` cua zca-js. Chua biet may that chap nhan cai nao
+    nen chon duoc moi cuoc goi: truong `srtp` trong body > bien moi truong
+    ZALO_PC_SRTP > "off"."""
+    for value in ((body or {}).get("srtp"), os.environ.get("ZALO_PC_SRTP")):
+        if isinstance(value, str) and value.strip().lower() in SRTP_MODES:
+            return value.strip().lower()
+    return "off"
+
+
 def _next_call_id():
     """Mint the next callId from the process-wide counter, starting
     at 1 (native engine behaviour)."""
@@ -3153,16 +3171,35 @@ class Handler(BaseHTTPRequestHandler):
                 step_code = "12434" if call_type == "group" else "11301"
                 endpoints = None
                 try:
-                    hooks = {}
+                    hooks, _local_key = {}, None
                     _alloc = media_endpoints.\
                         allocation_from_requestcall_data(data)
-                    if _alloc.get("srtp_key") is not None:
-                        try:
-                            from . import pc_media
-                            hooks = pc_media.media_hooks_for_call(
+                    # Hook ma hoa LUON duoc dung (khong phu thuoc
+                    # libopus): thieu no thi transport khong gui duoc ca
+                    # khung im lang giu ket noi va ben nhan bao "tin hieu
+                    # yeu". Truoc 2026-11-09 hook chi duoc dung khi 11300
+                    # tra srtp_key — ma server khong bao gio tra.
+                    _srtp_mode = _srtp_mode_for_call(body)
+                    try:
+                        from . import pc_media, srtp_pure
+                        if _alloc.get("srtp_key") is not None:
+                            _srtp_mode = "server"
+                            hooks, _notes = pc_media.hooks_for_call(
                                 _alloc["srtp_key"])
-                        except Exception:  # noqa: BLE001 - optional
-                            hooks = {}
+                        elif _srtp_mode == "key":
+                            _local_key = srtp_pure.new_master_key_b64()
+                            hooks, _notes = pc_media.hooks_for_call(
+                                _local_key)
+                        else:
+                            hooks, _notes = pc_media.hooks_for_call(None)
+                        _log_call("media hooks call_id=%s srtp_mode=%s "
+                                  "srtp=%s opus=%s"
+                                  % (call_id, _srtp_mode, _notes["srtp"],
+                                     _notes["opus"][:90]))
+                    except Exception as exc:  # noqa: BLE001 - optional
+                        hooks, _local_key = {}, None
+                        _log_call("media hooks failed call_id=%s: %s"
+                                  % (call_id, str(exc)[:160]))
                     # §7o — local_session / peer_session (2026-11-06):
                     # CA HAI lay tu response 11300 (`_alloc`):
                     # `local_session` = `fromId`, `peer_session` =
@@ -3211,7 +3248,11 @@ class Handler(BaseHTTPRequestHandler):
                             if call_type != "group" else None),
                         requestcall_data=data,
                         is_video=(call_type == "video"),
-                        on_first_media=_on_first_media, **hooks)
+                        on_first_media=_on_first_media,
+                        **dict(hooks, **(
+                            {"srtp_key": _local_key,
+                             "advertise_srtp_key": True}
+                            if _local_key else {})))
                 except Exception as exc:  # noqa: BLE001 - best-effort
                     request_sent, request_error = False, str(exc)
                 if endpoints is not None:

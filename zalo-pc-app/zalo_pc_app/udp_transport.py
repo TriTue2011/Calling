@@ -122,7 +122,18 @@ PING_INTERVAL = 0.1                  # ping keepalive, seconds (~10 Hz:
                                     # maintenance (5-pcap re-analysis
                                     # 2026-11-08), so match the real cadence.
 HELLO_INTERVAL = 0.5                 # P2P hello retransmit, seconds
-RTCP_INTERVAL = 5.0                  # minimal RTCP RR cadence, seconds
+RTCP_INTERVAL = 0.5                  # RTCP RR cadence, seconds. Ben nhan bao
+                                    # "tin hieu yeu" neu >4 s khong co bao cao
+                                    # RTCP (zca-js 2.3.13: durationCheckNoReportSec
+                                    # = 4; ZaloRtcSession gui moi 500 ms). Truoc
+                                    # day 5.0 s = luon vuot nguong.
+KEEPALIVE_MEDIA_INTERVAL = 0.02      # goi am thanh giu ket noi, 50 goi/giay.
+                                    # Ben nhan can >= 14 goi/2 s (zca-js:
+                                    # audio_recheck_sock checkPkgRec) — khong
+                                    # co thi bao "tin hieu yeu" du mang tot.
+OPUS_SILENCE_FRAME = b"\xf8\xff\xfe"   # khung Opus im lang 20 ms (TOC 0xf8 +
+                                    # 0xff 0xfe), hang so cua zca-js
+                                    # OPUS_SILENCE_20MS_FRAME; KHONG can libopus.
 PROBE_SETUP_DELAY = 0.2              # probe burst -> setup init gap,
                                     # seconds (the real client sends
                                     # setup ~0.23 s after the probe —
@@ -254,16 +265,22 @@ def socket_family_for_relays(relays):
 # (the parser reads "video" as an object, then "codec" inside;
 # the serializer builds sub-objects) — the flat "video.codec" /
 # "extraInfo.*" spellings are only INPUT aliases, converted to
-# nested objects below. srtpKey/srtpNoSeq/srtpRTCP are NOT here
-# — they are keys of zrtc_config, not extendData (confirmed
-# correction).
+# nested objects below. srtpNoSeq/srtpRTCP are NOT here — they
+# are keys of zrtc_config, not extendData (confirmed correction).
+# `srtpKey` IS accepted here since 2026-11-09 but ONLY because
+# @softtynet/zca-js 2.3.13 `buildZrtcExtendData` puts the CALLER's
+# own SRTP master key (base64, 40 chars) in extendData next to
+# srtpMode=1. It is sent ONLY when the experimental caller-key mode
+# is selected (server.py `_srtp_mode_for_call` == "key"); the default
+# mode sends none. Whether the real server/peer honours it is a
+# live-test question, not settled by the disassembly notes above.
 EXTEND_DATA_KEYS = frozenset([
     "p2p", "callType", "video", "newZrtc", "packetMode",
     "gccMode", "gccAudio", "gccEarlyCall", "gccSVLR", "srtpMode",
     "srtcp", "sP2P", "maxFT", "platform", "fecTP",
     "supportHevcDecode", "tpType", "spTcp", "serverAddr",
     "select2side", "extraInfo", "serverResult", "numServers",
-    "supportCallBusy",
+    "supportCallBusy", "srtpKey",
 ])
 
 
@@ -325,6 +342,9 @@ def normalize_extend_data(data):
     if "numServers" in out \
             and _as_extend_int(out["numServers"]) is None:
         del out["numServers"]
+    key = out.get("srtpKey")
+    if key is not None and not (isinstance(key, str) and len(key) >= 40):
+        del out["srtpKey"]          # sai dang: bo, khong doan
     mode = out.get("srtpMode")
     if mode is not None and (not isinstance(mode, int)
                              or isinstance(mode, bool)
@@ -440,6 +460,8 @@ class TransportConfig:
     ping_interval: float = PING_INTERVAL
     hello_interval: float = HELLO_INTERVAL
     rtcp_interval: float = RTCP_INTERVAL
+    keepalive_media: bool = True      # gui khung im lang khi khong co tieng
+    keepalive_media_interval: float = KEEPALIVE_MEDIA_INTERVAL
     jitter_buffer_size: int = 8
 
     def __post_init__(self):
@@ -1127,13 +1149,14 @@ class Udp4200Transport:
         self._probe_t0 = time.monotonic()
         self._last_hello = 0.0
         self._last_rtcp = 0.0
+        self._last_media_tx = 0.0
         self._highest_rx_seq = None
         self.counters = {
             "probe_tx": 0, "setup_init_tx": 0, "setup_refresh_tx": 0,
             "ping_tx": 0, "rtcp_tx": 0, "rtcp_rx": 0, "hello_tx": 0, "ack_tx": 0,
             "confirm_tx": 0, "type02_rx": 0, "keepalive_rx": 0,
             "ping_reply_rx": 0, "rtp_tx": 0, "rtp_rx": 0,
-            "rtp_rx_dropped": 0, "p2p_rx": 0, "p2p_media_rx": 0,
+            "rtp_rx_dropped": 0, "keepalive_tx": 0, "p2p_rx": 0, "p2p_media_rx": 0,
             "unknown_rx": 0, "send_errors": 0, "recv_errors": 0,
         }
         # Last unrecognized packets (bounded, scrubbed — see
@@ -1223,7 +1246,16 @@ class Udp4200Transport:
                 "protect_rtp: missing (SRTP hook is required to send "
                 "media; inject it via TransportConfig)")
         encode = self.config.encode_frame or (lambda b: b)
-        payload = encode(pcm)
+        self._send_payload(encode(pcm))
+
+    def _send_payload(self, payload, keepalive=False):
+        """One RTP media packet: header (seq +1, ts +320) -> protect_rtp
+        -> relay type-03 or P2P. Shared by send_pcm and the silence
+        keepalive. Raises like send_pcm."""
+        if self.config.protect_rtp is None:
+            raise MissingTransportParam(
+                "protect_rtp: missing (SRTP hook is required to send "
+                "media; inject it via TransportConfig)")
         with self._lock:
             self._seq = (self._seq + 1) & 0xFFFF
             self._timestamp = (self._timestamp + RTP_TS_STEP) & 0xFFFFFFFF
@@ -1239,11 +1271,12 @@ class Udp4200Transport:
             ok = self._send_to(pkt, self.selected_relay.rtp_addr())
         else:
             raise RuntimeError(
-                "no relay selected yet (no type-02 received); "
+                "no relay selected yet (no type-02 52B received); "
                 "media cannot be sent before the relay handshake")
         if not ok:
             raise RuntimeError("send failed: %s" % self._last_error)
-        self.counters["rtp_tx"] += 1
+        self._last_media_tx = time.monotonic()
+        self.counters["keepalive_tx" if keepalive else "rtp_tx"] += 1
 
     def begin_p2p(self, peer_ip=None, peer_port=None):
         """(Re)start the P2P hello handshake to a peer address.
@@ -1491,9 +1524,29 @@ class Udp4200Transport:
                         and now - self._last_rtcp >= cfg.rtcp_interval):
                     self._send_rtcp()
                     self._last_rtcp = now
+                self._maybe_send_keepalive_media(now)
             except Exception as exc:  # noqa: BLE001 - scheduler survives
                 self._last_error = "scheduler: %s" % exc
-            self._stop.wait(0.05)
+            # 10 ms: du min cho nhip 20 ms cua goi am thanh giu ket noi.
+            self._stop.wait(0.01)
+
+    def _maybe_send_keepalive_media(self, now):
+        """Khung Opus im lang 50 goi/giay khi KHONG co tieng that.
+
+        Chi gui khi da chon relay + co hook protect (hook "plain" khi
+        khong ma hoa) va khong co `send_pcm` nao trong khoang vua roi,
+        nen tieng that luon thang. Loi gui (chua co relay...) khong lam
+        sap vong lap lich."""
+        cfg = self.config
+        if (not cfg.keepalive_media or cfg.protect_rtp is None
+                or self.selected_relay is None or not self.relay_session):
+            return
+        if now - self._last_media_tx < cfg.keepalive_media_interval:
+            return
+        try:
+            self._send_payload(OPUS_SILENCE_FRAME, keepalive=True)
+        except (RuntimeError, MissingTransportParam):
+            pass
 
     # -- receiver ----------------------------------------------------
 

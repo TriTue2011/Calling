@@ -321,6 +321,37 @@ def test_video_call_extend_data_and_type_request():
     assert app_server._type_request_for("group") == 5
 
 
+def test_caller_key_mode_advertises_srtp_key_in_extend_data():
+    """Che do thu "key" (2026-11-09): extendData mang srtpKey + srtpMode=1
+    y het zca-js buildZrtcExtendData. Mac dinh va khi khong yeu cau thi
+    KHONG co srtpKey va srtpMode=0 (RTP tran)."""
+    import base64
+    import json
+    key = base64.b64encode(bytes(range(30))).decode()
+    out = _provider().for_call(**_good_kwargs(
+        srtp_key=key, advertise_srtp_key=True,
+        protect_rtp=lambda b: b, unprotect_rtp=lambda b: b))
+    ext = json.loads(out["extend_data"])
+    assert ext["srtpKey"] == key and ext["srtpMode"] == 1, ext
+    plain = _provider().for_call(**_good_kwargs(
+        call_id=CALL_ID + 7, protect_rtp=lambda b: b,
+        unprotect_rtp=lambda b: b))
+    pext = json.loads(plain["extend_data"])
+    assert "srtpKey" not in pext and pext["srtpMode"] == 0, pext
+    # Co khoa nhung KHONG xin quang ba: khong lo khoa ra extendData.
+    quiet = _provider().for_call(**_good_kwargs(
+        call_id=CALL_ID + 8, srtp_key=key, protect_rtp=lambda b: b,
+        unprotect_rtp=lambda b: b))
+    assert "srtpKey" not in json.loads(quiet["extend_data"])
+
+
+def test_normalize_extend_data_drops_malformed_srtp_key():
+    from zalo_pc_app.udp_transport import normalize_extend_data
+    assert "srtpKey" not in normalize_extend_data({"srtpKey": "short"})
+    assert "srtpKey" not in normalize_extend_data({"srtpKey": 123})
+    assert normalize_extend_data({"srtpKey": "A" * 40})["srtpKey"] == "A" * 40
+
+
 def test_allocation_from_requestcall_data():
     """Lay dung vat lieu tu response 11300: servers/sessId/srtpKey/
     srtpMode/g711 — khong phat minh gia tri nao."""
@@ -1017,26 +1048,53 @@ def test_srtp_key_wrong_length():
     raise AssertionError("expected ValueError on short SRTP key")
 
 
-def test_srtp_hooks_unavailable_without_lib():
-    """Trong image stdlib-only (khong co zalo_call.srtp) thi
-    make_srtp_hooks loi ro SrtpUnavailable thay vi gia vo co SRTP.
-    Bo qua neu moi truong nay co san zalo_call.srtp."""
+def _has_libsrtp2_module():
     try:
-        _spec = importlib.util.find_spec("zalo_call.srtp")
+        return importlib.util.find_spec("zalo_call.srtp") is not None
     except (ImportError, ValueError):
-        # find_spec raises when the parent package does not exist.
-        _spec = None
-    if _spec is not None:
-        print("SKIP test_srtp_hooks_unavailable_without_lib: "
+        return False        # find_spec loi khi goi cha khong ton tai
+
+
+def test_srtp_hooks_fall_back_to_pure_python_without_lib():
+    """2026-11-09: khong co libsrtp2 thi hai suite AES-CM dung SRTP thuan
+    Python (srtp_pure), KHONG con SrtpUnavailable; suite GCM van bao loi ro.
+    Bo qua neu moi truong nay co san zalo_call.srtp."""
+    if _has_libsrtp2_module():
+        print("SKIP test_srtp_hooks_fall_back_to_pure_python_without_lib: "
               "zalo_call.srtp is installed here")
         return
+    key = bytes(range(30))
+    protect, unprotect = pc_media.make_srtp_hooks(key)
+    rtp = bytes.fromhex("90700064000003e8a1b2c3d4bede000151000000") + b"\x01" * 30
+    wire = protect(rtp)
+    assert wire != rtp and len(wire) == len(rtp) + 10      # +tag 80 bit
+    # Ben nhan dung cung khoa doc lai dung goi goc.
+    _p2, unprotect2 = pc_media.make_srtp_hooks(key)
+    assert unprotect2(wire) == rtp
     try:
-        pc_media.make_srtp_hooks(b"\x00" * 30)
+        pc_media.make_srtp_hooks(b"\x00" * 28, suite="aes_gcm_128_16_auth")
     except pc_media.SrtpUnavailable as exc:
-        assert "libsrtp2" in str(exc) or "zalo_call" in str(exc), \
-            str(exc)
+        assert "libsrtp2" in str(exc), str(exc)
+    else:
+        raise AssertionError("suite GCM khong co libsrtp2 phai bao SrtpUnavailable")
+
+
+def test_hooks_for_call_plain_and_srtp_always_have_protect():
+    # Hook ma hoa phai co du libopus co hay khong (de gui khung im lang).
+    hooks, notes = pc_media.hooks_for_call(None)
+    assert notes["srtp"] == "plain"
+    pkt = b"\x90\x70" + b"\x00" * 30
+    assert hooks["protect_rtp"](pkt) == pkt and hooks["unprotect_rtp"](pkt) == pkt
+    assert notes["opus"] == "ok" or notes["opus"].startswith("unavailable")
+    assert ("encode_frame" in hooks) == (notes["opus"] == "ok")
+    if _has_libsrtp2_module():
         return
-    raise AssertionError("expected SrtpUnavailable")
+    import base64
+    hooks, notes = pc_media.hooks_for_call(
+        base64.b64encode(bytes(range(30))).decode())   # 40 ky tu = 30 byte
+    assert notes["srtp"] == "srtp"
+    rtp = bytes.fromhex("90700064000003e8a1b2c3d4bede000151000000") + b"\x02" * 20
+    assert hooks["protect_rtp"](rtp) != rtp
 
 
 def test_wait_selected_error_includes_diagnostics():

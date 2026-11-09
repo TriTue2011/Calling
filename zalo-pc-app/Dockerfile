@@ -7,7 +7,7 @@ WORKDIR /app
 # zalo_pc_app/voice_transcode.py. --no-install-recommends de image
 # gon; khong co ffmpeg thi gui tin thoai loi ro, khong crash server.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg libopus0 \
     && rm -rf /var/lib/apt/lists/*
 COPY zalo_pc_app/ ./zalo_pc_app/
 COPY docker-entrypoint.py /usr/local/bin/docker-entrypoint.py

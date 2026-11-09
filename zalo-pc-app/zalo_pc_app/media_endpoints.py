@@ -989,7 +989,7 @@ _MINIMAL_EXTEND_DATA = {
 
 
 def _extend_data_dict(extend_data, srtp_mode, is_video=False,
-                      server_addrs=None):
+                      server_addrs=None, srtp_key=None):
     """Normalize extendData to a dict for TransportConfig.
 
     Explicit dict/JSON string wins (normalized by
@@ -1046,6 +1046,12 @@ def _extend_data_dict(extend_data, srtp_mode, is_video=False,
     minimal = dict(_MINIMAL_EXTEND_DATA)
     minimal["callType"] = 1 if is_video else 0
     minimal["srtpMode"] = mode
+    if srtp_key is not None:
+        # Che do thu "key" (2026-11-09): ben goi gui khoa SRTP cua chinh
+        # no, y het ZaloRtcSession.buildZrtcExtendData cua zca-js 2.3.13
+        # (srtpMode=1 + srtpKey base64). Mac dinh KHONG di vao day.
+        minimal["srtpKey"] = srtp_key
+        minimal["srtpMode"] = 1
     # video.codec stays "" even for video (see the
     # _MINIMAL_EXTEND_DATA comment): the audio codec is not the
     # video codec; the future video path must supply a real one.
@@ -1214,7 +1220,7 @@ class MediaEndpoints:
                  protect_rtp=None, unprotect_rtp=None,
                  encode_frame=None, decode_frame=None,
                  selection_timeout=5.0, transport_factory=None,
-                 on_first_media=None):
+                 on_first_media=None, advertise_srtp_key=False):
         """Media fields for one outgoing call's request step (11301).
 
         Returns {"rtcp_address", "rtp_address", "rtp_source",
@@ -1399,7 +1405,9 @@ class MediaEndpoints:
         codec = str(codec)
         ext_dict = _extend_data_dict(
             extend_data, srtp_mode, is_video,
-            server_addrs=_server_addr_list(servers, relay_list))
+            server_addrs=_server_addr_list(servers, relay_list),
+            srtp_key=(srtp_key if advertise_srtp_key
+                      and isinstance(srtp_key, str) else None))
         extend_str = (json.dumps(ext_dict, separators=(",", ":"),
                                  ensure_ascii=False)
                       if ext_dict else None)

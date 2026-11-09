@@ -181,7 +181,7 @@ def test_p2p_handshake_and_media_loopback():
         call_session=CALL_SESSION,
         protect_rtp=lambda b: b, unprotect_rtp=lambda b: b,
         probe_burst=1, setup_refresh_interval=0.5, ping_interval=30.0,
-        hello_interval=0.1, rtcp_interval=30.0)
+        hello_interval=0.1, rtcp_interval=30.0, keepalive_media=False)
     tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
     got_pcm = []
     tr.set_pcm_callback(got_pcm.append)

@@ -162,7 +162,7 @@ def test_first_media_marks_answered():
             eff_id = _start_call(base, "20001", CALL_ID_MEDIA)
             record = endpoints.active_record(eff_id)
             assert record is not None, "no transport record"
-            assert record["srtp"] == "not-wired", record
+            assert record["srtp"] == "wired", record  # 2026-11-09: hook RTP tran/SRTP luon duoc dung
             transport = record["transport"]
             assert isinstance(transport, FakeTransport), transport
             # Mot goi RTP (da protect) tu relay — nhu peer bat dau
@@ -230,7 +230,7 @@ def test_calls_response_reports_media_state():
         assert active is not None, "no active call"
         media = active.get("media")
         assert media is not None, active
-        assert media.get("srtp") == "not-wired", media
+        assert media.get("srtp") == "wired", media
     _run(MockZalo().start(), check)
 
 
