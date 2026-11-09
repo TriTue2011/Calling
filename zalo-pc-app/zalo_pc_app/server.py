@@ -163,6 +163,38 @@ def _poller_is_alive(poller):
     return True
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+FONTS_DIR = os.path.join(STATIC_DIR, "fonts")
+
+
+def _safe_static_path(name, base_dir=STATIC_DIR):
+    """Resolve `name` inside `base_dir`, or return None.
+
+    H1 (path traversal qua /fonts/): the old _serve_static joined
+    STATIC_DIR + name unchecked, so /fonts/../../... read any file
+    (session.json, app_auth.json, messages.db trong container).
+    Giai ma percent-escape LAP (toi da 3 vong, de double-encode
+    %252e%252e khong luon qua), loai NUL byte va duong dan tuyet
+    doi, roi kiem realpath phai nam trong base_dir (symlink cung
+    khong thoat ra ngoai duoc). Tra ve duong dan tuyet doi da giai
+    quyet, hoac None khi khong hop le — caller tra 404 chung chung,
+    khong lo duong dan that.
+    """
+    decoded = name
+    for _ in range(3):
+        nxt = urllib.parse.unquote(decoded)
+        if nxt == decoded:
+            break
+        decoded = nxt
+    if "\x00" in decoded:
+        return None
+    decoded = decoded.replace("\\", "/")
+    if os.path.isabs(decoded):
+        return None
+    base = os.path.realpath(base_dir)
+    resolved = os.path.realpath(os.path.join(base, decoded))
+    if resolved != base and not resolved.startswith(base + os.sep):
+        return None
+    return resolved
 
 
 class _Transport:
@@ -2201,9 +2233,19 @@ class Handler(BaseHTTPRequestHandler):
             # Shared by the login page: public.
             return self._serve_static("style.css", "text/css")
         if path.startswith("/fonts/"):
-            # Login page resources: public.
-            return self._serve_static(path.lstrip("/"),
-                                      "font/woff2")
+            # Login page resources: public — NHUNG chi file font
+            # that trong static/fonts (H1): realpath phai nam trong
+            # FONTS_DIR va duoi .woff2 (toan bo font UI hien dung
+            # .woff2, xem style.css). Duong con trong fonts/ duoc
+            # phep; moi duong ra ngoai (.., encode, null byte)
+            # deu tra 404 chung chung, khong lo noi dung.
+            rel = path[len("/fonts/"):]
+            resolved = _safe_static_path(rel, FONTS_DIR)
+            if (resolved is None
+                    or not resolved.lower().endswith(".woff2")):
+                return self._send_json({"error": "not_found"},
+                                       status=404)
+            return self._serve_static_file(resolved, "font/woff2")
         if path == "/api/app/status":
             # Public: the login page uses it to redirect when the
             # session is already valid. Never leaks anything else.
@@ -3587,10 +3629,21 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_json({"error": "not_found"}, status=404)
 
     def _serve_static(self, name, ctype):
+        # Ten co dinh o do_GET (login.html/app.html/app.js/style.css)
+        # cung di qua _safe_static_path: phong thu theo chieu sau,
+        # khong rieng route /fonts/ moi an toan.
+        resolved = _safe_static_path(name)
+        if resolved is None:
+            return self._send_json({"error": "not_found"}, status=404)
+        return self._serve_static_file(resolved, ctype)
+
+    def _serve_static_file(self, resolved, ctype):
+        # `resolved` da qua _safe_static_path (nam trong thu muc
+        # cho phep). Chi tra 404 chung chung, khong lo duong dan.
         try:
-            with open(os.path.join(STATIC_DIR, name), "rb") as f:
+            with open(resolved, "rb") as f:
                 body = f.read()
-        except FileNotFoundError:
+        except (FileNotFoundError, IsADirectoryError, OSError):
             return self._send_json({"error": "not_found"}, status=404)
         self.send_response(200)
         self.send_header("Content-Type", ctype)
