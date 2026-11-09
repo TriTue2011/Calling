@@ -43,6 +43,19 @@ DEFAULT_SESSION_HOURS = 8.0
 COOKIE_NAME = "zalo_pc_app"
 VERIFIER_FILENAME = "app_auth.json"
 
+# H3 — chong brute-force o /api/app/login (chi trong bo nho tien
+# trinh, restart la het — day la muc chong do co ban, KHONG phai WAF):
+# sau MAX_FAILED_LOGINS lan sai lien tiep tu cung IP, IP do bi khoa
+# tam LOCKOUT_SECONDS giay. Nguong 5 de 1-2 lan go sai cua user that
+# khong bi khoa nham; dang nhap dung reset bo dem va khong bi cham
+# (khong sleep/delay tren duong dung). Dem theo IP vi chi co 1 tai
+# khoan dung chung — dem theo username thi ke do van do duoc.
+MAX_FAILED_LOGINS = 5
+LOCKOUT_SECONDS = 300  # 5 phut
+# Bo nho cu (IP khong con khoa, khong sai them) duoc don sau thoi
+# gian nay de dict khong phinh vo han.
+FAILED_ENTRY_TTL_SECONDS = 3600
+
 
 class MissingAppCredentials(Exception):
     """Thieu bien moi truong tai khoan app (xem module docstring)."""
@@ -114,18 +127,24 @@ def _save_verifier_file(data_dir, stored):
 class AppAuth:
     """Mot tai khoan app + cac phien dang nhap (token, trong bo nho)."""
 
-    def __init__(self, username, password_hash, session_hours=None):
+    def __init__(self, username, password_hash, session_hours=None,
+                 time_fn=None):
         self.username = username
         self.password_hash = password_hash
         self.session_hours = (DEFAULT_SESSION_HOURS if session_hours is None
                               else session_hours)
+        # time_fn: chi de test chich dong ho gia (mac dinh time.time).
+        self._now = time_fn or time.time
         self._sessions = {}  # token -> (username, expires_at)
+        # H3: lan sai theo IP — chi trong bo nho, restart la het.
+        # ip -> {"count": int, "locked_until": float, "last_at": float}
+        self._failed = {}
         import threading
         self._lock = threading.Lock()
 
     # -- khoi tao tu env -------------------------------------------------
     @classmethod
-    def from_env(cls, data_dir, env=None):
+    def from_env(cls, data_dir, env=None, time_fn=None):
         env = os.environ if env is None else env
         username = (env.get("ZALO_PC_APP_USER") or "").strip()
         password = env.get("ZALO_PC_APP_PASSWORD") or ""
@@ -162,7 +181,7 @@ class AppAuth:
         except ValueError:
             raise MissingAppCredentials(
                 "ZALO_PC_APP_SESSION_HOURS phai la so > 0 (gio).")
-        return cls(username, stored, session_hours=hours)
+        return cls(username, stored, session_hours=hours, time_fn=time_fn)
 
     # -- dang nhap --------------------------------------------------------
     def verify(self, username, password):
@@ -174,9 +193,82 @@ class AppAuth:
         pass_ok = verify_password(password, self.password_hash)
         return user_ok and pass_ok
 
+    # -- H3: chong brute-force theo IP (bo nho, restart la het) --------
+    def _prune_failed(self, now):
+        """Don muc het han: khoa da het + khong sai them qua TTL.
+        Goi khi da giu self._lock."""
+        for ip in list(self._failed):
+            entry = self._failed[ip]
+            if entry["locked_until"] and now >= entry["locked_until"]:
+                del self._failed[ip]
+            elif now - entry["last_at"] > FAILED_ENTRY_TTL_SECONDS:
+                del self._failed[ip]
+
+    @staticmethod
+    def _norm_ip(ip):
+        ip = (ip or "").strip()
+        return ip if ip else "unknown"
+
+    def is_locked(self, ip, now=None):
+        """True neu IP dang trong thoi gian khoa tam."""
+        return self.lock_remaining(ip, now=now) > 0
+
+    def lock_remaining(self, ip, now=None):
+        """So giay con lai cua khoa tam (0 neu khong bi khoa).
+        Het khoa thi bo dem cua IP cung reset (don o _prune_failed)."""
+        now = self._now() if now is None else now
+        ip = self._norm_ip(ip)
+        with self._lock:
+            self._prune_failed(now)
+            entry = self._failed.get(ip)
+            if not entry or not entry["locked_until"]:
+                return 0
+            remaining = entry["locked_until"] - now
+            return int(remaining) + (1 if remaining % 1 else 0)
+
+    def failed_count(self, ip, now=None):
+        """So lan sai lien tiep hien tai cua IP (0 neu chua sai /
+        da reset / het khoa)."""
+        now = self._now() if now is None else now
+        ip = self._norm_ip(ip)
+        with self._lock:
+            self._prune_failed(now)
+            entry = self._failed.get(ip)
+            return entry["count"] if entry else 0
+
+    def record_failed_login(self, ip, now=None):
+        """Ghi 1 lan sai tu IP; du nguong thi khoa tam 5 phut.
+        Log IP + so lan + thoi gian (KHONG log mat khau da thu).
+        Tra ve so lan sai lien tiep sau lan nay."""
+        now = self._now() if now is None else now
+        ip = self._norm_ip(ip)
+        with self._lock:
+            self._prune_failed(now)
+            entry = self._failed.get(ip)
+            if entry is None:
+                entry = {"count": 0, "locked_until": 0, "last_at": now}
+                self._failed[ip] = entry
+            entry["count"] += 1
+            entry["last_at"] = now
+            if entry["count"] >= MAX_FAILED_LOGINS and not entry["locked_until"]:
+                entry["locked_until"] = now + LOCKOUT_SECONDS
+                print("[app-login] sai lien tiep %d lan tu ip=%s -> "
+                      "khoa tam %d giay" % (entry["count"], ip,
+                                            LOCKOUT_SECONDS), flush=True)
+            else:
+                print("[app-login] sai mat khau ip=%s lan=%d" % (
+                    ip, entry["count"]), flush=True)
+            return entry["count"]
+
+    def record_successful_login(self, ip):
+        """Dang nhap dung: reset bo dem cua IP do."""
+        ip = self._norm_ip(ip)
+        with self._lock:
+            self._failed.pop(ip, None)
+
     def create_session(self, username):
         token = secrets.token_urlsafe(32)
-        expires = time.time() + self.session_hours * 3600
+        expires = self._now() + self.session_hours * 3600
         with self._lock:
             self._sessions[token] = (username, expires)
         return token, expires
@@ -190,7 +282,7 @@ class AppAuth:
             if entry is None:
                 return None
             username, expires = entry
-            if time.time() > expires:
+            if self._now() > expires:
                 del self._sessions[token]
                 return None
             return username

@@ -3007,8 +3007,23 @@ class Handler(BaseHTTPRequestHandler):
             if STATE.auth is None:
                 return self._send_json(
                     {"error": "app_chua_cau_hinh"}, status=503)
+            # H3 — chong brute-force theo IP nguon cua ket noi TCP
+            # (client_address). KHONG tin X-Forwarded-For: khong co
+            # reverse proxy tin cay nao khai bao, tin header do thi
+            # ke do gia IP de ne khoa. Trang thai khoa chi trong bo
+            # nho cua AppAuth — restart la het (muc co ban, khong
+            # phai WAF). IP bi khoa: 429, KHONG kiem mat khau nua
+            # (ke ca mat khau dung cung khong vao duoc khi dang khoa).
+            ip = (self.client_address[0]
+                  if self.client_address else "") or "unknown"
+            remaining = STATE.auth.lock_remaining(ip)
+            if remaining > 0:
+                return self._send_json(
+                    {"error": "bi_khoa_tam_thoi",
+                     "retry_after": remaining}, status=429)
             if STATE.auth.verify(body.get("username", ""),
                                  body.get("password", "")):
+                STATE.auth.record_successful_login(ip)
                 token, expires = STATE.auth.create_session(
                     body.get("username", ""))
                 max_age = max(0, int(expires - time.time()))
@@ -3016,6 +3031,7 @@ class Handler(BaseHTTPRequestHandler):
                     {"ok": True, "username": body.get("username", "")},
                     extra_headers=[("Set-Cookie",
                                     app_auth.cookie_header(token, max_age))])
+            STATE.auth.record_failed_login(ip)
             return self._send_json({"error": "sai_tai_khoan"}, status=401)
         if path == "/api/app/logout":
             # Public on purpose: a stale page must be able to drop a
