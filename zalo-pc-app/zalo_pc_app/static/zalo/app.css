@@ -363,3 +363,11 @@ html[data-dev="touch"] .pop button { padding: .875rem 1rem; }
 .live.off { background: var(--warn); }
 
 .tbl td.nw { white-space: nowrap; }
+.stickers { position: absolute; right: 0.75rem; bottom: 3.5rem; width: 21rem; max-width: calc(100vw - 1.5rem); max-height: 22rem; display: flex; flex-direction: column; gap: 0.5rem; padding: 0.5rem; background: var(--surface); border: 1px solid var(--line); border-radius: 0.75rem; box-shadow: var(--shadow); z-index: 9; }
+.stickers[hidden] { display: none; }
+.stickers input { width: 100%; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--bg, transparent); color: inherit; font: inherit; }
+.stickers .sgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; overflow-y: auto; min-height: 6rem; }
+.stickers .sgrid button { border: 0; background: none; padding: 2px; border-radius: 0.5rem; aspect-ratio: 1; }
+.stickers .sgrid button:hover, .stickers .sgrid button:focus-visible { background: var(--hover); }
+.stickers .sgrid img { width: 100%; height: 100%; object-fit: contain; }
+.stickers .snote { grid-column: 1 / -1; margin: 0; padding: 0.75rem 0.25rem; font-size: 0.8125rem; color: var(--muted); text-align: center; }

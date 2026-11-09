@@ -339,11 +339,36 @@ def one(api, types):
     return ent
 
 
+def mark_covered(entries):
+    """Danh dau API zca da co san trong 96 dich vu cua app (trung TEN snake_case hoac
+    trung DUONG DAN endpoint, ke ca duong 1-1/nhom cua op tach doi) -> `covered_by`.
+    Giao dien va HA bo qua cac muc nay de khong hien hai lan."""
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from zalo_pc_app import services as S
+    snake = lambda n: re.sub(r"(?<!^)(?=[A-Z])", "_", n).lower()  # noqa: E731
+    names = set(S.OPS) | {sp["addon"] for sp in S.OPS.values()}
+    paths = {}
+    for act, sp in S.OPS.items():
+        if sp.get("path"):
+            paths.setdefault(sp["path"], act)
+    for act, v in S._SPLIT.items():
+        for i in (1, 4):
+            if v[i]:
+                paths.setdefault(v[i], act)
+    for e in entries:
+        n = snake(e["name"])
+        if n in names:
+            e["covered_by"] = n
+        elif e.get("path") and e["path"] in paths:
+            e["covered_by"] = paths[e["path"]]
+
+
 def main():
     api = json.load(open(os.path.join(ROOT, "docs/.vitepress/theme/api-data.json"),
                          encoding="utf-8"))
     types = type_index()
     out = [one(a, types) for a in api["apis"]]
+    mark_covered(out)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump({"version": api.get("version"), "total": len(out), "apis": out},
                   f, ensure_ascii=False, indent=0)

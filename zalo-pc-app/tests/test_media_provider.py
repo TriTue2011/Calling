@@ -321,6 +321,25 @@ def test_video_call_extend_data_and_type_request():
     assert app_server._type_request_for("group") == 5
 
 
+def test_extend_profile_zca_matches_zca_js_values_and_default_is_unchanged():
+    """Ho so "zca" = buildZrtcExtendData cua zca-js (newZrtc=1, maxFT=120, platform=2,
+    packetMode=1, serverAddr dang dict, video h264/97). Mac dinh "pc" giu nguyen
+    bo 24 khoa cu (da lam dien thoai do chuong)."""
+    import json
+    zca = json.loads(_provider().for_call(**_good_kwargs(
+        extend_profile="zca"))["extend_data"])
+    assert zca["newZrtc"] == 1 and zca["maxFT"] == 120, zca
+    assert zca["platform"] == 2 and zca["packetMode"] == 1, zca
+    assert zca["srtpMode"] == 0 and "srtpKey" not in zca, zca
+    assert zca["video"] == {"codec": [{"name": "h264", "payload": 97}]}, zca
+    sa = zca["serverAddr"][0]
+    assert sa["rtp"] and sa["rtcp"] and sa["rtpIPv6"].startswith("::FFFF:"), sa
+    pc = json.loads(_provider().for_call(**_good_kwargs(
+        call_id=CALL_ID + 21))["extend_data"])
+    assert pc["newZrtc"] == 0 and pc["maxFT"] == 60 and pc["platform"] == 3, pc
+    assert len(pc) >= 23, len(pc)
+
+
 def test_caller_key_mode_advertises_srtp_key_in_extend_data():
     """Che do thu "key" (2026-11-09): extendData mang srtpKey + srtpMode=1
     y het zca-js buildZrtcExtendData. Mac dinh va khi khong yeu cau thi

@@ -23,6 +23,7 @@ const ICONS = {
   clip: '<path d="m20.5 11.5-8.4 8.4a5 5 0 0 1-7-7l8.8-8.8a3.3 3.3 0 0 1 4.7 4.7l-8.8 8.8a1.7 1.7 0 0 1-2.4-2.4L15 7"/>',
   image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m4 18 5-5 4 4 3-3 4 4"/>',
   mic: '<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  sticker: '<path d="M20 12.5V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h5.5a8 8 0 0 0 7.5-7.5z"/><path d="M20 12.5h-3.5A2.5 2.5 0 0 0 14 15v3.5"/><path d="M8.5 9.5v.5M13.5 9.5v.5M8.5 13c.8 1 1.8 1.4 3 1.4"/>',
   smile: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14c.8 1.4 2 2.2 3.5 2.2s2.7-.8 3.5-2.2M9 9.5v.5M15 9.5v.5"/>',
   thumb: '<path d="M7 11v9H4v-9zM7 11l4-7c1.5 0 2.5 1 2.2 2.6L12.7 9H19a2 2 0 0 1 2 2.4l-1.2 6A2.5 2.5 0 0 1 17.4 19H7"/>',
   send: '<path d="M21 3 10 14M21 3l-7 18-4-7-7-4z"/>',
@@ -444,6 +445,33 @@ function toggleEmoji() {
   box.hidden = false;
 }
 
+// ---- nhãn dán: tìm / gợi ý (zca-js) rồi bấm để gửi vào hội thoại đang mở ----------------------------------------------
+let stickerTimer = null;
+function closeStickers() { $("stickers").hidden = true; }
+async function loadStickers(grid, url) {
+  grid.replaceChildren(h("p", { class: "snote" }, "Đang tải…"));
+  let r; try { r = await api(url); } catch (e) { r = { error: String(e) }; }
+  if (r.error) return grid.replaceChildren(h("p", { class: "snote" }, "Không tải được nhãn dán: " + r.error));
+  const items = r.items || [];
+  if (!items.length) return grid.replaceChildren(h("p", { class: "snote" }, "Không có nhãn dán nào."));
+  grid.replaceChildren(...items.map((it) => h("button", { type: "button", title: it.text || "Nhãn dán", "aria-label": it.text || "Nhãn dán", onclick: () => sendSticker(it) }, h("img", { src: it.url, alt: it.text || "", loading: "lazy" }))));
+}
+async function sendSticker(it) {
+  if (!S.cur) return toast("Hãy mở một cuộc trò chuyện trước.");
+  closeStickers();
+  const r = await api("/api/svc/send_sticker", "POST", { thread_id: S.cur.id, type: typeParam(), sticker_id: it.id, cate_id: it.cate_id, sticker_type: it.type });
+  if (r.error) return setNotice("Lỗi gửi nhãn dán: " + r.error, true);
+  setNotice(""); toast("Đã gửi nhãn dán");
+}
+function toggleStickers() {
+  const box = $("stickers"); if (!box.hidden) return closeStickers();
+  if (!S.cur) return toast("Hãy mở một cuộc trò chuyện trước.");
+  const grid = h("div", { class: "sgrid" });
+  const q = h("input", { type: "search", placeholder: "Tìm nhãn dán…", "aria-label": "Tìm nhãn dán", oninput: () => { clearTimeout(stickerTimer); const v = q.value.trim(); stickerTimer = setTimeout(() => loadStickers(grid, v ? "/api/stickers/search?q=" + encodeURIComponent(v) : "/api/stickers/recommended"), 350); } });
+  box.replaceChildren(q, grid); box.hidden = false; q.focus();
+  loadStickers(grid, "/api/stickers/recommended");
+}
+
 // ---- bảng thông tin bên phải ---------------------------------------------------------------------------
 function syncInfo() {
   const app = $("app"), on = S.info && S.tab === "chats" && !!S.cur && root.dataset.bp === "wide";
@@ -618,7 +646,7 @@ async function renderServices() {
     const snake = (n) => n.replace(/[A-Z]/g, (c, k) => (k ? "_" : "") + c.toLowerCase());
     const have = new Set(); for (const x of S.catalog.items) { have.add(x.addon); if (x.action) have.add(x.action); }
     const ZG = { auth: "Xác thực & phiên", chat: "Tin nhắn & hội thoại", group: "Nhóm & cộng đồng", friend: "Bạn bè & danh bạ", profile: "Hồ sơ cá nhân", sync: "Đồng bộ", zcloud: "Đám mây", call: "Cuộc gọi", media: "Kho lưu trữ & giọng nói", sticker: "Nhãn dán", board: "Bảng tin & bình chọn", business: "Business & OA" };
-    const zitems = (((d.zca || {}).apis) || []).filter((a) => !have.has(snake(a.name))).map((a) => {
+    const zitems = (((d.zca || {}).apis) || []).filter((a) => !a.covered_by && !have.has(snake(a.name))).map((a) => {
       const fields = (a.args || []).map((f) => ({ key: f.name, label: (f.description || f.name) + " (" + f.type + ")", required: !!f.required }));
       if (a.mode === "raw") fields.push({ key: "params", label: "params — JSON đúng như zca-js gửi", required: true });
       return { addon: snake(a.name), action: snake(a.name), addon_no: "zca:" + a.name, group: "zca_" + a.domain, label: a.name, desc: a.summary, status: a.mode === "manual" ? "manual" : "supported", reason: a.reason, fields, thread: "none", danger: !!a.danger, zca: true };
@@ -821,10 +849,11 @@ $("btn-thread-svc").addEventListener("click", () => setTab("services"));
 $("btn-send").addEventListener("click", sendText); $("btn-like").addEventListener("click", () => sendRaw("👍"));
 $("btn-attach").addEventListener("click", () => $("file-in").click()); $("btn-img").addEventListener("click", () => $("img-in").click());
 for (const id of ["file-in", "img-in"]) $(id).addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) sendFiles(f); });
-$("btn-rec").addEventListener("click", toggleRecord); $("btn-emoji").addEventListener("click", toggleEmoji); $("qr-again").addEventListener("click", startQr);
+$("btn-sticker").addEventListener("click", toggleStickers); $("btn-rec").addEventListener("click", toggleRecord); $("btn-emoji").addEventListener("click", toggleEmoji); $("qr-again").addEventListener("click", startQr);
 $("msg-in").addEventListener("input", autosize);
 $("msg-in").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendText(); } });
 $("msg-in").addEventListener("paste", (e) => { const f = [...(e.clipboardData ? e.clipboardData.files : [])]; if (f.length) { e.preventDefault(); sendFiles(f); } });
+document.addEventListener("click", (e) => { const st = $("stickers"); if (!st.hidden && !st.contains(e.target) && !e.target.closest("#btn-sticker")) st.hidden = true; });
 document.addEventListener("click", (e) => { const em = $("emoji"); if (!em.hidden && !em.contains(e.target) && !e.target.closest("#btn-emoji")) em.hidden = true; });
 const mp = $("mainpane"); let dragN = 0; const dz = h("div", { class: "dropzone", hidden: true }, "Thả tệp để gửi"); mp.append(dz);
 mp.addEventListener("dragenter", (e) => { if (S.cur && S.tab === "chats" && e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragN++; dz.hidden = false; } });

@@ -64,6 +64,7 @@ def catalog():
         out.append({"name": e["name"], "action": _snake(e["name"]),
                     "domain": e["domain"], "summary": e["summary"],
                     "mode": e["mode"], "danger": e["danger"],
+                    "covered_by": e.get("covered_by", ""),
                     "method": e.get("method", ""),
                     "args": e.get("args", []), "reason": e.get("reason", ""),
                     "unverified": True})
@@ -175,6 +176,25 @@ class ZcaApi:
         if "://" not in raw:
             raw = "https://" + raw
         return raw.rstrip("/")
+
+    def raw_call(self, service, path, params, method="GET", fixed_domain=None):
+        """Goi mot endpoint zca-js theo (dich vu, duong dan) khi API do la ham nhieu buoc
+        (vd. getStickersDetail) — van cung duong day ma hoa/giai ma."""
+        entry = {"name": path, "service": service, "path": path,
+                 "fixed_domain": fixed_domain}
+        domain = self._domain(entry)
+        common = dict(protocol.common_params())
+        enc = self.svc._aes(json.dumps(params, separators=(",", ":"),
+                                       ensure_ascii=False))
+        if method == "POST":
+            url = "%s%s?%s" % (domain, path, urllib.parse.urlencode(common))
+            status, payload = self.svc.http_post(
+                url, "params=" + urllib.parse.quote(enc, safe=""), timeout=30)
+        else:
+            common["params"] = enc
+            url = "%s%s?%s" % (domain, path, urllib.parse.urlencode(common))
+            status, payload = self.svc.http_get(url, timeout=30)
+        return self.svc._unwrap(status, payload, "%s %s" % (method, path))
 
     def call(self, name, inputs=None):
         inputs = dict(inputs or {})

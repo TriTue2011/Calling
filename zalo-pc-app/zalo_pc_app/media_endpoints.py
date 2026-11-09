@@ -1013,6 +1013,31 @@ _MINIMAL_EXTEND_DATA = {
 }
 
 
+def zca_extend_data(rtp, rtcp, is_video=False, srtp_mode=0, srtp_key=None):
+    """extendData cua 416 theo @softtynet/zca-js 2.3.13 `buildZrtcExtendData`
+    (ZRTPPacketCodec.ts:313) — doi chieu 09/11/2026:
+      newZrtc 1 (app cu gui 0 = gia tri "parse loi" cua parser, khong phai gia tri that;
+      pcap Zalo PC chinh thuc cho thay dien thoai tra goi 0x90+BEDE = ZRTC moi),
+      maxFT 120 (app cu 60), platform 2 (app cu 3 — bao cao Muse §5.3 nghi ngo),
+      packetMode 1 (khung type-03/04 dang dung; app cu khai 2 = 0x7f ma gui khung cu),
+      serverAddr dang dict {rtcp,rtcpIPv6,rtp,rtpIPv6,tpType}, video.codec h264/97.
+    """
+    out = {
+        "callType": 1 if is_video else 0, "fecTP": 0, "gccAudio": 0,
+        "gccEarlyCall": 0, "gccMode": 0, "gccSVLR": 0, "maxFT": 120,
+        "newZrtc": 1, "packetMode": 1, "platform": 2, "sP2P": 0,
+        "serverAddr": [{"rtcp": rtcp, "rtcpIPv6": "::FFFF:%s" % rtcp,
+                        "rtp": rtp, "rtpIPv6": "::FFFF:%s" % rtp, "tpType": 0}],
+        "spTcp": 0, "srtcp": 0, "srtpMode": srtp_mode, "supportCallBusy": 0,
+        "supportHevcDecode": 0, "tpType": 0,
+        "video": {"codec": [{"name": "h264", "payload": 97}]},
+    }
+    if srtp_key:
+        out["srtpKey"] = srtp_key
+        out["srtpMode"] = 1
+    return out
+
+
 def _extend_data_dict(extend_data, srtp_mode, is_video=False,
                       server_addrs=None, srtp_key=None):
     """Normalize extendData to a dict for TransportConfig.
@@ -1245,7 +1270,8 @@ class MediaEndpoints:
                  protect_rtp=None, unprotect_rtp=None,
                  encode_frame=None, decode_frame=None,
                  selection_timeout=5.0, transport_factory=None,
-                 on_first_media=None, advertise_srtp_key=False):
+                 on_first_media=None, advertise_srtp_key=False,
+                 extend_profile="pc"):
         """Media fields for one outgoing call's request step (11301).
 
         Returns {"rtcp_address", "rtp_address", "rtp_source",
@@ -1513,6 +1539,12 @@ class MediaEndpoints:
         rtp_address, rtcp_address, rtp_source = \
             _resolve_11301_addresses(alloc.get("rtp_ip"),
                                      alloc.get("rtcp_ip"), selected)
+        if extend_profile == "zca":
+            extend_str = json.dumps(
+                zca_extend_data(rtp_address, rtcp_address, is_video,
+                                ext_dict.get("srtpMode", 0), srtp_key
+                                if advertise_srtp_key else None),
+                separators=(",", ":"), ensure_ascii=False)
         record = {"transport": transport, "srtp_key": srtp_key,
                   "codec": codec, "call_id": call_id,
                   "callee_id": str(callee_id),

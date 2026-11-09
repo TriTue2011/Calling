@@ -2198,6 +2198,19 @@ class Services:
         raise RuntimeError("svc: method lạ %s" % method)
 
 
+def make_services(state):
+    """(Services, ctx) cho phien Zalo hien tai — dung chung cho handle_svc va cac
+    tinh nang giao dien (nhan dan...)."""
+    from . import server as _server_mod
+    sess = state.session
+    transport = _server_mod.make_transport(sess["zpw_sek"])
+    svc = Services(transport, transport.http_post,
+                   sess["device_id"], sess["zpw_enk"],
+                   service_map=sess.get("service_map") or {},
+                   http_post_multipart=transport.http_post_multipart)
+    return svc, {"imei": sess.get("device_id", ""), "uid": sess.get("uid", "")}
+
+
 def handle_svc(state, action, body, files=None):
     """Móc duy nhất từ server.py do_POST /api/svc/<action>.
     `state` là AppState (đã qua _require_login ở server).

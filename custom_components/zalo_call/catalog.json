@@ -1908,17 +1908,6 @@
   ]
  },
  {
-  "name": "keep_alive",
-  "no": null,
-  "kind": "zca",
-  "action": "keep_alive",
-  "group": "zca_auth",
-  "label": "keepAlive — Gửi tín hiệu duy trì phiên kết nối HTTP tới máy chủ Chat (KeepAlive - command 11770)",
-  "thread": "none",
-  "danger": false,
-  "fields": []
- },
- {
   "name": "lost_focus",
   "no": null,
   "kind": "zca",
@@ -1973,36 +1962,6 @@
     "label": "language",
     "required": false,
     "description": "language to update (VI, EN) (UpdateLangAvailableLanguages)"
-   }
-  ]
- },
- {
-  "name": "fetch_important_messages",
-  "no": null,
-  "kind": "zca",
-  "action": "fetch_important_messages",
-  "group": "zca_chat",
-  "label": "fetchImportantMessages — Lấy danh sách các tin nhắn được đánh dấu quan trọng / đánh dấu sao (command 12114)",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "limit",
-    "label": "limit",
-    "required": false,
-    "description": "limit (number)"
-   },
-   {
-    "key": "newestId",
-    "label": "newestId",
-    "required": false,
-    "description": "newestId (string | null)"
-   },
-   {
-    "key": "lastId",
-    "label": "lastId",
-    "required": false,
-    "description": "lastId (string | null)"
    }
   ]
  },
@@ -3189,39 +3148,6 @@
   ]
  },
  {
-  "name": "get_group_history_legacy",
-  "no": null,
-  "kind": "zca",
-  "action": "get_group_history_legacy",
-  "group": "zca_group",
-  "label": "getGroupHistoryLegacy — Lấy lịch sử tin nhắn nhóm qua endpoint /api/group/history trên miền group (command 11240)",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "groupId",
-    "label": "groupId",
-    "required": true,
-    "description": "ID của nhóm (string)"
-   },
-   {
-    "key": "count",
-    "label": "count",
-    "required": false,
-    "description": "Số lượng tin nhắn cần tải (mặc định: `20`) (number)"
-   },
-   {
-    "key": "params",
-    "label": "params",
-    "required": true,
-    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
-    "selector": {
-     "object": null
-    }
-   }
-  ]
- },
- {
   "name": "get_group_info_v2",
   "no": null,
   "kind": "zca",
@@ -3304,24 +3230,6 @@
     "selector": {
      "object": null
     }
-   }
-  ]
- },
- {
-  "name": "get_group_link_detail",
-  "no": null,
-  "kind": "zca",
-  "action": "get_group_link_detail",
-  "group": "zca_group",
-  "label": "getGroupLinkDetail — Lấy chi tiết đường dẫn mời tham gia nhóm (Link邀請) của một nhóm mà bạn đang tham gia.",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "groupId",
-    "label": "groupId",
-    "required": true,
-    "description": "The group id (string)"
    }
   ]
  },
@@ -3595,24 +3503,6 @@
     "label": "groupId",
     "required": true,
     "description": "- The group id (string)"
-   }
-  ]
- },
- {
-  "name": "join_group_link",
-  "no": null,
-  "kind": "zca",
-  "action": "join_group_link",
-  "group": "zca_group",
-  "label": "joinGroupLink — Tham gia vào nhóm thông qua đường dẫn liên kết mời (Group Link).",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "link",
-    "label": "link",
-    "required": true,
-    "description": "- The link join group (string)"
    }
   ]
  },
@@ -4014,39 +3904,6 @@
   "fields": []
  },
  {
-  "name": "get_friend_profiles_v2",
-  "no": null,
-  "kind": "zca",
-  "action": "get_friend_profiles_v2",
-  "group": "zca_friend",
-  "label": "getFriendProfilesV2 — Lấy hàng loạt hồ sơ chi tiết của danh sách bạn bè kèm trạng thái online qua /api/social/friend/getprofiles/v2 (command 11140)",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "friendIds",
-    "label": "friendIds",
-    "required": true,
-    "description": "Mảng UID cần lấy hồ sơ (có thể kèm hậu tố `_version` hoặc truyền UID thuần) (string | string[])"
-   },
-   {
-    "key": "options",
-    "label": "options",
-    "required": false,
-    "description": "Tùy chọn truy vấn (GetFriendProfilesV2Options)"
-   },
-   {
-    "key": "params",
-    "label": "params",
-    "required": true,
-    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
-    "selector": {
-     "object": null
-    }
-   }
-  ]
- },
- {
   "name": "get_friend_recommendations",
   "no": null,
   "kind": "zca",
@@ -4201,17 +4058,6 @@
     "description": "Phiên bản danh bạ (mặc định: 0 để lấy toàn bộ) (number)"
    }
   ]
- },
- {
-  "name": "get_sent_friend_request",
-  "no": null,
-  "kind": "zca",
-  "action": "get_sent_friend_request",
-  "group": "zca_friend",
-  "label": "getSentFriendRequest — Lấy danh sách các lời mời kết bạn mà tài khoản hiện tại đã gửi đi nhưng chưa được phản hồi.",
-  "thread": "none",
-  "danger": false,
-  "fields": []
  },
  {
   "name": "read_contact_tab",
@@ -5920,24 +5766,6 @@
   "fields": []
  },
  {
-  "name": "get_sticker_category_data",
-  "no": null,
-  "kind": "zca",
-  "action": "get_sticker_category_data",
-  "group": "zca_sticker",
-  "label": "getStickerCategoryData — Lấy thông tin chi tiết một bộ nhãn dán theo cid (command 11156)",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "cid",
-    "label": "cid",
-    "required": true,
-    "description": "ID bộ nhãn dán (Category ID) (number)"
-   }
-  ]
- },
- {
   "name": "get_sticker_category_detail",
   "no": null,
   "kind": "zca",
@@ -6232,69 +6060,6 @@
   ]
  },
  {
-  "name": "create_one_one_board_topic",
-  "no": null,
-  "kind": "zca",
-  "action": "create_one_one_board_topic",
-  "group": "zca_board",
-  "label": "createOneOneBoardTopic — Tạo nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12429)",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "toUid",
-    "label": "toUid",
-    "required": true,
-    "description": "toUid (string)"
-   },
-   {
-    "key": "title",
-    "label": "title",
-    "required": true,
-    "description": "title (string)"
-   },
-   {
-    "key": "emoji",
-    "label": "emoji",
-    "required": false,
-    "description": "emoji (string)"
-   },
-   {
-    "key": "startTime",
-    "label": "startTime",
-    "required": false,
-    "description": "startTime (number)"
-   },
-   {
-    "key": "repeat",
-    "label": "repeat",
-    "required": false,
-    "description": "repeat (number)"
-   },
-   {
-    "key": "color",
-    "label": "color",
-    "required": false,
-    "description": "color (number)"
-   },
-   {
-    "key": "key",
-    "label": "key",
-    "required": true,
-    "description": "key (string]: unknown)"
-   },
-   {
-    "key": "params",
-    "label": "params",
-    "required": true,
-    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
-    "selector": {
-     "object": null
-    }
-   }
-  ]
- },
- {
   "name": "create_todo",
   "no": null,
   "kind": "zca",
@@ -6450,69 +6215,6 @@
     "label": "groupId",
     "required": true,
     "description": "Group ID to create note from (string)"
-   },
-   {
-    "key": "params",
-    "label": "params",
-    "required": true,
-    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
-    "selector": {
-     "object": null
-    }
-   }
-  ]
- },
- {
-  "name": "get_list_one_one_board",
-  "no": null,
-  "kind": "zca",
-  "action": "get_list_one_one_board",
-  "group": "zca_board",
-  "label": "getListOneOneBoard — Lấy danh sách nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12432)",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "uid",
-    "label": "uid",
-    "required": false,
-    "description": "uid (string)"
-   },
-   {
-    "key": "conversationId",
-    "label": "conversationId",
-    "required": false,
-    "description": "conversationId (string)"
-   },
-   {
-    "key": "boardType",
-    "label": "boardType",
-    "required": false,
-    "description": "boardType (number)"
-   },
-   {
-    "key": "page",
-    "label": "page",
-    "required": false,
-    "description": "page (number)"
-   },
-   {
-    "key": "count",
-    "label": "count",
-    "required": false,
-    "description": "count (number)"
-   },
-   {
-    "key": "lastId",
-    "label": "lastId",
-    "required": false,
-    "description": "lastId (number)"
-   },
-   {
-    "key": "lastType",
-    "label": "lastType",
-    "required": false,
-    "description": "lastType (number)"
    },
    {
     "key": "params",
@@ -6736,81 +6438,6 @@
   ]
  },
  {
-  "name": "remove_board_topic",
-  "no": null,
-  "kind": "zca",
-  "action": "remove_board_topic",
-  "group": "zca_board",
-  "label": "removeBoardTopic — Xóa chủ đề / ghi chú trên bảng tin nhóm (command 12143)",
-  "thread": "none",
-  "danger": true,
-  "fields": [
-   {
-    "key": "groupId",
-    "label": "groupId",
-    "required": true,
-    "description": "ID nhóm (string)"
-   },
-   {
-    "key": "topicId",
-    "label": "topicId",
-    "required": true,
-    "description": "ID chủ đề cần xóa (string)"
-   },
-   {
-    "key": "params",
-    "label": "params",
-    "required": true,
-    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
-    "selector": {
-     "object": null
-    }
-   },
-   {
-    "key": "confirm",
-    "label": "confirm",
-    "required": false,
-    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
-    "selector": {
-     "boolean": null
-    }
-   }
-  ]
- },
- {
-  "name": "remove_one_one_board_topic",
-  "no": null,
-  "kind": "zca",
-  "action": "remove_one_one_board_topic",
-  "group": "zca_board",
-  "label": "removeOneOneBoardTopic — Xóa nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12431)",
-  "thread": "none",
-  "danger": true,
-  "fields": [
-   {
-    "key": "uid",
-    "label": "uid",
-    "required": true,
-    "description": "ID người dùng đối phương (string)"
-   },
-   {
-    "key": "reminderId",
-    "label": "reminderId",
-    "required": true,
-    "description": "ID nhắc hẹn cần xóa (string)"
-   },
-   {
-    "key": "confirm",
-    "label": "confirm",
-    "required": false,
-    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
-    "selector": {
-     "boolean": null
-    }
-   }
-  ]
- },
- {
   "name": "reorder_friend_board",
   "no": null,
   "kind": "zca",
@@ -6876,45 +6503,6 @@
     "label": "boardVersion",
     "required": false,
     "description": "Phiên bản bảng ghim hiện tại (mặc định `0`) (number)"
-   },
-   {
-    "key": "params",
-    "label": "params",
-    "required": true,
-    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
-    "selector": {
-     "object": null
-    }
-   }
-  ]
- },
- {
-  "name": "respond_reminder",
-  "no": null,
-  "kind": "zca",
-  "action": "respond_reminder",
-  "group": "zca_board",
-  "label": "respondReminder — Phản hồi tham gia hoặc từ chối lịch nhắc hẹn trong nhóm (command 12087)",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "groupId",
-    "label": "groupId",
-    "required": true,
-    "description": "ID nhóm (string)"
-   },
-   {
-    "key": "eventId",
-    "label": "eventId",
-    "required": true,
-    "description": "ID sự kiện nhắc hẹn (string)"
-   },
-   {
-    "key": "type",
-    "label": "type",
-    "required": true,
-    "description": "Loại phản hồi (`1` = Tham gia, `2` = Từ chối) (number)"
    },
    {
     "key": "params",
@@ -7011,75 +6599,6 @@
     "label": "version",
     "required": false,
     "description": "Phiên bản bảng ghim hiện tại (mặc định `0`) (number)"
-   },
-   {
-    "key": "params",
-    "label": "params",
-    "required": true,
-    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
-    "selector": {
-     "object": null
-    }
-   }
-  ]
- },
- {
-  "name": "update_one_one_board_topic",
-  "no": null,
-  "kind": "zca",
-  "action": "update_one_one_board_topic",
-  "group": "zca_board",
-  "label": "updateOneOneBoardTopic — Cập nhật nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12430)",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "toUid",
-    "label": "toUid",
-    "required": true,
-    "description": "toUid (string)"
-   },
-   {
-    "key": "reminderId",
-    "label": "reminderId",
-    "required": true,
-    "description": "reminderId (string)"
-   },
-   {
-    "key": "title",
-    "label": "title",
-    "required": false,
-    "description": "title (string)"
-   },
-   {
-    "key": "emoji",
-    "label": "emoji",
-    "required": false,
-    "description": "emoji (string)"
-   },
-   {
-    "key": "startTime",
-    "label": "startTime",
-    "required": false,
-    "description": "startTime (number)"
-   },
-   {
-    "key": "repeat",
-    "label": "repeat",
-    "required": false,
-    "description": "repeat (number)"
-   },
-   {
-    "key": "color",
-    "label": "color",
-    "required": false,
-    "description": "color (number)"
-   },
-   {
-    "key": "key",
-    "label": "key",
-    "required": true,
-    "description": "key (string]: unknown)"
    },
    {
     "key": "params",
@@ -7883,17 +7402,6 @@
   ]
  },
  {
-  "name": "get_quick_message_list",
-  "no": null,
-  "kind": "zca",
-  "action": "get_quick_message_list",
-  "group": "zca_business",
-  "label": "getQuickMessageList — Lấy danh sách các mẫu Tin nhắn nhanh (Quick Messages) đã tạo.",
-  "thread": "none",
-  "danger": false,
-  "fields": []
- },
- {
   "name": "register_catalog",
   "no": null,
   "kind": "zca",
@@ -8160,30 +7668,6 @@
     "selector": {
      "object": null
     }
-   }
-  ]
- },
- {
-  "name": "update_labels",
-  "no": null,
-  "kind": "zca",
-  "action": "update_labels",
-  "group": "zca_business",
-  "label": "updateLabels — Cập nhật danh sách Nhãn phân loại (Labels) và gán nhãn cho các cuộc trò chuyện.",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "labelData",
-    "label": "labelData",
-    "required": true,
-    "description": "labelData (LabelData[])"
-   },
-   {
-    "key": "version",
-    "label": "version",
-    "required": true,
-    "description": "version (number)"
    }
   ]
  },

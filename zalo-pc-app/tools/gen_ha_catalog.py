@@ -113,7 +113,7 @@ def _zca_extras(core):
     extras = []
     for a in apis:
         name = re.sub(r"(?<!^)(?=[A-Z])", "_", a["name"]).lower()
-        if name in have or name in S.OPS or name in (
+        if a.get("covered_by") or name in have or name in S.OPS or name in (
                 "make_call", "answer_call", "reject_call", "end_call",
                 "voice_to_text"):
             continue
@@ -258,6 +258,15 @@ EXTRA_YAML = '''make_call:
           - auto
           - 'off'
           - key
+    extend_profile:
+      name: Hồ sơ tín hiệu cuộc gọi
+      description: pc = bộ giá trị cũ của app (mặc định); zca = bộ giá trị của zca-js (newZrtc=1, maxFT=120, platform=2, packetMode=1) — thử khi tiếng không thông.
+      default: pc
+      selector:
+        select:
+          options:
+          - pc
+          - zca
     speaker:
       name: Loa (ghi đè mặc định)
       description: media_player phát tiếng bên kia. Bỏ trống = dùng loa mặc định, nhập rỗng/không chọn

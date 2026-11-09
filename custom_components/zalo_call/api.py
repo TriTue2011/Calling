@@ -123,11 +123,14 @@ class ZaloCallApi:
 
     # -- cuoc goi -----------------------------------------------------------
     async def call_request(self, thread_id: str, call_type: str,
-                           peer_name: str = "", srtp: str | None = None) -> dict:
+                           peer_name: str = "", srtp: str | None = None,
+                           extend_profile: str | None = None) -> dict:
         body = {"callee_id": thread_id, "type": call_type,
                 "peer_name": peer_name or thread_id}
         if srtp in ("off", "key"):      # bo trong = app tu chon (auto)
             body["srtp"] = srtp
+        if extend_profile in ("pc", "zca"):
+            body["extend_profile"] = extend_profile
         return await self._request("POST", "/api/call/request", json=body)
 
     async def call_answer(self, call_id: str | int | None = None) -> dict:

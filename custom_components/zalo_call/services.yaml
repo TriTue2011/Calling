@@ -2343,12 +2343,6 @@ get_q_r:
       required: true
       selector:
         text: null
-keep_alive:
-  name: keepAlive
-  description: keepAlive — Gửi tín hiệu duy trì phiên kết nối HTTP tới máy chủ Chat (KeepAlive - command
-    11770)
-  fields:
-    entry_id: *id001
 lost_focus:
   name: lostFocus
   description: lostFocus — Gửi tín hiệu thông báo ứng dụng chuyển sang chế độ chạy nền (Background).
@@ -2383,30 +2377,6 @@ update_lang:
       selector: &id008
         text: null
       example: vi
-fetch_important_messages:
-  name: fetchImportantMessages
-  description: fetchImportantMessages — Lấy danh sách các tin nhắn được đánh dấu quan trọng / đánh dấu
-    sao (command 12114)
-  fields:
-    entry_id: *id001
-    limit:
-      name: limit
-      description: limit (number)
-      required: false
-      selector:
-        text: null
-    newestId:
-      name: newestId
-      description: newestId (string | null)
-      required: false
-      selector:
-        text: null
-    lastId:
-      name: lastId
-      description: lastId (string | null)
-      required: false
-      selector:
-        text: null
 get_block_sharing_conversations:
   name: getBlockSharingConversations
   description: getBlockSharingConversations — Lấy danh sách hội thoại đang bật chế độ chặn chia sẻ / chuyển
@@ -3307,31 +3277,6 @@ get_group_cloud_message_path:
       required: true
       selector:
         object: null
-get_group_history_legacy:
-  name: getGroupHistoryLegacy
-  description: getGroupHistoryLegacy — Lấy lịch sử tin nhắn nhóm qua endpoint /api/group/history trên
-    miền group (command 11240)
-  fields:
-    entry_id: *id001
-    groupId:
-      name: groupId
-      description: ID của nhóm (string)
-      required: true
-      selector:
-        text: null
-    count:
-      name: count
-      description: 'Số lượng tin nhắn cần tải (mặc định: `20`) (number)'
-      required: false
-      selector: *id011
-      example: 50
-      default: 50
-    params:
-      name: params
-      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
-      required: true
-      selector:
-        object: null
 get_group_info_v2:
   name: getGroupInfoV2
   description: 'getGroupInfoV2 — Lấy thông tin nhóm và danh sách thành viên theo trang qua /api/group/getgi/v2
@@ -3398,18 +3343,6 @@ get_group_invite_box_list:
       required: true
       selector:
         object: null
-get_group_link_detail:
-  name: getGroupLinkDetail
-  description: getGroupLinkDetail — Lấy chi tiết đường dẫn mời tham gia nhóm (Link邀請) của một nhóm mà
-    bạn đang tham gia.
-  fields:
-    entry_id: *id001
-    groupId:
-      name: groupId
-      description: The group id (string)
-      required: true
-      selector:
-        text: null
 get_group_link_info:
   name: getGroupLinkInfo
   description: getGroupLinkInfo — Tra cứu thông tin nhóm và danh sách thành viên theo trang từ đường dẫn
@@ -3600,17 +3533,6 @@ join_group_invite_box:
       required: true
       selector:
         text: null
-join_group_link:
-  name: joinGroupLink
-  description: joinGroupLink — Tham gia vào nhóm thông qua đường dẫn liên kết mời (Group Link).
-  fields:
-    entry_id: *id001
-    link:
-      name: link
-      description: '- The link join group (string)'
-      required: true
-      selector: *id013
-      example: https://zalo.me/g/abcxyz
 remove_group_blocked_member:
   name: removeGroupBlockedMember
   description: removeGroupBlockedMember — Gỡ chặn (Unblock) cho người dùng khỏi danh sách chặn của nhóm.
@@ -3894,31 +3816,6 @@ get_friend_onlines:
   description: getFriendOnlines — Lấy danh sách bạn bè đang trực tuyến (Online) kèm trạng thái thiết bị.
   fields:
     entry_id: *id001
-get_friend_profiles_v2:
-  name: getFriendProfilesV2
-  description: getFriendProfilesV2 — Lấy hàng loạt hồ sơ chi tiết của danh sách bạn bè kèm trạng thái
-    online qua /api/social/friend/getprofiles/v2 (command 11140)
-  fields:
-    entry_id: *id001
-    friendIds:
-      name: friendIds
-      description: Mảng UID cần lấy hồ sơ (có thể kèm hậu tố `_version` hoặc truyền UID thuần) (string
-        | string[])
-      required: true
-      selector:
-        text: null
-    options:
-      name: options
-      description: Tùy chọn truy vấn (GetFriendProfilesV2Options)
-      required: false
-      selector: *id014
-      example: '{"voice": "nova"}'
-    params:
-      name: params
-      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
-      required: true
-      selector:
-        object: null
 get_friend_recommendations:
   name: getFriendRecommendations
   description: getFriendRecommendations — Lấy danh sách gợi ý kết bạn và lời mời kết bạn đã nhận.
@@ -4024,12 +3921,6 @@ get_phonebook_v2:
       required: false
       selector:
         text: null
-get_sent_friend_request:
-  name: getSentFriendRequest
-  description: getSentFriendRequest — Lấy danh sách các lời mời kết bạn mà tài khoản hiện tại đã gửi đi
-    nhưng chưa được phản hồi.
-  fields:
-    entry_id: *id001
 read_contact_tab:
   name: readContactTab
   description: readContactTab — Đánh dấu đã đọc tab Danh bạ (command 12231)
@@ -5163,17 +5054,6 @@ get_sticker_categories_v2:
     12020) (chưa tự động: khong doc duoc doi tuong params)'
   fields:
     entry_id: *id001
-get_sticker_category_data:
-  name: getStickerCategoryData
-  description: getStickerCategoryData — Lấy thông tin chi tiết một bộ nhãn dán theo cid (command 11156)
-  fields:
-    entry_id: *id001
-    cid:
-      name: cid
-      description: ID bộ nhãn dán (Category ID) (number)
-      required: true
-      selector:
-        text: null
 get_sticker_category_detail:
   name: getStickerCategoryDetail
   description: getStickerCategoryDetail — Lấy danh sách toàn bộ nhãn dán nằm trong một bộ nhãn dán (Category/Pack
@@ -5376,59 +5256,6 @@ create_note:
       required: true
       selector:
         object: null
-create_one_one_board_topic:
-  name: createOneOneBoardTopic
-  description: createOneOneBoardTopic — Tạo nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12429)
-  fields:
-    entry_id: *id001
-    toUid:
-      name: toUid
-      description: toUid (string)
-      required: true
-      selector:
-        text: null
-    title:
-      name: title
-      description: title (string)
-      required: true
-      selector: *id017
-      example: Họp nhóm
-    emoji:
-      name: emoji
-      description: emoji (string)
-      required: false
-      selector:
-        text: null
-    startTime:
-      name: startTime
-      description: startTime (number)
-      required: false
-      selector:
-        text: null
-    repeat:
-      name: repeat
-      description: repeat (number)
-      required: false
-      selector:
-        text: null
-    color:
-      name: color
-      description: color (number)
-      required: false
-      selector:
-        text: null
-    key:
-      name: key
-      description: 'key (string]: unknown)'
-      required: true
-      selector:
-        text: null
-    params:
-      name: params
-      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
-      required: true
-      selector:
-        object: null
 create_todo:
   name: createTodo
   description: createTodo — Tạo công việc mới trong Zalo To-Do (command 12413)
@@ -5548,62 +5375,6 @@ edit_note:
       name: groupId
       description: Group ID to create note from (string)
       required: true
-      selector:
-        text: null
-    params:
-      name: params
-      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
-      required: true
-      selector:
-        object: null
-get_list_one_one_board:
-  name: getListOneOneBoard
-  description: getListOneOneBoard — Lấy danh sách nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command
-    12432)
-  fields:
-    entry_id: *id001
-    uid:
-      name: uid
-      description: uid (string)
-      required: false
-      selector:
-        text: null
-    conversationId:
-      name: conversationId
-      description: conversationId (string)
-      required: false
-      selector:
-        text: null
-    boardType:
-      name: boardType
-      description: boardType (number)
-      required: false
-      selector:
-        text: null
-    page:
-      name: page
-      description: page (number)
-      required: false
-      selector: *id012
-      example: '1'
-      default: '1'
-    count:
-      name: count
-      description: count (number)
-      required: false
-      selector: *id011
-      example: 50
-      default: 50
-    lastId:
-      name: lastId
-      description: lastId (number)
-      required: false
-      selector:
-        text: null
-    lastType:
-      name: lastType
-      description: lastType (number)
-      required: false
       selector:
         text: null
     params:
@@ -5771,60 +5542,6 @@ pin_friend_message:
       required: true
       selector:
         object: null
-remove_board_topic:
-  name: removeBoardTopic
-  description: removeBoardTopic — Xóa chủ đề / ghi chú trên bảng tin nhóm (command 12143) (không hoàn
-    tác được)
-  fields:
-    entry_id: *id001
-    groupId:
-      name: groupId
-      description: ID nhóm (string)
-      required: true
-      selector:
-        text: null
-    topicId:
-      name: topicId
-      description: ID chủ đề cần xóa (string)
-      required: true
-      selector:
-        text: null
-    params:
-      name: params
-      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
-      required: true
-      selector:
-        object: null
-    confirm:
-      name: confirm
-      description: Đặt true để xác nhận thao tác nguy hiểm.
-      required: false
-      selector:
-        boolean: null
-remove_one_one_board_topic:
-  name: removeOneOneBoardTopic
-  description: removeOneOneBoardTopic — Xóa nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12431)
-    (không hoàn tác được)
-  fields:
-    entry_id: *id001
-    uid:
-      name: uid
-      description: ID người dùng đối phương (string)
-      required: true
-      selector:
-        text: null
-    reminderId:
-      name: reminderId
-      description: ID nhắc hẹn cần xóa (string)
-      required: true
-      selector:
-        text: null
-    confirm:
-      name: confirm
-      description: Đặt true để xác nhận thao tác nguy hiểm.
-      required: false
-      selector:
-        boolean: null
 reorder_friend_board:
   name: reorderFriendBoard
   description: reorderFriendBoard — Sắp xếp lại thứ tự các tin nhắn đã ghim trong hội thoại 1-1 (command
@@ -5878,36 +5595,6 @@ reorder_pin_topics:
       required: false
       selector:
         text: null
-    params:
-      name: params
-      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
-      required: true
-      selector:
-        object: null
-respond_reminder:
-  name: respondReminder
-  description: respondReminder — Phản hồi tham gia hoặc từ chối lịch nhắc hẹn trong nhóm (command 12087)
-  fields:
-    entry_id: *id001
-    groupId:
-      name: groupId
-      description: ID nhóm (string)
-      required: true
-      selector:
-        text: null
-    eventId:
-      name: eventId
-      description: ID sự kiện nhắc hẹn (string)
-      required: true
-      selector:
-        text: null
-    type:
-      name: type
-      description: Loại phản hồi (`1` = Tham gia, `2` = Từ chối) (number)
-      required: true
-      selector: *id010
-      example: 0
-      default: 0
     params:
       name: params
       description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
@@ -5975,66 +5662,6 @@ unpin_friend_messages:
       name: version
       description: Phiên bản bảng ghim hiện tại (mặc định `0`) (number)
       required: false
-      selector:
-        text: null
-    params:
-      name: params
-      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
-      required: true
-      selector:
-        object: null
-update_one_one_board_topic:
-  name: updateOneOneBoardTopic
-  description: updateOneOneBoardTopic — Cập nhật nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command
-    12430)
-  fields:
-    entry_id: *id001
-    toUid:
-      name: toUid
-      description: toUid (string)
-      required: true
-      selector:
-        text: null
-    reminderId:
-      name: reminderId
-      description: reminderId (string)
-      required: true
-      selector:
-        text: null
-    title:
-      name: title
-      description: title (string)
-      required: false
-      selector: *id017
-      example: Họp nhóm
-    emoji:
-      name: emoji
-      description: emoji (string)
-      required: false
-      selector:
-        text: null
-    startTime:
-      name: startTime
-      description: startTime (number)
-      required: false
-      selector:
-        text: null
-    repeat:
-      name: repeat
-      description: repeat (number)
-      required: false
-      selector:
-        text: null
-    color:
-      name: color
-      description: color (number)
-      required: false
-      selector:
-        text: null
-    key:
-      name: key
-      description: 'key (string]: unknown)'
-      required: true
       selector:
         text: null
     params:
@@ -6626,11 +6253,6 @@ get_product_detail:
       required: true
       selector:
         text: null
-get_quick_message_list:
-  name: getQuickMessageList
-  description: getQuickMessageList — Lấy danh sách các mẫu Tin nhắn nhanh (Quick Messages) đã tạo.
-  fields:
-    entry_id: *id001
 register_catalog:
   name: registerCatalog
   description: registerCatalog — Đăng ký kích hoạt tính năng Danh mục sản phẩm (Catalog) cho tài khoản.
@@ -6837,24 +6459,6 @@ update_conversation_label_item:
       required: true
       selector:
         object: null
-update_labels:
-  name: updateLabels
-  description: updateLabels — Cập nhật danh sách Nhãn phân loại (Labels) và gán nhãn cho các cuộc trò
-    chuyện.
-  fields:
-    entry_id: *id001
-    labelData:
-      name: labelData
-      description: labelData (LabelData[])
-      required: true
-      selector:
-        text: null
-    version:
-      name: version
-      description: version (number)
-      required: true
-      selector:
-        text: null
 update_product_catalog:
   name: updateProductCatalog
   description: updateProductCatalog — Cập nhật thông tin chi tiết, giá bán và hình ảnh của sản phẩm trong
@@ -6959,6 +6563,16 @@ make_call:
           - auto
           - 'off'
           - key
+    extend_profile:
+      name: Hồ sơ tín hiệu cuộc gọi
+      description: pc = bộ giá trị cũ của app (mặc định); zca = bộ giá trị của zca-js (newZrtc=1, maxFT=120,
+        platform=2, packetMode=1) — thử khi tiếng không thông.
+      default: pc
+      selector:
+        select:
+          options:
+          - pc
+          - zca
     speaker:
       name: Loa (ghi đè mặc định)
       description: media_player phát tiếng bên kia. Bỏ trống = dùng loa mặc định, nhập rỗng/không chọn

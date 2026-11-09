@@ -787,6 +787,18 @@ def _send_answerack_async(call_id, thread_id):
                   % (call_id, e))
 
 
+EXTEND_PROFILES = ("pc", "zca")
+
+
+def _extend_profile_for_call(body):
+    """Hồ sơ extendData của cuộc gọi đi: body `extend_profile` > env
+    ZALO_PC_EXTEND_PROFILE > "pc" (mặc định cũ, đã biết làm điện thoại đổ chuông).
+    "zca" = bộ giá trị của zca-js (newZrtc=1...) — xem media_endpoints.zca_extend_data."""
+    want = str((body or {}).get("extend_profile")
+               or os.environ.get("ZALO_PC_EXTEND_PROFILE") or "pc").strip().lower()
+    return want if want in EXTEND_PROFILES else "pc"
+
+
 def _find_req_id(obj, depth=0):
     """req_id trong phan hoi voiceToText (co the long trong data)."""
     if depth > 4:
@@ -2854,6 +2866,35 @@ class Handler(BaseHTTPRequestHandler):
             # tĩnh, không chứa dữ liệu tài khoản — nhưng vẫn nằm sau
             # cổng đăng nhập app như mọi /api/* khác (xem do_GET).
             return self._send_json(services_mod.catalog_public())
+        if path.startswith("/api/stickers/"):
+            if self._require_login() is None:
+                return self._send_json({"error": "chua_dang_nhap"}, status=401)
+            from . import stickers as stickers_mod, zca_api as zca_mod
+            sub = path[len("/api/stickers/"):]
+            qs = urllib.parse.parse_qs(self.path.split("?", 1)[1]
+                                       if "?" in self.path else "")
+            try:
+                svc, ctx = services_mod.make_services(STATE)
+                st = stickers_mod.Stickers(svc, ctx)
+                if sub == "search":
+                    q = (qs.get("q") or [""])[0].strip()
+                    if not q:
+                        return self._send_json({"ok": False, "error": "thieu q"},
+                                               status=400)
+                    items = st.search(q)
+                elif sub == "recommended":
+                    items = st.recommended()
+                elif sub.startswith("category/"):
+                    items = st.category(sub[len("category/"):])
+                else:
+                    return self._send_json({"error": "khong co"}, status=404)
+            except zca_mod.ZcaManual as m:
+                return self._send_json({"ok": False, "error": m.reason}, status=409)
+            except (zca_mod.ZcaError, ValueError) as m:
+                return self._send_json({"ok": False, "error": str(m)}, status=400)
+            except Exception as m:  # noqa: BLE001 - loi Zalo/mang
+                return self._send_json({"ok": False, "error": str(m)}, status=502)
+            return self._send_json({"ok": True, "items": items})
         if path.startswith("/api/voice2text/"):
             if self._require_login() is None:
                 return self._send_json({"error": "chua_dang_nhap"}, status=401)
@@ -3891,6 +3932,7 @@ class Handler(BaseHTTPRequestHandler):
                         requestcall_data=data,
                         is_video=(call_type == "video"),
                         on_first_media=_on_first_media,
+                        extend_profile=_extend_profile_for_call(body),
                         **dict(hooks, **(
                             {"srtp_key": _local_key,
                              "advertise_srtp_key": True}
@@ -3905,13 +3947,14 @@ class Handler(BaseHTTPRequestHandler):
                     # carry a real relay?") is answered by this
                     # line alone.
                     _log_call("step2 send call_id=%s rtp=%s rtcp=%s "
-                              "rtp_source=%s session=%s codec=%s"
+                              "rtp_source=%s session=%s codec=%s extend=%s"
                               % (call_id, endpoints["rtp_address"],
                                  endpoints["rtcp_address"],
                                  endpoints.get("rtp_source", "selected"),
                                  _describe_session_value(
                                      endpoints["session"]),
-                                 endpoints["codec"]))
+                                 endpoints["codec"],
+                                 _extend_profile_for_call(body)))
                     step2_resp = None
                     try:
                         if call_type == "group":

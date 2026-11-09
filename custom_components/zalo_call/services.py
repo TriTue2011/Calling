@@ -191,7 +191,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
             res = await api.call_request(str(call.data["thread_id"]),
                                          call.data.get("type", "user"),
                                          call.data.get("peer_name", ""),
-                                         call.data.get("srtp"))
+                                         call.data.get("srtp"),
+                                         call.data.get("extend_profile"))
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
         return {"result": res}
@@ -246,6 +247,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
             vol.Optional("type", default="user"): vol.In(["user", "video", "group"]),
             vol.Optional("peer_name"): cv.string,
             vol.Optional("srtp"): vol.In(["auto", "off", "key"]),
+            vol.Optional("extend_profile"): vol.In(["pc", "zca"]),
             **devices}),
         supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
