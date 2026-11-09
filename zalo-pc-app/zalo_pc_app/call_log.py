@@ -21,13 +21,20 @@ Statuses (Vietnamese labels live in the UI, not here):
            `answer_source` how the app learned it ("api" = an
            explicit /api/call/answered call, e.g. from a sync
            push event; "media" = first inbound RTP arrived).
+  incoming — a call is coming IN (2026-11-09, zca-js flow): the
+           peer called us and the app saw the `call_event`
+           (act "request") on ctrl 99101. Live until answered
+           (POST /api/call/answer, 11303) or ended (missed,
+           rejected, peer hung up). No ring timer is armed for
+           it — the peer's side decides when it stops ringing.
   error  — the request failed; `detail` carries the error text.
   ended  — /api/call/end was called for this call_id.
 
-"LIVE" means status in ("sent", "answered") — every place that
-looks for the live call (snapshot/active, record_end, supersede)
-must accept both; before this fix only "sent" existed, so an
-answered call could never be ended through /api/call/end.
+"LIVE" means status in ("sent", "answered", "incoming") — every
+place that looks for the live call (snapshot/active, record_end,
+supersede) must accept all three; before this fix only "sent"
+existed, so an answered call could never be ended through
+/api/call/end.
 
 Each entry also carries `request_sent` (True/False/None — None
 means the request step was never attempted, e.g. entries recorded
@@ -51,7 +58,7 @@ MAX_RECORDS = 50
 
 
 # Statuses that count as a LIVE call (ringing or connected).
-LIVE_STATUSES = ("sent", "answered")
+LIVE_STATUSES = ("sent", "answered", "incoming")
 
 
 class CallLog:
@@ -85,20 +92,46 @@ class CallLog:
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
 
+    def record_incoming(self, call_id, peer, thread_id, call_type):
+        """A call is coming IN: the peer called us (call_event act
+        "request" on ctrl 99101). Log it live with status
+        "incoming", and close any earlier live call (an incoming
+        call supersedes it, same as record_start). The closed
+        entry keeps "superseded_by_new_call" in `detail`."""
+        now = time.time()
+        with self._lock:
+            for c in self._calls:
+                if c["status"] in LIVE_STATUSES:
+                    c["status"] = "ended"
+                    c["ended_at"] = now
+                    c["detail"] = "superseded_by_new_call"
+            entry = {"call_id": str(call_id), "peer": peer or "",
+                     "thread_id": str(thread_id), "type": call_type,
+                     "status": "incoming", "started_at": now,
+                     "ended_at": None, "detail": "",
+                     "request_sent": None, "request_detail": "",
+                     "answered_at": None, "answer_source": "",
+                     "diag": {}}
+            self._calls.append(entry)
+            del self._calls[:-MAX_RECORDS]
+            return dict(entry)
+
     def record_answered(self, call_id, source=""):
         """Mark a live (ringing) call answered: the peer picked up
-        and the call is connected. Only "sent" -> "answered"; an
-        already-answered entry is returned unchanged (idempotent)
-        and any other status (ended/error/unknown) returns None.
-        The ring timer must be disarmed by the caller when this
-        returns an entry — an answered call is never ring-timed-out."""
+        and the call is connected. "sent" -> "answered" (outgoing)
+        and "incoming" -> "answered" (we picked up an incoming
+        call); an already-answered entry is returned unchanged
+        (idempotent) and any other status (ended/error/unknown)
+        returns None. The ring timer must be disarmed by the
+        caller when this returns an entry — an answered call is
+        never ring-timed-out."""
         now = time.time()
         with self._lock:
             for c in self._calls:
                 if c["call_id"] == str(call_id):
                     if c["status"] == "answered":
                         return dict(c)
-                    if c["status"] != "sent":
+                    if c["status"] not in ("sent", "incoming"):
                         return None
                     c["status"] = "answered"
                     c["answered_at"] = now

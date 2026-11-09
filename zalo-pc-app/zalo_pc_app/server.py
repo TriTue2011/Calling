@@ -35,6 +35,13 @@ API (all JSON, never returns session secrets):
                           1-1 calls; also fired by first inbound
                           RTP (media proves the answer, no sync
                           channel needed)
+  POST /api/call/answer   {call_id} -> answer an INCOMING call
+                          (we are the callee): 11300 fallback +
+                          11303 answer; NO 11301 and NO 11304
+                          (both are the caller's signals, zca-js)
+  POST /api/call/reject   {call_id} -> reject an INCOMING call:
+                          cancel (11305) + endcall (11306),
+                          zca-js rejectIncomingCall
   GET  /api/svc/catalog   96-service catalog + support status
   POST /api/svc/<action>  addon-service op (services.py; needs login)
   GET  /api/engine/status media-engine seam status
@@ -530,6 +537,35 @@ def _disarm_ring_timer(call_id):
             pass
 
 
+def _send_ringring_async(call_id, thread_id):
+    """Best-effort ringring (11302, bundle wZ ringRingVoiceCall):
+    the callee reports ringing to the caller. Runs on a daemon
+    thread so it never blocks the ctrl poller — the call_event
+    callback runs on the poller's thread, and a slow signaling
+    round-trip there would stall the whole ctrl channel. The
+    session is read fresh from STATE; without one the ring is
+    skipped (logged, not fatal: the incoming entry is still
+    recorded). Only for 1-1 calls. On success the entry's diag
+    gains incoming_ringring_sent=True, so POST /api/call/answer
+    knows it does not need to ring again."""
+    sess = STATE.session
+    if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
+        _log_call("ringring call_id=%s ok=False error=no_session"
+                  % call_id)
+        return
+    try:
+        transport = make_transport(sess["zpw_sek"])
+        sig = signaling_mod.Signaling(transport, sess["device_id"],
+                                      sess["zpw_enk"])
+        sig.ringring(thread_id, call_id)
+        STATE.calls.record_diag(
+            call_id, {"incoming_ringring_sent": True})
+        _log_call("ringring call_id=%s ok=True" % call_id)
+    except Exception as e:  # noqa: BLE001 - best-effort
+        _log_call("ringring call_id=%s ok=False error=%s"
+                  % (call_id, e))
+
+
 def _send_answerack_async(call_id, thread_id):
     """Best-effort answerack (11304, bundle wZ sendAnswerACKCall):
     the caller ACKs the callee's answer. Runs on a daemon thread
@@ -574,18 +610,24 @@ def _calls_snapshot_with_media():
     return snap
 
 
-def _mark_answered(call_id, source):
+def _mark_answered(call_id, source, send_ack=True):
     """Mark a live (ringing) call answered: the peer picked up and
     the call is connected. `source` names how the app learned it
     ("api" = POST /api/call/answered, e.g. from a sync push event;
-    "media" = first inbound RTP arrived). Idempotent: marking an
+    "media" = first inbound RTP arrived; "sync" = a call_event
+    "answer" on ctrl 99101). Idempotent: marking an
     already-answered call returns it unchanged without re-logging
     or re-ACKing. Returns the entry, or None when there is no live
     call with that id. Side effects on transition: the ring timer
     is disarmed (an answered call is never ring-timed-out), a
     [call] answered line is logged, a call webhook event fires,
-    and an answerack (11304) is sent best-effort on a daemon
-    thread for 1-1 calls. It also starts the P2P hello handshake
+    and — for an OUTGOING call only (send_ack=True) — an answerack
+    (11304) is sent best-effort on a daemon thread for 1-1 calls.
+    An INCOMING call is answered with send_ack=False: the callee
+    never sends 11304 — it is the CALLER's signal (zca-js
+    acceptIncomingCall sends no answerack; the mock's
+    server_call_state confirms 11304 is the caller's ACK of the
+    callee's answer). It also starts the P2P hello handshake
     (transport.begin_p2p, best-effort): only now — after the
     answer — does the relay know the peer's address, so only
     now can the hello go to the peer instead of to ourselves
@@ -594,7 +636,7 @@ def _mark_answered(call_id, source):
     live = None
     for c in snap["calls"]:
         if str(c["call_id"]) == str(call_id) \
-                and c["status"] in ("sent", "answered"):
+                and c["status"] in ("sent", "answered", "incoming"):
             live = c
             break
     if live is None:
@@ -627,7 +669,7 @@ def _mark_answered(call_id, source):
     webhooks_mod.dispatch_call_event(
         STATE.webhook_dispatcher, entry,
         (STATE.session or {}).get("uid", ""))
-    if (entry.get("type") or "user") != "group":
+    if send_ack and (entry.get("type") or "user") != "group":
         thread = threading.Thread(
             target=_send_answerack_async,
             args=(int(entry["call_id"]), entry["thread_id"]),
@@ -1455,6 +1497,101 @@ class AppState:
         except Exception:
             pass
 
+    def _on_ctrl_call_event(self, event):
+        """Callback call_event tu CtrlPoller (99101): su kien goi
+        thoai theo flow zca-js (ZaloRtcSession: call_event act
+        "request" -> ringring 11302 -> answer 11303 -> answerack
+        11304 o phia caller; tu choi bang cancel 11305 + endcall
+        11306). Chi log dang event + id, khong log noi dung."""
+        try:
+            act = (event or {}).get("act", "")
+            call_id = (event or {}).get("call_id")
+            if call_id is None:
+                return
+            if act == "request":
+                self._on_incoming_call_request(event)
+            elif act in ("cancel", "end", "endcall"):
+                self._on_incoming_call_ended(event, act)
+            elif act == "answer":
+                # Peer answered OUR outgoing call (sync path):
+                # mark answered, source "sync" — _mark_answered
+                # sends the caller's answerack (11304) itself.
+                entry = _mark_answered(call_id, "sync")
+                if entry is not None:
+                    _log_call("call_event answer call_id=%s "
+                              "answered" % call_id)
+            elif act in ("ringring", "answer_ack"):
+                _log_call("call_event %s call_id=%s" % (act, call_id))
+            elif act in ("group_request", "group_cancel",
+                         "group_end"):
+                # Group incoming: chua ho tro (chi 1-1 o vong nay).
+                _log_call("call_event %s call_id=%s "
+                          "unsupported=group" % (act, call_id))
+            else:
+                _log_call("call_event act=%s call_id=%s ignored"
+                          % (act, call_id))
+        except Exception:
+            pass
+
+    def _on_incoming_call_request(self, event):
+        """Cuoc goi den (call_event act "request"): ghi entry
+        "incoming" (thay the cuoc live truoc), gui ringring 11302
+        best-effort tren daemon thread, day webhook call.incoming.
+        Khong arm ring timer — phia goi quyet dinh khi nao dung
+        do chuong."""
+        call_id = int(event["call_id"])
+        caller_id = str(event.get("caller_id") or "")
+        peer = event.get("caller_name") or caller_id
+        entry = STATE.calls.record_incoming(
+            call_id, peer, caller_id, "user")
+        STATE.calls.record_diag(call_id, {
+            "incoming_codec": event.get("codec") or "",
+            "incoming_session_present": bool(event.get("session")),
+            "incoming_rtp_present": bool(event.get("rtp_address")),
+            "incoming_ringring_sent": False})
+        _log_call("incoming call_id=%s peer=%s thread=%s"
+                  % (call_id, peer, caller_id))
+        thread = threading.Thread(
+            target=_send_ringring_async,
+            args=(call_id, caller_id), daemon=True)
+        thread.start()
+        webhooks_mod.dispatch_call_event(
+            STATE.webhook_dispatcher, entry,
+            (STATE.session or {}).get("uid", ""))
+
+    def _on_incoming_call_ended(self, event, act):
+        """Caller ket thuc truoc khi ta tra loi (cancel/end), hoac
+        ket thuc mot cuoc dang noi: chi GHI NHAN, khong gui tin
+        hieu (phia kia da ket thuc roi). Incoming chua tra loi ->
+        "missed" (cuoc goi nho); outgoing/answered -> peer ket
+        thuc. Webhook call.ended."""
+        call_id = int(event["call_id"])
+        snap = STATE.calls.snapshot()
+        target = None
+        for c in snap["calls"]:
+            if str(c["call_id"]) == str(call_id) \
+                    and c["status"] in ("incoming", "sent",
+                                        "answered"):
+                target = c
+                break
+        if target is None:
+            _log_call("call_event %s call_id=%s ignored=no_live"
+                      % (act, call_id))
+            return
+        if target["status"] == "incoming":
+            detail = "missed"
+        elif act == "cancel":
+            detail = "peer_declined"
+        else:
+            detail = "peer_ended"
+        entry = STATE.calls.record_end(call_id, detail)
+        if entry is not None:
+            _log_call("call_event %s call_id=%s ended detail=%s"
+                      % (act, call_id, detail))
+            webhooks_mod.dispatch_call_event(
+                STATE.webhook_dispatcher, entry,
+                (STATE.session or {}).get("uid", ""))
+
     @staticmethod
     def _sync_error_text(exc):
         """Failure label for sync_error: exception type + a
@@ -1686,6 +1823,7 @@ class AppState:
                 on_cursor=lambda c: self._save_sync_cursor("ctrl", c),
                 on_group_event=self._on_ctrl_group_event,
                 on_reaction=self._on_ctrl_reaction,
+                on_call_event=self._on_ctrl_call_event,
                 file_registry=self.file_async)
         except ValueError as e:
             print("[sync-poll] kenh ctrl khong mo duoc: %s"
@@ -3255,6 +3393,167 @@ class Handler(BaseHTTPRequestHandler):
                  "status": entry["status"],
                  "answered_at": entry.get("answered_at"),
                  "answer_source": entry.get("answer_source", "")})
+        if path == "/api/call/answer":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            # Answer an INCOMING call (we are the callee). zca-js
+            # acceptIncomingCall: ringring 11302 (unless the
+            # call_event handler already sent it) -> requestVoiceCall
+            # 11300 fallback for a fresh allocation (same callId,
+            # partner = caller) -> answerVoiceCall 11303 with the
+            # allocation's endpoints. The 11301 request step is NOT
+            # sent — that is the caller's signal — and no answerack
+            # (11304) is sent either: 11304 is the CALLER's signal
+            # (zca-js + mock server_call_state). Target resolution
+            # mirrors /api/call/answered, but only an "incoming"
+            # entry counts.
+            raw_id = body.get("call_id", "")
+            call_id = _coerce_call_id(raw_id)
+            snap = STATE.calls.snapshot()
+            live = snap["active"]
+            target = None
+            if call_id is not None:
+                for c in snap["calls"]:
+                    if (str(c["call_id"]) == str(call_id)
+                            and c["status"] == "incoming"):
+                        target = c
+                        break
+            if target is None and live is not None \
+                    and live["status"] == "incoming":
+                target = live
+            if target is None:
+                _log_call("answer call_id=%s reason=no_incoming_call"
+                          % raw_id)
+                return self._send_json(
+                    {"ok": False, "error": "no_incoming_call"})
+            call_id = int(target["call_id"])
+            caller_id = target["thread_id"]
+            codec = ((target.get("diag") or {}).get("incoming_codec")
+                     or media_endpoints.DEFAULT_ZALO_AUDIO_CODEC)
+            # Ringring first when the call_event handler has not
+            # sent it yet (best-effort, synchronous here: the
+            # answer must reach the caller after the ring).
+            if not (target.get("diag") or {}).get(
+                    "incoming_ringring_sent"):
+                try:
+                    transport = make_transport(sess["zpw_sek"])
+                    sig = signaling_mod.Signaling(
+                        transport, sess["device_id"], sess["zpw_enk"])
+                    sig.ringring(caller_id, call_id)
+                    STATE.calls.record_diag(
+                        call_id, {"incoming_ringring_sent": True})
+                except Exception as e:  # noqa: BLE001 - best-effort
+                    _log_call("ringring call_id=%s ok=False "
+                              "error=%s" % (call_id, e))
+            try:
+                transport = make_transport(sess["zpw_sek"])
+                sig = signaling_mod.Signaling(
+                    transport, sess["device_id"], sess["zpw_enk"])
+                data = sig.request_call(
+                    caller_id, call_id, codec,
+                    _type_request_for("user"))
+                _alloc = media_endpoints. \
+                    allocation_from_requestcall_data(data)
+                hooks = {}
+                if _alloc.get("srtp_key") is not None:
+                    try:
+                        from . import pc_media
+                        hooks = pc_media.media_hooks_for_call(
+                            _alloc["srtp_key"])
+                    except Exception:  # noqa: BLE001 - optional
+                        hooks = {}
+
+                def _on_first_media():
+                    _mark_answered(call_id, "media", send_ack=False)
+
+                endpoints = media_endpoints.ENDPOINTS.for_call(
+                    call_id=call_id, callee_id=caller_id,
+                    call_type="user", codec=body.get("codec") or codec,
+                    local_session=_alloc.get("local_session"),
+                    peer_session=_alloc.get("peer_session"),
+                    requestcall_data=data,
+                    on_first_media=_on_first_media, **hooks)
+                sig.answer(caller_id, call_id, 0, endpoints["codec"],
+                           endpoints["rtcp_address"],
+                           endpoints["rtp_address"],
+                           endpoints["session"],
+                           endpoints["extend_data"])
+            except Exception as e:  # noqa: BLE001 - loi ro
+                _log_call("answer call_id=%s ok=False error=%s"
+                          % (call_id, e))
+                return self._send_json(
+                    {"ok": False, "error": str(e)})
+            entry = _mark_answered(call_id, "api", send_ack=False)
+            if entry is None:
+                return self._send_json(
+                    {"ok": False, "error": "no_incoming_call"})
+            return self._send_json(
+                {"ok": True, "call_id": call_id,
+                 "status": entry["status"],
+                 "answered_at": entry.get("answered_at"),
+                 "answer_source": entry.get("answer_source", "")})
+        if path == "/api/call/reject":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            # Reject an INCOMING call (we are the callee). zca-js
+            # rejectIncomingCall (1-1): cancelVoiceCall (11305)
+            # AND endVoiceCall (11306, status 3), both best-effort.
+            # LOCAL-FIRST like /api/call/end: the entry is ended
+            # locally first, then the signals are attempted.
+            raw_id = body.get("call_id", "")
+            call_id = _coerce_call_id(raw_id)
+            snap = STATE.calls.snapshot()
+            live = snap["active"]
+            target = None
+            if call_id is not None:
+                for c in snap["calls"]:
+                    if (str(c["call_id"]) == str(call_id)
+                            and c["status"] == "incoming"):
+                        target = c
+                        break
+            if target is None and live is not None \
+                    and live["status"] == "incoming":
+                target = live
+            if target is None:
+                _log_call("reject call_id=%s reason=no_incoming_call"
+                          % raw_id)
+                return self._send_json(
+                    {"ok": False, "error": "no_incoming_call"})
+            call_id = int(target["call_id"])
+            caller_id = target["thread_id"]
+            entry = STATE.calls.record_end(call_id, "user_rejected")
+            zalo_ok = True
+            zalo_error = ""
+            for signal in ("cancel", "endcall"):
+                try:
+                    transport = make_transport(sess["zpw_sek"])
+                    sig = signaling_mod.Signaling(
+                        transport, sess["device_id"], sess["zpw_enk"])
+                    if signal == "cancel":
+                        # callerId = the CALLER (peer), callType =
+                        # the 1-1 audio enum (1), like _send_end_signal.
+                        sig.cancel(caller_id, call_id,
+                                   _type_request_for("user"))
+                    else:
+                        sig.endcall(caller_id, call_id)
+                except Exception as e:  # noqa: BLE001 - best-effort
+                    zalo_ok = False
+                    zalo_error = str(e)
+            if entry is not None:
+                webhooks_mod.dispatch_call_event(
+                    STATE.webhook_dispatcher, entry,
+                    (STATE.session or {}).get("uid", ""))
+                _log_call("reject call_id=%s zalo_ok=%s%s"
+                          % (call_id, zalo_ok,
+                             (" zalo_error=" + zalo_error)
+                             if zalo_error else ""))
+            return self._send_json(
+                {"ok": True, "ended_call_id": call_id,
+                 "zalo_ok": zalo_ok, "zalo_error": zalo_error})
         # WEBHOOK HOOK (webhooks.py): save the webhook config. Auth is
         # the same _require_login() as /api/calls. Bad URL -> 400,
         # nothing written. Unknown keys are dropped by normalize.

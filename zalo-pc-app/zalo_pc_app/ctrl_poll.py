@@ -363,6 +363,183 @@ def extract_reactions(data):
     return out
 
 
+def _call_event_int(value):
+    """callId dang so nguyen duong (uint32): int, chuoi so, float
+    nguyen; dang khac -> None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 1 else None
+    if isinstance(value, float) and value.is_integer():
+        return int(value) if value >= 1 else None
+    if isinstance(value, str):
+        text = value.strip()
+        if text.isdigit():
+            return int(text)
+    return None
+
+
+def _call_event_layers(data):
+    """Cac lop dict de doc truong cua mot call event: data goc,
+    roi params long nhau, roi data long nhau — lop truoc thang
+    lop sau (thu tu doc cua parseIncomingCallEvent, zca-js)."""
+    layers = []
+    if isinstance(data, dict):
+        layers.append(data)
+        params = _event_data(data.get("params"))
+        if isinstance(params, dict):
+            layers.append(params)
+        inner = _event_data(data.get("data"))
+        if isinstance(inner, dict):
+            layers.append(inner)
+    return layers
+
+
+def _call_field(layers, *keys):
+    """Gia tri dau tien khac rong cua mot truong qua cac lop."""
+    for layer in layers:
+        for key in keys:
+            value = layer.get(key)
+            if value is not None and value != "":
+                return value
+    return None
+
+
+def _call_rtp_addr(layers, kind):
+    """Dia chi rtp/rtcp: truong thang (rtpAddress/rtpIP/rtpServer),
+    roi servers[0] / serverAddr[0] / rtp[0]; rtcp ve rtp khi
+    thieu (theo parseIncomingCallEvent, zca-js)."""
+    primary = ("rtpAddress", "rtpIP", "rtpServer") \
+        if kind == "rtp" else ("rtcpAddress", "rtcpIP", "rtcpServer")
+    for layer in layers:
+        for key in primary:
+            value = layer.get(key)
+            if isinstance(value, str) and value:
+                return value
+    sub_keys = (("rtpaddr", "rtp", "ip", "addr", "address")
+                if kind == "rtp"
+                else ("rtcpaddr", "rtcp", "ip", "addr", "address"))
+    for layer in layers:
+        for key in ("servers", "serverAddr", "server", "rtp"):
+            items = layer.get(key)
+            if isinstance(items, list) and items:
+                first = items[0]
+                if isinstance(first, dict):
+                    for sub in sub_keys:
+                        value = first.get(sub)
+                        if isinstance(value, str) and value:
+                            return value
+                elif isinstance(first, str) and first:
+                    return first
+    return ""
+
+
+def extract_call_events(data):
+    """Tach cac event goi thoai (call_event) tu payload ctrl da
+    giai ma -> [{act, call_id, caller_id, caller_name, session,
+    codec, rtp_address, rtcp_address, call_type, is_video, data}].
+
+    Bang chung zca-js v2.3.13 (control.handler.ts): control co
+    actType == "voip" thi `callEventData =
+    JSON.parse(control.content.data)` roi emit "call_event".
+    parseIncomingCallEvent (ZaloRtcSession.ts:582+) doc callId tu
+    callId/call_id/id/params.*/extendData.*; caller tu
+    uidN/callerId/uidFrom/fromId (co map noise-id); sessId tu
+    session/sessId/callSetting.session; rtp/rtcp tu
+    rtpAddress/rtpIP/rtpServer/servers[0]/serverAddr[0]; codec
+    tu event; callType tu extendData.callType (0 thoai / 1 video).
+
+    Event thieu act hoac thieu call_id thi bo qua; "request"
+    thieu caller thi bo qua (khong biet ai goi); cac act khac
+    (cancel/end/answer/ringring/answer_ack) chi can call_id.
+    Trung trong mot batch thi chi lay mot. data co the la dict,
+    chuoi JSON, hoac long nhau {params: {...}} / {params:
+    "<json>"}.
+    """
+    out = []
+    seen = set()
+    if not isinstance(data, dict):
+        return out
+    controls = data.get("controls")
+    if not isinstance(controls, list):
+        return out
+    for ctrl in controls:
+        if not isinstance(ctrl, dict):
+            continue
+        content = ctrl.get("content")
+        if not isinstance(content, dict):
+            continue
+        if content.get("act_type") != "voip":
+            continue
+        parsed = _event_data(content.get("data"))
+        if not isinstance(parsed, dict):
+            continue
+        layers = _call_event_layers(parsed)
+        act = _call_field(layers, "act", "type") or ""
+        if not act:
+            act = content.get("act") or content.get("type") or ""
+        act = str(act)
+        if not act:
+            continue
+        call_id = _call_event_int(
+            _call_field(layers, "callId", "call_id", "id"))
+        if call_id is None:
+            continue
+        caller = _call_field(
+            layers, "uidN", "callerId", "uidFrom", "fromId",
+            "hostCall") or ""
+        caller = str(caller)
+        if act == "request" and not caller:
+            continue
+        key = (act, call_id, caller)
+        if key in seen:
+            continue
+        seen.add(key)
+        # callType: extendData (dict hoac chuoi JSON) o bat ky
+        # lop nao thang, roi truong callType thang.
+        call_type = 0
+        for layer in layers:
+            ext = _event_data(layer.get("extendData"))
+            if isinstance(ext, dict):
+                raw_type = ext.get("callType")
+                if isinstance(raw_type, int) \
+                        and not isinstance(raw_type, bool):
+                    call_type = raw_type
+                    break
+                if isinstance(raw_type, str) and raw_type.isdigit():
+                    call_type = int(raw_type)
+                    break
+        raw_type = _call_field(layers, "callType")
+        if isinstance(raw_type, int) \
+                and not isinstance(raw_type, bool):
+            call_type = raw_type
+        elif isinstance(raw_type, str) and raw_type.isdigit():
+            call_type = int(raw_type)
+        session = _call_field(layers, "session", "sessId") or ""
+        call_setting = _call_field(layers, "callSetting")
+        if not session and isinstance(call_setting, dict):
+            session = call_setting.get("session") or ""
+        codec = _call_field(layers, "codec") or ""
+        rtp = _call_rtp_addr(layers, "rtp")
+        rtcp = _call_rtp_addr(layers, "rtcp") or rtp
+        name = _call_field(layers, "callerName", "caller_name",
+                           "name", "displayName") or ""
+        out.append({
+            "act": act,
+            "call_id": call_id,
+            "caller_id": caller,
+            "caller_name": str(name),
+            "session": str(session),
+            "codec": str(codec),
+            "rtp_address": rtp,
+            "rtcp_address": rtcp,
+            "call_type": call_type,
+            "is_video": call_type == 1,
+            "data": parsed,
+        })
+    return out
+
+
 class VoiceAsyncRegistry:
     """Kho ket qua event async voice theo fileId (giong local map
     fileId->data cua bundle: setFileIdData/getFileIdData).
@@ -517,7 +694,8 @@ class CtrlPoller:
     def __init__(self, http_get, poll_urls, zpw_enk, own_id,
                  registry, ctl_timeout=30, cursor=None,
                  on_cursor=None, on_group_event=None,
-                 on_reaction=None, file_registry=None):
+                 on_reaction=None, on_call_event=None,
+                 file_registry=None):
         urls = [u for u in (poll_urls or []) if u]
         if not urls:
             raise ValueError("ctrl_poll: can it nhat 1 poll URL "
@@ -547,14 +725,16 @@ class CtrlPoller:
         else:
             self.cursor = PollCursor()
         self.on_cursor = on_cursor
-        # on_group_event(event) / on_reaction(event): goi cho moi
-        # event nhom / reaction tach duoc (xem extract_*); loi o
-        # callback khong lam chet poller.
+        # on_group_event(event) / on_reaction(event) /
+        # on_call_event(event): goi cho moi event nhom / reaction /
+        # goi thoai tach duoc (xem extract_*); loi o callback
+        # khong lam chet poller.
         self.on_group_event = on_group_event
         self.on_reaction = on_reaction
+        self.on_call_event = on_call_event
         # Chan doan batch vua xu ly (khong log noi dung).
         self.last_batch = {"group_events": 0, "reactions": 0,
-                           "at": 0}
+                           "call_events": 0, "at": 0}
         self._idx = 0
         self._stop = threading.Event()
         self._thread = None
@@ -656,6 +836,7 @@ class CtrlPoller:
                                            event["url"])
         group_events = extract_group_events(data)
         reactions = extract_reactions(data)
+        call_events = extract_call_events(data)
         before = self.cursor.to_dict()
         self.cursor.update_from(data)
         for event in group_events:
@@ -670,8 +851,15 @@ class CtrlPoller:
                     self.on_reaction(event)
                 except Exception:  # noqa: BLE001 - callback loi
                     pass
+        for event in call_events:
+            if self.on_call_event is not None:
+                try:
+                    self.on_call_event(event)
+                except Exception:  # noqa: BLE001 - callback loi
+                    pass
         self.last_batch = {"group_events": len(group_events),
                            "reactions": len(reactions),
+                           "call_events": len(call_events),
                            "at": time.time()}
         if self.on_cursor is not None \
                 and self.cursor.to_dict() != before:
