@@ -136,6 +136,17 @@ VOICECALL_GROUP = {
 #   "Tham số không hợp lệ" on a real 1-1 call (2026-11-05 17:31).
 #   This app only places audio calls, so the server derives 1/5
 #   from the thread type (video 3/6 is documented here, not sent).
+# Chuoi codec tren day la MANG JSON (khong phai ten tran "opus"). Mau that
+# bat tu cuoc goi den cua client Zalo chinh thuc ngay 09/11/2026: 11300
+# khai danh sach codec cua may goi, 11301 khai codec da chon, deu la
+# chuoi JSON nay; server moi chuyen tiep cho may nhan (params.codec) va
+# may nhan chi do chuong khi doc duoc. App chi giai ma duoc opus 16 kHz
+# mono (audioSampleRate 16000), nen chi khai dung codec do.
+DEFAULT_CODEC = ('[{"dynamicFptime":0,"frmPtime":20,'
+                 '"name":"opus/16000/1","payload":112}]')
+# Codec video client that khai trong extendData.video.codec cua cuoc
+# goi video (mau that 09/11/2026): h264 payload 97.
+VIDEO_CODEC = [{"name": "h264", "payload": 97}]
 CALL_TYPE_AUDIO_1_1 = 1
 CALL_TYPE_VIDEO_1_1 = 3
 CALL_TYPE_AUDIO_GROUP = 5
@@ -302,7 +313,7 @@ def vc_requestcall(callee_id, call_id, codec, type_request, device_id):
     - typeRequest: 1 for a 1-1 AUDIO call (3 video) — never 0.
       The pre-fix 0 is the primary 114 suspect (§7k)."""
     return {"calleeId": callee_id, "callId": call_id,
-            "codec": codec if codec is not None else "[]",
+            "codec": codec if codec is not None else DEFAULT_CODEC,
             "typeRequest": type_request, "imei": device_id}
 
 

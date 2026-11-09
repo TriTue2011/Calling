@@ -302,7 +302,7 @@ def normalize_extend_data(data):
     video = out.pop("video", None)
     if isinstance(video, dict):
         codec = video.get("codec")
-        out["video"] = {"codec": codec if isinstance(codec, str)
+        out["video"] = {"codec": codec if isinstance(codec, (str, list))
                         else ""}
     elif "video.codec" in data:
         codec = data["video.codec"]

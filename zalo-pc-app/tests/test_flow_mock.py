@@ -54,7 +54,7 @@ def test_full_flow_encrypted():
         # draws inner 114 from the mock, like the real server.
         data = sig.request_call("20001", 1762345678, None, 1)
         assert data["body"]["calleeId"] == "20001", data
-        assert data["body"]["codec"] == "[]", data
+        assert data["body"]["codec"] == protocol.DEFAULT_CODEC, data
         assert data["body"]["typeRequest"] == 1, data
         assert data["body"]["callId"] == 1762345678, data
         book = contacts_mod.Contacts(t2, "dev-1", TEST_SESSION_KEY,

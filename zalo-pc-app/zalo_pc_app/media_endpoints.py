@@ -165,6 +165,7 @@ import json
 import re
 import time
 
+from . import protocol
 from .udp_transport import (
     MissingTransportParam,
     RelayServer,
@@ -851,9 +852,8 @@ def allocation_from_requestcall_data(data):
     g711 = cfg.get("g711")
     if g711 is None:
         g711 = _find_in_requestcall_data(data, "g711")
-    if isinstance(g711, int) and not isinstance(g711, bool):
-        out["codec"] = ("pcmu" if g711 == 1 else
-                        "pcma" if g711 == 2 else "opus")
+    # g711 (neu co) khong doi codec: app chi khai opus, va ten tran
+    # "pcmu"/"pcma" sai dang chuoi codec that (mang JSON).
     ext = _find_in_requestcall_data(data, "extendData")
     if ext is not None:
         out["extend_data"] = ext
@@ -1049,7 +1049,8 @@ def _extend_data_dict(extend_data, srtp_mode, is_video=False,
     # video.codec stays "" even for video (see the
     # _MINIMAL_EXTEND_DATA comment): the audio codec is not the
     # video codec; the future video path must supply a real one.
-    minimal["video"] = {"codec": ""}
+    minimal["video"] = {"codec": (list(protocol.VIDEO_CODEC)
+                                  if is_video else "")}
     minimal["serverResult"] = []
     if server_addrs:
         minimal["numServers"] = len(server_addrs)
@@ -1394,7 +1395,7 @@ class MediaEndpoints:
         # future feature — when it lands, the caller must also
         # switch typeRequest to 3/6 in server.py.
         if codec is None:
-            codec = "opus"  # UNCONFIRMED default (see module docstring)
+            codec = protocol.DEFAULT_CODEC
         codec = str(codec)
         ext_dict = _extend_data_dict(
             extend_data, srtp_mode, is_video,

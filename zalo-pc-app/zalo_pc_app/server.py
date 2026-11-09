@@ -288,6 +288,22 @@ def _next_call_id():
         return _CALL_ID_COUNTER
 
 
+def _seed_call_id_counter(now=None):
+    """Gieo bo dem callId bang moc thoi gian (giay) luc server khoi
+    dong. Server Zalo nho callId cua cac cuoc goi da thanh cong va tu
+    choi 11301 bang loi noi -101 neu mot id duoc dung lai: truoc day
+    bo dem luon ve 1 sau moi lan khoi dong lai container nen cuoc goi
+    dau tien sau do bi tu choi (do live 09/11/2026: call_id=1 -> 11301
+    inner -101 hai lan lien tiep sau hai lan restart). Moc thoi gian
+    tang theo thoi gian nen khong bao gio trung giua cac lan chay;
+    ben trong mot process van la bo dem don dieu +1 nhu engine."""
+    global _CALL_ID_COUNTER
+    seed = int(now if now is not None else time.time())
+    with _CALL_ID_LOCK:
+        if seed > _CALL_ID_COUNTER:
+            _CALL_ID_COUNTER = seed
+
+
 def _log_call(msg):
     """One call-lifecycle line to stdout (visible in `docker logs`).
 
@@ -675,8 +691,11 @@ def _type_request_for(call_type):
     nowhere in the client's vocabulary and drew inner 114 from
     the real server (§7k). Video would be 3/6, but this app only
     places audio calls."""
-    return (protocol.CALL_TYPE_AUDIO_GROUP if call_type == "group"
-            else protocol.CALL_TYPE_AUDIO_1_1)
+    if call_type == "group":
+        return protocol.CALL_TYPE_AUDIO_GROUP
+    if call_type == "video":
+        return protocol.CALL_TYPE_VIDEO_1_1
+    return protocol.CALL_TYPE_AUDIO_1_1
 
 
 class AppState:
@@ -3011,6 +3030,7 @@ class Handler(BaseHTTPRequestHandler):
                             _alloc.get("peer_session")
                             if call_type != "group" else None),
                         requestcall_data=data,
+                        is_video=(call_type == "video"),
                         on_first_media=_on_first_media, **hooks)
                 except Exception as exc:  # noqa: BLE001 - best-effort
                     request_sent, request_error = False, str(exc)
@@ -3305,6 +3325,7 @@ def main():
               "ZALO_PC_APP_PASSWORD_HASH) luc deploy, roi chay lai.",
               file=sys.stderr)
         raise SystemExit(2)
+    _seed_call_id_counter()
     server = QuietServer((HOST, PORT), Handler)
     print("zalo-pc-qr app %s on http://%s:%d (data: %s)"
           % (VERSION, HOST, PORT, DATA_DIR))

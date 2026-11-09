@@ -99,6 +99,25 @@ def test_counter_thread_safe():
     assert sorted(got) == list(range(1, 201)), sorted(got)[:10]
 
 
+def test_seed_makes_ids_unique_across_restarts():
+    """Hai lan khoi dong lien tiep (moc thoi gian khac nhau) khong
+    bao gio cap lai cung mot id: server Zalo tu choi 11301 (-101) khi
+    callId bi dung lai. Trong mot process van +1 don dieu."""
+    _reset()
+    app_server._seed_call_id_counter(now=1794195000)
+    run1 = [app_server._normalize_call_id(None) for _ in range(3)]
+    assert run1 == [1794195001, 1794195002, 1794195003], run1
+    # "Khoi dong lai" 60 giay sau: counter ve 0 roi gieo lai.
+    _reset()
+    app_server._seed_call_id_counter(now=1794195060)
+    run2 = [app_server._normalize_call_id(None) for _ in range(3)]
+    assert not set(run1) & set(run2), (run1, run2)
+    assert all(1 <= v <= 2 ** 32 - 1 for v in run1 + run2)
+    # Gieo lai bang moc CU hon khong lam counter lui.
+    app_server._seed_call_id_counter(now=1794195000)
+    assert app_server._normalize_call_id(None) == run2[-1] + 1
+
+
 # ------------------------------------------------------------------ e2e
 # Drive the real app HTTP API (same harness shape as
 # test_call_11301.py): QR login against the mock, then POST

@@ -257,7 +257,7 @@ def test_valid_allocation_delivered():
     assert out["rtcp_address"] == "127.0.0.1:4201", out
     assert out["rtp_address"] != "" and out["rtcp_address"] != "", out
     assert out["session"] == FAKE_SESSION, out
-    assert out["codec"] == "opus", out  # default UNCONFIRMED
+    assert out["codec"] == protocol.DEFAULT_CODEC, out  # mang JSON that
     assert out["call_id"] == CALL_ID, out
     assert out["transport"].started is True, out
     assert out["transport"].state == "connected", out
@@ -302,6 +302,25 @@ def test_stop_call():
     assert provider.stop_call(CALL_ID) is False
 
 
+def test_video_call_extend_data_and_type_request():
+    """Goi video: extendData.callType=1 va video.codec la danh sach
+    h264 nhu mau that 09/11/2026; goi thoai van giu video.codec rong.
+    typeRequest cua server: video 1-1 = 3 (khong phai 1)."""
+    import json
+    provider = _provider()
+    out = provider.for_call(**_good_kwargs(is_video=True))
+    ext = json.loads(out["extend_data"])
+    assert ext["callType"] == 1, ext
+    assert ext["video"] == {"codec": protocol.VIDEO_CODEC}, ext
+    voice = _provider().for_call(**_good_kwargs(call_id=CALL_ID + 9))
+    vext = json.loads(voice["extend_data"])
+    assert vext["callType"] == 0 and vext["video"] == {"codec": ""}, vext
+    from zalo_pc_app import server as app_server
+    assert app_server._type_request_for("video") == 3
+    assert app_server._type_request_for("user") == 1
+    assert app_server._type_request_for("group") == 5
+
+
 def test_allocation_from_requestcall_data():
     """Lay dung vat lieu tu response 11300: servers/sessId/srtpKey/
     srtpMode/g711 — khong phat minh gia tri nao."""
@@ -314,13 +333,13 @@ def test_allocation_from_requestcall_data():
     assert alloc["session"] == "sess-xyz", alloc
     assert alloc["srtp_key"] == "k1", alloc
     assert alloc["srtp_mode"] == 2, alloc
-    assert alloc["codec"] == "pcmu", alloc  # g711=1 -> pcmu (SUY LUAN)
+    assert "codec" not in alloc, alloc  # g711 khong doi codec (ten tran sai dang)
     provider = _provider()
     out = provider.for_call(
         call_id=CALL_ID + 2, callee_id="20001",
         local_session=FAKE_LOCAL_SESSION, requestcall_data=data,
         protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
-    assert out["codec"] == "pcmu", out
+    assert out["codec"] == protocol.DEFAULT_CODEC, out
     assert out["session"] == "sess-xyz", out
     # srtpMode=2 from 11300 is kept inside the minimal
     # engine-default extendData (2026-11-08: 11301 always sends
@@ -468,7 +487,10 @@ def test_extend_data_video_call_type_is_one():
     out = provider.for_call(**_good_kwargs(
         is_video=True, call_id=CALL_ID + 9))
     got = json.loads(out["extend_data"])
-    assert got == _expected_minimal_extend_data(is_video=True), got
+    expected = _expected_minimal_extend_data(is_video=True)
+    # Mau that 09/11/2026: cuoc goi video khai video.codec = h264/97.
+    expected["video"] = {"codec": protocol.VIDEO_CODEC}
+    assert got == expected, got
     provider.stop_all()
 
 

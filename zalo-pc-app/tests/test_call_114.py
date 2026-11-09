@@ -83,7 +83,7 @@ def test_new_body_1_1_ok():
         assert data["body"]["callId"] == CALL_ID, data
         assert isinstance(data["body"]["callId"], int), data
         assert data["body"]["typeRequest"] == 1, data
-        assert data["body"]["codec"] == "[]", data
+        assert data["body"]["codec"] == protocol.DEFAULT_CODEC, data
         assert data["body"]["imei"] == "dev-1", data
     finally:
         mock.stop()
