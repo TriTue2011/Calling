@@ -257,7 +257,8 @@ def test_valid_allocation_delivered():
     assert out["rtcp_address"] == "127.0.0.1:4201", out
     assert out["rtp_address"] != "" and out["rtcp_address"] != "", out
     assert out["session"] == FAKE_SESSION, out
-    assert out["codec"] == "opus", out  # default UNCONFIRMED
+    assert out["codec"] == media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, \
+        out  # default: chuoi JSON list Opus cua zca-js (khong "opus")
     assert out["call_id"] == CALL_ID, out
     assert out["transport"].started is True, out
     assert out["transport"].state == "connected", out
@@ -304,7 +305,9 @@ def test_stop_call():
 
 def test_allocation_from_requestcall_data():
     """Lay dung vat lieu tu response 11300: servers/sessId/srtpKey/
-    srtpMode/g711 — khong phat minh gia tri nao."""
+    srtpMode — khong phat minh gia tri nao. g711 KHONG con quyet
+    dinh codec signaling (zca-js: g711 mo ta codec media, khong
+    phai chuoi codec trong 11301; xem test_codec_zca_js.py)."""
     data = {"zrtc_config": {
         "servers": "10.0.0.1:4200,10.0.0.1:4201",
         "sessId": "sess-xyz", "srtpKey": "k1", "srtpMode": 2,
@@ -314,13 +317,13 @@ def test_allocation_from_requestcall_data():
     assert alloc["session"] == "sess-xyz", alloc
     assert alloc["srtp_key"] == "k1", alloc
     assert alloc["srtp_mode"] == 2, alloc
-    assert alloc["codec"] == "pcmu", alloc  # g711=1 -> pcmu (SUY LUAN)
+    assert "codec" not in alloc, alloc  # g711=1 khong dat "pcmu" nua
     provider = _provider()
     out = provider.for_call(
         call_id=CALL_ID + 2, callee_id="20001",
         local_session=FAKE_LOCAL_SESSION, requestcall_data=data,
         protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
-    assert out["codec"] == "pcmu", out
+    assert out["codec"] == media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, out
     assert out["session"] == "sess-xyz", out
     # srtpMode=2 from 11300 is kept inside the minimal
     # engine-default extendData (2026-11-08: 11301 always sends

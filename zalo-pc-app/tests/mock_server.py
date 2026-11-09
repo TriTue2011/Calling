@@ -238,7 +238,9 @@ class MockZalo:
         requested = ("requestcall" in steps
                      or "group/requestcall" in steps)
         return {"requested": requested,
-                "delivered": bool(entry["delivered"]), "steps": steps}
+                "delivered": bool(entry["delivered"]), "steps": steps,
+                "requestcall_codec": entry.get("requestcall_codec"),
+                "request_codec": entry.get("request_codec")}
 
     def server_call_state(self, call_id):
         """The SERVER-side call state the mock models for one callId:
@@ -300,13 +302,22 @@ class MockZalo:
         ends connected). `body` (the 11301 request body, when given)
         is kept as request_addresses so tests can assert the media
         endpoints the app sent are real relay addresses, never
-        empty."""
+        empty. `body`'s `codec` is kept too (requestcall_codec /
+        request_codec) so tests can assert the WIRE codec string
+        on both steps (11300 + 11301) — the zca-js codec fix."""
         entry = self.voice_calls.setdefault(
             call_id, {"steps": [], "delivered": False,
                       "server_state": None, "record": None,
-                      "request_addresses": None})
+                      "request_addresses": None,
+                      "requestcall_codec": None,
+                      "request_codec": None})
         if step not in entry["steps"]:
             entry["steps"].append(step)
+        if body is not None:
+            if step in ("requestcall", "group/requestcall"):
+                entry["requestcall_codec"] = body.get("codec")
+            elif step in ("request", "group/request"):
+                entry["request_codec"] = body.get("codec")
         if step in ("request", "group/request") and (
                 "requestcall" in entry["steps"]
                 or "group/requestcall" in entry["steps"]):
@@ -1297,7 +1308,7 @@ class MockZalo:
                     or not id_ok or not body.get(id_field)):
                 return self._postlogin_envelope_error(
                     114, "Tham số không hợp lệ")
-            self._record_voice_step(call_id, sub)
+            self._record_voice_step(call_id, sub, body)
             data = {"ok": True, "path": path, "body": body}
             if self.requestcall_data:
                 data.update(self.requestcall_data)

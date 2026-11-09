@@ -145,8 +145,9 @@ def test_step1_and_step2_diag_logged():
         assert ("[call] step1 call_id=%s status=0" % eff_id) in log, log
         assert ("[call] step2 send call_id=%s rtp=127.0.0.1:4200 "
                 "rtcp=127.0.0.1:4201 rtp_source=selected "
-                "session=present[154] codec=opus"
-                % eff_id) in log, log
+                "session=present[154] codec=%s"
+                % (eff_id,
+                   media_endpoints.DEFAULT_ZALO_AUDIO_CODEC)) in log, log
         assert ("[call] step2 resp call_id=%s 11301 keys:" % eff_id) \
             in log, log
         assert ("[call] step2 call_id=%s request_sent=True "
@@ -171,7 +172,8 @@ def test_step1_and_step2_diag_logged():
         assert diag["rtcp_ip"] == "127.0.0.1", entry
         assert diag["session_present"] is True, entry
         assert diag["session_len"] == 154, entry
-        assert diag["codec"] == "opus", entry
+        assert diag["codec"] == \
+            media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, entry
         assert SESSID_154 not in json.dumps(calls_body), calls_body
         state = mock.voice_call_state(eff_id)
         assert state["delivered"] is True, state

@@ -2815,10 +2815,15 @@ class Handler(BaseHTTPRequestHandler):
                         body.get("data"),
                         body.get("partners"))
                 else:
+                    # 11300 codec (zca-js: the engine always sends
+                    # its Opus JSON list here; "[]" is only the
+                    # factory fallback). An explicit UI codec still
+                    # wins so a later test can force another list.
                     data = sig.request_call(
                         thread_id,
                         call_id,
-                        body.get("codec"),
+                        body.get("codec")
+                        or media_endpoints.DEFAULT_ZALO_AUDIO_CODEC,
                         type_request)
                 # §7l — SECOND STEP, the one the 17:51 live call was
                 # missing: after requestcall the real client sends

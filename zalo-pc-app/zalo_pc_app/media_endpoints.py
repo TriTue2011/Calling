@@ -143,10 +143,17 @@ Parameter sources (all UNCONFIRMED where noted — see
                when absent, the provider only fills `srtpMode`
                from `zrtc_config` if present; otherwise None, and
                `vc_request` omits `extendData`/`subCommand=3`.
-  codec        explicit > `zrtc_config.g711` (1->"pcmu", 2->"pcma",
-               else "opus" — SUY LUAN, disasm §3.3) > "opus"
-               (UNCONFIRMED default; the on-wire codec was never
-               proven because the payload is SRTP-encrypted).
+  codec        explicit > 11300 response `codec` (applyServerInfo:
+               a non-empty string different from "[]" — the server
+               wins, per zca-js ZaloRtcSession.applyServerInfo) >
+               DEFAULT_ZALO_AUDIO_CODEC (the Opus JSON list the
+               real engine sends; zca-js ZRTPPacketCodec.ts:279).
+               `zrtc_config.g711` NO LONGER drives this value: it
+               describes the MEDIA codec, not the signaling codec
+               string, and zca-js never reads g711 for signaling
+               (the old "pcmu"/"pcma"/"opus" inference was
+               UNCONFIRMED and is retired — see
+               allocation_from_requestcall_data).
   protect/unprotect_rtp, encode/decode_frame
                injectable hooks, passed straight into
                `TransportConfig`. SRTP/Opus are NEVER imported
@@ -176,7 +183,18 @@ from .udp_transport import (
 
 __all__ = ["MediaEndpoints", "MissingTransportParam",
            "allocation_from_requestcall_data", "ENDPOINTS",
-           "describe_requestcall_shape"]
+           "describe_requestcall_shape", "DEFAULT_ZALO_AUDIO_CODEC"]
+
+# Codec list the real engine sends in 11300/11301 (zca-js
+# `ZRTPPacketCodec.ts:279` DEFAULT_ZALO_AUDIO_CODEC, softtyos
+# v2.3.13 — bao cao outbox/zca-js-tong-hop.md §4.4/§7.2): a JSON
+# LIST string, not the bare word "opus". Built with
+# json.dumps(..., separators=(",", ":")) so the wire form is
+# exactly '[{"dynamicFptime":0,"frmPtime":20,"name":"opus/16000/1",
+# "payload":112}]' — key order dynamicFptime/frmPtime/name/payload.
+DEFAULT_ZALO_AUDIO_CODEC = (
+    '[{"dynamicFptime":0,"frmPtime":20,'
+    '"name":"opus/16000/1","payload":112}]')
 
 
 # ------------------------------------------------------------------ helpers
@@ -777,7 +795,10 @@ def allocation_from_requestcall_data(data):
     invalid -> simply missing, i.e. None downstream),
     `srtp_key` (from `zrtc_config.srtpKey` — LIVE 2026-11-06
     the real response has none; absent keys are simply missing),
-    `srtp_mode`, `codec` (from `zrtc_config.g711`), `extend_data`
+    `srtp_mode`, `codec` (the 11300 response's own `codec` when
+    it is a usable string, non-empty and not "[]" — applyServerInfo;
+    `zrtc_config.g711` no longer feeds this: it describes the MEDIA
+    codec, not the signaling codec string), `extend_data`
     (from a top-level `extendData` string/dict when present),
     `rtp_ip` / `rtcp_ip` (from `rtpIP` / `rtcpIP` — the relay
     addresses the 11300 response designates; 2026-11-08 step 1:
@@ -848,12 +869,18 @@ def allocation_from_requestcall_data(data):
         srtp_mode = _find_in_requestcall_data(data, "srtpMode")
     if isinstance(srtp_mode, int) and not isinstance(srtp_mode, bool):
         out["srtp_mode"] = srtp_mode
-    g711 = cfg.get("g711")
-    if g711 is None:
-        g711 = _find_in_requestcall_data(data, "g711")
-    if isinstance(g711, int) and not isinstance(g711, bool):
-        out["codec"] = ("pcmu" if g711 == 1 else
-                        "pcma" if g711 == 2 else "opus")
+    # Codec (zca-js applyServerInfo, ZaloRtcSession.ts:4505-4506):
+    # the 11300 response's own `codec` wins when it is a usable
+    # string (non-empty, not "[]"); otherwise NO codec is taken
+    # from the response and for_call falls back to
+    # DEFAULT_ZALO_AUDIO_CODEC. `zrtc_config.g711` is NOT used
+    # here any more: it describes the MEDIA codec, not the
+    # signaling codec string (the old pcmu/pcma/opus inference
+    # was UNCONFIRMED and is retired — see the module docstring).
+    server_codec = _find_in_requestcall_data(data, "codec")
+    if (isinstance(server_codec, str) and server_codec
+            and server_codec != "[]"):
+        out["codec"] = server_codec
     ext = _find_in_requestcall_data(data, "extendData")
     if ext is not None:
         out["extend_data"] = ext
@@ -1394,7 +1421,10 @@ class MediaEndpoints:
         # future feature — when it lands, the caller must also
         # switch typeRequest to 3/6 in server.py.
         if codec is None:
-            codec = "opus"  # UNCONFIRMED default (see module docstring)
+            # Default is the Opus JSON list the real engine sends
+            # (zca-js DEFAULT_ZALO_AUDIO_CODEC) — the old "opus"
+            # default was UNCONFIRMED and is retired.
+            codec = DEFAULT_ZALO_AUDIO_CODEC
         codec = str(codec)
         ext_dict = _extend_data_dict(
             extend_data, srtp_mode, is_video,

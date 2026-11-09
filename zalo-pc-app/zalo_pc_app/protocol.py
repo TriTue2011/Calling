@@ -295,10 +295,16 @@ def vc_requestcall(callee_id, call_id, codec, type_request, device_id):
       see server._normalize_call_id).
     - codec: "[]" is the client's own documented fallback (n ??
       "[]") when the native engine supplies no codec list, so it
-      is kept — the engine normally supplies its real list, but
-      no real codec string format is known yet; inventing one
-      would be guessing. If 114 persists after the typeRequest +
-      callId fix, codec is the remaining suspect (§7k).
+      is kept — the engine normally supplies its real list. The
+      real list format IS now known (zca-js ZRTPPacketCodec.ts:279
+      DEFAULT_ZALO_AUDIO_CODEC, softtyos v2.3.13 — bao cao
+      outbox/zca-js-tong-hop.md §4.4/§7.2): the JSON list string
+      '[{"dynamicFptime":0,"frmPtime":20,"name":"opus/16000/1",
+      "payload":112}]'. The app sends that list (see
+      media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, used by server.py
+      step 1 and for_call step 2); "[]" survives only as the
+      factory fallback when no codec is supplied at all, matching
+      zca-js requestVoiceCall (options.codec ?? "[]").
     - typeRequest: 1 for a 1-1 AUDIO call (3 video) — never 0.
       The pre-fix 0 is the primary 114 suspect (§7k)."""
     return {"calleeId": callee_id, "callId": call_id,
