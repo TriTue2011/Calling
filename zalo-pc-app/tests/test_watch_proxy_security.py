@@ -209,12 +209,14 @@ def test_e2e_conversations_watch_proxy_security_sse():
         now = time.time()
         # Nguoi la nhan tin: khong co trong danh ba (mock co ban 20001...).
         state.message_store.record("user", "999000111", _msg("a1", "999000111", "alo shop", now, "Người Lạ"))
+        state.message_store.record("user", "0", _msg("z1", "0", "rac", now, "Rác"))
         state._contacts_cache = {"friends": {"rows": [{"id": "20001", "name": "Ban"}]}, "groups": {"rows": []}}
         status, conv = _api(base, "GET", "/api/conversations")
         assert status == 200 and conv["contacts_ready"] is True, conv
         row = [t for t in conv["threads"] if t["thread_id"] == "999000111"][0]
         assert row["stranger"] is True and row["unread"] == 1 and row["name"] == "Người Lạ", row
         assert conv["unread_total"] >= 1
+        assert "0" not in [t["thread_id"] for t in conv["threads"]], "thread 0 phai bi loc"
         status, watch = _api(base, "GET", "/api/watch")
         assert [s["thread_id"] for s in watch["strangers"]] == ["999000111"], watch
         # Mo hoi thoai (history) = da doc, ben vung.

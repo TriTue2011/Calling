@@ -2373,7 +2373,10 @@ class Handler(BaseHTTPRequestHandler):
             if sess is None:
                 return self._send_json({"error": "chua_dang_nhap"},
                                        status=401)
-            rows = STATE.message_store.threads(limit=300)
+            # threadId "0"/rong la tin Zalo khong ghi ro doi tac (idTo=0): khong
+            # phai hoi thoai that, nhin vao danh sach chi gay roi.
+            rows = [r for r in STATE.message_store.threads(limit=300)
+                    if r["thread_id"] not in ("", "0")]
             ids = STATE._friend_ids()
             mine = str(sess.get("uid", ""))
             for r in rows:
@@ -3530,6 +3533,21 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+def _warm_contacts_loop():
+    """Nap danh ba nen (khi da dang nhap Zalo) de nhan dien nguoi la ngay sau
+    khi khoi dong, khong doi co nguoi mo giao dien. Lam moi 10 phut. get_contacts
+    da co cache + lui 429 nen khong don Zalo."""
+    time.sleep(3)
+    while True:
+        try:
+            sess = STATE.session
+            if sess and sess.get("zpw_sek"):
+                STATE.get_contacts(sess)
+        except Exception:  # noqa: BLE001 - nen, khong duoc lam chet tien trinh
+            pass
+        time.sleep(600)
+
+
 def main():
     # App login is mandatory: refuse to start without credentials
     # instead of ever serving the app unprotected.
@@ -3541,6 +3559,7 @@ def main():
               file=sys.stderr)
         raise SystemExit(2)
     _seed_call_id_counter()
+    threading.Thread(target=_warm_contacts_loop, daemon=True).start()
     server = QuietServer((HOST, PORT), Handler)
     print("zalo-pc-qr app %s on http://%s:%d (data: %s)"
           % (VERSION, HOST, PORT, DATA_DIR))
