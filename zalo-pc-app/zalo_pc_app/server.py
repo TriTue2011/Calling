@@ -2539,11 +2539,14 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_thread_post(self, path):
         """-- CHAT HOOK (module chat.py; diem moc duy nhat o do_POST) --
         POST /api/thread/<id>/send | sendfile | sendvoice | typing
-        | seen | sendlink. Tat ca can _require_login (phien Zalo);
-        dang nhap app chua co trong ban copy — xem ghi
-        chu o route history tren. sendfile/sendvoice la multipart
-        (doc raw, khong doc JSON nhu cac POST khac). sendlink gui
-        link (11286/11193) qua chat.send_link."""
+        | seen | sendlink. Tat ca can dang nhap app TRUOC (cong
+        _require_app_login, giong moi /api/* khac — H2: nhanh nay
+        tung re truoc cong app o do_POST nen chi kiem phien Zalo)
+        roi moi can _require_login (phien Zalo). sendfile/sendvoice
+        la multipart (doc raw, khong doc JSON nhu cac POST khac).
+        sendlink gui link (11286/11193) qua chat.send_link."""
+        if self._require_app_login() is None:
+            return self._unauthorized()
         import urllib.parse as _up
         segs = [s for s in path.split("/") if s]
         # segs = ["api", "thread", <id>, <action>]
@@ -2751,7 +2754,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?", 1)[0]
         # CHAT HOOK: route /api/thread/* doc o _handle_thread_post
-        # (multipart thi doc raw, khong doc JSON truoc).
+        # (multipart thi doc raw, khong doc JSON truoc). Dang nhap
+        # app kiem tra ngay dau _handle_thread_post (H2) — nhanh
+        # nay phai o truoc cong /api/* chung vi no doc body rieng.
         if path.startswith("/api/thread/"):
             return self._handle_thread_post(path)
         # /api/svc/* multipart (doi avatar): doc raw o _api_post,
