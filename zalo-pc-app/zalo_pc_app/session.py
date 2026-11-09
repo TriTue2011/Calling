@@ -28,7 +28,11 @@ store file itself is gitignored (see .gitignore).
 """
 
 import json
+import logging
 import os
+import sys
+
+logger = logging.getLogger(__name__)
 
 STATUS_NO_SESSION = "chua_dang_nhap"
 STATUS_QR_WAITING = "cho_quet"
@@ -47,8 +51,46 @@ class SessionStore:
         return os.path.exists(self.path)
 
     def load(self):
-        with open(self.path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        """Doc session tu dia.
+
+        Tra None khi khong co phien dung duoc — gom ca truong hop
+        file hong (H4): JSON khong parse duoc hoac noi dung khong
+        phai dict thi file duoc doi ten thanh session.json.corrupt
+        (giu lai de doi chieu, KHONG xoa) roi tra None, de server
+        khoi dong voi phien trong thay vi chet voi JSONDecodeError
+        truoc ca main(). File khong ton tai van raise
+        FileNotFoundError nhu truoc; server bao ve bang exists().
+        """
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            raise
+        except ValueError as e:
+            return self._quarantine_corrupt("JSON hong: %s" % e)
+        if not isinstance(data, dict):
+            return self._quarantine_corrupt(
+                "noi dung khong phai dict (kieu %s)"
+                % type(data).__name__)
+        return data
+
+    def _quarantine_corrupt(self, reason):
+        """Doi ten file session hong sang session.json.corrupt roi
+        tra None. Neu doi ten that bai (vd quyen ghi) thi van tra
+        None de server khoi dong duoc; lan khoi dong sau se thu
+        doi ten lai."""
+        corrupt_path = self.path + ".corrupt"
+        try:
+            os.replace(self.path, corrupt_path)
+            renamed = corrupt_path
+        except OSError as e:
+            renamed = "khong doi ten duoc (%s)" % e
+        msg = ("session.json hong (%s), da doi ten thanh %s, khoi "
+               "dong voi phien trong — quet lai QR"
+               % (reason, renamed))
+        logger.warning(msg)
+        print(msg, file=sys.stderr, flush=True)
+        return None
 
     def save(self, data):
         directory = os.path.dirname(self.path)

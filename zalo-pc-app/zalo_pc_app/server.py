@@ -780,6 +780,11 @@ class AppState:
         # rejected|rate_limited|error
         self.qr_error = ""
         self.qr_wait = 0
+        # load() tra None ca khi file hong (H4): file da duoc doi
+        # ten thanh session.json.corrupt trong load(), server khoi
+        # dong voi phien trong thay vi chet truoc main(). Moi cho
+        # dung self.session deu chiu duoc None (xem public_status,
+        # start_sync, cac handler dung `(self.session or {})`).
         self.session = self.store.load() if self.store.exists() else None
         # First friends load after start/login sends init=1 (real client
         # _isFirstReq()). Cleared after the first successful friends call.
