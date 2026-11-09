@@ -160,7 +160,20 @@ class ZcaApi:
         self.svc = svc                      # services.Services
         self.ctx = {"language": "vi", **(ctx or {})}
 
+    # Domain cua app Zalo PC (da chay that, xem protocol.py) UU TIEN hon services map
+    # trong phien: map cua phien tra ten "tt-*-wpa.zalo.me" khong phan giai duoc o
+    # nhieu mang (do 09/11 tren .200), con domain PC thi chay.
+    _PC_DOMAINS = {"chat": "CHAT_DOMAIN", "group": "GROUP_DOMAIN",
+                   "profile": "PROFILE_DOMAIN", "friend": "FRIEND_DOMAIN",
+                   "alias": "ALIAS_DOMAIN", "label": "LABEL_DOMAIN",
+                   "group_board": "BOARD_DOMAIN", "sticker": "STICKER_DOMAIN",
+                   "file": "FILE_DOMAIN", "conversation": "CONVERS_DOMAIN",
+                   "voice_call": "VOICECALL_DOMAIN"}
+
     def _domain(self, entry):
+        pc = getattr(protocol, self._PC_DOMAINS.get(entry.get("service") or "", ""), None)
+        if pc:
+            return pc
         sm = getattr(self.svc, "service_map", None) or {}
         raw = sm.get(entry.get("service") or "")
         if isinstance(raw, list):

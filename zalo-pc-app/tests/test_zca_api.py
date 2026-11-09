@@ -61,7 +61,7 @@ def test_template_get_builds_encrypted_params_and_url():
     api = zca_api.ZcaApi(svc, {"imei": "IMEI-1"})
     r = api.call("getFriendRequestStatus", {"friendId": "123"})
     kind, url, _ = svc.calls[0]
-    assert kind == "GET" and url.startswith("https://friend.example/api/friend/reqstatus?"), url
+    assert kind == "GET" and url.startswith("https://friend-wpa.zalo.me/api/friend/reqstatus?"), url
     assert "zpw_ver=" in url and "zpw_type=" in url, url
     assert _params_of(url) == {"fid": "123", "imei": "IMEI-1"}, _params_of(url)
     assert r["where"].startswith("GET /api/friend/reqstatus"), r
@@ -135,15 +135,26 @@ def test_manual_and_missing_domain_are_explicit_not_guessed():
         assert m.reason, m
     else:
         raise AssertionError("manual phai bao ly do")
+    # Dich vu khong co domain PC va khong co trong services map -> loi ro, khong doan.
+    e = next(x for x in zca_api.registry().values() if x["mode"] == "template"
+             and x.get("service") not in zca_api.ZcaApi._PC_DOMAINS
+             and not x.get("fixed_domain") and not x["danger"]
+             and not any(a.get("required") for a in x.get("args", [])))
     svc = FakeSvc(service_map={})
     try:
-        zca_api.ZcaApi(svc, {"imei": "X"}).call("getFriendRequestStatus",
-                                                {"friendId": "1"})
+        zca_api.ZcaApi(svc, {"imei": "X"}).call(e["name"], {})
     except zca_api.ZcaManual as m:
         assert "services map" in m.reason, m.reason
     else:
         raise AssertionError("thieu domain phai bao loi, khong doan")
     assert svc.calls == []
+
+
+def test_pc_domain_wins_over_unresolvable_session_map():
+    svc = FakeSvc(service_map={"sticker": ["https://tt-sticker-wpa.zalo.me"]})
+    zca_api.ZcaApi(svc, {"imei": "X"}).raw_call(
+        "sticker", "/api/message/sticker/sticker_detail", {"sid": 1})
+    assert svc.calls[0][1].startswith("https://sticker-wpa.zalo.me/"), svc.calls[0][1]
 
 
 def test_unknown_api_raises_keyerror():
