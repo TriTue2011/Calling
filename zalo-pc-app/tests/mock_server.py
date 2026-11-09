@@ -443,6 +443,10 @@ class MockZalo:
             return self._confirm()
         if path == "/api/login/getLoginInfo":
             return 200, self._logininfo(qs, headers)
+        if path == "/keepalive":
+            # keepAlive (11770, zca-js auth/keepAlive): GET chat
+            # /keepalive, params AES {imei} — echo nhu _svc_get.
+            return 200, self._svc_get(path, qs, headers, raw_qs)
         if path.startswith("/api/voicecall/"):
             return 200, self._voicecall(path, qs, headers, raw_qs)
         if path == "/api/social/friend/getfriends":

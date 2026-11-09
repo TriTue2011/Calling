@@ -72,6 +72,7 @@ session cookie — never the post-login zpw_ver/zpw_type params.
 
 import json
 import os
+import re
 import socket
 import sys
 import threading
@@ -150,6 +151,43 @@ CONTACTS_BACKOFF_MAX_SECONDS = 300
 SYNC_RETRY_CHECK_SECONDS = 60
 SYNC_RETRY_INTERVAL_SECONDS = 300
 SYNC_RETRY_COOLDOWN_SECONDS = 30
+
+# Kiem chung phien bang keepAlive (sua loi H5 + I1): /api/status
+# truoc day chi kiem session.json con zpw_sek nen phien bi da van
+# bao login=true. keepAlive la GET chat /keepalive (11770) nhe,
+# body chi {imei} — xem services.OPS["keepAlive"].
+#   CHECK_INTERVAL 300s: vong nen hoi lai dinh ky (5 phut/lan —
+#     du thua de phat hien phien bi da ma khong hammer Zalo).
+#   STATUS_TTL 60s: /api/status dung ket qua keepAlive gan nhat;
+#     chi kich probe nen khi ket qua cu hon 60s, khong goi moi lan
+#     status duoc hoi.
+#   AUTH_FAILURES_TO_EXPIRE 2: phien chi bi xoa sau 2 loi auth
+#     (600/401/403) LIEN TIEP — 1 lan co the la loi thoang qua,
+#     loi mang khong bao gio xoa phien (chi dem loi auth).
+KEEPALIVE_CHECK_INTERVAL_SECONDS = 300
+KEEPALIVE_STATUS_TTL_SECONDS = 60
+KEEPALIVE_AUTH_FAILURES_TO_EXPIRE = 2
+KEEPALIVE_AUTH_CODES = (600, 401, 403)
+
+
+def _classify_keepalive_error(exc):
+    """Xep loai loi keepAlive: "auth" neu phien het han,
+    "transient" neu loi mang / loi khac (khong duoc xoa phien).
+    Auth la: ServiceError ma 600 (phien het han — loi audit H5) /
+    401 / 403, hoac HTTP status 401/403 trong thong diep loi mang
+    ("network status=401" — Services._unwrap nem khi HTTP != 200),
+    hoac "error_code=600/401/403" trong thong diep (inner envelope).
+    Moi thu khac (URLError, timeout, 500, ma loi la) la transient:
+    chi ghi nhan, retry lan sau."""
+    if isinstance(exc, services_mod.ServiceError) \
+            and exc.code in KEEPALIVE_AUTH_CODES:
+        return "auth"
+    text = str(exc)
+    if re.search(r"network status=(401|403)\b", text):
+        return "auth"
+    if re.search(r"error_code=(600|401|403)\b", text):
+        return "auth"
+    return "transient"
 
 
 def _poller_is_alive(poller):
@@ -887,6 +925,22 @@ class AppState:
         self._sync_retry_thread = None
         self._sync_last_retry_at = 0.0
         self.thread = None
+        # Ket qua keepAlive gan nhat (sua H5 + I1) — duoc bao ve
+        # boi self.lock (cung khoa voi session). _ka_uid: uid ma
+        # cache thuoc ve; doi tai khoan thi cache cu vo hieu
+        # (trang thai ve "unknown", dem auth ve 0). _ka_state:
+        # "unknown" (chua check) | "ok" | "auth_failed" (loi auth,
+        # chua du nguong) | "network_error" (loi mang, phien giu
+        # nguyen) | "expired" (du nguong, phien da bi xoa).
+        # _ka_probe_running: co probe nen dang chay khong (de
+        # /api/status khong spawn nhieu thread khi cache het han).
+        self._ka_uid = None
+        self._ka_at = 0.0
+        self._ka_ok = None
+        self._ka_state = "unknown"
+        self._ka_auth_failures = 0
+        self._ka_probe_running = False
+        self._keepalive_thread = None
         # Stale-while-revalidate (sửa lỗi load chậm 2026-11-05): khi
         # cache đã hết TTL, GET /api/contacts trả cache cũ NGAY
         # (source "stale") rồi làm mới nền trong một thread riêng,
@@ -923,6 +977,39 @@ class AppState:
             logged = bool(sess and sess.get("zpw_sek"))
             uid = sess.get("uid", "") if sess else ""
             phonenum = sess.get("phonenum", "") if sess else ""
+            # Ket qua keepAlive gan nhat (sua H5): /api/status
+            # khong chi dua vao zpw_sek con trong file — neu
+            # keepAlive da bao phien het (expired) thi session da
+            # bi xoa o check_keepalive nen logged o tren la False.
+            # Cache tu tai khoan khac khong duoc dung (ve unknown).
+            if uid and self._ka_uid == uid:
+                ka_state = self._ka_state
+                ka_at = self._ka_at
+                ka_failures = self._ka_auth_failures
+            elif not uid and self._ka_state == "expired":
+                # Phien vua bi keepAlive xoa (logout() reset ve
+                # "unknown" nen "expired" chi co tu _expire_session):
+                # giu lai ly do de status noi ro vi sao login=false.
+                ka_state = "expired"
+                ka_at = self._ka_at
+                ka_failures = self._ka_auth_failures
+            else:
+                ka_state = "unknown"
+                ka_at = 0.0
+                ka_failures = 0
+            # Cache het TTL + chua co probe nao dang chay thi kich
+            # probe nen (khong goi mang ngay trong request status —
+            # lan nay tra ket qua cu, lan sau co ket qua moi).
+            need_probe = (
+                logged and not self._ka_probe_running
+                and (ka_at == 0.0
+                     or time.time() - ka_at > KEEPALIVE_STATUS_TTL_SECONDS))
+            if need_probe:
+                self._ka_probe_running = True
+        if need_probe:
+            threading.Thread(
+                target=self._keepalive_probe_background,
+                daemon=True).start()
         base = {"version": VERSION,
                 "engine": engine_seam.SEAM.status(),
                 "sync": self.sync_status(),
@@ -934,6 +1021,14 @@ class AppState:
                 # xoa khi poll thanh cong) nen chi hien loi
                 # dang ton tai, khong phai loi cu da khoi phuc.
                 "ctrl_error": self._ctrl_error_text(),
+                # keepalive: lan hoi Zalo gan nhat ve phien
+                # (state/checked_at/auth_failures — khong lo
+                # secret). UI hien QR khi login=false; khi state
+                # la "expired" thi qr_error o /api/qr/status giai
+                # thich ly do quet lai.
+                "keepalive": {"state": ka_state,
+                              "checked_at": ka_at,
+                              "auth_failures": ka_failures},
                 "app_user": app_user}
         if self.sync_debug:
             base["sync_debug"] = dict(self.sync_debug)
@@ -1429,6 +1524,11 @@ class AppState:
             self.session = None
             self.qr = None
             self.qr_state = "idle"
+            self._ka_uid = None
+            self._ka_at = 0.0
+            self._ka_ok = None
+            self._ka_state = "unknown"
+            self._ka_auth_failures = 0
         # Logged out: the session's contacts cache must go too.
         self._contacts_clear_cache()
         # Dang xuat: dung kenh sync + xoa tin den trong phien.
@@ -1998,6 +2098,136 @@ class AppState:
                     self.start_sync()
             except Exception:  # noqa: BLE001 - retry nen khong chet
                 pass
+
+    # -- kiem chung phien bang keepAlive (sua H5 + I1) --------------
+    def _keepalive_probe(self, sess):
+        """Mot lan goi keepAlive that (GET chat /keepalive, {imei}).
+        Tra data da giai ma; nem ServiceError / RuntimeError khi
+        loi. Tach rieng de test monkeypatch duoc (mock/offline)."""
+        transport = make_transport(sess["zpw_sek"])
+        svc = services_mod.Services(
+            transport, transport.http_post,
+            sess["device_id"], sess["zpw_enk"],
+            service_map=sess.get("service_map") or {},
+            http_post_multipart=transport.http_post_multipart)
+        return svc.dispatch("keepAlive", {})
+
+    def check_keepalive(self):
+        """Hoi Zalo mot lan xem phien hien tai con song khong.
+        Tra True (phien song) / False (loi) / None (khong co
+        phien de hoi — khong lam gi). Khong bao gio nem loi ra
+        ngoai (loi da phan loai o day); khong crash server.
+        Loi auth (600/401/403) dem lien tiep; du nguong
+        KEEPALIVE_AUTH_FAILURES_TO_EXPIRE thi xoa phien (xem
+        _expire_session) de UI hien lai QR. Loi mang chi ghi
+        nhan — phien duoc giu, retry lan sau."""
+        with self.lock:
+            sess = dict(self.session) if self.session else None
+        if not sess or not sess.get("zpw_sek"):
+            return None
+        try:
+            self._keepalive_probe(sess)
+        except Exception as e:  # noqa: BLE001 - phan loai roi xu ly
+            kind = _classify_keepalive_error(e)
+            expired = False
+            with self.lock:
+                cur = self.session
+                if cur is None or cur.get("uid") != sess.get("uid"):
+                    # Phien doi giua chung (dang nhap moi / dang
+                    # xuat) — bo ket qua cua phien cu.
+                    return False
+                if self._ka_uid != sess.get("uid"):
+                    self._ka_uid = sess.get("uid")
+                    self._ka_auth_failures = 0
+                self._ka_at = time.time()
+                self._ka_ok = False
+                if kind == "auth":
+                    self._ka_auth_failures += 1
+                    self._ka_state = "auth_failed"
+                    expired = (self._ka_auth_failures
+                               >= KEEPALIVE_AUTH_FAILURES_TO_EXPIRE)
+                else:
+                    # Loi mang / loi khac: phien giu nguyen, dem
+                    # auth khong tang (loi thoang qua khong xoa).
+                    self._ka_state = "network_error"
+            if expired:
+                self._expire_session(
+                    sess.get("uid"),
+                    "Phiên Zalo đã hết hạn (keepAlive báo lỗi xác "
+                    "thực %d lần liên tiếp) — quét lại QR để đăng "
+                    "nhập." % KEEPALIVE_AUTH_FAILURES_TO_EXPIRE)
+            return False
+        with self.lock:
+            cur = self.session
+            if cur is None or cur.get("uid") != sess.get("uid"):
+                return False
+            if self._ka_uid != sess.get("uid"):
+                self._ka_uid = sess.get("uid")
+            self._ka_at = time.time()
+            self._ka_ok = True
+            self._ka_state = "ok"
+            self._ka_auth_failures = 0
+        return True
+
+    def _expire_session(self, uid, reason):
+        """Xoa phien Zalo da het han (keepAlive bao loi auth du
+        nguong) — giong logout nhung chi khi phien hien tai dung
+        la phien da check (uid khop), de khong xoa nham mot lan
+        dang nhap moi vua xong. UI se hien lai QR vi /api/status
+        ve login=false; qr_error giai thich ly do quet lai.
+        Tra True khi da xoa, False khi phien da doi."""
+        with self.lock:
+            cur = self.session
+            if cur is None or cur.get("uid") != uid:
+                return False
+            self.store.clear()
+            self.session = None
+            self.qr = None
+            self.qr_state = "idle"
+            self.qr_error = reason
+            self._ka_state = "expired"
+        # Du lieu cua tai khoan cu phai di theo phien (giong
+        # logout): cache danh ba, kenh sync, tin den, con tro +
+        # ban ghi tin — khong de tai khoan moi doc du lieu cu.
+        self._contacts_clear_cache()
+        self.stop_sync()
+        self.inbox.clear()
+        self.cursor_store.clear()
+        self.message_store.clear()
+        return True
+
+    def start_keepalive_thread(self):
+        """Vong nen keepAlive (chi main() goi): hoi ngay luc khoi
+        dong de validate phien cu, roi moi
+        KEEPALIVE_CHECK_INTERVAL_SECONDS. An toan khi goi nhieu
+        lan; khong bao gio chet vi loi (vong loop bat het)."""
+        with self.lock:
+            if self._keepalive_thread is not None \
+                    and self._keepalive_thread.is_alive():
+                return False
+            thread = threading.Thread(target=self._keepalive_loop,
+                                      daemon=True)
+            self._keepalive_thread = thread
+            thread.start()
+            return True
+
+    def _keepalive_loop(self):
+        while True:
+            try:
+                self.check_keepalive()
+            except Exception:  # noqa: BLE001 - vong nen khong chet
+                pass
+            time.sleep(KEEPALIVE_CHECK_INTERVAL_SECONDS)
+
+    def _keepalive_probe_background(self):
+        """Probe nen do /api/status kich khi cache het TTL."""
+        try:
+            self.check_keepalive()
+        except Exception:  # noqa: BLE001 - loi nen khong chet
+            pass
+        finally:
+            with self.lock:
+                self._ka_probe_running = False
 
     def stop_sync(self):
         """Dung kenh sync + kenh ctrl (dang xuat)."""
@@ -3693,6 +3923,14 @@ def main():
         STATE.start_sync_retry_thread()
     except Exception as e:  # noqa: BLE001 - best-effort
         print("[sync-poll] khong mo duoc vong retry: %s"
+              % type(e).__name__, flush=True)
+    # Validate phien cu ngay luc khoi dong + hoi lai dinh ky
+    # (keepAlive nhe): phien bi da se tu xoa + hien lai QR thay
+    # vi bao login=true voi du lieu cu (loi H5).
+    try:
+        STATE.start_keepalive_thread()
+    except Exception as e:  # noqa: BLE001 - best-effort
+        print("[keepalive] khong mo duoc vong kiem chung phien: %s"
               % type(e).__name__, flush=True)
     try:
         server.serve_forever()

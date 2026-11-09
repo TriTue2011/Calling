@@ -945,6 +945,12 @@ def _b_labels(p, tid, tt):
     return {"imei": p["_imei"]}
 
 
+def _b_keepalive(p, tid, tt):
+    # GET chat /keepalive (11770) — zca-js auth/keepAlive: chi gui
+    # {imei}, params AES nhu moi GET post-login khac.
+    return {"imei": p["_imei"]}
+
+
 def _b_label_update(p, tid, tt):
     # POST /api/convlabel/update 12160: {labelData, version, imei}
     # chua lan — giu body cua audit cu, danh dau unverified.
@@ -1656,6 +1662,19 @@ OPS = {
         [{"key": "label_ids", "label": "ID nhãn (cách nhau bằng dấu "
           "phẩy)", "required": True}],
         _b_label_update),
+    # --- Kiem chung phien (ngoai 96; loi H5 + I1) ---
+    # zca-js auth/keepAlive (src/apis/auth/keepAlive.ts): GET
+    # {zpwServiceMap.chat[0]}/keepalive, params AES {imei}, lenh
+    # 11770, tra ve envelope hai lop (config_vesion). Domain "chat"
+    # o day resolve ve protocol.CHAT_DOMAIN nhu cac op chat khac.
+    "keepAlive": _op(
+        None, "keepAlive", "khac", "Kiểm tra phiên còn sống",
+        "GET chat /keepalive (11770) {imei} — hoi Zalo xem phien "
+        "con song khong (zca-js auth/keepAlive). App dung de phat "
+        "hien phien bi da (600/401/403) thay vi chi kiem "
+        "session.json con zpw_sek.",
+        "chat", "/keepalive", 11770, "GET", "none", [],
+        _b_keepalive, body_unverified=False),
 }
 
 # Đường dây 1-1/nhóm cho các op có 2 endpoint (path/code khác nhau
