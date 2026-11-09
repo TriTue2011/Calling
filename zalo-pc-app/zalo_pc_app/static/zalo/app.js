@@ -57,6 +57,8 @@ function h(tag, props, ...kids) {
   for (const c of kids.flat()) { if (c == null || c === false) continue; el.append(c.nodeType ? c : document.createTextNode(String(c))); }
   return el;
 }
+// replaceChildren(null) sẽ chèn chữ "null": luôn lọc giá trị rỗng.
+const put = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
 document.querySelectorAll("[data-i]").forEach((n) => n.replaceWith(svg(n.dataset.i)));
 
 // ---- mạng ----------------------------------------------------------------
@@ -455,7 +457,7 @@ function renderInfo() {
   const nameOf = (m) => m.name || (rowOf("user", m.id) || {}).name || m.id;
   const photos = S.msgs.filter((m) => m.kind === "photo" && photoSrc(m)).slice(-8).reverse();
   const files = S.msgs.filter((m) => m.kind === "file").slice(-6).reverse();
-  box.replaceChildren(
+  put(box,
     h("div", { class: "info-h" }, isGroup ? "Thông tin nhóm" : "Thông tin hội thoại"),
     h("div", { class: "info-top" }, avatar(row, "xl"), h("div", { class: "info-name" }, row.name || row.id),
       h("div", { class: "info-sub" }, isGroup ? "Nhóm" : c.stranger || row.stranger ? "Người lạ (không có trong danh bạ)" : "Bạn bè"),
@@ -499,7 +501,7 @@ function renderCallCard() {
   const answered = a.status === "answered" || !!a.answered_at, ringing = !answered && a.request_sent === true;
   const since = (answered && a.answered_at) || a.started_at, noMedia = !S.status || !S.status.engine || !S.status.engine.attached;
   card.hidden = false;
-  card.replaceChildren(
+  put(card,
     h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, (a.type === "video" ? "Video · " : "") + (a.peer || a.thread_id)), h("div", { class: "st" }, answered ? "Đang trong cuộc gọi" : ringing ? "Đang đổ chuông…" : "Đang kết nối…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - since)))),
     answered && noMedia ? h("div", { class: "warn" }, "Máy bên kia đã nghe nhưng app chưa có tiếng/hình trong cuộc gọi (đang phát triển), nên họ có thể báo “kết nối không ổn định”.") : null,
     a.request_sent === false ? h("div", { class: "warn" }, "Bước 2 chưa gửi được, bên kia có thể chưa đổ chuông.") : null,
@@ -594,7 +596,7 @@ async function renderWatch() {
           const open = S.watchOpen === c.thread_id, row = convRow(c);
           const tr = h("tr", { class: open ? "sel" : "", style: "cursor:pointer", onclick: async () => { S.watchOpen = open ? null : c.thread_id; if (S.watchOpen && !S.watchMsgs[c.thread_id]) { const d = await api("/api/thread/" + c.thread_id + "/history?type=user&count=10"); S.watchMsgs[c.thread_id] = d.messages || []; } renderWatch(); } },
             h("td", {}, h("div", { style: "display:flex;gap:.625rem;align-items:center" }, avatar(row, "sm"), h("div", {}, h("div", { style: "font-weight:500" }, convName(c)), h("div", { style: "color:var(--muted);font-size:.75rem" }, "Từ " + fmtDT(c.first_ts))))),
-            h("td", {}, h("span", { class: "mono" }, c.thread_id), " ", h("button", { class: "icon-btn", type: "button", "aria-label": "Sao chép threadId", onclick: (e) => { e.stopPropagation(); copyText(c.thread_id, "threadId"); } }, svg("copy"))),
+            h("td", { class: "nw" }, h("span", { class: "mono" }, c.thread_id), " ", h("button", { class: "icon-btn", type: "button", "aria-label": "Sao chép threadId", onclick: (e) => { e.stopPropagation(); copyText(c.thread_id, "threadId"); } }, svg("copy"))),
             h("td", {}, h("div", { style: "max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, c.last_text || ""), h("div", { style: "color:var(--muted);font-size:.75rem" }, fmtRel(c.last_ts))),
             h("td", {}, c.unread > 0 ? h("span", { class: "badge" }, c.unread) : String(c.incoming_count || 0)),
             h("td", {}, h("button", { class: "btn sm", type: "button", onclick: (e) => { e.stopPropagation(); openThread(row); } }, "Mở chat")));
