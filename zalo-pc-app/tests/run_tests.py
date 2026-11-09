@@ -33,7 +33,8 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
          "test_security_h1_fonts.py",
          "test_security_h4_session_corrupt.py",
          "test_security_h5_keepalive.py",
-         "test_security_h3_login_bruteforce.py"]
+         "test_security_h3_login_bruteforce.py",
+         "test_services_f1d1.py"]
 
 # Node checks: app.js syntax + the vm harness for the End button
 # (§7m) — the UI fix cannot be covered by the Python suites.

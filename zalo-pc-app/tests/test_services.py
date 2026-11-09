@@ -143,11 +143,12 @@ def test_catalog_covers_all_96():
     assert cat["counts"]["chat"] == 11, cat["counts"]
     assert cat["counts"]["zalobot"] == 10, cat["counts"]
     assert cat["counts"].get("unsupported", 0) == 0, cat["counts"]
-    # The 6 ops outside the 96 (quote, seen, fetchImportant, group
-    # link detail, label update, keepAlive) carry addon_no None and
+    # The 8 ops outside the 96 (quote, seen, fetchImportant, group
+    # link detail, label update, keepAlive, vote_poll,
+    # reject_friend_request) carry addon_no None and
     # are all supported — they must not inflate the 96 count.
     extras = [e for e in cat["services"] if e["addon_no"] is None]
-    assert len(extras) == 6, extras
+    assert len(extras) == 8, extras
     assert all(e["status"] == "supported" for e in extras), extras
     # Every OPS action appears in the catalog exactly once.
     actions = [e["action"] for e in cat["services"] if e["action"]]
@@ -1002,7 +1003,7 @@ def test_svc_http_api():
         status, body = _api(base, "GET", "/api/svc/catalog")
         assert status == 200, body
         assert body["counts"]["total_96"] == 96, body["counts"]
-        assert body["counts"]["supported"] == 79, body["counts"]
+        assert body["counts"]["supported"] == 81, body["counts"]
 
         # Before login: every op is 401 (Zalo session required).
         status, body = _api(base, "POST", "/api/svc/send_typing_event",
