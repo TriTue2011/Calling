@@ -121,7 +121,7 @@ get_user_info:
       name: UserId
       description: User ID
       required: true
-      selector:
+      selector: &id006
         text: {}
       example: '987654321'
       default: ''
@@ -526,7 +526,7 @@ undo_message:
       name: ID tin nhắn
       description: ID của tin nhắn cần thu hồi
       required: true
-      selector:
+      selector: &id005
         text: null
       example: msg123456
     cli_msg_id:
@@ -562,14 +562,14 @@ create_reminder:
       name: Tiêu đề
       description: Tiêu đề nhắc nhở
       required: true
-      selector:
+      selector: &id017
         text: null
       example: Họp nhóm
     content:
       name: Nội dung
       description: Nội dung nhắc nhở
       required: false
-      selector:
+      selector: &id018
         text: null
       example: Họp nhóm lúc 10h sáng
     remind_time:
@@ -807,7 +807,7 @@ get_group_chat_history:
       name: Số tin (tối đa 1000)
       description: Số lượng tin nhắn muốn lấy (mặc định 50, tối đa 1000)
       required: false
-      selector:
+      selector: &id011
         number:
           min: 1
           max: 1000
@@ -969,7 +969,7 @@ join_group:
       name: Link mời
       description: Link mời tham gia nhóm
       required: true
-      selector:
+      selector: &id013
         text: null
       example: https://zalo.me/g/abcxyz
 leave_group:
@@ -1057,7 +1057,7 @@ update_settings:
       name: Trạng thái (1=bật, 0=tắt)
       description: Trạng thái
       required: true
-      selector:
+      selector: &id015
         select:
           options:
           - label: Bật
@@ -1125,7 +1125,7 @@ set_pinned_conversation:
       name: Ghim (true/false)
       description: Ghim hay bỏ ghim
       required: true
-      selector:
+      selector: &id009
         boolean: null
 get_unread_mark:
   name: Xem hội thoại chưa đọc
@@ -1782,7 +1782,7 @@ get_poll_detail:
       name: ID bình chọn
       description: ID số của cuộc bình chọn (zca-js)
       required: true
-      selector:
+      selector: &id007
         text: null
       example: 123456789
 lock_poll:
@@ -1908,7 +1908,7 @@ add_quick_message:
       name: Từ khóa
       description: Từ khóa để gọi tin nhắn nhanh
       required: true
-      selector:
+      selector: &id016
         text: null
       example: /qm1
     title:
@@ -2014,7 +2014,7 @@ get_avatar_list:
       name: Trang
       description: Trang dữ liệu cần lấy
       required: false
-      selector:
+      selector: &id012
         number:
           min: 1
       example: '1'
@@ -2055,6 +2055,4884 @@ send_typing_event:
 get_login_qr:
   name: get_login_qr
   description: Lấy mã QR đăng nhập Zalo từ server và hiển thị lên thông báo.
+  fields:
+    entry_id: *id001
+quote_message:
+  name: Trích dẫn tin nhắn
+  description: Trích dẫn tin nhắn
+  fields:
+    entry_id: *id001
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      example: '5841349563795164131'
+      selector:
+        text: null
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options:
+          - user
+          - group
+    msg_id:
+      name: ID tin nhắn
+      description: ID của tin nhắn cần thu hồi
+      required: true
+      selector: *id005
+      example: msg123456
+    text:
+      name: Nội dung trích dẫn
+      description: Nội dung trích dẫn
+      required: true
+      selector:
+        text: null
+    qmsg_owner:
+      name: UID người gửi tin gốc
+      description: UID người gửi tin gốc
+      required: true
+      selector:
+        text: null
+    qmsg_cli_id:
+      name: Client ID tin gốc
+      description: Client ID tin gốc
+      required: false
+      selector:
+        text: null
+    qmsg_type:
+      name: Loại tin gốc
+      description: Loại tin gốc
+      required: false
+      selector:
+        text: null
+    qmsg_ts:
+      name: Timestamp tin gốc
+      description: Timestamp tin gốc
+      required: false
+      selector:
+        text: null
+    qmsg:
+      name: Nội dung tin gốc
+      description: Nội dung tin gốc
+      required: false
+      selector:
+        text: null
+    ttl:
+      name: TTL (1-1)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400000
+      example: 0
+      default: 0
+mark_seen:
+  name: Đánh dấu đã xem / đã nhận
+  description: Đánh dấu đã xem / đã nhận
+  fields:
+    entry_id: *id001
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      example: '5841349563795164131'
+      selector:
+        text: null
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options:
+          - user
+          - group
+    msg_ids:
+      name: ID tin nhắn (cách nhau bằng dấu phẩy)
+      description: ID tin nhắn (cách nhau bằng dấu phẩy)
+      required: true
+      selector:
+        text: null
+fetch_important:
+  name: Xem tin nhắn quan trọng
+  description: Xem tin nhắn quan trọng
+  fields:
+    entry_id: *id001
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      example: '5841349563795164131'
+      selector:
+        text: null
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options:
+          - user
+          - group
+reject_friend_request:
+  name: Từ chối lời mời kết bạn
+  description: Từ chối lời mời kết bạn
+  fields:
+    entry_id: *id001
+    user_id:
+      name: UserId
+      description: User ID
+      required: true
+      selector: *id006
+      example: '987654321'
+      default: ''
+get_group_link:
+  name: Xem link nhóm
+  description: Xem link nhóm
+  fields:
+    entry_id: *id001
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      example: '5841349563795164131'
+      selector:
+        text: null
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options:
+          - user
+          - group
+vote_poll:
+  name: Bỏ phiếu bình chọn
+  description: Bỏ phiếu bình chọn
+  fields:
+    entry_id: *id001
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      example: '5841349563795164131'
+      selector:
+        text: null
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options:
+          - user
+          - group
+    poll_id:
+      name: ID bình chọn
+      description: ID số của cuộc bình chọn (zca-js)
+      required: true
+      selector: *id007
+      example: 123456789
+    option_ids:
+      name: ID lựa chọn (cách nhau bằng dấu phẩy)
+      description: ID lựa chọn (cách nhau bằng dấu phẩy)
+      required: true
+      selector:
+        text: null
+update_label:
+  name: Gắn nhãn cho hội thoại
+  description: Gắn nhãn cho hội thoại
+  fields:
+    entry_id: *id001
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      example: '5841349563795164131'
+      selector:
+        text: null
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options:
+          - user
+          - group
+    label_ids:
+      name: ID nhãn (cách nhau bằng dấu phẩy)
+      description: ID nhãn (cách nhau bằng dấu phẩy)
+      required: true
+      selector:
+        text: null
+decrypt_gids:
+  name: decryptGids
+  description: decryptGids — Giải mã danh sách Global ID (g_...) ẩn danh thành User ID thật (tương ứng
+    hàm getUidFromGlobalNoiseId / command 12054 trên Zalo PC)
+  fields:
+    entry_id: *id001
+    gids:
+      name: gids
+      description: Danh sách Global ID (hoặc 1 GID đơn lẻ) (string | string[])
+      required: true
+      selector:
+        text: null
+encrypt_gids:
+  name: encryptGids
+  description: encryptGids — Mã hóa danh sách UID thật sang định danh ẩn danh Global Noise ID (OTDAKO...)
+    (command 12053)
+  fields:
+    entry_id: *id001
+    uids:
+      name: uids
+      description: Mảng chuỗi các UID cần mã hóa (string[])
+      required: true
+      selector:
+        text: null
+export_session:
+  name: exportSession
+  description: 'exportSession — Xuất toàn bộ thông tin phiên đăng nhập hiện tại (uid, imei, userAgent,
+    language, cookie) dưới định dạng chuẩn Credentials để lưu trữ (JSON/Database) và truyền trực tiếp
+    vào zalo.login(session). (chưa tự động: khong dung dich'
+  fields:
+    entry_id: *id001
+get_context:
+  name: getContext
+  description: 'getContext — API getContext thuộc phân hệ auth. (chưa tự động: khong dung dich vu Zalo
+    qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+get_cookie:
+  name: getCookie
+  description: 'getCookie — Get the current cookie string (chưa tự động: khong dung dich vu Zalo qua serviceMap
+    (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+get_list_device:
+  name: getListDevice
+  description: getListDevice — Lấy danh sách các thiết bị đang đăng nhập tài khoản Zalo hiện tại.
+  fields:
+    entry_id: *id001
+get_noised_ids:
+  name: getNoisedIds
+  description: getNoisedIds — Chuyển đổi danh sách UID cá nhân (fids) và GID nhóm (gids) dạng số thuần
+    (từ SQLite ZDB4.0 mobile) sang định dạng Noised ID 19 chữ số dùng trên Zalo Web/PC (getNoisedUids,
+    command 12390). Tự động fallback sang https://zwid.ap
+  fields:
+    entry_id: *id001
+get_own_id:
+  name: getOwnId
+  description: 'getOwnId — API getOwnId thuộc phân hệ auth. (chưa tự động: khong dung dich vu Zalo qua
+    serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+get_q_r:
+  name: getQR
+  description: getQR — Lấy mã QR của danh sách người dùng theo UID.
+  fields:
+    entry_id: *id001
+    userId:
+      name: userId
+      description: User ID or list of user IDs (string | string[])
+      required: true
+      selector:
+        text: null
+keep_alive:
+  name: keepAlive
+  description: keepAlive — Gửi tín hiệu duy trì phiên kết nối HTTP tới máy chủ Chat (KeepAlive - command
+    11770)
+  fields:
+    entry_id: *id001
+lost_focus:
+  name: lostFocus
+  description: lostFocus — Gửi tín hiệu thông báo ứng dụng chuyển sang chế độ chạy nền (Background).
+  fields:
+    entry_id: *id001
+scan_u_r_l:
+  name: scanURL
+  description: scanURL — Quét và kiểm tra độ an toàn của đường dẫn URL thông qua bộ lọc bảo mật Zalo.
+  fields:
+    entry_id: *id001
+    url:
+      name: url
+      description: URL to scan (string)
+      required: true
+      selector:
+        text: null
+update_active_status:
+  name: updateActiveStatus
+  description: 'updateActiveStatus — Cập nhật trạng thái hoạt động (Online / Offline / Ping) của tài khoản.
+    (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+update_lang:
+  name: updateLang
+  description: updateLang — Cập nhật ngôn ngữ hiển thị của phiên tài khoản Zalo.
+  fields:
+    entry_id: *id001
+    language:
+      name: language
+      description: language to update (VI, EN) (UpdateLangAvailableLanguages)
+      required: false
+      selector: &id008
+        text: null
+      example: vi
+fetch_important_messages:
+  name: fetchImportantMessages
+  description: fetchImportantMessages — Lấy danh sách các tin nhắn được đánh dấu quan trọng / đánh dấu
+    sao (command 12114)
+  fields:
+    entry_id: *id001
+    limit:
+      name: limit
+      description: limit (number)
+      required: false
+      selector:
+        text: null
+    newestId:
+      name: newestId
+      description: newestId (string | null)
+      required: false
+      selector:
+        text: null
+    lastId:
+      name: lastId
+      description: lastId (string | null)
+      required: false
+      selector:
+        text: null
+get_block_sharing_conversations:
+  name: getBlockSharingConversations
+  description: getBlockSharingConversations — Lấy danh sách hội thoại đang bật chế độ chặn chia sẻ / chuyển
+    tiếp tin nhắn (command 12178) (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+get_conv_offline_messages:
+  name: getConvOfflineMessages
+  description: getConvOfflineMessages — Lấy danh sách hội thoại nhóm có tin nhắn ngoại tuyến mới (command
+    12300)
+  fields:
+    entry_id: *id001
+    queueInfo:
+      name: queueInfo
+      description: queueInfo (unknown)
+      required: true
+      selector:
+        text: null
+    lastMsgId:
+      name: lastMsgId
+      description: lastMsgId (string | number)
+      required: false
+      selector:
+        text: null
+    lastActId:
+      name: lastActId
+      description: lastActId (string | number)
+      required: false
+      selector:
+        text: null
+get_direct_message_status:
+  name: getDirectMessageStatus
+  description: getDirectMessageStatus — Truy vấn trạng thái Đã nhận (deliver) và Đã xem (seen) tin nhắn
+    trong các hội thoại cá nhân 1-1 (command 12016)
+  fields:
+    entry_id: *id001
+    data:
+      name: data
+      description: 'Danh sách UID hoặc đối tượng truy vấn `{ tId }` (Array<string | { tId: string; [key:
+        string]: unknown }>)'
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_last_seen:
+  name: getLastSeen
+  description: getLastSeen — Lấy thông tin trạng thái đã xem cuối cùng của danh sách nhóm và cá nhân (command
+    12009)
+  fields:
+    entry_id: *id001
+    groupIds:
+      name: groupIds
+      description: groupIds (string[])
+      required: false
+      selector:
+        text: null
+    userIds:
+      name: userIds
+      description: userIds (string[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_last_seen_reaction:
+  name: getLastSeenReaction
+  description: getLastSeenReaction — Lấy trạng thái đã xem cảm xúc (Reaction) cuối cùng của danh sách
+    nhóm và cá nhân (command 12450)
+  fields:
+    entry_id: *id001
+    groupIds:
+      name: groupIds
+      description: groupIds (string[])
+      required: false
+      selector:
+        text: null
+    userIds:
+      name: userIds
+      description: userIds (string[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_recent_search_list:
+  name: getRecentSearchList
+  description: getRecentSearchList — Lấy danh sách lịch sử tìm kiếm gần đây trên Zalo (command 12125)
+  fields:
+    entry_id: *id001
+    version:
+      name: version
+      description: 'Phiên bản lịch sử tìm kiếm (mặc định: 0) (number)'
+      required: false
+      selector:
+        text: null
+get_suggested_conversations:
+  name: getSuggestedConversations
+  description: getSuggestedConversations — Lấy danh sách các cuộc hội thoại được gợi ý (command 11233)
+  fields:
+    entry_id: *id001
+    language:
+      name: language
+      description: Ngôn ngữ hiển thị (mặc định theo `ctx.language` hoặc `"vi"`) (string)
+      required: false
+      selector: *id008
+      example: vi
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_translate_setting:
+  name: getTranslateSetting
+  description: getTranslateSetting — Lấy cấu hình tính năng dịch tin nhắn tự động bằng Zalo AI (command
+    13395)
+  fields:
+    entry_id: *id001
+mark_sub_tab_seen:
+  name: markSubTabSeen
+  description: markSubTabSeen — Đánh dấu đã xem các tab phụ của danh sách hội thoại (command 16214)
+  fields:
+    entry_id: *id001
+    seens:
+      name: seens
+      description: Danh sách thông tin tab phụ đã xem (unknown[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+preload_conversations:
+  name: preloadConversations
+  description: preloadConversations — Tải trước tin nhắn cuối cùng và trạng thái đã đọc của các hội thoại
+    đang hoạt động (command 10053).
+  fields:
+    entry_id: *id001
+    threadIdLocalMsgId:
+      name: threadIdLocalMsgId
+      description: 'Optional map of `{ [threadId]: lastLocalMsgId }` (defaults to `{}`) (Record<string,
+        string | number>)'
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+renew_message_link:
+  name: renewMessageLink
+  description: renewMessageLink — Gia hạn đường dẫn tải tệp đính kèm / đa phương tiện đã hết hạn trong
+    tin nhắn (command 12094)
+  fields:
+    entry_id: *id001
+    toId:
+      name: toId
+      description: toId (string)
+      required: true
+      selector:
+        text: null
+    msgType:
+      name: msgType
+      description: msgType (number)
+      required: true
+      selector:
+        text: null
+    msgInfo:
+      name: msgInfo
+      description: msgInfo (Record<string, unknown>)
+      required: true
+      selector:
+        text: null
+    clientId:
+      name: clientId
+      description: clientId (string | number)
+      required: false
+      selector:
+        text: null
+    isGroup:
+      name: isGroup
+      description: isGroup (boolean)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+send_bank_card:
+  name: sendBankCard
+  description: sendBankCard — Gửi danh thiếp thông tin tài khoản ngân hàng (Bank Card) vào cuộc trò chuyện.
+    (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    payload:
+      name: payload
+      description: The payload containing the bank card information (SendBankCardPayload)
+      required: true
+      selector:
+        text: null
+    threadId:
+      name: threadId
+      description: The ID of the thread to send the bank card to (string)
+      required: true
+      selector:
+        text: null
+    type:
+      name: type
+      description: The type of thread to send the bank card to (ThreadType)
+      required: false
+      selector: &id010
+        select:
+          options:
+          - label: User
+            value: '0'
+          - label: Group
+            value: '1'
+      example: 0
+      default: 0
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+send_delivered_event:
+  name: sendDeliveredEvent
+  description: 'sendDeliveredEvent — Gửi tín hiệu xác nhận Đã nhận (Delivered) cho một hoặc nhiều tin
+    nhắn. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+send_report:
+  name: sendReport
+  description: 'sendReport — Gửi báo cáo vi phạm (Report Abuse) đối với người dùng hoặc cuộc trò chuyện.
+    (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+send_seen_event:
+  name: sendSeenEvent
+  description: 'sendSeenEvent — Gửi tín hiệu xác nhận Đã xem (Seen) cho các tin nhắn trong hội thoại.
+    (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+set_pinned_conversations:
+  name: setPinnedConversations
+  description: setPinnedConversations — Ghim hoặc bỏ ghim cuộc trò chuyện lên đầu danh sách.
+  fields:
+    entry_id: *id001
+    pinned:
+      name: pinned
+      description: Should pin conversations (boolean)
+      required: true
+      selector: *id009
+    threadId:
+      name: threadId
+      description: The ID(s) of the thread (string | string[])
+      required: true
+      selector:
+        text: null
+    type:
+      name: type
+      description: Type of thread, default User (ThreadType)
+      required: false
+      selector: *id010
+      example: 0
+      default: 0
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+translate_message:
+  name: translateMessage
+  description: translateMessage — Dịch thủ công một tin nhắn văn bản bằng Zalo AI (command 13397)
+  fields:
+    entry_id: *id001
+    reqId:
+      name: reqId
+      description: reqId (string)
+      required: false
+      selector:
+        text: null
+    msgId:
+      name: msgId
+      description: msgId (string)
+      required: true
+      selector:
+        text: null
+    threadId:
+      name: threadId
+      description: threadId (string)
+      required: true
+      selector:
+        text: null
+    type:
+      name: type
+      description: type (number)
+      required: false
+      selector: *id010
+      example: 0
+      default: 0
+    srcLang:
+      name: srcLang
+      description: srcLang (string)
+      required: true
+      selector:
+        text: null
+    desLang:
+      name: desLang
+      description: desLang (string)
+      required: true
+      selector:
+        text: null
+    text:
+      name: text
+      description: text (string)
+      required: true
+      selector:
+        text: null
+    immutableItems:
+      name: immutableItems
+      description: immutableItems (unknown[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+translate_message_auto:
+  name: translateMessageAuto
+  description: translateMessageAuto — Gửi yêu cầu dịch tự động hàng loạt tin nhắn đến bằng Zalo AI (command
+    13398). Kết quả dịch bất đồng bộ có thể được đẩy về qua sự kiện api.listener.on("translate_event",
+    ...).
+  fields:
+    entry_id: *id001
+    reqId:
+      name: reqId
+      description: reqId (string)
+      required: false
+      selector:
+        text: null
+    threadId:
+      name: threadId
+      description: threadId (string)
+      required: true
+      selector:
+        text: null
+    type:
+      name: type
+      description: type (number)
+      required: false
+      selector: *id010
+      example: 0
+      default: 0
+    srcLang:
+      name: srcLang
+      description: srcLang (string)
+      required: true
+      selector:
+        text: null
+    desLang:
+      name: desLang
+      description: desLang (string)
+      required: true
+      selector:
+        text: null
+    msgs:
+      name: msgs
+      description: msgs (TranslateMessageAutoItem[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+translate_message_suggest:
+  name: translateMessageSuggest
+  description: translateMessageSuggest — Gửi yêu cầu dịch gợi ý tin nhắn đang soạn thảo bằng Zalo AI (command
+    13399). Kết quả dịch bất đồng bộ có thể được đẩy về qua sự kiện api.listener.on("translate_event",
+    ...).
+  fields:
+    entry_id: *id001
+    reqId:
+      name: reqId
+      description: reqId (string)
+      required: false
+      selector:
+        text: null
+    threadId:
+      name: threadId
+      description: threadId (string)
+      required: true
+      selector:
+        text: null
+    type:
+      name: type
+      description: type (number)
+      required: false
+      selector: *id010
+      example: 0
+      default: 0
+    srcLang:
+      name: srcLang
+      description: srcLang (string)
+      required: true
+      selector:
+        text: null
+    desLang:
+      name: desLang
+      description: desLang (string)
+      required: true
+      selector:
+        text: null
+    text:
+      name: text
+      description: text (string)
+      required: true
+      selector:
+        text: null
+    immutableItems:
+      name: immutableItems
+      description: immutableItems (unknown[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+undo:
+  name: undo
+  description: 'undo — Thu hồi (Undo) một tin nhắn đã gửi với tất cả mọi người trong cuộc trò chuyện.
+    (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet)) (không hoàn tác được)'
+  fields:
+    entry_id: *id001
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+undo_multi_message:
+  name: undoMultiMessage
+  description: 'undoMultiMessage — Thu hồi hàng loạt nhiều tin nhắn cùng lúc trong hội thoại cá nhân hoặc
+    nhóm (command 12115 / 12116) (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac
+    biet)) (không hoàn tác được)'
+  fields:
+    entry_id: *id001
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+update_archived_chat_list:
+  name: updateArchivedChatList
+  description: updateArchivedChatList — Đưa cuộc trò chuyện vào mục Lưu trữ (Archive) hoặc khôi phục ra
+    ngoài.
+  fields:
+    entry_id: *id001
+    isArchived:
+      name: isArchived
+      description: '- true to archive, false to unarchive (boolean)'
+      required: true
+      selector:
+        text: null
+    conversations:
+      name: conversations
+      description: '- List of conversations to archive/unarchive (UpdateArchivedChatListTarget | UpdateArchivedChatListTarget[])'
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+update_block_sharing_conversation:
+  name: updateBlockSharingConversation
+  description: updateBlockSharingConversation — Bật hoặc tắt chế độ chặn chia sẻ / chuyển tiếp tin nhắn
+    trong một hội thoại (command 12179) (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    threadId:
+      name: threadId
+      description: threadId (string)
+      required: true
+      selector:
+        text: null
+    isGroup:
+      name: isGroup
+      description: isGroup (boolean)
+      required: false
+      selector:
+        text: null
+    isEnabled:
+      name: isEnabled
+      description: isEnabled (boolean | number)
+      required: true
+      selector:
+        text: null
+    clientLang:
+      name: clientLang
+      description: clientLang (string)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+update_pin_conversations:
+  name: updatePinConversations
+  description: 'updatePinConversations — Cập nhật danh sách hội thoại ghim qua /api/pinconvers/update
+    (command 12121) hoặc /api/pinconvers/updatev2 (command 12122) (chưa tự động: khong dung dich vu Zalo
+    qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+update_recent_search:
+  name: updateRecentSearch
+  description: updateRecentSearch — Cập nhật danh sách lịch sử tìm kiếm gần đây trên Zalo (command 12126)
+  fields:
+    entry_id: *id001
+    listRecent:
+      name: listRecent
+      description: listRecent (Record<string, unknown>[])
+      required: false
+      selector:
+        text: null
+    listKeyword:
+      name: listKeyword
+      description: listKeyword (string[])
+      required: false
+      selector:
+        text: null
+    version:
+      name: version
+      description: version (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+update_translate_setting:
+  name: updateTranslateSetting
+  description: 'updateTranslateSetting — Cập nhật cấu hình dịch tin nhắn Zalo AI cho một hội thoại (command
+    13396) (chưa tự động: khong doc duoc doi tuong params)'
+  fields:
+    entry_id: *id001
+    threadId:
+      name: threadId
+      description: threadId (string)
+      required: true
+      selector:
+        text: null
+    type:
+      name: type
+      description: type (number)
+      required: true
+      selector: *id010
+      example: 0
+      default: 0
+    settings:
+      name: settings
+      description: settings ({)
+      required: true
+      selector:
+        text: null
+    auto:
+      name: auto
+      description: auto (boolean | number)
+      required: true
+      selector:
+        text: null
+    suggest:
+      name: suggest
+      description: suggest (boolean | number)
+      required: true
+      selector:
+        text: null
+    srcLang:
+      name: srcLang
+      description: srcLang (string)
+      required: true
+      selector:
+        text: null
+    desLang:
+      name: desLang
+      description: desLang (string)
+      required: true
+      selector:
+        text: null
+    key:
+      name: key
+      description: 'key (string]: unknown)'
+      required: true
+      selector:
+        text: null
+add_group_blocked_member:
+  name: addGroupBlockedMember
+  description: addGroupBlockedMember — Chặn một hoặc nhiều thành viên khỏi nhóm (không cho tham gia lại).
+    (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    memberId:
+      name: memberId
+      description: member id(s) (string | string[])
+      required: true
+      selector:
+        text: null
+    groupId:
+      name: groupId
+      description: group id (string)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+analyse_group:
+  name: analyseGroup
+  description: analyseGroup — Lấy dữ liệu phân tích/thống kê của nhóm qua /api/group/analyse (command
+    12407)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID của nhóm (string)
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+check_quota_community_member:
+  name: checkQuotaCommunityMember
+  description: checkQuotaCommunityMember — Kiểm tra điều kiện/hạn mức thành viên Cộng đồng đối với một
+    thành viên cụ thể trong nhóm (command 12182)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID của nhóm (string)
+      required: true
+      selector:
+        text: null
+    uid:
+      name: uid
+      description: UID của thành viên cần kiểm tra (string)
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+delete_group_invite_box:
+  name: deleteGroupInviteBox
+  description: deleteGroupInviteBox — Xóa lời mời tham gia nhóm trong hộp thư lời mời nhóm. (không hoàn
+    tác được)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: '- The group id (string | string[])'
+      required: true
+      selector:
+        text: null
+    blockFutureInvite:
+      name: blockFutureInvite
+      description: '- Whether to block future invites from this group (boolean)'
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+get_e2ee_group_list:
+  name: getE2eeGroupList
+  description: getE2eeGroupList — Lấy danh sách các nhóm đang bật mã hóa đầu cuối E2EE (command 12146)
+  fields:
+    entry_id: *id001
+get_extra_group_info:
+  name: getExtraGroupInfo
+  description: getExtraGroupInfo — Lấy ngữ cảnh và vai trò mở rộng của người dùng đối với nhiều nhóm (command
+    12607)
+  fields:
+    entry_id: *id001
+    groupIds:
+      name: groupIds
+      description: Mảng ID các nhóm cần truy vấn (string[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_group_blocked_member:
+  name: getGroupBlockedMember
+  description: getGroupBlockedMember — Lấy danh sách các tài khoản đang bị chặn khỏi nhóm. (không hoàn
+    tác được)
+  fields:
+    entry_id: *id001
+    payload:
+      name: payload
+      description: payload (GetGroupBlockedMemberPayload)
+      required: true
+      selector:
+        text: null
+    groupId:
+      name: groupId
+      description: group id (string)
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+get_group_cloud_message_jump:
+  name: getGroupCloudMessageJump
+  description: getGroupCloudMessageJump — Nhảy tới vị trí một tin nhắn nhóm cụ thể trên Zalo Cloud Message
+    và lấy ngữ cảnh xung quanh (command 12508)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID nhóm (string)
+      required: true
+      selector:
+        text: null
+    globalMsgId:
+      name: globalMsgId
+      description: ID tin nhắn toàn cục cần nhảy tới (string | number)
+      required: true
+      selector:
+        text: null
+    count:
+      name: count
+      description: Số lượng tin nhắn ngữ cảnh cần tải (mặc định `20`) (number)
+      required: false
+      selector: *id011
+      example: 50
+      default: 50
+    msgJump:
+      name: msgJump
+      description: Cờ nhảy tin nhắn (mặc định `1`) (number)
+      required: false
+      selector:
+        text: null
+    msgIds:
+      name: msgIds
+      description: Danh sách msgId bổ sung (mặc định `[]`) (Array<string | number>)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_group_cloud_message_path:
+  name: getGroupCloudMessagePath
+  description: getGroupCloudMessagePath — Lấy chuỗi tin nhắn nhóm theo đường dẫn nhảy tới một tin nhắn
+    cụ thể (globalMsgId / rGlobalMsgId) qua /api/cm/getpath (command 12504)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: groupId (string)
+      required: true
+      selector:
+        text: null
+    globalMsgId:
+      name: globalMsgId
+      description: globalMsgId (string | number)
+      required: true
+      selector:
+        text: null
+    count:
+      name: count
+      description: count (number)
+      required: false
+      selector: *id011
+      example: 50
+      default: 50
+    reverse:
+      name: reverse
+      description: reverse (number | boolean)
+      required: false
+      selector:
+        text: null
+    rGlobalMsgId:
+      name: rGlobalMsgId
+      description: rGlobalMsgId (string | number)
+      required: false
+      selector:
+        text: null
+    rOwnerId:
+      name: rOwnerId
+      description: rOwnerId (string)
+      required: false
+      selector:
+        text: null
+    rClientMsgId:
+      name: rClientMsgId
+      description: rClientMsgId (string | number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_group_history_legacy:
+  name: getGroupHistoryLegacy
+  description: getGroupHistoryLegacy — Lấy lịch sử tin nhắn nhóm qua endpoint /api/group/history trên
+    miền group (command 11240)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID của nhóm (string)
+      required: true
+      selector:
+        text: null
+    count:
+      name: count
+      description: 'Số lượng tin nhắn cần tải (mặc định: `20`) (number)'
+      required: false
+      selector: *id011
+      example: 50
+      default: 50
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_group_info_v2:
+  name: getGroupInfoV2
+  description: 'getGroupInfoV2 — Lấy thông tin nhóm và danh sách thành viên theo trang qua /api/group/getgi/v2
+    hoặc /api/group/getgi (command 11162) (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly
+    cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+get_group_invite_box_info:
+  name: getGroupInviteBoxInfo
+  description: getGroupInviteBoxInfo — Lấy thông tin chi tiết của một lời mời vào nhóm cụ thể.
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: groupId (string)
+      required: true
+      selector:
+        text: null
+    mpage:
+      name: mpage
+      description: mpage (number)
+      required: false
+      selector:
+        text: null
+    mcount:
+      name: mcount
+      description: mcount (number)
+      required: false
+      selector:
+        text: null
+get_group_invite_box_list:
+  name: getGroupInviteBoxList
+  description: getGroupInviteBoxList — Lấy danh sách tất cả lời mời tham gia nhóm đang chờ trong hộp thư.
+  fields:
+    entry_id: *id001
+    mpage:
+      name: mpage
+      description: mpage (number)
+      required: false
+      selector:
+        text: null
+    page:
+      name: page
+      description: page (number)
+      required: false
+      selector: *id012
+      example: '1'
+      default: '1'
+    invPerPage:
+      name: invPerPage
+      description: invPerPage (number)
+      required: false
+      selector:
+        text: null
+    mcount:
+      name: mcount
+      description: mcount (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_group_link_detail:
+  name: getGroupLinkDetail
+  description: getGroupLinkDetail — Lấy chi tiết đường dẫn mời tham gia nhóm (Link邀請) của một nhóm mà
+    bạn đang tham gia.
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: The group id (string)
+      required: true
+      selector:
+        text: null
+get_group_link_info:
+  name: getGroupLinkInfo
+  description: getGroupLinkInfo — Tra cứu thông tin nhóm và danh sách thành viên theo trang từ đường dẫn
+    nhóm công khai (https://zalo.me/g/...).
+  fields:
+    entry_id: *id001
+    link:
+      name: link
+      description: link (string)
+      required: true
+      selector: *id013
+      example: https://zalo.me/g/abcxyz
+    memberPage:
+      name: memberPage
+      description: 'Default: 1 (number)'
+      required: false
+      selector:
+        text: null
+get_group_list_v3:
+  name: getGroupListV3
+  description: getGroupListV3 — Lấy danh sách nhóm theo trang kèm thông tin thành viên đại diện (currentMems)
+    và gợi ý nhóm (suggestGroup) qua /api/group/getlg/v3 (command 11161)
+  fields:
+    entry_id: *id001
+    pageOrOptions:
+      name: pageOrOptions
+      description: 'Số trang (mặc định: `1`) hoặc cấu hình `GetGroupListV3Options` (number | GetGroupListV3Options)'
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_group_members_info:
+  name: getGroupMembersInfo
+  description: getGroupMembersInfo — Giải mã hàng loạt thông tin hồ sơ thành viên (displayName, zaloName,
+    avatar, globalId) từ danh sách UID qua /api/social/group/members.
+  fields:
+    entry_id: *id001
+    memberId:
+      name: memberId
+      description: member id or array of member ids (string | string[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_group_message_status:
+  name: getGroupMessageStatus
+  description: getGroupMessageStatus — Truy vấn trạng thái Đã nhận (deliver) và Đã xem (seen) tin nhắn
+    của danh sách thành viên trong nhóm (command 12017)
+  fields:
+    entry_id: *id001
+    groupIdOrItems:
+      name: groupIdOrItems
+      description: ID nhóm (hoặc mảng cấu hình `{ tId, ids }`) (string | GetGroupMessageStatusQueryItem[])
+      required: true
+      selector:
+        text: null
+    memberIds:
+      name: memberIds
+      description: Danh sách UID thành viên cần kiểm tra (khi tham số đầu là `groupId`) (string[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_multi_group_cloud_messages:
+  name: getMultiGroupCloudMessages
+  description: getMultiGroupCloudMessages — Đồng bộ nhanh tin nhắn Cloud của nhiều nhóm cùng lúc theo
+    danh sách groupIds (command 12503 - syncCloudMsgFirstLogin)
+  fields:
+    entry_id: *id001
+    groupIds:
+      name: groupIds
+      description: Danh sách ID nhóm cần tải tin nhắn Cloud (string[])
+      required: true
+      selector:
+        text: null
+    nretry:
+      name: nretry
+      description: 'Số lần thử lại (mặc định: `0`) (number)'
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_pending_group_members:
+  name: getPendingGroupMembers
+  description: getPendingGroupMembers — Lấy danh sách các yêu cầu xin vào nhóm đang chờ Quản trị viên
+    phê duyệt.
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: '- The id of the group to get the pending members (string)'
+      required: true
+      selector:
+        text: null
+get_quota_community:
+  name: getQuotaCommunity
+  description: getQuotaCommunity — Kiểm tra hạn mức nâng cấp nhóm lên Cộng đồng của tài khoản (command
+    12181)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: (Tùy chọn) ID của nhóm cần kiểm tra (string | null)
+      required: false
+      selector:
+        text: null
+    language:
+      name: language
+      description: 'Ngôn ngữ thông báo (mặc định: `"vi"`) (string)'
+      required: false
+      selector: *id008
+      example: vi
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_related_friend_group:
+  name: getRelatedFriendGroup
+  description: getRelatedFriendGroup — Kiểm tra danh sách các nhóm chung giữa tài khoản hiện tại và danh
+    sách UID truyền vào qua /api/friend/group/related.
+  fields:
+    entry_id: *id001
+    friendId:
+      name: friendId
+      description: friend ids (string | string[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+invite_user_to_groups:
+  name: inviteUserToGroups
+  description: inviteUserToGroups — Gửi lời mời tham gia một hoặc nhiều nhóm tới người dùng.
+  fields:
+    entry_id: *id001
+    userId:
+      name: userId
+      description: userId (string)
+      required: true
+      selector:
+        text: null
+    groupId:
+      name: groupId
+      description: group ID(s) (string | string[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+join_group_invite_box:
+  name: joinGroupInviteBox
+  description: joinGroupInviteBox — Chấp nhận lời mời tham gia nhóm từ hộp thư lời mời.
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: '- The group id (string)'
+      required: true
+      selector:
+        text: null
+join_group_link:
+  name: joinGroupLink
+  description: joinGroupLink — Tham gia vào nhóm thông qua đường dẫn liên kết mời (Group Link).
+  fields:
+    entry_id: *id001
+    link:
+      name: link
+      description: '- The link join group (string)'
+      required: true
+      selector: *id013
+      example: https://zalo.me/g/abcxyz
+remove_group_blocked_member:
+  name: removeGroupBlockedMember
+  description: removeGroupBlockedMember — Gỡ chặn (Unblock) cho người dùng khỏi danh sách chặn của nhóm.
+    (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    memberId:
+      name: memberId
+      description: member id(s) (string | string[])
+      required: true
+      selector:
+        text: null
+    groupId:
+      name: groupId
+      description: group id (string)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+remove_group_topic:
+  name: removeGroupTopic
+  description: removeGroupTopic — Xóa chủ đề đang ghim trên đầu nhóm (command 11829) (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID nhóm (string)
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+remove_user_from_groups:
+  name: removeUserFromGroups
+  description: removeUserFromGroups — Xóa một thành viên khỏi nhiều nhóm cùng lúc (command 12606) (không
+    hoàn tác được)
+  fields:
+    entry_id: *id001
+    groupIds:
+      name: groupIds
+      description: Danh sách ID nhóm (string | string[])
+      required: true
+      selector:
+        text: null
+    memberId:
+      name: memberId
+      description: ID thành viên cần xóa khỏi các nhóm (string)
+      required: true
+      selector:
+        text: null
+    srcInteraction:
+      name: srcInteraction
+      description: Nguồn tương tác (mặc định `2`) (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+review_pending_member_request:
+  name: reviewPendingMemberRequest
+  description: reviewPendingMemberRequest — Phê duyệt (Chấp nhận hoặc Từ chối) yêu cầu xin tham gia nhóm
+    của thành viên mới.
+  fields:
+    entry_id: *id001
+    payload:
+      name: payload
+      description: '- The payload containing data to review the pending member(s) request (ReviewPendingMemberRequestPayload)'
+      required: true
+      selector:
+        text: null
+    groupId:
+      name: groupId
+      description: '- The id of the group to review the pending member(s) request (string)'
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+update_group_settings:
+  name: updateGroupSettings
+  description: updateGroupSettings — Cập nhật các thiết lập quyền hạn của nhóm (ẩn thành viên lockViewMember,
+    duyệt thành viên joinAppr, khóa nhắn tin lockSendMsg...).
+  fields:
+    entry_id: *id001
+    options:
+      name: options
+      description: Options (UpdateGroupSettingsOptions)
+      required: true
+      selector: &id014
+        object: null
+      example: '{"voice": "nova"}'
+    groupId:
+      name: groupId
+      description: Group ID (string)
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+upgrade_group_to_community:
+  name: upgradeGroupToCommunity
+  description: upgradeGroupToCommunity — Nâng cấp nhóm thường lên Cộng đồng (Community - tối đa 1000 thành
+    viên).
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: Group ID upgrade (string)
+      required: true
+      selector:
+        text: null
+clear_unread_friend_requests:
+  name: clearUnreadFriendRequests
+  description: clearUnreadFriendRequests — Đánh dấu đã xem danh sách lời mời kết bạn chưa đọc (command
+    12232) (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    uidsSeen:
+      name: uidsSeen
+      description: Danh sách UID đã xem lời mời kết bạn (mặc định `[]`) (string[])
+      required: false
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+find_user_by_username:
+  name: findUserByUsername
+  description: findUserByUsername — Tìm kiếm thông tin tài khoản Zalo thông qua Username.
+  fields:
+    entry_id: *id001
+    username:
+      name: username
+      description: username for find (string)
+      required: true
+      selector:
+        text: null
+    avatarSize:
+      name: avatarSize
+      description: 'Avatar size (default: AvatarSize.Large) (AvatarSize)'
+      required: false
+      selector:
+        text: null
+get_alias_list:
+  name: getAliasList
+  description: getAliasList — Lấy danh sách toàn bộ tên gợi nhớ (Alias) đã đặt cho bạn bè.
+  fields:
+    entry_id: *id001
+    count:
+      name: count
+      description: 'Page size (default: 100) (number)'
+      required: false
+      selector: *id011
+      example: 50
+      default: 50
+    page:
+      name: page
+      description: 'Page number (default: 1) (number)'
+      required: false
+      selector: *id012
+      example: '1'
+      default: '1'
+get_alias_list_v2:
+  name: getAliasListV2
+  description: getAliasListV2 — Lấy danh sách tên gợi nhớ (Alias) của bạn bè chuẩn V2 có hỗ trợ phân trang
+    (command 12205)
+  fields:
+    entry_id: *id001
+    page:
+      name: page
+      description: 'Trang cần lấy (mặc định: 1) (number)'
+      required: false
+      selector: *id012
+      example: '1'
+      default: '1'
+    count:
+      name: count
+      description: 'Số lượng mục mỗi trang (mặc định: 100) (number)'
+      required: false
+      selector: *id011
+      example: 50
+      default: 50
+get_block_friends:
+  name: getBlockFriends
+  description: getBlockFriends — Lấy danh sách người dùng đang bị chặn chuẩn V2 (command 11429) (không
+    hoàn tác được)
+  fields:
+    entry_id: *id001
+    page:
+      name: page
+      description: 'Trang cần lấy (mặc định: 1) (number)'
+      required: false
+      selector: *id012
+      example: '1'
+      default: '1'
+    count:
+      name: count
+      description: 'Số lượng mỗi trang (mặc định: 50) (number)'
+      required: false
+      selector: *id011
+      example: 50
+      default: 50
+    avatarSize:
+      name: avatarSize
+      description: 'Kích thước ảnh đại diện (mặc định: 120) (number)'
+      required: false
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+get_close_friends:
+  name: getCloseFriends
+  description: getCloseFriends — Lấy danh sách bạn thân (Close Friends).
+  fields:
+    entry_id: *id001
+get_extra_friend_info:
+  name: getExtraFriendInfo
+  description: 'getExtraFriendInfo — Lấy ngữ cảnh và vai trò mở rộng (ví dụ role: ["boss"]) của danh sách
+    bạn bè (command 11442)'
+  fields:
+    entry_id: *id001
+    friendIds:
+      name: friendIds
+      description: Mảng UID cần truy vấn (string[])
+      required: true
+      selector:
+        text: null
+get_friend_board_list:
+  name: getFriendBoardList
+  description: getFriendBoardList — Lấy thông tin bảng tin chung với một người bạn.
+  fields:
+    entry_id: *id001
+    conversationId:
+      name: conversationId
+      description: conversation id (string)
+      required: true
+      selector:
+        text: null
+get_friend_onlines:
+  name: getFriendOnlines
+  description: getFriendOnlines — Lấy danh sách bạn bè đang trực tuyến (Online) kèm trạng thái thiết bị.
+  fields:
+    entry_id: *id001
+get_friend_profiles_v2:
+  name: getFriendProfilesV2
+  description: getFriendProfilesV2 — Lấy hàng loạt hồ sơ chi tiết của danh sách bạn bè kèm trạng thái
+    online qua /api/social/friend/getprofiles/v2 (command 11140)
+  fields:
+    entry_id: *id001
+    friendIds:
+      name: friendIds
+      description: Mảng UID cần lấy hồ sơ (có thể kèm hậu tố `_version` hoặc truyền UID thuần) (string
+        | string[])
+      required: true
+      selector:
+        text: null
+    options:
+      name: options
+      description: Tùy chọn truy vấn (GetFriendProfilesV2Options)
+      required: false
+      selector: *id014
+      example: '{"voice": "nova"}'
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_friend_recommendations:
+  name: getFriendRecommendations
+  description: getFriendRecommendations — Lấy danh sách gợi ý kết bạn và lời mời kết bạn đã nhận.
+  fields:
+    entry_id: *id001
+get_friend_request_status:
+  name: getFriendRequestStatus
+  description: getFriendRequestStatus — Kiểm tra trạng thái quan hệ bạn bè và lời mời kết bạn với một
+    UID.
+  fields:
+    entry_id: *id001
+    friendId:
+      name: friendId
+      description: friend id (string)
+      required: true
+      selector:
+        text: null
+get_friends_active_p_c_web:
+  name: getFriendsActivePCWeb
+  description: getFriendsActivePCWeb — Lấy danh sách bạn bè đang hoạt động trên Zalo PC / Web qua /api/social/friend/active-pcweb
+    (command 12072)
+  fields:
+    entry_id: *id001
+get_friends_emoji_status:
+  name: getFriendsEmojiStatus
+  description: getFriendsEmojiStatus — Lấy danh sách trạng thái Emoji (Emoji Status) hiện tại của bạn
+    bè (command 16301)
+  fields:
+    entry_id: *id001
+    version:
+      name: version
+      description: version (number)
+      required: false
+      selector:
+        text: null
+    fromUid:
+      name: fromUid
+      description: fromUid (string)
+      required: false
+      selector:
+        text: null
+    maxEmojiStatusId:
+      name: maxEmojiStatusId
+      description: maxEmojiStatusId (string | number)
+      required: false
+      selector:
+        text: null
+    page:
+      name: page
+      description: page (number)
+      required: false
+      selector: *id012
+      example: '1'
+      default: '1'
+get_last_read_contact_tab:
+  name: getLastReadContactTab
+  description: getLastReadContactTab — Lấy dấu thời gian lần cuối đọc tab Danh bạ (command 12230)
+  fields:
+    entry_id: *id001
+get_multi_user_q_r_codes:
+  name: getMultiUserQRCodes
+  description: getMultiUserQRCodes — Lấy mã QR cá nhân của một hoặc nhiều người dùng (command 12128)
+  fields:
+    entry_id: *id001
+    fids:
+      name: fids
+      description: ID hoặc danh sách ID người dùng (string | string[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_multi_users_by_phones:
+  name: getMultiUsersByPhones
+  description: getMultiUsersByPhones — Tra cứu hàng loạt thông tin tài khoản Zalo từ danh sách nhiều số
+    điện thoại cùng lúc.
+  fields:
+    entry_id: *id001
+    phoneNumbers:
+      name: phoneNumbers
+      description: Phone number(s) (string | string[])
+      required: true
+      selector:
+        text: null
+    avatarSize:
+      name: avatarSize
+      description: 'Avatar size (default: AvatarSize.Large) (AvatarSize)'
+      required: false
+      selector:
+        text: null
+get_phonebook_v2:
+  name: getPhonebookV2
+  description: getPhonebookV2 — Lấy danh bạ bạn bè đồng bộ từ số điện thoại chuẩn V2 (command 12428)
+  fields:
+    entry_id: *id001
+    phonebookVersion:
+      name: phonebookVersion
+      description: 'Phiên bản danh bạ (mặc định: 0 để lấy toàn bộ) (number)'
+      required: false
+      selector:
+        text: null
+get_sent_friend_request:
+  name: getSentFriendRequest
+  description: getSentFriendRequest — Lấy danh sách các lời mời kết bạn mà tài khoản hiện tại đã gửi đi
+    nhưng chưa được phản hồi.
+  fields:
+    entry_id: *id001
+read_contact_tab:
+  name: readContactTab
+  description: readContactTab — Đánh dấu đã đọc tab Danh bạ (command 12231)
+  fields:
+    entry_id: *id001
+    ts:
+      name: ts
+      description: 'Dấu thời gian (mặc định: `Date.now()`) (number)'
+      required: false
+      selector:
+        text: null
+remove_friend_recommendation:
+  name: removeFriendRecommendation
+  description: removeFriendRecommendation — Xóa một gợi ý kết bạn khỏi danh sách đề xuất (command 11432)
+    (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    uid:
+      name: uid
+      description: ID người dùng cần ẩn khỏi gợi ý (string)
+      required: true
+      selector:
+        text: null
+    src:
+      name: src
+      description: Nguồn gợi ý (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+remove_friend_recommendation_v2:
+  name: removeFriendRecommendationV2
+  description: removeFriendRecommendationV2 — Xóa một gợi ý kết bạn khỏi danh sách đề xuất V2 (command
+    11438) (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    uid:
+      name: uid
+      description: ID người dùng cần ẩn khỏi gợi ý (string)
+      required: true
+      selector:
+        text: null
+    src:
+      name: src
+      description: Nguồn gợi ý (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    type:
+      name: type
+      description: Loại gợi ý (mặc định `0`) (number)
+      required: false
+      selector: *id010
+      example: 0
+      default: 0
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+update_close_friend:
+  name: updateCloseFriend
+  description: updateCloseFriend — Thêm hoặc xóa người dùng khỏi danh sách Bạn thân (command 11421)
+  fields:
+    entry_id: *id001
+    fids:
+      name: fids
+      description: ID hoặc danh sách ID người dùng (string | string[])
+      required: true
+      selector:
+        text: null
+    action:
+      name: action
+      description: Hành động (`1` = Thêm bạn thân, `0` = Xóa bạn thân) (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+verify_friend:
+  name: verifyFriend
+  description: verifyFriend — Kiểm tra và xác thực danh sách bạn bè qua /api/social/friend/verify (command
+    11138)
+  fields:
+    entry_id: *id001
+    friendIds:
+      name: friendIds
+      description: Danh sách UID bạn bè cần xác thực (string | string[])
+      required: true
+      selector:
+        text: null
+    options:
+      name: options
+      description: Tùy chọn truy vấn (VerifyFriendOptions)
+      required: false
+      selector: *id014
+      example: '{"voice": "nova"}'
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+delete_avatar:
+  name: deleteAvatar
+  description: deleteAvatar — Xóa một hoặc nhiều ảnh đại diện cũ trong kho ảnh đại diện. (không hoàn tác
+    được)
+  fields:
+    entry_id: *id001
+    photoId:
+      name: photoId
+      description: avatar photo ID(s) to delete - can be a single string or array of strings (string |
+        string[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+disable_limit_search_phone_reminder:
+  name: disableLimitSearchPhoneReminder
+  description: disableLimitSearchPhoneReminder — Tắt thông báo nhắc nhở giới hạn tìm kiếm số điện thoại
+    (command 12131) (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    uid:
+      name: uid
+      description: ID người dùng (mặc định là `ctx.uid`) (string)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+fetch_account_info:
+  name: fetchAccountInfo
+  description: fetchAccountInfo — API fetchAccountInfo thuộc phân hệ profile.
+  fields:
+    entry_id: *id001
+get_avatar_url_profile:
+  name: getAvatarUrlProfile
+  description: getAvatarUrlProfile — Lấy đường dẫn ảnh đại diện của danh sách hồ sơ người dùng.
+  fields:
+    entry_id: *id001
+    friendIds:
+      name: friendIds
+      description: friendIds (string | string[])
+      required: true
+      selector:
+        text: null
+    avatarSize:
+      name: avatarSize
+      description: 'Avatar size (default: AvatarSize.Large) (AvatarSize)'
+      required: false
+      selector:
+        text: null
+get_emoji_status_config:
+  name: getEmojiStatusConfig
+  description: getEmojiStatusConfig — Lấy cấu hình và danh sách bộ biểu tượng Trạng thái Emoji (Emoji
+    Status - command 16300)
+  fields:
+    entry_id: *id001
+    version:
+      name: version
+      description: 'Phiên bản bộ nhớ đệm (mặc định: 0 để lấy đầy đủ danh sách) (number)'
+      required: false
+      selector:
+        text: null
+get_enterprise_profiles:
+  name: getEnterpriseProfiles
+  description: getEnterpriseProfiles — Lấy thông tin hồ sơ doanh nghiệp (Zalo Enterprise) của một hoặc
+    nhiều tài khoản (command 12193)
+  fields:
+    entry_id: *id001
+    uids:
+      name: uids
+      description: ID hoặc danh sách ID người dùng (string | string[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_full_avatar:
+  name: getFullAvatar
+  description: getFullAvatar — Lấy ảnh đại diện kích thước gốc (Full HD) của một người dùng theo UID.
+  fields:
+    entry_id: *id001
+    friendId:
+      name: friendId
+      description: friend id (string)
+      required: true
+      selector:
+        text: null
+get_mini_profile:
+  name: getMiniProfile
+  description: getMiniProfile — Lấy nhanh thông tin hồ sơ rút gọn (Avatar, Global ID, gói Biz) của danh
+    sách người dùng (command 12134)
+  fields:
+    entry_id: *id001
+    friendIds:
+      name: friendIds
+      description: Mảng UID cần lấy thông tin (string[])
+      required: true
+      selector:
+        text: null
+    avatarSize:
+      name: avatarSize
+      description: 'Kích thước ảnh đại diện (mặc định: 120) (number)'
+      required: false
+      selector:
+        text: null
+get_profile_extra:
+  name: getProfileExtra
+  description: getProfileExtra — Lấy thông tin mở rộng của hồ sơ cá nhân (command 11864)
+  fields:
+    entry_id: *id001
+    profileId:
+      name: profileId
+      description: ID người dùng (mặc định là `ctx.uid`) (string)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_profile_rank:
+  name: getProfileRank
+  description: getProfileRank — Lấy hạng tài khoản Zalo của một người dùng (ví dụ "WHITE", "GOLD" - command
+    12012)
+  fields:
+    entry_id: *id001
+    profileId:
+      name: profileId
+      description: 'UID của người dùng cần kiểm tra (mặc định: UID của tài khoản đang đăng nhập) (string)'
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_profile_verification_status:
+  name: getProfileVerificationStatus
+  description: getProfileVerificationStatus — Kiểm tra trạng thái xác thực định danh (eKYC) của tài khoản
+    Zalo (command 12150)
+  fields:
+    entry_id: *id001
+get_settings:
+  name: getSettings
+  description: 'getSettings — Lấy toàn bộ cấu hình quyền riêng tư và cài đặt của tài khoản hiện tại. (chưa
+    tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+push_profile_verification_message:
+  name: pushProfileVerificationMessage
+  description: pushProfileVerificationMessage — Yêu cầu đẩy tin nhắn hướng dẫn xác thực tài khoản (eKYC)
+    từ Official Account (command 12151)
+  fields:
+    entry_id: *id001
+    uid:
+      name: uid
+      description: uid (string)
+      required: false
+      selector:
+        text: null
+    groupName:
+      name: groupName
+      description: groupName (string)
+      required: false
+      selector:
+        text: null
+    type:
+      name: type
+      description: type (number)
+      required: false
+      selector: *id010
+      example: 0
+      default: 0
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+register_trial_biz_account:
+  name: registerTrialBizAccount
+  description: registerTrialBizAccount — Đăng ký dùng thử gói Zalo Business V2 cho tài khoản (command
+    12152)
+  fields:
+    entry_id: *id001
+    uid:
+      name: uid
+      description: ID người dùng (mặc định là `ctx.uid`) (string)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+reuse_avatar:
+  name: reuseAvatar
+  description: reuseAvatar — Sử dụng lại một ảnh đại diện cũ từ kho lịch sử ảnh đại diện.
+  fields:
+    entry_id: *id001
+    photoId:
+      name: photoId
+      description: photo id from getAvatarList api (string)
+      required: true
+      selector:
+        text: null
+update_profile_bio:
+  name: updateProfileBio
+  description: updateProfileBio — Cập nhật dòng tiểu sử (Status / Bio) trên trang cá nhân.
+  fields:
+    entry_id: *id001
+    status:
+      name: status
+      description: status for update bio (string)
+      required: true
+      selector: *id015
+update_profile_mode:
+  name: updateProfileMode
+  description: updateProfileMode — Cập nhật chế độ hồ sơ người dùng (command 11865)
+  fields:
+    entry_id: *id001
+    mode:
+      name: mode
+      description: Chế độ hồ sơ cần đặt (number)
+      required: true
+      selector:
+        text: null
+cancel_pull_mobile:
+  name: cancelPullMobile
+  description: 'cancelPullMobile — Huỷ yêu cầu đồng bộ tin nhắn từ điện thoại đang chờ (cancel_pull_mobile_msg,
+    command 12700). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet)) (không
+    hoàn tác được)'
+  fields:
+    entry_id: *id001
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+delete_mobile_msg_snapshot:
+  name: deleteMobileMsgSnapshot
+  description: deleteMobileMsgSnapshot — Xóa bản chụp nhanh (snapshot) dữ liệu đồng bộ tin nhắn từ thiết
+    bị di động sau khi hoàn tất (command 12003) (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    publicKey:
+      name: publicKey
+      description: Khóa công khai RSA SPKI DER Base64 của phiên đồng bộ (string)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+download_transfer_sync:
+  name: downloadTransferSync
+  description: 'downloadTransferSync — Tải khối dữ liệu snapshot đồng bộ tin nhắn từ máy chủ transfersync.zaloapp.com
+    (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+get_backup_msg_info:
+  name: getBackupMsgInfo
+  description: getBackupMsgInfo — Lấy thông tin bản sao lưu tin nhắn hiện có trên máy chủ (command 12096)
+  fields:
+    entry_id: *id001
+    nretry:
+      name: nretry
+      description: Số lần thử lại (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+get_cross_db_info:
+  name: getCrossDbInfo
+  description: getCrossDbInfo — Lấy thông tin cơ sở dữ liệu chéo (Cross-DB) phục vụ đồng bộ dữ liệu sang
+    máy tính (command 12412)
+  fields:
+    entry_id: *id001
+    syncSession:
+      name: syncSession
+      description: syncSession (string)
+      required: false
+      selector:
+        text: null
+    pcName:
+      name: pcName
+      description: pcName (string)
+      required: false
+      selector:
+        text: null
+    nretry:
+      name: nretry
+      description: nretry (number)
+      required: false
+      selector:
+        text: null
+get_sync_data:
+  name: getSyncData
+  description: 'getSyncData — Tải xuống file sao lưu tin nhắn từ sự kiện syncmsg_info (.db.crypt, định
+    dạng ZDB4.0) và lưu ra ổ đĩa hoặc trả về ReadableStream. (chưa tự động: khong dung dich vu Zalo qua
+    serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+pull_mobile:
+  name: pullMobile
+  description: pullMobile — Yêu cầu thiết bị di động Zalo đóng gói và tải lên bản sao lưu tin nhắn (pull_mobile_msg,
+    command 12000). Sự kiện tiến trình (user_confirm, syncmsg_info, transfer_error) sẽ được đẩy về qua
+    api.listener.on("sync_event"). (chưa tự
+  fields:
+    entry_id: *id001
+request_sync_from_phone:
+  name: requestSyncFromPhone
+  description: 'requestSyncFromPhone — Phát tín hiệu yêu cầu đồng bộ tin nhắn từ ứng dụng Zalo trên điện
+    thoại (pull_mobile_msg, command 12000). Tự động sinh cặp khoá RSA 2048-bit (nếu chưa truyền vào) và
+    gọi api.pullMobile(...). Điện thoại của người dùng '
+  fields:
+    entry_id: *id001
+submit_sync_media_actions:
+  name: submitSyncMediaActions
+  description: submitSyncMediaActions — Gửi danh sách hành động đồng bộ hóa tệp đa phương tiện lên máy
+    chủ (command 16213)
+  fields:
+    entry_id: *id001
+    syncList:
+      name: syncList
+      description: Danh sách hành động đồng bộ Media (unknown[])
+      required: true
+      selector:
+        text: null
+upload_backup_chunk:
+  name: uploadBackupChunk
+  description: uploadBackupChunk — Tải lên gói dữ liệu phân mảnh (chunk) sao lưu tin nhắn từ máy tính
+    sang điện thoại (command 13538)
+  fields:
+    entry_id: *id001
+    formData:
+      name: formData
+      description: Dữ liệu `FormData` hoặc `BodyInit` chứa phân mảnh sao lưu (BodyInit | Buffer | Uint8Array)
+      required: true
+      selector:
+        text: null
+ack_cloud_onboarding:
+  name: ackCloudOnboarding
+  description: 'ackCloudOnboarding — Xác nhận hoàn tất bước khởi tạo (Onboarding ACK V1) trên ZCloud (command
+    12746) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+get_cloud_download_urls:
+  name: getCloudDownloadUrls
+  description: 'getCloudDownloadUrls — Lấy danh sách đường dẫn tải xuống các tệp Media lưu trữ trên ZCloud
+    theo noiseIds (command 12743) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+get_cloud_info:
+  name: getCloudInfo
+  description: 'getCloudInfo — Lấy thông tin gói thuê bao Zalo Cloud (command 12754) (chưa tự động: goi
+    0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+get_cloud_settings:
+  name: getCloudSettings
+  description: 'getCloudSettings — Lấy cấu hình giới hạn tệp và cài đặt ZCloud của tài khoản (command
+    12756) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+get_cloud_upload_url:
+  name: getCloudUploadUrl
+  description: 'getCloudUploadUrl — Lấy đường dẫn tải lên tệp di trú lên ZCloud (command 12752) (chưa
+    tự động: goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+get_cloud_viewer_key:
+  name: getCloudViewerKey
+  description: getCloudViewerKey — Lấy cặp khóa phiên (viewer_key và khóa giải mã AES-256 enk) cho hệ
+    thống ZCloud / MyCloud (command 12741). Tự động cache trong bộ nhớ ctx.zcloudViewerKeyCache (TTL 15
+    phút) để tối ưu hiệu năng khi gọi liên tiếp. (chưa tự
+  fields:
+    entry_id: *id001
+get_family_profile:
+  name: getFamilyProfile
+  description: 'getFamilyProfile — Lấy thông tin nhóm gia đình ZFamily (command 12757) (chưa tự động:
+    goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+get_family_usage:
+  name: getFamilyUsage
+  description: 'getFamilyUsage — Kiểm tra dung lượng sử dụng gói ZCloud Gia đình (Family Usage - command
+    12758) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+get_family_viewer_key:
+  name: getFamilyViewerKey
+  description: getFamilyViewerKey — Lấy cặp khóa phiên (viewer_key và khóa giải mã AES-256 enk) cho gói
+    gia đình ZFamily (command 12759). Tự động cache trong bộ nhớ ctx.zfamilyViewerKeyCache (TTL 15 phút)
+    để tối ưu hiệu năng khi gọi liên tiếp. (chưa tự độ
+  fields:
+    entry_id: *id001
+get_usage_my_cloud:
+  name: getUsageMyCloud
+  description: 'getUsageMyCloud — Kiểm tra hạn mức và dung lượng sử dụng Cloud của tôi (MyCloud - command
+    12748) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+get_usage_z_cloud:
+  name: getUsageZCloud
+  description: 'getUsageZCloud — Kiểm tra dung lượng sử dụng ZCloud V2 (bao gồm MyCloud và Sao lưu tin
+    nhắn - command 12749) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+migrate_cloud_recent:
+  name: migrateCloudRecent
+  description: 'migrateCloudRecent — Thực hiện di trú dữ liệu tệp tin gần đây lên ZCloud (command 12753)
+    (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+reset_cloud_queue:
+  name: resetCloudQueue
+  description: 'resetCloudQueue — Đặt lại hàng đợi đồng bộ Media trên ZCloud (command 12744) (chưa tự
+    động: goi 0 request (nhieu buoc hoac khong goi)) (không hoàn tác được)'
+  fields:
+    entry_id: *id001
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+submit_cloud_media_ext_info:
+  name: submitCloudMediaExtInfo
+  description: 'submitCloudMediaExtInfo — Gửi thông tin mở rộng (siêu dữ liệu / khóa giải mã) của các
+    tệp Media lên hàng đợi ZCloud (command 12745) (chưa tự động: goi 0 request (nhieu buoc hoac khong
+    goi))'
+  fields:
+    entry_id: *id001
+submit_cloud_verify_action:
+  name: submitCloudVerifyAction
+  description: 'submitCloudVerifyAction — Gửi hành động xác thực bảo mật ZCloud (Onboarding ACK V2 - command
+    12750) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+verify_cloud_media:
+  name: verifyCloudMedia
+  description: 'verifyCloudMedia — Kiểm tra và lấy danh sách mục Media lưu trữ trên ZCloud (command 12740
+    / 12761) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))'
+  fields:
+    entry_id: *id001
+add_user_group_call:
+  name: addUserGroupCall
+  description: 'addUserGroupCall — Mời thêm thành viên mới vào cuộc gọi nhóm đang diễn ra (cmd 12435 -
+    /api/voicecall/group/adduser). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac
+    biet))'
+  fields:
+    entry_id: *id001
+answer_ack_voice_call:
+  name: answerAckVoiceCall
+  description: 'answerAckVoiceCall — Gửi xác nhận hoàn tất bắt tay nhận cuộc gọi 1-1 (cmd 11304 - /api/voicecall/answerack,
+    signal 408). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+answer_group_call:
+  name: answerGroupCall
+  description: 'answerGroupCall — Chấp nhận tham gia cuộc gọi nhóm khi nhận được lời mời (cmd 12436 -
+    /api/voicecall/group/answer). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac
+    biet))'
+  fields:
+    entry_id: *id001
+answer_voice_call:
+  name: answerVoiceCall
+  description: 'answerVoiceCall — Chấp nhận (Bắt máy) cuộc gọi Thoại/Video 1-1 đến (cmd 11303 - /api/voicecall/answer,
+    signal 402). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+broadcast_group_call_state:
+  name: broadcastGroupCallState
+  description: 'broadcastGroupCallState — Phát quảng bá trạng thái thiết bị (Mic, Camera, Screen Share)
+    tới các thành viên trong cuộc gọi nhóm (cmd 12098 - /api/voicecall/group/broadcast). (chưa tự động:
+    khong dung dich vu Zalo qua serviceMap (xu ly cuc bo'
+  fields:
+    entry_id: *id001
+cancel_group_call:
+  name: cancelGroupCall
+  description: 'cancelGroupCall — Hủy lời mời cuộc gọi nhóm (cmd 12437 - /api/voicecall/group/cancel).
+    (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet)) (không hoàn tác được)'
+  fields:
+    entry_id: *id001
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+cancel_voice_call:
+  name: cancelVoiceCall
+  description: 'cancelVoiceCall — Hủy cuộc gọi 1-1 đang đổ chuông trước khi người nhận bắt máy (cmd 11305
+    - /api/voicecall/cancel, signal 405). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly
+    cuc bo/dac biet)) (không hoàn tác được)'
+  fields:
+    entry_id: *id001
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+create_controller:
+  name: createController
+  description: 'createController — Khởi tạo bộ điều phối cuộc gọi ZaloCallController quản lý vòng đời
+    gọi đi, nhận cuộc gọi đến và kênh IPC cục bộ. (chưa tự động: khong dung dich vu Zalo qua serviceMap
+    (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+create_rtc_session:
+  name: createRtcSession
+  description: 'createRtcSession — Khởi tạo phiên gọi thoại / video 2 chiều thuần TypeScript (ZaloRtcSession
+    — UDP ZRTPPacket + SRTP + H.264 Annex-B + Mobile Direct UDP Handoff). (chưa tự động: khong dung dich
+    vu Zalo qua serviceMap (xu ly cuc bo/dac biet)'
+  fields:
+    entry_id: *id001
+end_group_call:
+  name: endGroupCall
+  description: 'endGroupCall — Rời khỏi cuộc gọi nhóm hoặc từ chối lời mời gọi nhóm (cmd 12438 - /api/voicecall/group/endcall).
+    (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+end_voice_call:
+  name: endVoiceCall
+  description: 'endVoiceCall — Kết thúc cuộc gọi 1-1 đang diễn ra hoặc từ chối cuộc gọi đến (cmd 11306
+    - /api/voicecall/endcall, signal 404). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly
+    cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+finish_group_call:
+  name: finishGroupCall
+  description: 'finishGroupCall — Kết thúc hoàn toàn phòng gọi nhóm cho tất cả thành viên (cmd 12446 -
+    /api/voicecall/group/finish). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac
+    biet))'
+  fields:
+    entry_id: *id001
+get_group_call_state:
+  name: getGroupCallState
+  description: 'getGroupCallState — Truy vấn trạng thái hiện tại và danh sách thành viên trong phòng gọi
+    nhóm (cmd 12445 - /api/voicecall/group/state). (chưa tự động: khong dung dich vu Zalo qua serviceMap
+    (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+hold_voice_call:
+  name: holdVoiceCall
+  description: 'holdVoiceCall — Tạm giữ (Hold) cuộc gọi 1-1 đang diễn ra hoặc phản hồi yêu cầu tạm giữ
+    (cmd 11307 holdreq / cmd 11308 holdresp, signal 411/412). (chưa tự động: khong dung dich vu Zalo qua
+    serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+join_group_call:
+  name: joinGroupCall
+  description: 'joinGroupCall — Chủ động tham gia vào một cuộc gọi nhóm đang diễn ra từ banner nhóm (cmd
+    12043 - /api/voicecall/group/join). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc
+    bo/dac biet))'
+  fields:
+    entry_id: *id001
+log_end_voice_call:
+  name: logEndVoiceCall
+  description: 'logEndVoiceCall — Gửi thống kê chất lượng cuộc gọi (QoS/Billing stats) sau khi kết thúc
+    cuộc gọi 1-1 (cmd 11311 - /api/voicecall/logendcall, signal 406). (chưa tự động: khong dung dich vu
+    Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+notify_group_call:
+  name: notifyGroupCall
+  description: 'notifyGroupCall — Gửi thông báo sự kiện cuộc gọi nhóm vào luồng chat nhóm (cmd 12447 -
+    /api/voicecall/group/notify). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac
+    biet))'
+  fields:
+    entry_id: *id001
+ping_group_call:
+  name: pingGroupCall
+  description: 'pingGroupCall — Gửi nhịp tim (Heartbeat Ping) duy trì kết nối của thành viên trong phòng
+    gọi nhóm (cmd 12097 - /api/voicecall/group/ping). (chưa tự động: khong dung dich vu Zalo qua serviceMap
+    (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+request_audio_to_video_call:
+  name: requestAudioToVideoCall
+  description: 'requestAudioToVideoCall — Yêu cầu nâng cấp từ cuộc gọi Thoại sang cuộc gọi Video hoặc
+    phản hồi yêu cầu (cmd 12056 - /api/voicecall/requestaudio2video). (chưa tự động: khong dung dich vu
+    Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+request_group_call:
+  name: requestGroupCall
+  description: 'requestGroupCall — Bước 1 gọi nhóm (cmd 12433 - /api/voicecall/group/requestcall): Xin
+    cấp phát phòng gọi nhóm (Group Call Room & RTP/ZRTC servers). (chưa tự động: khong dung dich vu Zalo
+    qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+request_share_screen_call:
+  name: requestShareScreenCall
+  description: 'requestShareScreenCall — Yêu cầu bắt đầu hoặc kết thúc chia sẻ màn hình (Screen Share)
+    trong cuộc gọi 1-1 (cmd 12064 - /api/voicecall/requestsharescreen). (chưa tự động: khong dung dich
+    vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+request_voice_call:
+  name: requestVoiceCall
+  description: 'requestVoiceCall — Bước 1 gọi 1-1 (cmd 11300 - /api/voicecall/requestcall, signal 401):
+    Xin cấp phát phòng gọi 1-1 (callId, sessId, rtpServer, rtcpServer, zrtpKey, codec). (chưa tự động:
+    khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/'
+  fields:
+    entry_id: *id001
+ring_ring_group_call:
+  name: ringRingGroupCall
+  description: 'ringRingGroupCall — Báo hiệu thiết bị đang đổ chuông cho lời mời gọi nhóm (cmd 12439 -
+    /api/voicecall/group/ringring). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac
+    biet))'
+  fields:
+    entry_id: *id001
+ring_ring_voice_call:
+  name: ringRingVoiceCall
+  description: 'ringRingVoiceCall — Báo hiệu thiết bị đang đổ chuông cho cuộc gọi 1-1 đến (cmd 11302 -
+    /api/voicecall/ringring, signal 407). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly
+    cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+send_request_group_call:
+  name: sendRequestGroupCall
+  description: 'sendRequestGroupCall — Bước 2 gọi nhóm (cmd 12434 - /api/voicecall/group/request): Phát
+    tín hiệu mời gọi nhóm tới danh sách thành viên. (chưa tự động: khong dung dich vu Zalo qua serviceMap
+    (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+send_request_voice_call:
+  name: sendRequestVoiceCall
+  description: 'sendRequestVoiceCall — Bước 2 gọi 1-1 (cmd 11301 - /api/voicecall/request, signal 416):
+    Gửi gói mời gọi (Invite) kèm extendData ZRTC để kích hoạt đổ chuông trên thiết bị người nhận. (chưa
+    tự động: khong dung dich vu Zalo qua serviceMap (xu '
+  fields:
+    entry_id: *id001
+send_voice_call:
+  name: sendVoiceCall
+  description: 'sendVoiceCall — Khởi tạo cuộc gọi Thoại hoặc Video 1-1 trọn gói (tự động thực hiện 2 bước
+    11300 + 11301 làm đổ chuông máy người nhận). (chưa tự động: khong dung dich vu Zalo qua serviceMap
+    (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+share_screen_group_call:
+  name: shareScreenGroupCall
+  description: 'shareScreenGroupCall — Bắt đầu hoặc dừng chia sẻ màn hình trong cuộc gọi nhóm (cmd 12044
+    - /api/voicecall/group/sharescreen). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly
+    cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+unhold_voice_call:
+  name: unholdVoiceCall
+  description: 'unholdVoiceCall — Khôi phục (Unhold) cuộc gọi 1-1 đang tạm giữ hoặc phản hồi yêu cầu khôi
+    phục (cmd 11309 unholdreq / cmd 11310 unholdresp, signal 413/414). (chưa tự động: khong dung dich
+    vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
+  fields:
+    entry_id: *id001
+update_call_media_state:
+  name: updateCallMediaState
+  description: 'updateCallMediaState — Đồng bộ trạng thái bật/tắt Mic và Camera trong cuộc gọi 1-1 (cmd
+    12006 - /api/voicecall/conf). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac
+    biet))'
+  fields:
+    entry_id: *id001
+get_conversation_media:
+  name: getConversationMedia
+  description: getConversationMedia — Lấy danh sách Kho Lưu Trữ (Ảnh/Video "media", File "file", hoặc
+    Link "link") trong hội thoại nhóm (command 11841)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: groupId (string)
+      required: false
+      selector:
+        text: null
+    threadId:
+      name: threadId
+      description: threadId (string)
+      required: false
+      selector:
+        text: null
+    mediaType:
+      name: mediaType
+      description: mediaType (MediaStoreType)
+      required: false
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: limit (number)
+      required: false
+      selector:
+        text: null
+    lastId:
+      name: lastId
+      description: lastId (number | string)
+      required: false
+      selector:
+        text: null
+    lastFetchId:
+      name: lastFetchId
+      description: lastFetchId (number)
+      required: false
+      selector:
+        text: null
+get_media_store_preview:
+  name: getMediaStorePreview
+  description: getMediaStorePreview — Lấy danh sách xem trước nhanh Kho Lưu Trữ (Ảnh/Video, File, Link)
+    của nhóm (command 11843)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID của nhóm (string)
+      required: true
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: 'Số lượng mục tối đa (mặc định: 50) (number)'
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_personal_media:
+  name: getPersonalMedia
+  description: getPersonalMedia — Lấy danh sách Kho Lưu Trữ Ảnh/Video ("media"), File ("file"), hoặc Link
+    ("link") trong Cloud của tôi (Send2Me) (command 12220)
+  fields:
+    entry_id: *id001
+    mediaType:
+      name: mediaType
+      description: mediaType (MediaStoreType)
+      required: false
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: limit (number)
+      required: false
+      selector:
+        text: null
+    lastId:
+      name: lastId
+      description: lastId (number | string)
+      required: false
+      selector:
+        text: null
+    lastFetchId:
+      name: lastFetchId
+      description: lastFetchId (number)
+      required: false
+      selector:
+        text: null
+get_personal_media_preview:
+  name: getPersonalMediaPreview
+  description: getPersonalMediaPreview — Lấy danh sách xem trước nhanh Kho Lưu Trữ trong Cloud của tôi
+    (Send2Me) (command 12221)
+  fields:
+    entry_id: *id001
+    limit:
+      name: limit
+      description: 'Số lượng mục tối đa (mặc định: `50`) (number)'
+      required: false
+      selector:
+        text: null
+remove_conversation_media:
+  name: removeConversationMedia
+  description: removeConversationMedia — Xóa mục Ảnh/Video, File hoặc Link khỏi Kho Lưu Trữ của nhóm (command
+    11842) (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: groupId (string)
+      required: true
+      selector:
+        text: null
+    mediaType:
+      name: mediaType
+      description: mediaType (MediaStoreType)
+      required: true
+      selector:
+        text: null
+    mediaId:
+      name: mediaId
+      description: mediaId (string | number | (string | number)[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+remove_personal_media:
+  name: removePersonalMedia
+  description: removePersonalMedia — Xóa mục lưu trữ trong Kho Lưu Trữ Cloud của tôi (Send2Me) (command
+    12222) (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    mediaType:
+      name: mediaType
+      description: mediaType (MediaStoreType)
+      required: true
+      selector:
+        text: null
+    mediaId:
+      name: mediaId
+      description: mediaId (number | string | Array<number | string>)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+upload_attachment:
+  name: uploadAttachment
+  description: 'uploadAttachment — Tải tệp đính kèm (Ảnh, Video, File) lên máy chủ Zalo để lấy thông tin
+    fileUrl / fileId trước khi gửi. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac
+    biet))'
+  fields:
+    entry_id: *id001
+voice_to_text:
+  name: voiceToText
+  description: voiceToText — Gửi yêu cầu chuyển đổi tin nhắn thoại sang văn bản bằng Zalo AI (command
+    13394). Kết quả văn bản sau khi xử lý xong sẽ được đẩy về qua sự kiện api.listener.on("voice2text_event",
+    ...) khớp với req_id.
+  fields:
+    entry_id: *id001
+    voiceUrl:
+      name: voiceUrl
+      description: Đường dẫn URL của tệp ghi âm tin nhắn thoại (`.aac` / `.mp3` / `.m4a`) (string)
+      required: true
+      selector:
+        text: null
+get_a_i_sticker_list:
+  name: getAIStickerList
+  description: getAIStickerList — Lấy danh sách Sticker AI của người dùng (command 12190)
+  fields:
+    entry_id: *id001
+get_default_guggy_gifs:
+  name: getDefaultGuggyGifs
+  description: getDefaultGuggyGifs — Lấy danh sách ảnh động Guggy GIF mặc định (command 11749)
+  fields:
+    entry_id: *id001
+    limit:
+      name: limit
+      description: Số lượng kết quả tối đa (mặc định `10`) (number)
+      required: false
+      selector:
+        text: null
+get_gif_categories:
+  name: getGifCategories
+  description: getGifCategories — Lấy danh sách danh mục ảnh động Giphy GIF (command 11294)
+  fields:
+    entry_id: *id001
+    offset:
+      name: offset
+      description: Vị trí bắt đầu (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: Số lượng kết quả tối đa (mặc định `10`) (number)
+      required: false
+      selector:
+        text: null
+get_gif_dictionaries:
+  name: getGifDictionaries
+  description: getGifDictionaries — Lấy danh sách từ điển ảnh động Giphy GIF (command 11298)
+  fields:
+    entry_id: *id001
+    offset:
+      name: offset
+      description: Vị trí bắt đầu (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: Số lượng kết quả tối đa (mặc định `10`) (number)
+      required: false
+      selector:
+        text: null
+get_gifs_by_category:
+  name: getGifsByCategory
+  description: getGifsByCategory — Lấy danh sách ảnh động Giphy GIF theo ID danh mục (command 11295)
+  fields:
+    entry_id: *id001
+    cateId:
+      name: cateId
+      description: ID danh mục GIF (number)
+      required: true
+      selector:
+        text: null
+    offset:
+      name: offset
+      description: Vị trí bắt đầu (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: Số lượng kết quả tối đa (mặc định `10`) (number)
+      required: false
+      selector:
+        text: null
+get_gifs_by_dictionary:
+  name: getGifsByDictionary
+  description: getGifsByDictionary — Lấy danh sách ảnh động Giphy GIF theo ID từ điển (command 11299)
+  fields:
+    entry_id: *id001
+    dicId:
+      name: dicId
+      description: ID từ điển GIF (number)
+      required: true
+      selector:
+        text: null
+    offset:
+      name: offset
+      description: Vị trí bắt đầu (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: Số lượng kết quả tối đa (mặc định `10`) (number)
+      required: false
+      selector:
+        text: null
+get_message_effect_by_id:
+  name: getMessageEffectById
+  description: getMessageEffectById — Lấy chi tiết một hiệu ứng tin nhắn theo ID và kích thước (command
+    11743)
+  fields:
+    entry_id: *id001
+    id:
+      name: id
+      description: ID hiệu ứng (number | string)
+      required: true
+      selector:
+        text: null
+    size:
+      name: size
+      description: Kích thước tài nguyên hiệu ứng (mặc định `130`) (number)
+      required: false
+      selector:
+        text: null
+get_message_effects:
+  name: getMessageEffects
+  description: getMessageEffects — Lấy thông tin hiệu ứng tin nhắn theo danh sách ID (command 11742)
+  fields:
+    entry_id: *id001
+    effectIds:
+      name: effectIds
+      description: ID hoặc danh sách ID hiệu ứng (number | number[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_personalized_sticker_list:
+  name: getPersonalizedStickerList
+  description: getPersonalizedStickerList — Lấy danh sách Sticker cá nhân hóa của tài khoản (command 11745)
+  fields:
+    entry_id: *id001
+get_recommended_stickers:
+  name: getRecommendedStickers
+  description: getRecommendedStickers — Lấy danh sách các bộ Sticker được Zalo đề xuất (command 11748)
+  fields:
+    entry_id: *id001
+get_sticker_categories_v2:
+  name: getStickerCategoriesV2
+  description: 'getStickerCategoriesV2 — Lấy danh sách danh mục bộ nhãn dán (Sticker Categories V2 - command
+    12020) (chưa tự động: khong doc duoc doi tuong params)'
+  fields:
+    entry_id: *id001
+get_sticker_category_data:
+  name: getStickerCategoryData
+  description: getStickerCategoryData — Lấy thông tin chi tiết một bộ nhãn dán theo cid (command 11156)
+  fields:
+    entry_id: *id001
+    cid:
+      name: cid
+      description: ID bộ nhãn dán (Category ID) (number)
+      required: true
+      selector:
+        text: null
+get_sticker_category_detail:
+  name: getStickerCategoryDetail
+  description: getStickerCategoryDetail — Lấy danh sách toàn bộ nhãn dán nằm trong một bộ nhãn dán (Category/Pack
+    ID).
+  fields:
+    entry_id: *id001
+    cateId:
+      name: cateId
+      description: Sticker category ID (number)
+      required: true
+      selector:
+        text: null
+get_sticker_hello:
+  name: getStickerHello
+  description: getStickerHello — Lấy danh sách Sticker chào hỏi gợi ý khi bắt đầu trò chuyện mới (command
+    11751)
+  fields:
+    entry_id: *id001
+get_sticker_suggest_keywords:
+  name: getStickerSuggestKeywords
+  description: getStickerSuggestKeywords — Lấy bộ từ khóa gợi ý Sticker tự động khi gõ tin nhắn (command
+    11740)
+  fields:
+    entry_id: *id001
+get_sticker_suggestion:
+  name: getStickerSuggestion
+  description: getStickerSuggestion — Gợi ý Sticker/GIF theo từ khóa đang nhập (command 11741)
+  fields:
+    entry_id: *id001
+    options:
+      name: options
+      description: Từ khóa và tùy chọn kèm theo (`gif`, `guggy`) (GetStickerSuggestionOptions | string)
+      required: true
+      selector: *id014
+      example: '{"voice": "nova"}'
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_tenor_sticker_mapping:
+  name: getTenorStickerMapping
+  description: getTenorStickerMapping — Lấy bảng ánh xạ Tenor sang Sticker Zalo (command 12015)
+  fields:
+    entry_id: *id001
+get_trending_gifs:
+  name: getTrendingGifs
+  description: getTrendingGifs — Lấy danh sách ảnh động Giphy GIF thịnh hành (command 11296)
+  fields:
+    entry_id: *id001
+    offset:
+      name: offset
+      description: Vị trí bắt đầu (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: Số lượng kết quả tối đa (mặc định `10`) (number)
+      required: false
+      selector:
+        text: null
+search_gifs:
+  name: searchGifs
+  description: searchGifs — Tìm kiếm ảnh động Giphy GIF theo từ khóa (command 11297)
+  fields:
+    entry_id: *id001
+    keyword:
+      name: keyword
+      description: Từ khóa tìm kiếm (string)
+      required: true
+      selector: *id016
+      example: /qm1
+    offset:
+      name: offset
+      description: Vị trí bắt đầu (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: Số lượng kết quả tối đa (mặc định `10`) (number)
+      required: false
+      selector:
+        text: null
+search_guggy_gifs:
+  name: searchGuggyGifs
+  description: searchGuggyGifs — Tìm kiếm ảnh động Guggy GIF theo từ khóa (command 11750)
+  fields:
+    entry_id: *id001
+    keyword:
+      name: keyword
+      description: Từ khóa tìm kiếm (string)
+      required: true
+      selector: *id016
+      example: /qm1
+    limit:
+      name: limit
+      description: Số lượng kết quả tối đa (mặc định `10`) (number)
+      required: false
+      selector:
+        text: null
+search_sticker:
+  name: searchSticker
+  description: searchSticker — Tìm kiếm nhãn dán nâng cao theo từ khóa.
+  fields:
+    entry_id: *id001
+    keyword:
+      name: keyword
+      description: Keyword to search stickers (string)
+      required: true
+      selector: *id016
+      example: /qm1
+    limit:
+      name: limit
+      description: 'Limit of stickers to return (default: 50) (number)'
+      required: false
+      selector:
+        text: null
+update_personalized_sticker_list:
+  name: updatePersonalizedStickerList
+  description: updatePersonalizedStickerList — Cập nhật danh sách các bộ Sticker cá nhân hóa của người
+    dùng (command 11746)
+  fields:
+    entry_id: *id001
+    stickerCateIds:
+      name: stickerCateIds
+      description: Danh sách ID danh mục Sticker (number[])
+      required: true
+      selector:
+        text: null
+    version:
+      name: version
+      description: Phiên bản hiện tại của danh sách (number)
+      required: false
+      selector:
+        text: null
+ack_ding_todo:
+  name: ackDingTodo
+  description: ackDingTodo — Xác nhận đã nhận nhắc nhở (Ding ACK) trong Zalo To-Do (command 12427)
+  fields:
+    entry_id: *id001
+    taskIds:
+      name: taskIds
+      description: Danh sách ID công việc xác nhận (string | string[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+add_poll_options:
+  name: addPollOptions
+  description: addPollOptions — Thêm phương án lựa chọn mới vào một cuộc Bình chọn (Poll) đang mở trong
+    nhóm.
+  fields:
+    entry_id: *id001
+    pollId:
+      name: pollId
+      description: pollId (number)
+      required: true
+      selector:
+        text: null
+    options:
+      name: options
+      description: options (AddPollOptionsOption[])
+      required: true
+      selector: *id014
+      example: '{"voice": "nova"}'
+    votedOptionIds:
+      name: votedOptionIds
+      description: votedOptionIds (number[])
+      required: true
+      selector:
+        text: null
+create_note:
+  name: createNote
+  description: createNote — Tạo một Ghi chú (Note) mới trên Bảng tin nhóm và tùy chọn ghim lên đầu.
+  fields:
+    entry_id: *id001
+    options:
+      name: options
+      description: note options (CreateNoteOptions)
+      required: true
+      selector: *id014
+      example: '{"voice": "nova"}'
+    groupId:
+      name: groupId
+      description: group id (string)
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+create_one_one_board_topic:
+  name: createOneOneBoardTopic
+  description: createOneOneBoardTopic — Tạo nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12429)
+  fields:
+    entry_id: *id001
+    toUid:
+      name: toUid
+      description: toUid (string)
+      required: true
+      selector:
+        text: null
+    title:
+      name: title
+      description: title (string)
+      required: true
+      selector: *id017
+      example: Họp nhóm
+    emoji:
+      name: emoji
+      description: emoji (string)
+      required: false
+      selector:
+        text: null
+    startTime:
+      name: startTime
+      description: startTime (number)
+      required: false
+      selector:
+        text: null
+    repeat:
+      name: repeat
+      description: repeat (number)
+      required: false
+      selector:
+        text: null
+    color:
+      name: color
+      description: color (number)
+      required: false
+      selector:
+        text: null
+    key:
+      name: key
+      description: 'key (string]: unknown)'
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+create_todo:
+  name: createTodo
+  description: createTodo — Tạo công việc mới trong Zalo To-Do (command 12413)
+  fields:
+    entry_id: *id001
+    title:
+      name: title
+      description: title (string)
+      required: false
+      selector: *id017
+      example: Họp nhóm
+    content:
+      name: content
+      description: content (string)
+      required: false
+      selector: *id018
+      example: Họp nhóm lúc 10h sáng
+    assignees:
+      name: assignees
+      description: assignees (string[])
+      required: false
+      selector:
+        text: null
+    watchers:
+      name: watchers
+      description: watchers (string[])
+      required: false
+      selector:
+        text: null
+    dueDate:
+      name: dueDate
+      description: dueDate (number)
+      required: false
+      selector:
+        text: null
+    dateDefaultType:
+      name: dateDefaultType
+      description: dateDefaultType (number)
+      required: false
+      selector:
+        text: null
+    status:
+      name: status
+      description: status (number)
+      required: false
+      selector: *id015
+    schedule:
+      name: schedule
+      description: schedule (unknown)
+      required: false
+      selector:
+        text: null
+    src:
+      name: src
+      description: src (number)
+      required: false
+      selector:
+        text: null
+    key:
+      name: key
+      description: 'key (string]: unknown)'
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+delete_todo:
+  name: deleteTodo
+  description: deleteTodo — Xóa công việc trong Zalo To-Do (command 12415) (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    todoId:
+      name: todoId
+      description: ID công việc cần xóa (string)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+ding_todo:
+  name: dingTodo
+  description: dingTodo — Gửi nhắc nhở (Ding) cho các công việc trong Zalo To-Do (command 12426)
+  fields:
+    entry_id: *id001
+    taskIds:
+      name: taskIds
+      description: Danh sách ID công việc cần nhắc nhở (string | string[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+edit_note:
+  name: editNote
+  description: editNote — Chỉnh sửa nội dung ghi chú đã tạo trên Bảng tin nhóm.
+  fields:
+    entry_id: *id001
+    options:
+      name: options
+      description: Options for editing the note (EditNoteOptions)
+      required: true
+      selector: *id014
+      example: '{"voice": "nova"}'
+    groupId:
+      name: groupId
+      description: Group ID to create note from (string)
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_list_one_one_board:
+  name: getListOneOneBoard
+  description: getListOneOneBoard — Lấy danh sách nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command
+    12432)
+  fields:
+    entry_id: *id001
+    uid:
+      name: uid
+      description: uid (string)
+      required: false
+      selector:
+        text: null
+    conversationId:
+      name: conversationId
+      description: conversationId (string)
+      required: false
+      selector:
+        text: null
+    boardType:
+      name: boardType
+      description: boardType (number)
+      required: false
+      selector:
+        text: null
+    page:
+      name: page
+      description: page (number)
+      required: false
+      selector: *id012
+      example: '1'
+      default: '1'
+    count:
+      name: count
+      description: count (number)
+      required: false
+      selector: *id011
+      example: 50
+      default: 50
+    lastId:
+      name: lastId
+      description: lastId (number)
+      required: false
+      selector:
+        text: null
+    lastType:
+      name: lastType
+      description: lastType (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_list_pin_topics:
+  name: getListPinTopics
+  description: getListPinTopics — Lấy danh sách chủ đề / tin nhắn đã ghim trong bảng tin nhóm (command
+    12001)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID nhóm (string)
+      required: true
+      selector:
+        text: null
+    boardVersion:
+      name: boardVersion
+      description: Phiên bản bảng ghim hiện tại (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+get_todo_detail:
+  name: getTodoDetail
+  description: getTodoDetail — Lấy chi tiết công việc trong Zalo To-Do (command 12417)
+  fields:
+    entry_id: *id001
+    todoId:
+      name: todoId
+      description: ID công việc (string)
+      required: true
+      selector:
+        text: null
+get_todo_list:
+  name: getTodoList
+  description: getTodoList — Lấy danh sách công việc trong Zalo To-Do (command 12416)
+  fields:
+    entry_id: *id001
+    scrollId:
+      name: scrollId
+      description: scrollId (string)
+      required: false
+      selector:
+        text: null
+    queries:
+      name: queries
+      description: queries (Record<string, unknown> | string)
+      required: false
+      selector:
+        text: null
+    offset:
+      name: offset
+      description: offset (number)
+      required: false
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: limit (number)
+      required: false
+      selector:
+        text: null
+    type:
+      name: type
+      description: type (number)
+      required: false
+      selector: *id010
+      example: 0
+      default: 0
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+multi_unpin_board_topics:
+  name: multiUnpinBoardTopics
+  description: multiUnpinBoardTopics — Bỏ ghim đồng thời nhiều chủ đề khỏi bảng tin nhóm (command 12010)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID nhóm (string)
+      required: true
+      selector:
+        text: null
+    topics:
+      name: topics
+      description: Danh sách chủ đề cần bỏ ghim (unknown[])
+      required: true
+      selector:
+        text: null
+    boardVersion:
+      name: boardVersion
+      description: Phiên bản bảng ghim hiện tại (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+pin_board_topic:
+  name: pinBoardTopic
+  description: pinBoardTopic — Ghim một chủ đề / bài đăng lên bảng tin nhóm (command 12004)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID nhóm (string)
+      required: true
+      selector:
+        text: null
+    topicId:
+      name: topicId
+      description: ID chủ đề cần ghim (string)
+      required: true
+      selector:
+        text: null
+    type:
+      name: type
+      description: 'Loại chủ đề (ví dụ: ghi chú, bình chọn, nhắc hẹn) (number)'
+      required: true
+      selector: *id010
+      example: 0
+      default: 0
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+pin_friend_message:
+  name: pinFriendMessage
+  description: pinFriendMessage — Ghim tin nhắn / chủ đề trong hội thoại cá nhân 1-1 (command 12067)
+  fields:
+    entry_id: *id001
+    conversationId:
+      name: conversationId
+      description: ID hội thoại 1-1 (string)
+      required: true
+      selector:
+        text: null
+    topic:
+      name: topic
+      description: Thông tin tin nhắn / chủ đề cần ghim (unknown)
+      required: true
+      selector:
+        text: null
+    version:
+      name: version
+      description: Phiên bản bảng ghim hiện tại (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+remove_board_topic:
+  name: removeBoardTopic
+  description: removeBoardTopic — Xóa chủ đề / ghi chú trên bảng tin nhóm (command 12143) (không hoàn
+    tác được)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID nhóm (string)
+      required: true
+      selector:
+        text: null
+    topicId:
+      name: topicId
+      description: ID chủ đề cần xóa (string)
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+remove_one_one_board_topic:
+  name: removeOneOneBoardTopic
+  description: removeOneOneBoardTopic — Xóa nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12431)
+    (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    uid:
+      name: uid
+      description: ID người dùng đối phương (string)
+      required: true
+      selector:
+        text: null
+    reminderId:
+      name: reminderId
+      description: ID nhắc hẹn cần xóa (string)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+reorder_friend_board:
+  name: reorderFriendBoard
+  description: reorderFriendBoard — Sắp xếp lại thứ tự các tin nhắn đã ghim trong hội thoại 1-1 (command
+    12068)
+  fields:
+    entry_id: *id001
+    conversationId:
+      name: conversationId
+      description: ID hội thoại 1-1 (string)
+      required: true
+      selector:
+        text: null
+    topics:
+      name: topics
+      description: Danh sách tin nhắn đã ghim theo thứ tự mới (unknown[])
+      required: true
+      selector:
+        text: null
+    version:
+      name: version
+      description: Phiên bản bảng ghim hiện tại (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+reorder_pin_topics:
+  name: reorderPinTopics
+  description: reorderPinTopics — Sắp xếp lại thứ tự các chủ đề đã ghim trên bảng tin nhóm (command 12002)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID nhóm (string)
+      required: true
+      selector:
+        text: null
+    topics:
+      name: topics
+      description: Danh sách chủ đề đã ghim theo thứ tự mới (unknown[])
+      required: true
+      selector:
+        text: null
+    boardVersion:
+      name: boardVersion
+      description: Phiên bản bảng ghim hiện tại (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+respond_reminder:
+  name: respondReminder
+  description: respondReminder — Phản hồi tham gia hoặc từ chối lịch nhắc hẹn trong nhóm (command 12087)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID nhóm (string)
+      required: true
+      selector:
+        text: null
+    eventId:
+      name: eventId
+      description: ID sự kiện nhắc hẹn (string)
+      required: true
+      selector:
+        text: null
+    type:
+      name: type
+      description: Loại phản hồi (`1` = Tham gia, `2` = Từ chối) (number)
+      required: true
+      selector: *id010
+      example: 0
+      default: 0
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+share_poll:
+  name: sharePoll
+  description: sharePoll — Chia sẻ lại cuộc Bình chọn vào luồng tin nhắn nhóm.
+  fields:
+    entry_id: *id001
+    pollId:
+      name: pollId
+      description: poll id to share (number)
+      required: true
+      selector:
+        text: null
+unpin_board_topic:
+  name: unpinBoardTopic
+  description: unpinBoardTopic — Bỏ ghim một chủ đề khỏi bảng tin nhóm (command 12005)
+  fields:
+    entry_id: *id001
+    groupId:
+      name: groupId
+      description: ID nhóm (string)
+      required: true
+      selector:
+        text: null
+    topic:
+      name: topic
+      description: Thông tin chủ đề cần bỏ ghim (hoặc `{ id, type }`) (unknown)
+      required: true
+      selector:
+        text: null
+    boardVersion:
+      name: boardVersion
+      description: Phiên bản bảng ghim hiện tại (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+unpin_friend_messages:
+  name: unpinFriendMessages
+  description: unpinFriendMessages — Bỏ ghim một hoặc nhiều tin nhắn trong hội thoại 1-1 (command 12069)
+  fields:
+    entry_id: *id001
+    conversationId:
+      name: conversationId
+      description: ID hội thoại 1-1 (string)
+      required: true
+      selector:
+        text: null
+    topics:
+      name: topics
+      description: Danh sách tin nhắn / chủ đề cần bỏ ghim (unknown[])
+      required: true
+      selector:
+        text: null
+    version:
+      name: version
+      description: Phiên bản bảng ghim hiện tại (mặc định `0`) (number)
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+update_one_one_board_topic:
+  name: updateOneOneBoardTopic
+  description: updateOneOneBoardTopic — Cập nhật nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command
+    12430)
+  fields:
+    entry_id: *id001
+    toUid:
+      name: toUid
+      description: toUid (string)
+      required: true
+      selector:
+        text: null
+    reminderId:
+      name: reminderId
+      description: reminderId (string)
+      required: true
+      selector:
+        text: null
+    title:
+      name: title
+      description: title (string)
+      required: false
+      selector: *id017
+      example: Họp nhóm
+    emoji:
+      name: emoji
+      description: emoji (string)
+      required: false
+      selector:
+        text: null
+    startTime:
+      name: startTime
+      description: startTime (number)
+      required: false
+      selector:
+        text: null
+    repeat:
+      name: repeat
+      description: repeat (number)
+      required: false
+      selector:
+        text: null
+    color:
+      name: color
+      description: color (number)
+      required: false
+      selector:
+        text: null
+    key:
+      name: key
+      description: 'key (string]: unknown)'
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+update_todo:
+  name: updateTodo
+  description: updateTodo — Cập nhật nội dung công việc trong Zalo To-Do (command 12414)
+  fields:
+    entry_id: *id001
+    id:
+      name: id
+      description: id (string)
+      required: true
+      selector:
+        text: null
+    title:
+      name: title
+      description: title (string)
+      required: false
+      selector: *id017
+      example: Họp nhóm
+    content:
+      name: content
+      description: content (string)
+      required: false
+      selector: *id018
+      example: Họp nhóm lúc 10h sáng
+    assignees:
+      name: assignees
+      description: assignees (string[])
+      required: false
+      selector:
+        text: null
+    watchers:
+      name: watchers
+      description: watchers (string[])
+      required: false
+      selector:
+        text: null
+    dueDate:
+      name: dueDate
+      description: dueDate (number)
+      required: false
+      selector:
+        text: null
+    dateDefaultType:
+      name: dateDefaultType
+      description: dateDefaultType (number)
+      required: false
+      selector:
+        text: null
+    status:
+      name: status
+      description: status (number)
+      required: false
+      selector: *id015
+    schedule:
+      name: schedule
+      description: schedule (unknown)
+      required: false
+      selector:
+        text: null
+    key:
+      name: key
+      description: 'key (string]: unknown)'
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+update_todo_status:
+  name: updateTodoStatus
+  description: updateTodoStatus — Cập nhật trạng thái công việc trong Zalo To-Do (command 12418)
+  fields:
+    entry_id: *id001
+    todoId:
+      name: todoId
+      description: ID công việc (string)
+      required: true
+      selector:
+        text: null
+    status:
+      name: status
+      description: 'Trạng thái mới (ví dụ: đang thực hiện, hoàn thành) (number)'
+      required: true
+      selector: *id015
+verify_todo:
+  name: verifyTodo
+  description: verifyTodo — Kiểm tra tính đồng bộ của danh sách công việc trong Zalo To-Do (command 12603)
+  fields:
+    entry_id: *id001
+    scrollId:
+      name: scrollId
+      description: Mã cuộn hiện tại (string)
+      required: false
+      selector:
+        text: null
+    lastUpdatedTime:
+      name: lastUpdatedTime
+      description: Thời điểm cập nhật cuối cùng (number)
+      required: false
+      selector:
+        text: null
+add_conversation_label:
+  name: addConversationLabel
+  description: addConversationLabel — Tạo nhãn phân loại hội thoại mới (command 12163)
+  fields:
+    entry_id: *id001
+    text:
+      name: text
+      description: text (string)
+      required: true
+      selector:
+        text: null
+    color:
+      name: color
+      description: color (number)
+      required: true
+      selector:
+        text: null
+    emoji:
+      name: emoji
+      description: emoji (string)
+      required: false
+      selector:
+        text: null
+    conversations:
+      name: conversations
+      description: conversations (string[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+block_o_a:
+  name: blockOA
+  description: blockOA — Chặn nhận tin nhắn / thông báo từ một Zalo Official Account (OA) qua /api/social/oa/block
+    (cmd 12681). (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    oaId:
+      name: oaId
+      description: UID hoặc OA ID của Official Account cần chặn (string)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+convert_o_a_ids:
+  name: convertOAIds
+  description: convertOAIds — Chuyển đổi danh sách OA ID sang Zalo UID nội bộ (hoặc ngược lại) qua /api/social/oa/convertid
+    (cmd 11863).
+  fields:
+    entry_id: *id001
+    oaIds:
+      name: oaIds
+      description: Một OA ID hoặc mảng các OA ID cần chuyển đổi (string | string[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+create_auto_reply:
+  name: createAutoReply
+  description: createAutoReply — Tạo kịch bản Trả lời tự động (Auto Reply) theo khung giờ cho Zalo Business.
+  fields:
+    entry_id: *id001
+    content:
+      name: content
+      description: content (string)
+      required: true
+      selector: *id018
+      example: Họp nhóm lúc 10h sáng
+    isEnable:
+      name: isEnable
+      description: isEnable (boolean)
+      required: true
+      selector:
+        text: null
+    startTime:
+      name: startTime
+      description: startTime (number)
+      required: true
+      selector:
+        text: null
+    endTime:
+      name: endTime
+      description: endTime (number)
+      required: true
+      selector:
+        text: null
+    scope:
+      name: scope
+      description: scope (AutoReplyScope)
+      required: true
+      selector:
+        text: null
+    uids:
+      name: uids
+      description: uids (string | string[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+create_bank_account:
+  name: createBankAccount
+  description: createBankAccount — Thêm thông tin tài khoản ngân hàng mới vào danh bạ ngân hàng. (không
+    hoàn tác được)
+  fields:
+    entry_id: *id001
+    binBank:
+      name: binBank
+      description: binBank (BinBankCard)
+      required: true
+      selector:
+        text: null
+    numAccBank:
+      name: numAccBank
+      description: numAccBank (string)
+      required: true
+      selector:
+        text: null
+    nameAccBank:
+      name: nameAccBank
+      description: nameAccBank (string)
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+create_catalog:
+  name: createCatalog
+  description: createCatalog — Tạo Danh mục sản phẩm (Catalog) mới cho Zalo Business.
+  fields:
+    entry_id: *id001
+    catalogName:
+      name: catalogName
+      description: catalog name (string)
+      required: true
+      selector:
+        text: null
+create_product_catalog:
+  name: createProductCatalog
+  description: createProductCatalog — Thêm sản phẩm mới vào Danh mục sản phẩm (Product Catalog).
+  fields:
+    entry_id: *id001
+    catalogId:
+      name: catalogId
+      description: catalogId (string)
+      required: true
+      selector:
+        text: null
+    productName:
+      name: productName
+      description: productName (string)
+      required: true
+      selector:
+        text: null
+    price:
+      name: price
+      description: price (string)
+      required: true
+      selector:
+        text: null
+    description:
+      name: description
+      description: description (string)
+      required: true
+      selector:
+        text: null
+    files:
+      name: files
+      description: Upto 5 media files are allowed, will be ignored if product_photos is provided (AttachmentSource[])
+      required: false
+      selector:
+        text: null
+    product_photos:
+      name: product_photos
+      description: List of product photo URLs, upto 5  You can manually get the URL using `uploadProductPhoto`
+        api (string[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+delete_auto_reply:
+  name: deleteAutoReply
+  description: deleteAutoReply — Xóa một kịch bản Trả lời tự động. (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    id:
+      name: id
+      description: id of auto reply (number)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+delete_bank_account:
+  name: deleteBankAccount
+  description: deleteBankAccount — Xóa một tài khoản ngân hàng đã lưu. (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    accountId:
+      name: accountId
+      description: accountId (number)
+      required: true
+      selector:
+        text: null
+    isDefault:
+      name: isDefault
+      description: isDefault (boolean)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+delete_catalog:
+  name: deleteCatalog
+  description: deleteCatalog — Xóa một Danh mục sản phẩm (Catalog). (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    catalogId:
+      name: catalogId
+      description: catalog id (string)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+delete_conversation_label:
+  name: deleteConversationLabel
+  description: deleteConversationLabel — Xóa một hoặc nhiều nhãn phân loại hội thoại (command 12165) (không
+    hoàn tác được)
+  fields:
+    entry_id: *id001
+    labelIds:
+      name: labelIds
+      description: ID hoặc danh sách ID nhãn cần xóa (number | number[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+delete_product_catalog:
+  name: deleteProductCatalog
+  description: deleteProductCatalog — Xóa một hoặc nhiều sản phẩm khỏi Danh mục sản phẩm. (không hoàn
+    tác được)
+  fields:
+    entry_id: *id001
+    productIds:
+      name: productIds
+      description: productIds (string | string[])
+      required: true
+      selector:
+        text: null
+    catalogId:
+      name: catalogId
+      description: catalogId (string)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+delete_single_product:
+  name: deleteSingleProduct
+  description: deleteSingleProduct — Xóa một sản phẩm đơn lẻ khỏi danh mục Zalo Business (command 12042)
+    (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    productId:
+      name: productId
+      description: productId (string)
+      required: true
+      selector:
+        text: null
+    catalogId:
+      name: catalogId
+      description: catalogId (string)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+get_auto_reply_list:
+  name: getAutoReplyList
+  description: getAutoReplyList — Lấy danh sách các kịch bản Trả lời tự động của tài khoản.
+  fields:
+    entry_id: *id001
+get_biz_account:
+  name: getBizAccount
+  description: getBizAccount — Lấy thông tin cấu hình tài khoản Zalo Business (ZBusiness).
+  fields:
+    entry_id: *id001
+    friendId:
+      name: friendId
+      description: The friend ID to get biz account (string)
+      required: true
+      selector:
+        text: null
+get_catalog_list:
+  name: getCatalogList
+  description: getCatalogList — Lấy danh sách các Danh mục sản phẩm (Catalogs) của tài khoản.
+  fields:
+    entry_id: *id001
+    limit:
+      name: limit
+      description: 'Number of items to retrieve (default: 20) (number)'
+      required: false
+      selector:
+        text: null
+    lastProductId:
+      name: lastProductId
+      description: lastProductId (number)
+      required: false
+      selector:
+        text: null
+    page:
+      name: page
+      description: 'Page number (default: 0) (number)'
+      required: false
+      selector: *id012
+      example: '1'
+      default: '1'
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+get_list_bank:
+  name: getListBank
+  description: getListBank — Lấy danh sách mã ngân hàng (BIN / NAPAS) được Zalo hỗ trợ. (không hoàn tác
+    được)
+  fields:
+    entry_id: *id001
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+get_list_bank_account:
+  name: getListBankAccount
+  description: getListBankAccount — Lấy danh sách các tài khoản ngân hàng đã lưu của người dùng. (không
+    hoàn tác được)
+  fields:
+    entry_id: *id001
+    page:
+      name: page
+      description: 'Page number (default: 0) (number)'
+      required: false
+      selector: *id012
+      example: '1'
+      default: '1'
+    limit:
+      name: limit
+      description: 'Number of items to retrieve (default: 20) (number)'
+      required: false
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+get_o_a_profile:
+  name: getOAProfile
+  description: 'getOAProfile — Lấy hồ sơ chuẩn hóa đầy đủ của một Zalo Official Account (OA) theo oaId
+    (bao gồm tích vàng isVerified, isZaloBot, dnrStatus, hotline, website, giờ mở cửa, địa chỉ, danh mục...).
+    (chưa tự động: khong dung dich vu Zalo qua serv'
+  fields:
+    entry_id: *id001
+get_product_catalog_list:
+  name: getProductCatalogList
+  description: getProductCatalogList — Lấy danh sách các sản phẩm nằm trong một Danh mục sản phẩm (Catalog).
+  fields:
+    entry_id: *id001
+    catalogId:
+      name: catalogId
+      description: catalogId (string)
+      required: true
+      selector:
+        text: null
+    limit:
+      name: limit
+      description: 'Number of items to retrieve (default: 100) (number)'
+      required: false
+      selector:
+        text: null
+    versionCatalog:
+      name: versionCatalog
+      description: versionCatalog (number)
+      required: false
+      selector:
+        text: null
+    lastProductId:
+      name: lastProductId
+      description: lastProductId (string)
+      required: false
+      selector:
+        text: null
+    page:
+      name: page
+      description: 'Page number (default: 0) (number)'
+      required: false
+      selector: *id012
+      example: '1'
+      default: '1'
+get_product_detail:
+  name: getProductDetail
+  description: getProductDetail — Lấy thông tin chi tiết một sản phẩm trong danh mục Zalo Business (command
+    12057)
+  fields:
+    entry_id: *id001
+    productId:
+      name: productId
+      description: ID sản phẩm cần xem (string)
+      required: true
+      selector:
+        text: null
+get_quick_message_list:
+  name: getQuickMessageList
+  description: getQuickMessageList — Lấy danh sách các mẫu Tin nhắn nhanh (Quick Messages) đã tạo.
+  fields:
+    entry_id: *id001
+register_catalog:
+  name: registerCatalog
+  description: registerCatalog — Đăng ký kích hoạt tính năng Danh mục sản phẩm (Catalog) cho tài khoản.
+  fields:
+    entry_id: *id001
+    enable:
+      name: enable
+      description: enable or disable catalog (boolean)
+      required: true
+      selector:
+        text: null
+reorder_conversation_labels:
+  name: reorderConversationLabels
+  description: reorderConversationLabels — Sắp xếp lại vị trí hiển thị của các nhãn phân loại hội thoại
+    (command 12166)
+  fields:
+    entry_id: *id001
+    items:
+      name: items
+      description: Danh sách `{ id, offset }` theo thứ tự mới (ReorderConversationLabelEntry[])
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+unblock_o_a:
+  name: unblockOA
+  description: unblockOA — Bỏ chặn một Zalo Official Account (OA) để tiếp tục nhận tin nhắn qua /api/social/oa/unblock
+    (cmd 12682). (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    oaId:
+      name: oaId
+      description: UID hoặc OA ID của Official Account cần bỏ chặn (string)
+      required: true
+      selector:
+        text: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+update_auto_reply:
+  name: updateAutoReply
+  description: updateAutoReply — Cập nhật nội dung và thời gian hoạt động của kịch bản Trả lời tự động.
+  fields:
+    entry_id: *id001
+    id:
+      name: id
+      description: id (number)
+      required: true
+      selector:
+        text: null
+    content:
+      name: content
+      description: content (string)
+      required: true
+      selector: *id018
+      example: Họp nhóm lúc 10h sáng
+    isEnable:
+      name: isEnable
+      description: isEnable (boolean)
+      required: true
+      selector:
+        text: null
+    startTime:
+      name: startTime
+      description: startTime (number)
+      required: true
+      selector:
+        text: null
+    endTime:
+      name: endTime
+      description: endTime (number)
+      required: true
+      selector:
+        text: null
+    scope:
+      name: scope
+      description: scope (AutoReplyScope)
+      required: true
+      selector:
+        text: null
+    uids:
+      name: uids
+      description: uids (string | string[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+update_bank_account:
+  name: updateBankAccount
+  description: updateBankAccount — Cập nhật thông tin tài khoản ngân hàng đã lưu. (không hoàn tác được)
+  fields:
+    entry_id: *id001
+    accountId:
+      name: accountId
+      description: accountId (number)
+      required: true
+      selector:
+        text: null
+    binBank:
+      name: binBank
+      description: binBank (BinBankCard)
+      required: true
+      selector:
+        text: null
+    numAccBank:
+      name: numAccBank
+      description: numAccBank (string)
+      required: true
+      selector:
+        text: null
+    nameAccBank:
+      name: nameAccBank
+      description: nameAccBank (string)
+      required: true
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+    confirm:
+      name: confirm
+      description: Đặt true để xác nhận thao tác nguy hiểm.
+      required: false
+      selector:
+        boolean: null
+update_catalog:
+  name: updateCatalog
+  description: updateCatalog — Cập nhật tên hoặc ảnh của Danh mục sản phẩm.
+  fields:
+    entry_id: *id001
+    catalogId:
+      name: catalogId
+      description: catalogId (string)
+      required: true
+      selector:
+        text: null
+    catalogName:
+      name: catalogName
+      description: catalogName (string)
+      required: true
+      selector:
+        text: null
+update_conversation_label_item:
+  name: updateConversationLabelItem
+  description: updateConversationLabelItem — Cập nhật thông tin một nhãn phân loại hội thoại và danh sách
+    hội thoại gắn nhãn (command 12164)
+  fields:
+    entry_id: *id001
+    id:
+      name: id
+      description: id (number)
+      required: true
+      selector:
+        text: null
+    text:
+      name: text
+      description: text (string)
+      required: true
+      selector:
+        text: null
+    color:
+      name: color
+      description: color (number)
+      required: true
+      selector:
+        text: null
+    offset:
+      name: offset
+      description: offset (number)
+      required: true
+      selector:
+        text: null
+    add:
+      name: add
+      description: add (string[])
+      required: false
+      selector:
+        text: null
+    remove:
+      name: remove
+      description: remove (string[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+update_labels:
+  name: updateLabels
+  description: updateLabels — Cập nhật danh sách Nhãn phân loại (Labels) và gán nhãn cho các cuộc trò
+    chuyện.
+  fields:
+    entry_id: *id001
+    labelData:
+      name: labelData
+      description: labelData (LabelData[])
+      required: true
+      selector:
+        text: null
+    version:
+      name: version
+      description: version (number)
+      required: true
+      selector:
+        text: null
+update_product_catalog:
+  name: updateProductCatalog
+  description: updateProductCatalog — Cập nhật thông tin chi tiết, giá bán và hình ảnh của sản phẩm trong
+    Danh mục.
+  fields:
+    entry_id: *id001
+    catalogId:
+      name: catalogId
+      description: catalogId (string)
+      required: true
+      selector:
+        text: null
+    productId:
+      name: productId
+      description: productId (string)
+      required: true
+      selector:
+        text: null
+    productName:
+      name: productName
+      description: productName (string)
+      required: true
+      selector:
+        text: null
+    price:
+      name: price
+      description: price (string)
+      required: true
+      selector:
+        text: null
+    description:
+      name: description
+      description: description (string)
+      required: true
+      selector:
+        text: null
+    createTime:
+      name: createTime
+      description: createTime (number)
+      required: true
+      selector:
+        text: null
+    files:
+      name: files
+      description: Upto 5 media files are allowed, will be ignored if product_photos is provided (AttachmentSource[])
+      required: false
+      selector:
+        text: null
+    product_photos:
+      name: product_photos
+      description: List of product photo URLs, upto 5  You can manually get the URL using `uploadProductPhoto`
+        api (string[])
+      required: false
+      selector:
+        text: null
+    params:
+      name: params
+      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
+      required: true
+      selector:
+        object: null
+upload_product_photo:
+  name: uploadProductPhoto
+  description: 'uploadProductPhoto — Tải ảnh sản phẩm lên máy chủ Zalo phục vụ cho Product Catalog hoặc
+    Quick Message. (chưa tự động: tai tep len (multipart): dung khung chat/endpoint rieng cua app)'
   fields:
     entry_id: *id001
 make_call:

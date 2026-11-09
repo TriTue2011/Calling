@@ -1639,5 +1639,6650 @@
   "thread": "both",
   "danger": false,
   "fields": []
+ },
+ {
+  "name": "quote_message",
+  "no": null,
+  "kind": "svc",
+  "action": "quote_message",
+  "group": "tin_nhan",
+  "label": "Trích dẫn tin nhắn",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "msg_id",
+    "label": "ID tin nhắn",
+    "required": true
+   },
+   {
+    "key": "text",
+    "label": "Nội dung trích dẫn",
+    "required": true
+   },
+   {
+    "key": "qmsg_owner",
+    "label": "UID người gửi tin gốc",
+    "required": true
+   },
+   {
+    "key": "qmsg_cli_id",
+    "label": "Client ID tin gốc",
+    "required": false
+   },
+   {
+    "key": "qmsg_type",
+    "label": "Loại tin gốc",
+    "required": false
+   },
+   {
+    "key": "qmsg_ts",
+    "label": "Timestamp tin gốc",
+    "required": false
+   },
+   {
+    "key": "qmsg",
+    "label": "Nội dung tin gốc",
+    "required": false
+   },
+   {
+    "key": "ttl",
+    "label": "TTL (1-1)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "mark_seen",
+  "no": null,
+  "kind": "svc",
+  "action": "mark_seen",
+  "group": "tin_nhan",
+  "label": "Đánh dấu đã xem / đã nhận",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "msg_ids",
+    "label": "ID tin nhắn (cách nhau bằng dấu phẩy)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "fetch_important",
+  "no": null,
+  "kind": "svc",
+  "action": "fetch_important",
+  "group": "tin_nhan",
+  "label": "Xem tin nhắn quan trọng",
+  "thread": "user",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "reject_friend_request",
+  "no": null,
+  "kind": "svc",
+  "action": "reject_friend_request",
+  "group": "ho_so",
+  "label": "Từ chối lời mời kết bạn",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "user_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_group_link",
+  "no": null,
+  "kind": "svc",
+  "action": "get_group_link",
+  "group": "nhom",
+  "label": "Xem link nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "vote_poll",
+  "no": null,
+  "kind": "svc",
+  "action": "vote_poll",
+  "group": "nhom",
+  "label": "Bỏ phiếu bình chọn",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "poll_id",
+    "label": "ID bình chọn",
+    "required": true
+   },
+   {
+    "key": "option_ids",
+    "label": "ID lựa chọn (cách nhau bằng dấu phẩy)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "update_label",
+  "no": null,
+  "kind": "svc",
+  "action": "update_label",
+  "group": "nhan",
+  "label": "Gắn nhãn cho hội thoại",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "label_ids",
+    "label": "ID nhãn (cách nhau bằng dấu phẩy)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "decrypt_gids",
+  "no": null,
+  "kind": "zca",
+  "action": "decrypt_gids",
+  "group": "zca_auth",
+  "label": "decryptGids — Giải mã danh sách Global ID (g_...) ẩn danh thành User ID thật (tương ứng hàm getUidFromGlobalNoiseId / command 12054 trên Zalo PC)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "gids",
+    "label": "gids",
+    "required": true,
+    "description": "Danh sách Global ID (hoặc 1 GID đơn lẻ) (string | string[])"
+   }
+  ]
+ },
+ {
+  "name": "encrypt_gids",
+  "no": null,
+  "kind": "zca",
+  "action": "encrypt_gids",
+  "group": "zca_auth",
+  "label": "encryptGids — Mã hóa danh sách UID thật sang định danh ẩn danh Global Noise ID (OTDAKO...) (command 12053)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "uids",
+    "label": "uids",
+    "required": true,
+    "description": "Mảng chuỗi các UID cần mã hóa (string[])"
+   }
+  ]
+ },
+ {
+  "name": "export_session",
+  "no": null,
+  "kind": "zca",
+  "action": "export_session",
+  "group": "zca_auth",
+  "label": "exportSession — Xuất toàn bộ thông tin phiên đăng nhập hiện tại (uid, imei, userAgent, language, cookie) dưới định dạng chuẩn Credentials để lưu trữ (JSON/Database) và truyền trực tiếp vào zalo.login(session). (chưa tự động: khong dung dich",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_context",
+  "no": null,
+  "kind": "zca",
+  "action": "get_context",
+  "group": "zca_auth",
+  "label": "getContext — API getContext thuộc phân hệ auth. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_cookie",
+  "no": null,
+  "kind": "zca",
+  "action": "get_cookie",
+  "group": "zca_auth",
+  "label": "getCookie — Get the current cookie string (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_list_device",
+  "no": null,
+  "kind": "zca",
+  "action": "get_list_device",
+  "group": "zca_auth",
+  "label": "getListDevice — Lấy danh sách các thiết bị đang đăng nhập tài khoản Zalo hiện tại.",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_noised_ids",
+  "no": null,
+  "kind": "zca",
+  "action": "get_noised_ids",
+  "group": "zca_auth",
+  "label": "getNoisedIds — Chuyển đổi danh sách UID cá nhân (fids) và GID nhóm (gids) dạng số thuần (từ SQLite ZDB4.0 mobile) sang định dạng Noised ID 19 chữ số dùng trên Zalo Web/PC (getNoisedUids, command 12390). Tự động fallback sang https://zwid.ap",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_own_id",
+  "no": null,
+  "kind": "zca",
+  "action": "get_own_id",
+  "group": "zca_auth",
+  "label": "getOwnId — API getOwnId thuộc phân hệ auth. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_q_r",
+  "no": null,
+  "kind": "zca",
+  "action": "get_q_r",
+  "group": "zca_auth",
+  "label": "getQR — Lấy mã QR của danh sách người dùng theo UID.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "userId",
+    "label": "userId",
+    "required": true,
+    "description": "User ID or list of user IDs (string | string[])"
+   }
+  ]
+ },
+ {
+  "name": "keep_alive",
+  "no": null,
+  "kind": "zca",
+  "action": "keep_alive",
+  "group": "zca_auth",
+  "label": "keepAlive — Gửi tín hiệu duy trì phiên kết nối HTTP tới máy chủ Chat (KeepAlive - command 11770)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "lost_focus",
+  "no": null,
+  "kind": "zca",
+  "action": "lost_focus",
+  "group": "zca_auth",
+  "label": "lostFocus — Gửi tín hiệu thông báo ứng dụng chuyển sang chế độ chạy nền (Background).",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "scan_u_r_l",
+  "no": null,
+  "kind": "zca",
+  "action": "scan_u_r_l",
+  "group": "zca_auth",
+  "label": "scanURL — Quét và kiểm tra độ an toàn của đường dẫn URL thông qua bộ lọc bảo mật Zalo.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "url",
+    "label": "url",
+    "required": true,
+    "description": "URL to scan (string)"
+   }
+  ]
+ },
+ {
+  "name": "update_active_status",
+  "no": null,
+  "kind": "zca",
+  "action": "update_active_status",
+  "group": "zca_auth",
+  "label": "updateActiveStatus — Cập nhật trạng thái hoạt động (Online / Offline / Ping) của tài khoản. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "update_lang",
+  "no": null,
+  "kind": "zca",
+  "action": "update_lang",
+  "group": "zca_auth",
+  "label": "updateLang — Cập nhật ngôn ngữ hiển thị của phiên tài khoản Zalo.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "language",
+    "label": "language",
+    "required": false,
+    "description": "language to update (VI, EN) (UpdateLangAvailableLanguages)"
+   }
+  ]
+ },
+ {
+  "name": "fetch_important_messages",
+  "no": null,
+  "kind": "zca",
+  "action": "fetch_important_messages",
+  "group": "zca_chat",
+  "label": "fetchImportantMessages — Lấy danh sách các tin nhắn được đánh dấu quan trọng / đánh dấu sao (command 12114)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "limit (number)"
+   },
+   {
+    "key": "newestId",
+    "label": "newestId",
+    "required": false,
+    "description": "newestId (string | null)"
+   },
+   {
+    "key": "lastId",
+    "label": "lastId",
+    "required": false,
+    "description": "lastId (string | null)"
+   }
+  ]
+ },
+ {
+  "name": "get_block_sharing_conversations",
+  "no": null,
+  "kind": "zca",
+  "action": "get_block_sharing_conversations",
+  "group": "zca_chat",
+  "label": "getBlockSharingConversations — Lấy danh sách hội thoại đang bật chế độ chặn chia sẻ / chuyển tiếp tin nhắn (command 12178)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_conv_offline_messages",
+  "no": null,
+  "kind": "zca",
+  "action": "get_conv_offline_messages",
+  "group": "zca_chat",
+  "label": "getConvOfflineMessages — Lấy danh sách hội thoại nhóm có tin nhắn ngoại tuyến mới (command 12300)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "queueInfo",
+    "label": "queueInfo",
+    "required": true,
+    "description": "queueInfo (unknown)"
+   },
+   {
+    "key": "lastMsgId",
+    "label": "lastMsgId",
+    "required": false,
+    "description": "lastMsgId (string | number)"
+   },
+   {
+    "key": "lastActId",
+    "label": "lastActId",
+    "required": false,
+    "description": "lastActId (string | number)"
+   }
+  ]
+ },
+ {
+  "name": "get_direct_message_status",
+  "no": null,
+  "kind": "zca",
+  "action": "get_direct_message_status",
+  "group": "zca_chat",
+  "label": "getDirectMessageStatus — Truy vấn trạng thái Đã nhận (deliver) và Đã xem (seen) tin nhắn trong các hội thoại cá nhân 1-1 (command 12016)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "data",
+    "label": "data",
+    "required": true,
+    "description": "Danh sách UID hoặc đối tượng truy vấn `{ tId }` (Array<string | { tId: string; [key: string]: unknown }>)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_last_seen",
+  "no": null,
+  "kind": "zca",
+  "action": "get_last_seen",
+  "group": "zca_chat",
+  "label": "getLastSeen — Lấy thông tin trạng thái đã xem cuối cùng của danh sách nhóm và cá nhân (command 12009)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupIds",
+    "label": "groupIds",
+    "required": false,
+    "description": "groupIds (string[])"
+   },
+   {
+    "key": "userIds",
+    "label": "userIds",
+    "required": false,
+    "description": "userIds (string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_last_seen_reaction",
+  "no": null,
+  "kind": "zca",
+  "action": "get_last_seen_reaction",
+  "group": "zca_chat",
+  "label": "getLastSeenReaction — Lấy trạng thái đã xem cảm xúc (Reaction) cuối cùng của danh sách nhóm và cá nhân (command 12450)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupIds",
+    "label": "groupIds",
+    "required": false,
+    "description": "groupIds (string[])"
+   },
+   {
+    "key": "userIds",
+    "label": "userIds",
+    "required": false,
+    "description": "userIds (string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_recent_search_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_recent_search_list",
+  "group": "zca_chat",
+  "label": "getRecentSearchList — Lấy danh sách lịch sử tìm kiếm gần đây trên Zalo (command 12125)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "version",
+    "label": "version",
+    "required": false,
+    "description": "Phiên bản lịch sử tìm kiếm (mặc định: 0) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_suggested_conversations",
+  "no": null,
+  "kind": "zca",
+  "action": "get_suggested_conversations",
+  "group": "zca_chat",
+  "label": "getSuggestedConversations — Lấy danh sách các cuộc hội thoại được gợi ý (command 11233)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "language",
+    "label": "language",
+    "required": false,
+    "description": "Ngôn ngữ hiển thị (mặc định theo `ctx.language` hoặc `\"vi\"`) (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_translate_setting",
+  "no": null,
+  "kind": "zca",
+  "action": "get_translate_setting",
+  "group": "zca_chat",
+  "label": "getTranslateSetting — Lấy cấu hình tính năng dịch tin nhắn tự động bằng Zalo AI (command 13395)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "mark_sub_tab_seen",
+  "no": null,
+  "kind": "zca",
+  "action": "mark_sub_tab_seen",
+  "group": "zca_chat",
+  "label": "markSubTabSeen — Đánh dấu đã xem các tab phụ của danh sách hội thoại (command 16214)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "seens",
+    "label": "seens",
+    "required": true,
+    "description": "Danh sách thông tin tab phụ đã xem (unknown[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "preload_conversations",
+  "no": null,
+  "kind": "zca",
+  "action": "preload_conversations",
+  "group": "zca_chat",
+  "label": "preloadConversations — Tải trước tin nhắn cuối cùng và trạng thái đã đọc của các hội thoại đang hoạt động (command 10053).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "threadIdLocalMsgId",
+    "label": "threadIdLocalMsgId",
+    "required": false,
+    "description": "Optional map of `{ [threadId]: lastLocalMsgId }` (defaults to `{}`) (Record<string, string | number>)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "renew_message_link",
+  "no": null,
+  "kind": "zca",
+  "action": "renew_message_link",
+  "group": "zca_chat",
+  "label": "renewMessageLink — Gia hạn đường dẫn tải tệp đính kèm / đa phương tiện đã hết hạn trong tin nhắn (command 12094)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "toId",
+    "label": "toId",
+    "required": true,
+    "description": "toId (string)"
+   },
+   {
+    "key": "msgType",
+    "label": "msgType",
+    "required": true,
+    "description": "msgType (number)"
+   },
+   {
+    "key": "msgInfo",
+    "label": "msgInfo",
+    "required": true,
+    "description": "msgInfo (Record<string, unknown>)"
+   },
+   {
+    "key": "clientId",
+    "label": "clientId",
+    "required": false,
+    "description": "clientId (string | number)"
+   },
+   {
+    "key": "isGroup",
+    "label": "isGroup",
+    "required": false,
+    "description": "isGroup (boolean)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "send_bank_card",
+  "no": null,
+  "kind": "zca",
+  "action": "send_bank_card",
+  "group": "zca_chat",
+  "label": "sendBankCard — Gửi danh thiếp thông tin tài khoản ngân hàng (Bank Card) vào cuộc trò chuyện.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "payload",
+    "label": "payload",
+    "required": true,
+    "description": "The payload containing the bank card information (SendBankCardPayload)"
+   },
+   {
+    "key": "threadId",
+    "label": "threadId",
+    "required": true,
+    "description": "The ID of the thread to send the bank card to (string)"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": false,
+    "description": "The type of thread to send the bank card to (ThreadType)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "send_delivered_event",
+  "no": null,
+  "kind": "zca",
+  "action": "send_delivered_event",
+  "group": "zca_chat",
+  "label": "sendDeliveredEvent — Gửi tín hiệu xác nhận Đã nhận (Delivered) cho một hoặc nhiều tin nhắn. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "send_report",
+  "no": null,
+  "kind": "zca",
+  "action": "send_report",
+  "group": "zca_chat",
+  "label": "sendReport — Gửi báo cáo vi phạm (Report Abuse) đối với người dùng hoặc cuộc trò chuyện. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "send_seen_event",
+  "no": null,
+  "kind": "zca",
+  "action": "send_seen_event",
+  "group": "zca_chat",
+  "label": "sendSeenEvent — Gửi tín hiệu xác nhận Đã xem (Seen) cho các tin nhắn trong hội thoại. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "set_pinned_conversations",
+  "no": null,
+  "kind": "zca",
+  "action": "set_pinned_conversations",
+  "group": "zca_chat",
+  "label": "setPinnedConversations — Ghim hoặc bỏ ghim cuộc trò chuyện lên đầu danh sách.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "pinned",
+    "label": "pinned",
+    "required": true,
+    "description": "Should pin conversations (boolean)"
+   },
+   {
+    "key": "threadId",
+    "label": "threadId",
+    "required": true,
+    "description": "The ID(s) of the thread (string | string[])"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": false,
+    "description": "Type of thread, default User (ThreadType)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "translate_message",
+  "no": null,
+  "kind": "zca",
+  "action": "translate_message",
+  "group": "zca_chat",
+  "label": "translateMessage — Dịch thủ công một tin nhắn văn bản bằng Zalo AI (command 13397)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "reqId",
+    "label": "reqId",
+    "required": false,
+    "description": "reqId (string)"
+   },
+   {
+    "key": "msgId",
+    "label": "msgId",
+    "required": true,
+    "description": "msgId (string)"
+   },
+   {
+    "key": "threadId",
+    "label": "threadId",
+    "required": true,
+    "description": "threadId (string)"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": false,
+    "description": "type (number)"
+   },
+   {
+    "key": "srcLang",
+    "label": "srcLang",
+    "required": true,
+    "description": "srcLang (string)"
+   },
+   {
+    "key": "desLang",
+    "label": "desLang",
+    "required": true,
+    "description": "desLang (string)"
+   },
+   {
+    "key": "text",
+    "label": "text",
+    "required": true,
+    "description": "text (string)"
+   },
+   {
+    "key": "immutableItems",
+    "label": "immutableItems",
+    "required": false,
+    "description": "immutableItems (unknown[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "translate_message_auto",
+  "no": null,
+  "kind": "zca",
+  "action": "translate_message_auto",
+  "group": "zca_chat",
+  "label": "translateMessageAuto — Gửi yêu cầu dịch tự động hàng loạt tin nhắn đến bằng Zalo AI (command 13398). Kết quả dịch bất đồng bộ có thể được đẩy về qua sự kiện api.listener.on(\"translate_event\", ...).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "reqId",
+    "label": "reqId",
+    "required": false,
+    "description": "reqId (string)"
+   },
+   {
+    "key": "threadId",
+    "label": "threadId",
+    "required": true,
+    "description": "threadId (string)"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": false,
+    "description": "type (number)"
+   },
+   {
+    "key": "srcLang",
+    "label": "srcLang",
+    "required": true,
+    "description": "srcLang (string)"
+   },
+   {
+    "key": "desLang",
+    "label": "desLang",
+    "required": true,
+    "description": "desLang (string)"
+   },
+   {
+    "key": "msgs",
+    "label": "msgs",
+    "required": true,
+    "description": "msgs (TranslateMessageAutoItem[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "translate_message_suggest",
+  "no": null,
+  "kind": "zca",
+  "action": "translate_message_suggest",
+  "group": "zca_chat",
+  "label": "translateMessageSuggest — Gửi yêu cầu dịch gợi ý tin nhắn đang soạn thảo bằng Zalo AI (command 13399). Kết quả dịch bất đồng bộ có thể được đẩy về qua sự kiện api.listener.on(\"translate_event\", ...).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "reqId",
+    "label": "reqId",
+    "required": false,
+    "description": "reqId (string)"
+   },
+   {
+    "key": "threadId",
+    "label": "threadId",
+    "required": true,
+    "description": "threadId (string)"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": false,
+    "description": "type (number)"
+   },
+   {
+    "key": "srcLang",
+    "label": "srcLang",
+    "required": true,
+    "description": "srcLang (string)"
+   },
+   {
+    "key": "desLang",
+    "label": "desLang",
+    "required": true,
+    "description": "desLang (string)"
+   },
+   {
+    "key": "text",
+    "label": "text",
+    "required": true,
+    "description": "text (string)"
+   },
+   {
+    "key": "immutableItems",
+    "label": "immutableItems",
+    "required": false,
+    "description": "immutableItems (unknown[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "undo",
+  "no": null,
+  "kind": "zca",
+  "action": "undo",
+  "group": "zca_chat",
+  "label": "undo — Thu hồi (Undo) một tin nhắn đã gửi với tất cả mọi người trong cuộc trò chuyện. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "undo_multi_message",
+  "no": null,
+  "kind": "zca",
+  "action": "undo_multi_message",
+  "group": "zca_chat",
+  "label": "undoMultiMessage — Thu hồi hàng loạt nhiều tin nhắn cùng lúc trong hội thoại cá nhân hoặc nhóm (command 12115 / 12116) (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_archived_chat_list",
+  "no": null,
+  "kind": "zca",
+  "action": "update_archived_chat_list",
+  "group": "zca_chat",
+  "label": "updateArchivedChatList — Đưa cuộc trò chuyện vào mục Lưu trữ (Archive) hoặc khôi phục ra ngoài.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "isArchived",
+    "label": "isArchived",
+    "required": true,
+    "description": "- true to archive, false to unarchive (boolean)"
+   },
+   {
+    "key": "conversations",
+    "label": "conversations",
+    "required": true,
+    "description": "- List of conversations to archive/unarchive (UpdateArchivedChatListTarget | UpdateArchivedChatListTarget[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_block_sharing_conversation",
+  "no": null,
+  "kind": "zca",
+  "action": "update_block_sharing_conversation",
+  "group": "zca_chat",
+  "label": "updateBlockSharingConversation — Bật hoặc tắt chế độ chặn chia sẻ / chuyển tiếp tin nhắn trong một hội thoại (command 12179)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "threadId",
+    "label": "threadId",
+    "required": true,
+    "description": "threadId (string)"
+   },
+   {
+    "key": "isGroup",
+    "label": "isGroup",
+    "required": false,
+    "description": "isGroup (boolean)"
+   },
+   {
+    "key": "isEnabled",
+    "label": "isEnabled",
+    "required": true,
+    "description": "isEnabled (boolean | number)"
+   },
+   {
+    "key": "clientLang",
+    "label": "clientLang",
+    "required": false,
+    "description": "clientLang (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_pin_conversations",
+  "no": null,
+  "kind": "zca",
+  "action": "update_pin_conversations",
+  "group": "zca_chat",
+  "label": "updatePinConversations — Cập nhật danh sách hội thoại ghim qua /api/pinconvers/update (command 12121) hoặc /api/pinconvers/updatev2 (command 12122) (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "update_recent_search",
+  "no": null,
+  "kind": "zca",
+  "action": "update_recent_search",
+  "group": "zca_chat",
+  "label": "updateRecentSearch — Cập nhật danh sách lịch sử tìm kiếm gần đây trên Zalo (command 12126)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "listRecent",
+    "label": "listRecent",
+    "required": false,
+    "description": "listRecent (Record<string, unknown>[])"
+   },
+   {
+    "key": "listKeyword",
+    "label": "listKeyword",
+    "required": false,
+    "description": "listKeyword (string[])"
+   },
+   {
+    "key": "version",
+    "label": "version",
+    "required": false,
+    "description": "version (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_translate_setting",
+  "no": null,
+  "kind": "zca",
+  "action": "update_translate_setting",
+  "group": "zca_chat",
+  "label": "updateTranslateSetting — Cập nhật cấu hình dịch tin nhắn Zalo AI cho một hội thoại (command 13396) (chưa tự động: khong doc duoc doi tuong params)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "threadId",
+    "label": "threadId",
+    "required": true,
+    "description": "threadId (string)"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": true,
+    "description": "type (number)"
+   },
+   {
+    "key": "settings",
+    "label": "settings",
+    "required": true,
+    "description": "settings ({)"
+   },
+   {
+    "key": "auto",
+    "label": "auto",
+    "required": true,
+    "description": "auto (boolean | number)"
+   },
+   {
+    "key": "suggest",
+    "label": "suggest",
+    "required": true,
+    "description": "suggest (boolean | number)"
+   },
+   {
+    "key": "srcLang",
+    "label": "srcLang",
+    "required": true,
+    "description": "srcLang (string)"
+   },
+   {
+    "key": "desLang",
+    "label": "desLang",
+    "required": true,
+    "description": "desLang (string)"
+   },
+   {
+    "key": "key",
+    "label": "key",
+    "required": true,
+    "description": "key (string]: unknown)"
+   }
+  ]
+ },
+ {
+  "name": "add_group_blocked_member",
+  "no": null,
+  "kind": "zca",
+  "action": "add_group_blocked_member",
+  "group": "zca_group",
+  "label": "addGroupBlockedMember — Chặn một hoặc nhiều thành viên khỏi nhóm (không cho tham gia lại).",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "memberId",
+    "label": "memberId",
+    "required": true,
+    "description": "member id(s) (string | string[])"
+   },
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "group id (string)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "analyse_group",
+  "no": null,
+  "kind": "zca",
+  "action": "analyse_group",
+  "group": "zca_group",
+  "label": "analyseGroup — Lấy dữ liệu phân tích/thống kê của nhóm qua /api/group/analyse (command 12407)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID của nhóm (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "check_quota_community_member",
+  "no": null,
+  "kind": "zca",
+  "action": "check_quota_community_member",
+  "group": "zca_group",
+  "label": "checkQuotaCommunityMember — Kiểm tra điều kiện/hạn mức thành viên Cộng đồng đối với một thành viên cụ thể trong nhóm (command 12182)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID của nhóm (string)"
+   },
+   {
+    "key": "uid",
+    "label": "uid",
+    "required": true,
+    "description": "UID của thành viên cần kiểm tra (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "delete_group_invite_box",
+  "no": null,
+  "kind": "zca",
+  "action": "delete_group_invite_box",
+  "group": "zca_group",
+  "label": "deleteGroupInviteBox — Xóa lời mời tham gia nhóm trong hộp thư lời mời nhóm.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "- The group id (string | string[])"
+   },
+   {
+    "key": "blockFutureInvite",
+    "label": "blockFutureInvite",
+    "required": false,
+    "description": "- Whether to block future invites from this group (boolean)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_e2ee_group_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_e2ee_group_list",
+  "group": "zca_group",
+  "label": "getE2eeGroupList — Lấy danh sách các nhóm đang bật mã hóa đầu cuối E2EE (command 12146)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_extra_group_info",
+  "no": null,
+  "kind": "zca",
+  "action": "get_extra_group_info",
+  "group": "zca_group",
+  "label": "getExtraGroupInfo — Lấy ngữ cảnh và vai trò mở rộng của người dùng đối với nhiều nhóm (command 12607)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupIds",
+    "label": "groupIds",
+    "required": true,
+    "description": "Mảng ID các nhóm cần truy vấn (string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_group_blocked_member",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_blocked_member",
+  "group": "zca_group",
+  "label": "getGroupBlockedMember — Lấy danh sách các tài khoản đang bị chặn khỏi nhóm.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "payload",
+    "label": "payload",
+    "required": true,
+    "description": "payload (GetGroupBlockedMemberPayload)"
+   },
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "group id (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_group_cloud_message_jump",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_cloud_message_jump",
+  "group": "zca_group",
+  "label": "getGroupCloudMessageJump — Nhảy tới vị trí một tin nhắn nhóm cụ thể trên Zalo Cloud Message và lấy ngữ cảnh xung quanh (command 12508)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID nhóm (string)"
+   },
+   {
+    "key": "globalMsgId",
+    "label": "globalMsgId",
+    "required": true,
+    "description": "ID tin nhắn toàn cục cần nhảy tới (string | number)"
+   },
+   {
+    "key": "count",
+    "label": "count",
+    "required": false,
+    "description": "Số lượng tin nhắn ngữ cảnh cần tải (mặc định `20`) (number)"
+   },
+   {
+    "key": "msgJump",
+    "label": "msgJump",
+    "required": false,
+    "description": "Cờ nhảy tin nhắn (mặc định `1`) (number)"
+   },
+   {
+    "key": "msgIds",
+    "label": "msgIds",
+    "required": false,
+    "description": "Danh sách msgId bổ sung (mặc định `[]`) (Array<string | number>)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_group_cloud_message_path",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_cloud_message_path",
+  "group": "zca_group",
+  "label": "getGroupCloudMessagePath — Lấy chuỗi tin nhắn nhóm theo đường dẫn nhảy tới một tin nhắn cụ thể (globalMsgId / rGlobalMsgId) qua /api/cm/getpath (command 12504)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "groupId (string)"
+   },
+   {
+    "key": "globalMsgId",
+    "label": "globalMsgId",
+    "required": true,
+    "description": "globalMsgId (string | number)"
+   },
+   {
+    "key": "count",
+    "label": "count",
+    "required": false,
+    "description": "count (number)"
+   },
+   {
+    "key": "reverse",
+    "label": "reverse",
+    "required": false,
+    "description": "reverse (number | boolean)"
+   },
+   {
+    "key": "rGlobalMsgId",
+    "label": "rGlobalMsgId",
+    "required": false,
+    "description": "rGlobalMsgId (string | number)"
+   },
+   {
+    "key": "rOwnerId",
+    "label": "rOwnerId",
+    "required": false,
+    "description": "rOwnerId (string)"
+   },
+   {
+    "key": "rClientMsgId",
+    "label": "rClientMsgId",
+    "required": false,
+    "description": "rClientMsgId (string | number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_group_history_legacy",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_history_legacy",
+  "group": "zca_group",
+  "label": "getGroupHistoryLegacy — Lấy lịch sử tin nhắn nhóm qua endpoint /api/group/history trên miền group (command 11240)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID của nhóm (string)"
+   },
+   {
+    "key": "count",
+    "label": "count",
+    "required": false,
+    "description": "Số lượng tin nhắn cần tải (mặc định: `20`) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_group_info_v2",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_info_v2",
+  "group": "zca_group",
+  "label": "getGroupInfoV2 — Lấy thông tin nhóm và danh sách thành viên theo trang qua /api/group/getgi/v2 hoặc /api/group/getgi (command 11162) (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_group_invite_box_info",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_invite_box_info",
+  "group": "zca_group",
+  "label": "getGroupInviteBoxInfo — Lấy thông tin chi tiết của một lời mời vào nhóm cụ thể.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "groupId (string)"
+   },
+   {
+    "key": "mpage",
+    "label": "mpage",
+    "required": false,
+    "description": "mpage (number)"
+   },
+   {
+    "key": "mcount",
+    "label": "mcount",
+    "required": false,
+    "description": "mcount (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_group_invite_box_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_invite_box_list",
+  "group": "zca_group",
+  "label": "getGroupInviteBoxList — Lấy danh sách tất cả lời mời tham gia nhóm đang chờ trong hộp thư.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "mpage",
+    "label": "mpage",
+    "required": false,
+    "description": "mpage (number)"
+   },
+   {
+    "key": "page",
+    "label": "page",
+    "required": false,
+    "description": "page (number)"
+   },
+   {
+    "key": "invPerPage",
+    "label": "invPerPage",
+    "required": false,
+    "description": "invPerPage (number)"
+   },
+   {
+    "key": "mcount",
+    "label": "mcount",
+    "required": false,
+    "description": "mcount (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_group_link_detail",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_link_detail",
+  "group": "zca_group",
+  "label": "getGroupLinkDetail — Lấy chi tiết đường dẫn mời tham gia nhóm (Link邀請) của một nhóm mà bạn đang tham gia.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "The group id (string)"
+   }
+  ]
+ },
+ {
+  "name": "get_group_link_info",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_link_info",
+  "group": "zca_group",
+  "label": "getGroupLinkInfo — Tra cứu thông tin nhóm và danh sách thành viên theo trang từ đường dẫn nhóm công khai (https://zalo.me/g/...).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "link",
+    "label": "link",
+    "required": true,
+    "description": "link (string)"
+   },
+   {
+    "key": "memberPage",
+    "label": "memberPage",
+    "required": false,
+    "description": "Default: 1 (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_group_list_v3",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_list_v3",
+  "group": "zca_group",
+  "label": "getGroupListV3 — Lấy danh sách nhóm theo trang kèm thông tin thành viên đại diện (currentMems) và gợi ý nhóm (suggestGroup) qua /api/group/getlg/v3 (command 11161)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "pageOrOptions",
+    "label": "pageOrOptions",
+    "required": false,
+    "description": "Số trang (mặc định: `1`) hoặc cấu hình `GetGroupListV3Options` (number | GetGroupListV3Options)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_group_members_info",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_members_info",
+  "group": "zca_group",
+  "label": "getGroupMembersInfo — Giải mã hàng loạt thông tin hồ sơ thành viên (displayName, zaloName, avatar, globalId) từ danh sách UID qua /api/social/group/members.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "memberId",
+    "label": "memberId",
+    "required": true,
+    "description": "member id or array of member ids (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_group_message_status",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_message_status",
+  "group": "zca_group",
+  "label": "getGroupMessageStatus — Truy vấn trạng thái Đã nhận (deliver) và Đã xem (seen) tin nhắn của danh sách thành viên trong nhóm (command 12017)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupIdOrItems",
+    "label": "groupIdOrItems",
+    "required": true,
+    "description": "ID nhóm (hoặc mảng cấu hình `{ tId, ids }`) (string | GetGroupMessageStatusQueryItem[])"
+   },
+   {
+    "key": "memberIds",
+    "label": "memberIds",
+    "required": false,
+    "description": "Danh sách UID thành viên cần kiểm tra (khi tham số đầu là `groupId`) (string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_multi_group_cloud_messages",
+  "no": null,
+  "kind": "zca",
+  "action": "get_multi_group_cloud_messages",
+  "group": "zca_group",
+  "label": "getMultiGroupCloudMessages — Đồng bộ nhanh tin nhắn Cloud của nhiều nhóm cùng lúc theo danh sách groupIds (command 12503 - syncCloudMsgFirstLogin)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupIds",
+    "label": "groupIds",
+    "required": true,
+    "description": "Danh sách ID nhóm cần tải tin nhắn Cloud (string[])"
+   },
+   {
+    "key": "nretry",
+    "label": "nretry",
+    "required": false,
+    "description": "Số lần thử lại (mặc định: `0`) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_pending_group_members",
+  "no": null,
+  "kind": "zca",
+  "action": "get_pending_group_members",
+  "group": "zca_group",
+  "label": "getPendingGroupMembers — Lấy danh sách các yêu cầu xin vào nhóm đang chờ Quản trị viên phê duyệt.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "- The id of the group to get the pending members (string)"
+   }
+  ]
+ },
+ {
+  "name": "get_quota_community",
+  "no": null,
+  "kind": "zca",
+  "action": "get_quota_community",
+  "group": "zca_group",
+  "label": "getQuotaCommunity — Kiểm tra hạn mức nâng cấp nhóm lên Cộng đồng của tài khoản (command 12181)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": false,
+    "description": "(Tùy chọn) ID của nhóm cần kiểm tra (string | null)"
+   },
+   {
+    "key": "language",
+    "label": "language",
+    "required": false,
+    "description": "Ngôn ngữ thông báo (mặc định: `\"vi\"`) (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_related_friend_group",
+  "no": null,
+  "kind": "zca",
+  "action": "get_related_friend_group",
+  "group": "zca_group",
+  "label": "getRelatedFriendGroup — Kiểm tra danh sách các nhóm chung giữa tài khoản hiện tại và danh sách UID truyền vào qua /api/friend/group/related.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friendId",
+    "label": "friendId",
+    "required": true,
+    "description": "friend ids (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "invite_user_to_groups",
+  "no": null,
+  "kind": "zca",
+  "action": "invite_user_to_groups",
+  "group": "zca_group",
+  "label": "inviteUserToGroups — Gửi lời mời tham gia một hoặc nhiều nhóm tới người dùng.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "userId",
+    "label": "userId",
+    "required": true,
+    "description": "userId (string)"
+   },
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "group ID(s) (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "join_group_invite_box",
+  "no": null,
+  "kind": "zca",
+  "action": "join_group_invite_box",
+  "group": "zca_group",
+  "label": "joinGroupInviteBox — Chấp nhận lời mời tham gia nhóm từ hộp thư lời mời.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "- The group id (string)"
+   }
+  ]
+ },
+ {
+  "name": "join_group_link",
+  "no": null,
+  "kind": "zca",
+  "action": "join_group_link",
+  "group": "zca_group",
+  "label": "joinGroupLink — Tham gia vào nhóm thông qua đường dẫn liên kết mời (Group Link).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "link",
+    "label": "link",
+    "required": true,
+    "description": "- The link join group (string)"
+   }
+  ]
+ },
+ {
+  "name": "remove_group_blocked_member",
+  "no": null,
+  "kind": "zca",
+  "action": "remove_group_blocked_member",
+  "group": "zca_group",
+  "label": "removeGroupBlockedMember — Gỡ chặn (Unblock) cho người dùng khỏi danh sách chặn của nhóm.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "memberId",
+    "label": "memberId",
+    "required": true,
+    "description": "member id(s) (string | string[])"
+   },
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "group id (string)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "remove_group_topic",
+  "no": null,
+  "kind": "zca",
+  "action": "remove_group_topic",
+  "group": "zca_group",
+  "label": "removeGroupTopic — Xóa chủ đề đang ghim trên đầu nhóm (command 11829)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID nhóm (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "remove_user_from_groups",
+  "no": null,
+  "kind": "zca",
+  "action": "remove_user_from_groups",
+  "group": "zca_group",
+  "label": "removeUserFromGroups — Xóa một thành viên khỏi nhiều nhóm cùng lúc (command 12606)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "groupIds",
+    "label": "groupIds",
+    "required": true,
+    "description": "Danh sách ID nhóm (string | string[])"
+   },
+   {
+    "key": "memberId",
+    "label": "memberId",
+    "required": true,
+    "description": "ID thành viên cần xóa khỏi các nhóm (string)"
+   },
+   {
+    "key": "srcInteraction",
+    "label": "srcInteraction",
+    "required": false,
+    "description": "Nguồn tương tác (mặc định `2`) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "review_pending_member_request",
+  "no": null,
+  "kind": "zca",
+  "action": "review_pending_member_request",
+  "group": "zca_group",
+  "label": "reviewPendingMemberRequest — Phê duyệt (Chấp nhận hoặc Từ chối) yêu cầu xin tham gia nhóm của thành viên mới.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "payload",
+    "label": "payload",
+    "required": true,
+    "description": "- The payload containing data to review the pending member(s) request (ReviewPendingMemberRequestPayload)"
+   },
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "- The id of the group to review the pending member(s) request (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_group_settings",
+  "no": null,
+  "kind": "zca",
+  "action": "update_group_settings",
+  "group": "zca_group",
+  "label": "updateGroupSettings — Cập nhật các thiết lập quyền hạn của nhóm (ẩn thành viên lockViewMember, duyệt thành viên joinAppr, khóa nhắn tin lockSendMsg...).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "options",
+    "label": "options",
+    "required": true,
+    "description": "Options (UpdateGroupSettingsOptions)"
+   },
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "Group ID (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "upgrade_group_to_community",
+  "no": null,
+  "kind": "zca",
+  "action": "upgrade_group_to_community",
+  "group": "zca_group",
+  "label": "upgradeGroupToCommunity — Nâng cấp nhóm thường lên Cộng đồng (Community - tối đa 1000 thành viên).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "Group ID upgrade (string)"
+   }
+  ]
+ },
+ {
+  "name": "clear_unread_friend_requests",
+  "no": null,
+  "kind": "zca",
+  "action": "clear_unread_friend_requests",
+  "group": "zca_friend",
+  "label": "clearUnreadFriendRequests — Đánh dấu đã xem danh sách lời mời kết bạn chưa đọc (command 12232)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "uidsSeen",
+    "label": "uidsSeen",
+    "required": false,
+    "description": "Danh sách UID đã xem lời mời kết bạn (mặc định `[]`) (string[])"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "find_user_by_username",
+  "no": null,
+  "kind": "zca",
+  "action": "find_user_by_username",
+  "group": "zca_friend",
+  "label": "findUserByUsername — Tìm kiếm thông tin tài khoản Zalo thông qua Username.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "username",
+    "label": "username",
+    "required": true,
+    "description": "username for find (string)"
+   },
+   {
+    "key": "avatarSize",
+    "label": "avatarSize",
+    "required": false,
+    "description": "Avatar size (default: AvatarSize.Large) (AvatarSize)"
+   }
+  ]
+ },
+ {
+  "name": "get_alias_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_alias_list",
+  "group": "zca_friend",
+  "label": "getAliasList — Lấy danh sách toàn bộ tên gợi nhớ (Alias) đã đặt cho bạn bè.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "count",
+    "label": "count",
+    "required": false,
+    "description": "Page size (default: 100) (number)"
+   },
+   {
+    "key": "page",
+    "label": "page",
+    "required": false,
+    "description": "Page number (default: 1) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_alias_list_v2",
+  "no": null,
+  "kind": "zca",
+  "action": "get_alias_list_v2",
+  "group": "zca_friend",
+  "label": "getAliasListV2 — Lấy danh sách tên gợi nhớ (Alias) của bạn bè chuẩn V2 có hỗ trợ phân trang (command 12205)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "page",
+    "label": "page",
+    "required": false,
+    "description": "Trang cần lấy (mặc định: 1) (number)"
+   },
+   {
+    "key": "count",
+    "label": "count",
+    "required": false,
+    "description": "Số lượng mục mỗi trang (mặc định: 100) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_block_friends",
+  "no": null,
+  "kind": "zca",
+  "action": "get_block_friends",
+  "group": "zca_friend",
+  "label": "getBlockFriends — Lấy danh sách người dùng đang bị chặn chuẩn V2 (command 11429)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "page",
+    "label": "page",
+    "required": false,
+    "description": "Trang cần lấy (mặc định: 1) (number)"
+   },
+   {
+    "key": "count",
+    "label": "count",
+    "required": false,
+    "description": "Số lượng mỗi trang (mặc định: 50) (number)"
+   },
+   {
+    "key": "avatarSize",
+    "label": "avatarSize",
+    "required": false,
+    "description": "Kích thước ảnh đại diện (mặc định: 120) (number)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_close_friends",
+  "no": null,
+  "kind": "zca",
+  "action": "get_close_friends",
+  "group": "zca_friend",
+  "label": "getCloseFriends — Lấy danh sách bạn thân (Close Friends).",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_extra_friend_info",
+  "no": null,
+  "kind": "zca",
+  "action": "get_extra_friend_info",
+  "group": "zca_friend",
+  "label": "getExtraFriendInfo — Lấy ngữ cảnh và vai trò mở rộng (ví dụ role: [\"boss\"]) của danh sách bạn bè (command 11442)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friendIds",
+    "label": "friendIds",
+    "required": true,
+    "description": "Mảng UID cần truy vấn (string[])"
+   }
+  ]
+ },
+ {
+  "name": "get_friend_board_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_friend_board_list",
+  "group": "zca_friend",
+  "label": "getFriendBoardList — Lấy thông tin bảng tin chung với một người bạn.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "conversationId",
+    "label": "conversationId",
+    "required": true,
+    "description": "conversation id (string)"
+   }
+  ]
+ },
+ {
+  "name": "get_friend_onlines",
+  "no": null,
+  "kind": "zca",
+  "action": "get_friend_onlines",
+  "group": "zca_friend",
+  "label": "getFriendOnlines — Lấy danh sách bạn bè đang trực tuyến (Online) kèm trạng thái thiết bị.",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_friend_profiles_v2",
+  "no": null,
+  "kind": "zca",
+  "action": "get_friend_profiles_v2",
+  "group": "zca_friend",
+  "label": "getFriendProfilesV2 — Lấy hàng loạt hồ sơ chi tiết của danh sách bạn bè kèm trạng thái online qua /api/social/friend/getprofiles/v2 (command 11140)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friendIds",
+    "label": "friendIds",
+    "required": true,
+    "description": "Mảng UID cần lấy hồ sơ (có thể kèm hậu tố `_version` hoặc truyền UID thuần) (string | string[])"
+   },
+   {
+    "key": "options",
+    "label": "options",
+    "required": false,
+    "description": "Tùy chọn truy vấn (GetFriendProfilesV2Options)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_friend_recommendations",
+  "no": null,
+  "kind": "zca",
+  "action": "get_friend_recommendations",
+  "group": "zca_friend",
+  "label": "getFriendRecommendations — Lấy danh sách gợi ý kết bạn và lời mời kết bạn đã nhận.",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_friend_request_status",
+  "no": null,
+  "kind": "zca",
+  "action": "get_friend_request_status",
+  "group": "zca_friend",
+  "label": "getFriendRequestStatus — Kiểm tra trạng thái quan hệ bạn bè và lời mời kết bạn với một UID.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friendId",
+    "label": "friendId",
+    "required": true,
+    "description": "friend id (string)"
+   }
+  ]
+ },
+ {
+  "name": "get_friends_active_p_c_web",
+  "no": null,
+  "kind": "zca",
+  "action": "get_friends_active_p_c_web",
+  "group": "zca_friend",
+  "label": "getFriendsActivePCWeb — Lấy danh sách bạn bè đang hoạt động trên Zalo PC / Web qua /api/social/friend/active-pcweb (command 12072)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_friends_emoji_status",
+  "no": null,
+  "kind": "zca",
+  "action": "get_friends_emoji_status",
+  "group": "zca_friend",
+  "label": "getFriendsEmojiStatus — Lấy danh sách trạng thái Emoji (Emoji Status) hiện tại của bạn bè (command 16301)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "version",
+    "label": "version",
+    "required": false,
+    "description": "version (number)"
+   },
+   {
+    "key": "fromUid",
+    "label": "fromUid",
+    "required": false,
+    "description": "fromUid (string)"
+   },
+   {
+    "key": "maxEmojiStatusId",
+    "label": "maxEmojiStatusId",
+    "required": false,
+    "description": "maxEmojiStatusId (string | number)"
+   },
+   {
+    "key": "page",
+    "label": "page",
+    "required": false,
+    "description": "page (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_last_read_contact_tab",
+  "no": null,
+  "kind": "zca",
+  "action": "get_last_read_contact_tab",
+  "group": "zca_friend",
+  "label": "getLastReadContactTab — Lấy dấu thời gian lần cuối đọc tab Danh bạ (command 12230)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_multi_user_q_r_codes",
+  "no": null,
+  "kind": "zca",
+  "action": "get_multi_user_q_r_codes",
+  "group": "zca_friend",
+  "label": "getMultiUserQRCodes — Lấy mã QR cá nhân của một hoặc nhiều người dùng (command 12128)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "fids",
+    "label": "fids",
+    "required": true,
+    "description": "ID hoặc danh sách ID người dùng (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_multi_users_by_phones",
+  "no": null,
+  "kind": "zca",
+  "action": "get_multi_users_by_phones",
+  "group": "zca_friend",
+  "label": "getMultiUsersByPhones — Tra cứu hàng loạt thông tin tài khoản Zalo từ danh sách nhiều số điện thoại cùng lúc.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "phoneNumbers",
+    "label": "phoneNumbers",
+    "required": true,
+    "description": "Phone number(s) (string | string[])"
+   },
+   {
+    "key": "avatarSize",
+    "label": "avatarSize",
+    "required": false,
+    "description": "Avatar size (default: AvatarSize.Large) (AvatarSize)"
+   }
+  ]
+ },
+ {
+  "name": "get_phonebook_v2",
+  "no": null,
+  "kind": "zca",
+  "action": "get_phonebook_v2",
+  "group": "zca_friend",
+  "label": "getPhonebookV2 — Lấy danh bạ bạn bè đồng bộ từ số điện thoại chuẩn V2 (command 12428)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "phonebookVersion",
+    "label": "phonebookVersion",
+    "required": false,
+    "description": "Phiên bản danh bạ (mặc định: 0 để lấy toàn bộ) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_sent_friend_request",
+  "no": null,
+  "kind": "zca",
+  "action": "get_sent_friend_request",
+  "group": "zca_friend",
+  "label": "getSentFriendRequest — Lấy danh sách các lời mời kết bạn mà tài khoản hiện tại đã gửi đi nhưng chưa được phản hồi.",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "read_contact_tab",
+  "no": null,
+  "kind": "zca",
+  "action": "read_contact_tab",
+  "group": "zca_friend",
+  "label": "readContactTab — Đánh dấu đã đọc tab Danh bạ (command 12231)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "ts",
+    "label": "ts",
+    "required": false,
+    "description": "Dấu thời gian (mặc định: `Date.now()`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "remove_friend_recommendation",
+  "no": null,
+  "kind": "zca",
+  "action": "remove_friend_recommendation",
+  "group": "zca_friend",
+  "label": "removeFriendRecommendation — Xóa một gợi ý kết bạn khỏi danh sách đề xuất (command 11432)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "uid",
+    "label": "uid",
+    "required": true,
+    "description": "ID người dùng cần ẩn khỏi gợi ý (string)"
+   },
+   {
+    "key": "src",
+    "label": "src",
+    "required": false,
+    "description": "Nguồn gợi ý (mặc định `0`) (number)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "remove_friend_recommendation_v2",
+  "no": null,
+  "kind": "zca",
+  "action": "remove_friend_recommendation_v2",
+  "group": "zca_friend",
+  "label": "removeFriendRecommendationV2 — Xóa một gợi ý kết bạn khỏi danh sách đề xuất V2 (command 11438)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "uid",
+    "label": "uid",
+    "required": true,
+    "description": "ID người dùng cần ẩn khỏi gợi ý (string)"
+   },
+   {
+    "key": "src",
+    "label": "src",
+    "required": false,
+    "description": "Nguồn gợi ý (mặc định `0`) (number)"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": false,
+    "description": "Loại gợi ý (mặc định `0`) (number)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_close_friend",
+  "no": null,
+  "kind": "zca",
+  "action": "update_close_friend",
+  "group": "zca_friend",
+  "label": "updateCloseFriend — Thêm hoặc xóa người dùng khỏi danh sách Bạn thân (command 11421)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "fids",
+    "label": "fids",
+    "required": true,
+    "description": "ID hoặc danh sách ID người dùng (string | string[])"
+   },
+   {
+    "key": "action",
+    "label": "action",
+    "required": false,
+    "description": "Hành động (`1` = Thêm bạn thân, `0` = Xóa bạn thân) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "verify_friend",
+  "no": null,
+  "kind": "zca",
+  "action": "verify_friend",
+  "group": "zca_friend",
+  "label": "verifyFriend — Kiểm tra và xác thực danh sách bạn bè qua /api/social/friend/verify (command 11138)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friendIds",
+    "label": "friendIds",
+    "required": true,
+    "description": "Danh sách UID bạn bè cần xác thực (string | string[])"
+   },
+   {
+    "key": "options",
+    "label": "options",
+    "required": false,
+    "description": "Tùy chọn truy vấn (VerifyFriendOptions)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "delete_avatar",
+  "no": null,
+  "kind": "zca",
+  "action": "delete_avatar",
+  "group": "zca_profile",
+  "label": "deleteAvatar — Xóa một hoặc nhiều ảnh đại diện cũ trong kho ảnh đại diện.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "photoId",
+    "label": "photoId",
+    "required": true,
+    "description": "avatar photo ID(s) to delete - can be a single string or array of strings (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "disable_limit_search_phone_reminder",
+  "no": null,
+  "kind": "zca",
+  "action": "disable_limit_search_phone_reminder",
+  "group": "zca_profile",
+  "label": "disableLimitSearchPhoneReminder — Tắt thông báo nhắc nhở giới hạn tìm kiếm số điện thoại (command 12131)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "uid",
+    "label": "uid",
+    "required": false,
+    "description": "ID người dùng (mặc định là `ctx.uid`) (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "fetch_account_info",
+  "no": null,
+  "kind": "zca",
+  "action": "fetch_account_info",
+  "group": "zca_profile",
+  "label": "fetchAccountInfo — API fetchAccountInfo thuộc phân hệ profile.",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_avatar_url_profile",
+  "no": null,
+  "kind": "zca",
+  "action": "get_avatar_url_profile",
+  "group": "zca_profile",
+  "label": "getAvatarUrlProfile — Lấy đường dẫn ảnh đại diện của danh sách hồ sơ người dùng.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friendIds",
+    "label": "friendIds",
+    "required": true,
+    "description": "friendIds (string | string[])"
+   },
+   {
+    "key": "avatarSize",
+    "label": "avatarSize",
+    "required": false,
+    "description": "Avatar size (default: AvatarSize.Large) (AvatarSize)"
+   }
+  ]
+ },
+ {
+  "name": "get_emoji_status_config",
+  "no": null,
+  "kind": "zca",
+  "action": "get_emoji_status_config",
+  "group": "zca_profile",
+  "label": "getEmojiStatusConfig — Lấy cấu hình và danh sách bộ biểu tượng Trạng thái Emoji (Emoji Status - command 16300)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "version",
+    "label": "version",
+    "required": false,
+    "description": "Phiên bản bộ nhớ đệm (mặc định: 0 để lấy đầy đủ danh sách) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_enterprise_profiles",
+  "no": null,
+  "kind": "zca",
+  "action": "get_enterprise_profiles",
+  "group": "zca_profile",
+  "label": "getEnterpriseProfiles — Lấy thông tin hồ sơ doanh nghiệp (Zalo Enterprise) của một hoặc nhiều tài khoản (command 12193)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "uids",
+    "label": "uids",
+    "required": true,
+    "description": "ID hoặc danh sách ID người dùng (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_full_avatar",
+  "no": null,
+  "kind": "zca",
+  "action": "get_full_avatar",
+  "group": "zca_profile",
+  "label": "getFullAvatar — Lấy ảnh đại diện kích thước gốc (Full HD) của một người dùng theo UID.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friendId",
+    "label": "friendId",
+    "required": true,
+    "description": "friend id (string)"
+   }
+  ]
+ },
+ {
+  "name": "get_mini_profile",
+  "no": null,
+  "kind": "zca",
+  "action": "get_mini_profile",
+  "group": "zca_profile",
+  "label": "getMiniProfile — Lấy nhanh thông tin hồ sơ rút gọn (Avatar, Global ID, gói Biz) của danh sách người dùng (command 12134)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friendIds",
+    "label": "friendIds",
+    "required": true,
+    "description": "Mảng UID cần lấy thông tin (string[])"
+   },
+   {
+    "key": "avatarSize",
+    "label": "avatarSize",
+    "required": false,
+    "description": "Kích thước ảnh đại diện (mặc định: 120) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_profile_extra",
+  "no": null,
+  "kind": "zca",
+  "action": "get_profile_extra",
+  "group": "zca_profile",
+  "label": "getProfileExtra — Lấy thông tin mở rộng của hồ sơ cá nhân (command 11864)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "profileId",
+    "label": "profileId",
+    "required": false,
+    "description": "ID người dùng (mặc định là `ctx.uid`) (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_profile_rank",
+  "no": null,
+  "kind": "zca",
+  "action": "get_profile_rank",
+  "group": "zca_profile",
+  "label": "getProfileRank — Lấy hạng tài khoản Zalo của một người dùng (ví dụ \"WHITE\", \"GOLD\" - command 12012)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "profileId",
+    "label": "profileId",
+    "required": false,
+    "description": "UID của người dùng cần kiểm tra (mặc định: UID của tài khoản đang đăng nhập) (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_profile_verification_status",
+  "no": null,
+  "kind": "zca",
+  "action": "get_profile_verification_status",
+  "group": "zca_profile",
+  "label": "getProfileVerificationStatus — Kiểm tra trạng thái xác thực định danh (eKYC) của tài khoản Zalo (command 12150)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_settings",
+  "no": null,
+  "kind": "zca",
+  "action": "get_settings",
+  "group": "zca_profile",
+  "label": "getSettings — Lấy toàn bộ cấu hình quyền riêng tư và cài đặt của tài khoản hiện tại. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "push_profile_verification_message",
+  "no": null,
+  "kind": "zca",
+  "action": "push_profile_verification_message",
+  "group": "zca_profile",
+  "label": "pushProfileVerificationMessage — Yêu cầu đẩy tin nhắn hướng dẫn xác thực tài khoản (eKYC) từ Official Account (command 12151)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "uid",
+    "label": "uid",
+    "required": false,
+    "description": "uid (string)"
+   },
+   {
+    "key": "groupName",
+    "label": "groupName",
+    "required": false,
+    "description": "groupName (string)"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": false,
+    "description": "type (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "register_trial_biz_account",
+  "no": null,
+  "kind": "zca",
+  "action": "register_trial_biz_account",
+  "group": "zca_profile",
+  "label": "registerTrialBizAccount — Đăng ký dùng thử gói Zalo Business V2 cho tài khoản (command 12152)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "uid",
+    "label": "uid",
+    "required": false,
+    "description": "ID người dùng (mặc định là `ctx.uid`) (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "reuse_avatar",
+  "no": null,
+  "kind": "zca",
+  "action": "reuse_avatar",
+  "group": "zca_profile",
+  "label": "reuseAvatar — Sử dụng lại một ảnh đại diện cũ từ kho lịch sử ảnh đại diện.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "photoId",
+    "label": "photoId",
+    "required": true,
+    "description": "photo id from getAvatarList api (string)"
+   }
+  ]
+ },
+ {
+  "name": "update_profile_bio",
+  "no": null,
+  "kind": "zca",
+  "action": "update_profile_bio",
+  "group": "zca_profile",
+  "label": "updateProfileBio — Cập nhật dòng tiểu sử (Status / Bio) trên trang cá nhân.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "status",
+    "label": "status",
+    "required": true,
+    "description": "status for update bio (string)"
+   }
+  ]
+ },
+ {
+  "name": "update_profile_mode",
+  "no": null,
+  "kind": "zca",
+  "action": "update_profile_mode",
+  "group": "zca_profile",
+  "label": "updateProfileMode — Cập nhật chế độ hồ sơ người dùng (command 11865)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "mode",
+    "label": "mode",
+    "required": true,
+    "description": "Chế độ hồ sơ cần đặt (number)"
+   }
+  ]
+ },
+ {
+  "name": "cancel_pull_mobile",
+  "no": null,
+  "kind": "zca",
+  "action": "cancel_pull_mobile",
+  "group": "zca_sync",
+  "label": "cancelPullMobile — Huỷ yêu cầu đồng bộ tin nhắn từ điện thoại đang chờ (cancel_pull_mobile_msg, command 12700). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "delete_mobile_msg_snapshot",
+  "no": null,
+  "kind": "zca",
+  "action": "delete_mobile_msg_snapshot",
+  "group": "zca_sync",
+  "label": "deleteMobileMsgSnapshot — Xóa bản chụp nhanh (snapshot) dữ liệu đồng bộ tin nhắn từ thiết bị di động sau khi hoàn tất (command 12003)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "publicKey",
+    "label": "publicKey",
+    "required": true,
+    "description": "Khóa công khai RSA SPKI DER Base64 của phiên đồng bộ (string)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "download_transfer_sync",
+  "no": null,
+  "kind": "zca",
+  "action": "download_transfer_sync",
+  "group": "zca_sync",
+  "label": "downloadTransferSync — Tải khối dữ liệu snapshot đồng bộ tin nhắn từ máy chủ transfersync.zaloapp.com (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_backup_msg_info",
+  "no": null,
+  "kind": "zca",
+  "action": "get_backup_msg_info",
+  "group": "zca_sync",
+  "label": "getBackupMsgInfo — Lấy thông tin bản sao lưu tin nhắn hiện có trên máy chủ (command 12096)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "nretry",
+    "label": "nretry",
+    "required": false,
+    "description": "Số lần thử lại (mặc định `0`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_cross_db_info",
+  "no": null,
+  "kind": "zca",
+  "action": "get_cross_db_info",
+  "group": "zca_sync",
+  "label": "getCrossDbInfo — Lấy thông tin cơ sở dữ liệu chéo (Cross-DB) phục vụ đồng bộ dữ liệu sang máy tính (command 12412)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "syncSession",
+    "label": "syncSession",
+    "required": false,
+    "description": "syncSession (string)"
+   },
+   {
+    "key": "pcName",
+    "label": "pcName",
+    "required": false,
+    "description": "pcName (string)"
+   },
+   {
+    "key": "nretry",
+    "label": "nretry",
+    "required": false,
+    "description": "nretry (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_sync_data",
+  "no": null,
+  "kind": "zca",
+  "action": "get_sync_data",
+  "group": "zca_sync",
+  "label": "getSyncData — Tải xuống file sao lưu tin nhắn từ sự kiện syncmsg_info (.db.crypt, định dạng ZDB4.0) và lưu ra ổ đĩa hoặc trả về ReadableStream. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "pull_mobile",
+  "no": null,
+  "kind": "zca",
+  "action": "pull_mobile",
+  "group": "zca_sync",
+  "label": "pullMobile — Yêu cầu thiết bị di động Zalo đóng gói và tải lên bản sao lưu tin nhắn (pull_mobile_msg, command 12000). Sự kiện tiến trình (user_confirm, syncmsg_info, transfer_error) sẽ được đẩy về qua api.listener.on(\"sync_event\"). (chưa tự",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "request_sync_from_phone",
+  "no": null,
+  "kind": "zca",
+  "action": "request_sync_from_phone",
+  "group": "zca_sync",
+  "label": "requestSyncFromPhone — Phát tín hiệu yêu cầu đồng bộ tin nhắn từ ứng dụng Zalo trên điện thoại (pull_mobile_msg, command 12000). Tự động sinh cặp khoá RSA 2048-bit (nếu chưa truyền vào) và gọi api.pullMobile(...). Điện thoại của người dùng ",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "submit_sync_media_actions",
+  "no": null,
+  "kind": "zca",
+  "action": "submit_sync_media_actions",
+  "group": "zca_sync",
+  "label": "submitSyncMediaActions — Gửi danh sách hành động đồng bộ hóa tệp đa phương tiện lên máy chủ (command 16213)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "syncList",
+    "label": "syncList",
+    "required": true,
+    "description": "Danh sách hành động đồng bộ Media (unknown[])"
+   }
+  ]
+ },
+ {
+  "name": "upload_backup_chunk",
+  "no": null,
+  "kind": "zca",
+  "action": "upload_backup_chunk",
+  "group": "zca_sync",
+  "label": "uploadBackupChunk — Tải lên gói dữ liệu phân mảnh (chunk) sao lưu tin nhắn từ máy tính sang điện thoại (command 13538)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "formData",
+    "label": "formData",
+    "required": true,
+    "description": "Dữ liệu `FormData` hoặc `BodyInit` chứa phân mảnh sao lưu (BodyInit | Buffer | Uint8Array)"
+   }
+  ]
+ },
+ {
+  "name": "ack_cloud_onboarding",
+  "no": null,
+  "kind": "zca",
+  "action": "ack_cloud_onboarding",
+  "group": "zca_zcloud",
+  "label": "ackCloudOnboarding — Xác nhận hoàn tất bước khởi tạo (Onboarding ACK V1) trên ZCloud (command 12746) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_cloud_download_urls",
+  "no": null,
+  "kind": "zca",
+  "action": "get_cloud_download_urls",
+  "group": "zca_zcloud",
+  "label": "getCloudDownloadUrls — Lấy danh sách đường dẫn tải xuống các tệp Media lưu trữ trên ZCloud theo noiseIds (command 12743) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_cloud_info",
+  "no": null,
+  "kind": "zca",
+  "action": "get_cloud_info",
+  "group": "zca_zcloud",
+  "label": "getCloudInfo — Lấy thông tin gói thuê bao Zalo Cloud (command 12754) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_cloud_settings",
+  "no": null,
+  "kind": "zca",
+  "action": "get_cloud_settings",
+  "group": "zca_zcloud",
+  "label": "getCloudSettings — Lấy cấu hình giới hạn tệp và cài đặt ZCloud của tài khoản (command 12756) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_cloud_upload_url",
+  "no": null,
+  "kind": "zca",
+  "action": "get_cloud_upload_url",
+  "group": "zca_zcloud",
+  "label": "getCloudUploadUrl — Lấy đường dẫn tải lên tệp di trú lên ZCloud (command 12752) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_cloud_viewer_key",
+  "no": null,
+  "kind": "zca",
+  "action": "get_cloud_viewer_key",
+  "group": "zca_zcloud",
+  "label": "getCloudViewerKey — Lấy cặp khóa phiên (viewer_key và khóa giải mã AES-256 enk) cho hệ thống ZCloud / MyCloud (command 12741). Tự động cache trong bộ nhớ ctx.zcloudViewerKeyCache (TTL 15 phút) để tối ưu hiệu năng khi gọi liên tiếp. (chưa tự",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_family_profile",
+  "no": null,
+  "kind": "zca",
+  "action": "get_family_profile",
+  "group": "zca_zcloud",
+  "label": "getFamilyProfile — Lấy thông tin nhóm gia đình ZFamily (command 12757) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_family_usage",
+  "no": null,
+  "kind": "zca",
+  "action": "get_family_usage",
+  "group": "zca_zcloud",
+  "label": "getFamilyUsage — Kiểm tra dung lượng sử dụng gói ZCloud Gia đình (Family Usage - command 12758) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_family_viewer_key",
+  "no": null,
+  "kind": "zca",
+  "action": "get_family_viewer_key",
+  "group": "zca_zcloud",
+  "label": "getFamilyViewerKey — Lấy cặp khóa phiên (viewer_key và khóa giải mã AES-256 enk) cho gói gia đình ZFamily (command 12759). Tự động cache trong bộ nhớ ctx.zfamilyViewerKeyCache (TTL 15 phút) để tối ưu hiệu năng khi gọi liên tiếp. (chưa tự độ",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_usage_my_cloud",
+  "no": null,
+  "kind": "zca",
+  "action": "get_usage_my_cloud",
+  "group": "zca_zcloud",
+  "label": "getUsageMyCloud — Kiểm tra hạn mức và dung lượng sử dụng Cloud của tôi (MyCloud - command 12748) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_usage_z_cloud",
+  "no": null,
+  "kind": "zca",
+  "action": "get_usage_z_cloud",
+  "group": "zca_zcloud",
+  "label": "getUsageZCloud — Kiểm tra dung lượng sử dụng ZCloud V2 (bao gồm MyCloud và Sao lưu tin nhắn - command 12749) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "migrate_cloud_recent",
+  "no": null,
+  "kind": "zca",
+  "action": "migrate_cloud_recent",
+  "group": "zca_zcloud",
+  "label": "migrateCloudRecent — Thực hiện di trú dữ liệu tệp tin gần đây lên ZCloud (command 12753) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "reset_cloud_queue",
+  "no": null,
+  "kind": "zca",
+  "action": "reset_cloud_queue",
+  "group": "zca_zcloud",
+  "label": "resetCloudQueue — Đặt lại hàng đợi đồng bộ Media trên ZCloud (command 12744) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "submit_cloud_media_ext_info",
+  "no": null,
+  "kind": "zca",
+  "action": "submit_cloud_media_ext_info",
+  "group": "zca_zcloud",
+  "label": "submitCloudMediaExtInfo — Gửi thông tin mở rộng (siêu dữ liệu / khóa giải mã) của các tệp Media lên hàng đợi ZCloud (command 12745) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "submit_cloud_verify_action",
+  "no": null,
+  "kind": "zca",
+  "action": "submit_cloud_verify_action",
+  "group": "zca_zcloud",
+  "label": "submitCloudVerifyAction — Gửi hành động xác thực bảo mật ZCloud (Onboarding ACK V2 - command 12750) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "verify_cloud_media",
+  "no": null,
+  "kind": "zca",
+  "action": "verify_cloud_media",
+  "group": "zca_zcloud",
+  "label": "verifyCloudMedia — Kiểm tra và lấy danh sách mục Media lưu trữ trên ZCloud (command 12740 / 12761) (chưa tự động: goi 0 request (nhieu buoc hoac khong goi))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "add_user_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "add_user_group_call",
+  "group": "zca_call",
+  "label": "addUserGroupCall — Mời thêm thành viên mới vào cuộc gọi nhóm đang diễn ra (cmd 12435 - /api/voicecall/group/adduser). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "answer_ack_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "answer_ack_voice_call",
+  "group": "zca_call",
+  "label": "answerAckVoiceCall — Gửi xác nhận hoàn tất bắt tay nhận cuộc gọi 1-1 (cmd 11304 - /api/voicecall/answerack, signal 408). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "answer_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "answer_group_call",
+  "group": "zca_call",
+  "label": "answerGroupCall — Chấp nhận tham gia cuộc gọi nhóm khi nhận được lời mời (cmd 12436 - /api/voicecall/group/answer). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "answer_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "answer_voice_call",
+  "group": "zca_call",
+  "label": "answerVoiceCall — Chấp nhận (Bắt máy) cuộc gọi Thoại/Video 1-1 đến (cmd 11303 - /api/voicecall/answer, signal 402). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "broadcast_group_call_state",
+  "no": null,
+  "kind": "zca",
+  "action": "broadcast_group_call_state",
+  "group": "zca_call",
+  "label": "broadcastGroupCallState — Phát quảng bá trạng thái thiết bị (Mic, Camera, Screen Share) tới các thành viên trong cuộc gọi nhóm (cmd 12098 - /api/voicecall/group/broadcast). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "cancel_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "cancel_group_call",
+  "group": "zca_call",
+  "label": "cancelGroupCall — Hủy lời mời cuộc gọi nhóm (cmd 12437 - /api/voicecall/group/cancel). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "cancel_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "cancel_voice_call",
+  "group": "zca_call",
+  "label": "cancelVoiceCall — Hủy cuộc gọi 1-1 đang đổ chuông trước khi người nhận bắt máy (cmd 11305 - /api/voicecall/cancel, signal 405). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "create_controller",
+  "no": null,
+  "kind": "zca",
+  "action": "create_controller",
+  "group": "zca_call",
+  "label": "createController — Khởi tạo bộ điều phối cuộc gọi ZaloCallController quản lý vòng đời gọi đi, nhận cuộc gọi đến và kênh IPC cục bộ. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "create_rtc_session",
+  "no": null,
+  "kind": "zca",
+  "action": "create_rtc_session",
+  "group": "zca_call",
+  "label": "createRtcSession — Khởi tạo phiên gọi thoại / video 2 chiều thuần TypeScript (ZaloRtcSession — UDP ZRTPPacket + SRTP + H.264 Annex-B + Mobile Direct UDP Handoff). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "end_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "end_group_call",
+  "group": "zca_call",
+  "label": "endGroupCall — Rời khỏi cuộc gọi nhóm hoặc từ chối lời mời gọi nhóm (cmd 12438 - /api/voicecall/group/endcall). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "end_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "end_voice_call",
+  "group": "zca_call",
+  "label": "endVoiceCall — Kết thúc cuộc gọi 1-1 đang diễn ra hoặc từ chối cuộc gọi đến (cmd 11306 - /api/voicecall/endcall, signal 404). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "finish_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "finish_group_call",
+  "group": "zca_call",
+  "label": "finishGroupCall — Kết thúc hoàn toàn phòng gọi nhóm cho tất cả thành viên (cmd 12446 - /api/voicecall/group/finish). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_group_call_state",
+  "no": null,
+  "kind": "zca",
+  "action": "get_group_call_state",
+  "group": "zca_call",
+  "label": "getGroupCallState — Truy vấn trạng thái hiện tại và danh sách thành viên trong phòng gọi nhóm (cmd 12445 - /api/voicecall/group/state). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "hold_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "hold_voice_call",
+  "group": "zca_call",
+  "label": "holdVoiceCall — Tạm giữ (Hold) cuộc gọi 1-1 đang diễn ra hoặc phản hồi yêu cầu tạm giữ (cmd 11307 holdreq / cmd 11308 holdresp, signal 411/412). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "join_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "join_group_call",
+  "group": "zca_call",
+  "label": "joinGroupCall — Chủ động tham gia vào một cuộc gọi nhóm đang diễn ra từ banner nhóm (cmd 12043 - /api/voicecall/group/join). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "log_end_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "log_end_voice_call",
+  "group": "zca_call",
+  "label": "logEndVoiceCall — Gửi thống kê chất lượng cuộc gọi (QoS/Billing stats) sau khi kết thúc cuộc gọi 1-1 (cmd 11311 - /api/voicecall/logendcall, signal 406). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "notify_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "notify_group_call",
+  "group": "zca_call",
+  "label": "notifyGroupCall — Gửi thông báo sự kiện cuộc gọi nhóm vào luồng chat nhóm (cmd 12447 - /api/voicecall/group/notify). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "ping_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "ping_group_call",
+  "group": "zca_call",
+  "label": "pingGroupCall — Gửi nhịp tim (Heartbeat Ping) duy trì kết nối của thành viên trong phòng gọi nhóm (cmd 12097 - /api/voicecall/group/ping). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "request_audio_to_video_call",
+  "no": null,
+  "kind": "zca",
+  "action": "request_audio_to_video_call",
+  "group": "zca_call",
+  "label": "requestAudioToVideoCall — Yêu cầu nâng cấp từ cuộc gọi Thoại sang cuộc gọi Video hoặc phản hồi yêu cầu (cmd 12056 - /api/voicecall/requestaudio2video). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "request_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "request_group_call",
+  "group": "zca_call",
+  "label": "requestGroupCall — Bước 1 gọi nhóm (cmd 12433 - /api/voicecall/group/requestcall): Xin cấp phát phòng gọi nhóm (Group Call Room & RTP/ZRTC servers). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "request_share_screen_call",
+  "no": null,
+  "kind": "zca",
+  "action": "request_share_screen_call",
+  "group": "zca_call",
+  "label": "requestShareScreenCall — Yêu cầu bắt đầu hoặc kết thúc chia sẻ màn hình (Screen Share) trong cuộc gọi 1-1 (cmd 12064 - /api/voicecall/requestsharescreen). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "request_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "request_voice_call",
+  "group": "zca_call",
+  "label": "requestVoiceCall — Bước 1 gọi 1-1 (cmd 11300 - /api/voicecall/requestcall, signal 401): Xin cấp phát phòng gọi 1-1 (callId, sessId, rtpServer, rtcpServer, zrtpKey, codec). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "ring_ring_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "ring_ring_group_call",
+  "group": "zca_call",
+  "label": "ringRingGroupCall — Báo hiệu thiết bị đang đổ chuông cho lời mời gọi nhóm (cmd 12439 - /api/voicecall/group/ringring). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "ring_ring_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "ring_ring_voice_call",
+  "group": "zca_call",
+  "label": "ringRingVoiceCall — Báo hiệu thiết bị đang đổ chuông cho cuộc gọi 1-1 đến (cmd 11302 - /api/voicecall/ringring, signal 407). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "send_request_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "send_request_group_call",
+  "group": "zca_call",
+  "label": "sendRequestGroupCall — Bước 2 gọi nhóm (cmd 12434 - /api/voicecall/group/request): Phát tín hiệu mời gọi nhóm tới danh sách thành viên. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "send_request_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "send_request_voice_call",
+  "group": "zca_call",
+  "label": "sendRequestVoiceCall — Bước 2 gọi 1-1 (cmd 11301 - /api/voicecall/request, signal 416): Gửi gói mời gọi (Invite) kèm extendData ZRTC để kích hoạt đổ chuông trên thiết bị người nhận. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "send_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "send_voice_call",
+  "group": "zca_call",
+  "label": "sendVoiceCall — Khởi tạo cuộc gọi Thoại hoặc Video 1-1 trọn gói (tự động thực hiện 2 bước 11300 + 11301 làm đổ chuông máy người nhận). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "share_screen_group_call",
+  "no": null,
+  "kind": "zca",
+  "action": "share_screen_group_call",
+  "group": "zca_call",
+  "label": "shareScreenGroupCall — Bắt đầu hoặc dừng chia sẻ màn hình trong cuộc gọi nhóm (cmd 12044 - /api/voicecall/group/sharescreen). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "unhold_voice_call",
+  "no": null,
+  "kind": "zca",
+  "action": "unhold_voice_call",
+  "group": "zca_call",
+  "label": "unholdVoiceCall — Khôi phục (Unhold) cuộc gọi 1-1 đang tạm giữ hoặc phản hồi yêu cầu khôi phục (cmd 11309 unholdreq / cmd 11310 unholdresp, signal 413/414). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "update_call_media_state",
+  "no": null,
+  "kind": "zca",
+  "action": "update_call_media_state",
+  "group": "zca_call",
+  "label": "updateCallMediaState — Đồng bộ trạng thái bật/tắt Mic và Camera trong cuộc gọi 1-1 (cmd 12006 - /api/voicecall/conf). (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_conversation_media",
+  "no": null,
+  "kind": "zca",
+  "action": "get_conversation_media",
+  "group": "zca_media",
+  "label": "getConversationMedia — Lấy danh sách Kho Lưu Trữ (Ảnh/Video \"media\", File \"file\", hoặc Link \"link\") trong hội thoại nhóm (command 11841)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": false,
+    "description": "groupId (string)"
+   },
+   {
+    "key": "threadId",
+    "label": "threadId",
+    "required": false,
+    "description": "threadId (string)"
+   },
+   {
+    "key": "mediaType",
+    "label": "mediaType",
+    "required": false,
+    "description": "mediaType (MediaStoreType)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "limit (number)"
+   },
+   {
+    "key": "lastId",
+    "label": "lastId",
+    "required": false,
+    "description": "lastId (number | string)"
+   },
+   {
+    "key": "lastFetchId",
+    "label": "lastFetchId",
+    "required": false,
+    "description": "lastFetchId (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_media_store_preview",
+  "no": null,
+  "kind": "zca",
+  "action": "get_media_store_preview",
+  "group": "zca_media",
+  "label": "getMediaStorePreview — Lấy danh sách xem trước nhanh Kho Lưu Trữ (Ảnh/Video, File, Link) của nhóm (command 11843)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID của nhóm (string)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Số lượng mục tối đa (mặc định: 50) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_personal_media",
+  "no": null,
+  "kind": "zca",
+  "action": "get_personal_media",
+  "group": "zca_media",
+  "label": "getPersonalMedia — Lấy danh sách Kho Lưu Trữ Ảnh/Video (\"media\"), File (\"file\"), hoặc Link (\"link\") trong Cloud của tôi (Send2Me) (command 12220)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "mediaType",
+    "label": "mediaType",
+    "required": false,
+    "description": "mediaType (MediaStoreType)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "limit (number)"
+   },
+   {
+    "key": "lastId",
+    "label": "lastId",
+    "required": false,
+    "description": "lastId (number | string)"
+   },
+   {
+    "key": "lastFetchId",
+    "label": "lastFetchId",
+    "required": false,
+    "description": "lastFetchId (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_personal_media_preview",
+  "no": null,
+  "kind": "zca",
+  "action": "get_personal_media_preview",
+  "group": "zca_media",
+  "label": "getPersonalMediaPreview — Lấy danh sách xem trước nhanh Kho Lưu Trữ trong Cloud của tôi (Send2Me) (command 12221)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Số lượng mục tối đa (mặc định: `50`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "remove_conversation_media",
+  "no": null,
+  "kind": "zca",
+  "action": "remove_conversation_media",
+  "group": "zca_media",
+  "label": "removeConversationMedia — Xóa mục Ảnh/Video, File hoặc Link khỏi Kho Lưu Trữ của nhóm (command 11842)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "groupId (string)"
+   },
+   {
+    "key": "mediaType",
+    "label": "mediaType",
+    "required": true,
+    "description": "mediaType (MediaStoreType)"
+   },
+   {
+    "key": "mediaId",
+    "label": "mediaId",
+    "required": true,
+    "description": "mediaId (string | number | (string | number)[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "remove_personal_media",
+  "no": null,
+  "kind": "zca",
+  "action": "remove_personal_media",
+  "group": "zca_media",
+  "label": "removePersonalMedia — Xóa mục lưu trữ trong Kho Lưu Trữ Cloud của tôi (Send2Me) (command 12222)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "mediaType",
+    "label": "mediaType",
+    "required": true,
+    "description": "mediaType (MediaStoreType)"
+   },
+   {
+    "key": "mediaId",
+    "label": "mediaId",
+    "required": true,
+    "description": "mediaId (number | string | Array<number | string>)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "upload_attachment",
+  "no": null,
+  "kind": "zca",
+  "action": "upload_attachment",
+  "group": "zca_media",
+  "label": "uploadAttachment — Tải tệp đính kèm (Ảnh, Video, File) lên máy chủ Zalo để lấy thông tin fileUrl / fileId trước khi gửi. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "voice_to_text",
+  "no": null,
+  "kind": "zca",
+  "action": "voice_to_text",
+  "group": "zca_media",
+  "label": "voiceToText — Gửi yêu cầu chuyển đổi tin nhắn thoại sang văn bản bằng Zalo AI (command 13394). Kết quả văn bản sau khi xử lý xong sẽ được đẩy về qua sự kiện api.listener.on(\"voice2text_event\", ...) khớp với req_id.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "voiceUrl",
+    "label": "voiceUrl",
+    "required": true,
+    "description": "Đường dẫn URL của tệp ghi âm tin nhắn thoại (`.aac` / `.mp3` / `.m4a`) (string)"
+   }
+  ]
+ },
+ {
+  "name": "get_a_i_sticker_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_a_i_sticker_list",
+  "group": "zca_sticker",
+  "label": "getAIStickerList — Lấy danh sách Sticker AI của người dùng (command 12190)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_default_guggy_gifs",
+  "no": null,
+  "kind": "zca",
+  "action": "get_default_guggy_gifs",
+  "group": "zca_sticker",
+  "label": "getDefaultGuggyGifs — Lấy danh sách ảnh động Guggy GIF mặc định (command 11749)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Số lượng kết quả tối đa (mặc định `10`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_gif_categories",
+  "no": null,
+  "kind": "zca",
+  "action": "get_gif_categories",
+  "group": "zca_sticker",
+  "label": "getGifCategories — Lấy danh sách danh mục ảnh động Giphy GIF (command 11294)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "offset",
+    "label": "offset",
+    "required": false,
+    "description": "Vị trí bắt đầu (mặc định `0`) (number)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Số lượng kết quả tối đa (mặc định `10`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_gif_dictionaries",
+  "no": null,
+  "kind": "zca",
+  "action": "get_gif_dictionaries",
+  "group": "zca_sticker",
+  "label": "getGifDictionaries — Lấy danh sách từ điển ảnh động Giphy GIF (command 11298)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "offset",
+    "label": "offset",
+    "required": false,
+    "description": "Vị trí bắt đầu (mặc định `0`) (number)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Số lượng kết quả tối đa (mặc định `10`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_gifs_by_category",
+  "no": null,
+  "kind": "zca",
+  "action": "get_gifs_by_category",
+  "group": "zca_sticker",
+  "label": "getGifsByCategory — Lấy danh sách ảnh động Giphy GIF theo ID danh mục (command 11295)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "cateId",
+    "label": "cateId",
+    "required": true,
+    "description": "ID danh mục GIF (number)"
+   },
+   {
+    "key": "offset",
+    "label": "offset",
+    "required": false,
+    "description": "Vị trí bắt đầu (mặc định `0`) (number)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Số lượng kết quả tối đa (mặc định `10`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_gifs_by_dictionary",
+  "no": null,
+  "kind": "zca",
+  "action": "get_gifs_by_dictionary",
+  "group": "zca_sticker",
+  "label": "getGifsByDictionary — Lấy danh sách ảnh động Giphy GIF theo ID từ điển (command 11299)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "dicId",
+    "label": "dicId",
+    "required": true,
+    "description": "ID từ điển GIF (number)"
+   },
+   {
+    "key": "offset",
+    "label": "offset",
+    "required": false,
+    "description": "Vị trí bắt đầu (mặc định `0`) (number)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Số lượng kết quả tối đa (mặc định `10`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_message_effect_by_id",
+  "no": null,
+  "kind": "zca",
+  "action": "get_message_effect_by_id",
+  "group": "zca_sticker",
+  "label": "getMessageEffectById — Lấy chi tiết một hiệu ứng tin nhắn theo ID và kích thước (command 11743)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "id",
+    "label": "id",
+    "required": true,
+    "description": "ID hiệu ứng (number | string)"
+   },
+   {
+    "key": "size",
+    "label": "size",
+    "required": false,
+    "description": "Kích thước tài nguyên hiệu ứng (mặc định `130`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_message_effects",
+  "no": null,
+  "kind": "zca",
+  "action": "get_message_effects",
+  "group": "zca_sticker",
+  "label": "getMessageEffects — Lấy thông tin hiệu ứng tin nhắn theo danh sách ID (command 11742)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "effectIds",
+    "label": "effectIds",
+    "required": false,
+    "description": "ID hoặc danh sách ID hiệu ứng (number | number[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_personalized_sticker_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_personalized_sticker_list",
+  "group": "zca_sticker",
+  "label": "getPersonalizedStickerList — Lấy danh sách Sticker cá nhân hóa của tài khoản (command 11745)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_recommended_stickers",
+  "no": null,
+  "kind": "zca",
+  "action": "get_recommended_stickers",
+  "group": "zca_sticker",
+  "label": "getRecommendedStickers — Lấy danh sách các bộ Sticker được Zalo đề xuất (command 11748)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_sticker_categories_v2",
+  "no": null,
+  "kind": "zca",
+  "action": "get_sticker_categories_v2",
+  "group": "zca_sticker",
+  "label": "getStickerCategoriesV2 — Lấy danh sách danh mục bộ nhãn dán (Sticker Categories V2 - command 12020) (chưa tự động: khong doc duoc doi tuong params)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_sticker_category_data",
+  "no": null,
+  "kind": "zca",
+  "action": "get_sticker_category_data",
+  "group": "zca_sticker",
+  "label": "getStickerCategoryData — Lấy thông tin chi tiết một bộ nhãn dán theo cid (command 11156)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "cid",
+    "label": "cid",
+    "required": true,
+    "description": "ID bộ nhãn dán (Category ID) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_sticker_category_detail",
+  "no": null,
+  "kind": "zca",
+  "action": "get_sticker_category_detail",
+  "group": "zca_sticker",
+  "label": "getStickerCategoryDetail — Lấy danh sách toàn bộ nhãn dán nằm trong một bộ nhãn dán (Category/Pack ID).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "cateId",
+    "label": "cateId",
+    "required": true,
+    "description": "Sticker category ID (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_sticker_hello",
+  "no": null,
+  "kind": "zca",
+  "action": "get_sticker_hello",
+  "group": "zca_sticker",
+  "label": "getStickerHello — Lấy danh sách Sticker chào hỏi gợi ý khi bắt đầu trò chuyện mới (command 11751)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_sticker_suggest_keywords",
+  "no": null,
+  "kind": "zca",
+  "action": "get_sticker_suggest_keywords",
+  "group": "zca_sticker",
+  "label": "getStickerSuggestKeywords — Lấy bộ từ khóa gợi ý Sticker tự động khi gõ tin nhắn (command 11740)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_sticker_suggestion",
+  "no": null,
+  "kind": "zca",
+  "action": "get_sticker_suggestion",
+  "group": "zca_sticker",
+  "label": "getStickerSuggestion — Gợi ý Sticker/GIF theo từ khóa đang nhập (command 11741)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "options",
+    "label": "options",
+    "required": true,
+    "description": "Từ khóa và tùy chọn kèm theo (`gif`, `guggy`) (GetStickerSuggestionOptions | string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_tenor_sticker_mapping",
+  "no": null,
+  "kind": "zca",
+  "action": "get_tenor_sticker_mapping",
+  "group": "zca_sticker",
+  "label": "getTenorStickerMapping — Lấy bảng ánh xạ Tenor sang Sticker Zalo (command 12015)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_trending_gifs",
+  "no": null,
+  "kind": "zca",
+  "action": "get_trending_gifs",
+  "group": "zca_sticker",
+  "label": "getTrendingGifs — Lấy danh sách ảnh động Giphy GIF thịnh hành (command 11296)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "offset",
+    "label": "offset",
+    "required": false,
+    "description": "Vị trí bắt đầu (mặc định `0`) (number)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Số lượng kết quả tối đa (mặc định `10`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "search_gifs",
+  "no": null,
+  "kind": "zca",
+  "action": "search_gifs",
+  "group": "zca_sticker",
+  "label": "searchGifs — Tìm kiếm ảnh động Giphy GIF theo từ khóa (command 11297)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "keyword",
+    "label": "keyword",
+    "required": true,
+    "description": "Từ khóa tìm kiếm (string)"
+   },
+   {
+    "key": "offset",
+    "label": "offset",
+    "required": false,
+    "description": "Vị trí bắt đầu (mặc định `0`) (number)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Số lượng kết quả tối đa (mặc định `10`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "search_guggy_gifs",
+  "no": null,
+  "kind": "zca",
+  "action": "search_guggy_gifs",
+  "group": "zca_sticker",
+  "label": "searchGuggyGifs — Tìm kiếm ảnh động Guggy GIF theo từ khóa (command 11750)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "keyword",
+    "label": "keyword",
+    "required": true,
+    "description": "Từ khóa tìm kiếm (string)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Số lượng kết quả tối đa (mặc định `10`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "search_sticker",
+  "no": null,
+  "kind": "zca",
+  "action": "search_sticker",
+  "group": "zca_sticker",
+  "label": "searchSticker — Tìm kiếm nhãn dán nâng cao theo từ khóa.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "keyword",
+    "label": "keyword",
+    "required": true,
+    "description": "Keyword to search stickers (string)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Limit of stickers to return (default: 50) (number)"
+   }
+  ]
+ },
+ {
+  "name": "update_personalized_sticker_list",
+  "no": null,
+  "kind": "zca",
+  "action": "update_personalized_sticker_list",
+  "group": "zca_sticker",
+  "label": "updatePersonalizedStickerList — Cập nhật danh sách các bộ Sticker cá nhân hóa của người dùng (command 11746)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "stickerCateIds",
+    "label": "stickerCateIds",
+    "required": true,
+    "description": "Danh sách ID danh mục Sticker (number[])"
+   },
+   {
+    "key": "version",
+    "label": "version",
+    "required": false,
+    "description": "Phiên bản hiện tại của danh sách (number)"
+   }
+  ]
+ },
+ {
+  "name": "ack_ding_todo",
+  "no": null,
+  "kind": "zca",
+  "action": "ack_ding_todo",
+  "group": "zca_board",
+  "label": "ackDingTodo — Xác nhận đã nhận nhắc nhở (Ding ACK) trong Zalo To-Do (command 12427)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "taskIds",
+    "label": "taskIds",
+    "required": true,
+    "description": "Danh sách ID công việc xác nhận (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "add_poll_options",
+  "no": null,
+  "kind": "zca",
+  "action": "add_poll_options",
+  "group": "zca_board",
+  "label": "addPollOptions — Thêm phương án lựa chọn mới vào một cuộc Bình chọn (Poll) đang mở trong nhóm.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "pollId",
+    "label": "pollId",
+    "required": true,
+    "description": "pollId (number)"
+   },
+   {
+    "key": "options",
+    "label": "options",
+    "required": true,
+    "description": "options (AddPollOptionsOption[])"
+   },
+   {
+    "key": "votedOptionIds",
+    "label": "votedOptionIds",
+    "required": true,
+    "description": "votedOptionIds (number[])"
+   }
+  ]
+ },
+ {
+  "name": "create_note",
+  "no": null,
+  "kind": "zca",
+  "action": "create_note",
+  "group": "zca_board",
+  "label": "createNote — Tạo một Ghi chú (Note) mới trên Bảng tin nhóm và tùy chọn ghim lên đầu.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "options",
+    "label": "options",
+    "required": true,
+    "description": "note options (CreateNoteOptions)"
+   },
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "group id (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "create_one_one_board_topic",
+  "no": null,
+  "kind": "zca",
+  "action": "create_one_one_board_topic",
+  "group": "zca_board",
+  "label": "createOneOneBoardTopic — Tạo nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12429)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "toUid",
+    "label": "toUid",
+    "required": true,
+    "description": "toUid (string)"
+   },
+   {
+    "key": "title",
+    "label": "title",
+    "required": true,
+    "description": "title (string)"
+   },
+   {
+    "key": "emoji",
+    "label": "emoji",
+    "required": false,
+    "description": "emoji (string)"
+   },
+   {
+    "key": "startTime",
+    "label": "startTime",
+    "required": false,
+    "description": "startTime (number)"
+   },
+   {
+    "key": "repeat",
+    "label": "repeat",
+    "required": false,
+    "description": "repeat (number)"
+   },
+   {
+    "key": "color",
+    "label": "color",
+    "required": false,
+    "description": "color (number)"
+   },
+   {
+    "key": "key",
+    "label": "key",
+    "required": true,
+    "description": "key (string]: unknown)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "create_todo",
+  "no": null,
+  "kind": "zca",
+  "action": "create_todo",
+  "group": "zca_board",
+  "label": "createTodo — Tạo công việc mới trong Zalo To-Do (command 12413)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "title",
+    "label": "title",
+    "required": false,
+    "description": "title (string)"
+   },
+   {
+    "key": "content",
+    "label": "content",
+    "required": false,
+    "description": "content (string)"
+   },
+   {
+    "key": "assignees",
+    "label": "assignees",
+    "required": false,
+    "description": "assignees (string[])"
+   },
+   {
+    "key": "watchers",
+    "label": "watchers",
+    "required": false,
+    "description": "watchers (string[])"
+   },
+   {
+    "key": "dueDate",
+    "label": "dueDate",
+    "required": false,
+    "description": "dueDate (number)"
+   },
+   {
+    "key": "dateDefaultType",
+    "label": "dateDefaultType",
+    "required": false,
+    "description": "dateDefaultType (number)"
+   },
+   {
+    "key": "status",
+    "label": "status",
+    "required": false,
+    "description": "status (number)"
+   },
+   {
+    "key": "schedule",
+    "label": "schedule",
+    "required": false,
+    "description": "schedule (unknown)"
+   },
+   {
+    "key": "src",
+    "label": "src",
+    "required": false,
+    "description": "src (number)"
+   },
+   {
+    "key": "key",
+    "label": "key",
+    "required": true,
+    "description": "key (string]: unknown)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "delete_todo",
+  "no": null,
+  "kind": "zca",
+  "action": "delete_todo",
+  "group": "zca_board",
+  "label": "deleteTodo — Xóa công việc trong Zalo To-Do (command 12415)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "todoId",
+    "label": "todoId",
+    "required": true,
+    "description": "ID công việc cần xóa (string)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "ding_todo",
+  "no": null,
+  "kind": "zca",
+  "action": "ding_todo",
+  "group": "zca_board",
+  "label": "dingTodo — Gửi nhắc nhở (Ding) cho các công việc trong Zalo To-Do (command 12426)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "taskIds",
+    "label": "taskIds",
+    "required": true,
+    "description": "Danh sách ID công việc cần nhắc nhở (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "edit_note",
+  "no": null,
+  "kind": "zca",
+  "action": "edit_note",
+  "group": "zca_board",
+  "label": "editNote — Chỉnh sửa nội dung ghi chú đã tạo trên Bảng tin nhóm.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "options",
+    "label": "options",
+    "required": true,
+    "description": "Options for editing the note (EditNoteOptions)"
+   },
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "Group ID to create note from (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_list_one_one_board",
+  "no": null,
+  "kind": "zca",
+  "action": "get_list_one_one_board",
+  "group": "zca_board",
+  "label": "getListOneOneBoard — Lấy danh sách nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12432)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "uid",
+    "label": "uid",
+    "required": false,
+    "description": "uid (string)"
+   },
+   {
+    "key": "conversationId",
+    "label": "conversationId",
+    "required": false,
+    "description": "conversationId (string)"
+   },
+   {
+    "key": "boardType",
+    "label": "boardType",
+    "required": false,
+    "description": "boardType (number)"
+   },
+   {
+    "key": "page",
+    "label": "page",
+    "required": false,
+    "description": "page (number)"
+   },
+   {
+    "key": "count",
+    "label": "count",
+    "required": false,
+    "description": "count (number)"
+   },
+   {
+    "key": "lastId",
+    "label": "lastId",
+    "required": false,
+    "description": "lastId (number)"
+   },
+   {
+    "key": "lastType",
+    "label": "lastType",
+    "required": false,
+    "description": "lastType (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_list_pin_topics",
+  "no": null,
+  "kind": "zca",
+  "action": "get_list_pin_topics",
+  "group": "zca_board",
+  "label": "getListPinTopics — Lấy danh sách chủ đề / tin nhắn đã ghim trong bảng tin nhóm (command 12001)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID nhóm (string)"
+   },
+   {
+    "key": "boardVersion",
+    "label": "boardVersion",
+    "required": false,
+    "description": "Phiên bản bảng ghim hiện tại (mặc định `0`) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_todo_detail",
+  "no": null,
+  "kind": "zca",
+  "action": "get_todo_detail",
+  "group": "zca_board",
+  "label": "getTodoDetail — Lấy chi tiết công việc trong Zalo To-Do (command 12417)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "todoId",
+    "label": "todoId",
+    "required": true,
+    "description": "ID công việc (string)"
+   }
+  ]
+ },
+ {
+  "name": "get_todo_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_todo_list",
+  "group": "zca_board",
+  "label": "getTodoList — Lấy danh sách công việc trong Zalo To-Do (command 12416)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "scrollId",
+    "label": "scrollId",
+    "required": false,
+    "description": "scrollId (string)"
+   },
+   {
+    "key": "queries",
+    "label": "queries",
+    "required": false,
+    "description": "queries (Record<string, unknown> | string)"
+   },
+   {
+    "key": "offset",
+    "label": "offset",
+    "required": false,
+    "description": "offset (number)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "limit (number)"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": false,
+    "description": "type (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "multi_unpin_board_topics",
+  "no": null,
+  "kind": "zca",
+  "action": "multi_unpin_board_topics",
+  "group": "zca_board",
+  "label": "multiUnpinBoardTopics — Bỏ ghim đồng thời nhiều chủ đề khỏi bảng tin nhóm (command 12010)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID nhóm (string)"
+   },
+   {
+    "key": "topics",
+    "label": "topics",
+    "required": true,
+    "description": "Danh sách chủ đề cần bỏ ghim (unknown[])"
+   },
+   {
+    "key": "boardVersion",
+    "label": "boardVersion",
+    "required": false,
+    "description": "Phiên bản bảng ghim hiện tại (mặc định `0`) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "pin_board_topic",
+  "no": null,
+  "kind": "zca",
+  "action": "pin_board_topic",
+  "group": "zca_board",
+  "label": "pinBoardTopic — Ghim một chủ đề / bài đăng lên bảng tin nhóm (command 12004)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID nhóm (string)"
+   },
+   {
+    "key": "topicId",
+    "label": "topicId",
+    "required": true,
+    "description": "ID chủ đề cần ghim (string)"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": true,
+    "description": "Loại chủ đề (ví dụ: ghi chú, bình chọn, nhắc hẹn) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "pin_friend_message",
+  "no": null,
+  "kind": "zca",
+  "action": "pin_friend_message",
+  "group": "zca_board",
+  "label": "pinFriendMessage — Ghim tin nhắn / chủ đề trong hội thoại cá nhân 1-1 (command 12067)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "conversationId",
+    "label": "conversationId",
+    "required": true,
+    "description": "ID hội thoại 1-1 (string)"
+   },
+   {
+    "key": "topic",
+    "label": "topic",
+    "required": true,
+    "description": "Thông tin tin nhắn / chủ đề cần ghim (unknown)"
+   },
+   {
+    "key": "version",
+    "label": "version",
+    "required": false,
+    "description": "Phiên bản bảng ghim hiện tại (mặc định `0`) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "remove_board_topic",
+  "no": null,
+  "kind": "zca",
+  "action": "remove_board_topic",
+  "group": "zca_board",
+  "label": "removeBoardTopic — Xóa chủ đề / ghi chú trên bảng tin nhóm (command 12143)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID nhóm (string)"
+   },
+   {
+    "key": "topicId",
+    "label": "topicId",
+    "required": true,
+    "description": "ID chủ đề cần xóa (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "remove_one_one_board_topic",
+  "no": null,
+  "kind": "zca",
+  "action": "remove_one_one_board_topic",
+  "group": "zca_board",
+  "label": "removeOneOneBoardTopic — Xóa nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12431)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "uid",
+    "label": "uid",
+    "required": true,
+    "description": "ID người dùng đối phương (string)"
+   },
+   {
+    "key": "reminderId",
+    "label": "reminderId",
+    "required": true,
+    "description": "ID nhắc hẹn cần xóa (string)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "reorder_friend_board",
+  "no": null,
+  "kind": "zca",
+  "action": "reorder_friend_board",
+  "group": "zca_board",
+  "label": "reorderFriendBoard — Sắp xếp lại thứ tự các tin nhắn đã ghim trong hội thoại 1-1 (command 12068)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "conversationId",
+    "label": "conversationId",
+    "required": true,
+    "description": "ID hội thoại 1-1 (string)"
+   },
+   {
+    "key": "topics",
+    "label": "topics",
+    "required": true,
+    "description": "Danh sách tin nhắn đã ghim theo thứ tự mới (unknown[])"
+   },
+   {
+    "key": "version",
+    "label": "version",
+    "required": false,
+    "description": "Phiên bản bảng ghim hiện tại (mặc định `0`) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "reorder_pin_topics",
+  "no": null,
+  "kind": "zca",
+  "action": "reorder_pin_topics",
+  "group": "zca_board",
+  "label": "reorderPinTopics — Sắp xếp lại thứ tự các chủ đề đã ghim trên bảng tin nhóm (command 12002)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID nhóm (string)"
+   },
+   {
+    "key": "topics",
+    "label": "topics",
+    "required": true,
+    "description": "Danh sách chủ đề đã ghim theo thứ tự mới (unknown[])"
+   },
+   {
+    "key": "boardVersion",
+    "label": "boardVersion",
+    "required": false,
+    "description": "Phiên bản bảng ghim hiện tại (mặc định `0`) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "respond_reminder",
+  "no": null,
+  "kind": "zca",
+  "action": "respond_reminder",
+  "group": "zca_board",
+  "label": "respondReminder — Phản hồi tham gia hoặc từ chối lịch nhắc hẹn trong nhóm (command 12087)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID nhóm (string)"
+   },
+   {
+    "key": "eventId",
+    "label": "eventId",
+    "required": true,
+    "description": "ID sự kiện nhắc hẹn (string)"
+   },
+   {
+    "key": "type",
+    "label": "type",
+    "required": true,
+    "description": "Loại phản hồi (`1` = Tham gia, `2` = Từ chối) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "share_poll",
+  "no": null,
+  "kind": "zca",
+  "action": "share_poll",
+  "group": "zca_board",
+  "label": "sharePoll — Chia sẻ lại cuộc Bình chọn vào luồng tin nhắn nhóm.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "pollId",
+    "label": "pollId",
+    "required": true,
+    "description": "poll id to share (number)"
+   }
+  ]
+ },
+ {
+  "name": "unpin_board_topic",
+  "no": null,
+  "kind": "zca",
+  "action": "unpin_board_topic",
+  "group": "zca_board",
+  "label": "unpinBoardTopic — Bỏ ghim một chủ đề khỏi bảng tin nhóm (command 12005)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "groupId",
+    "label": "groupId",
+    "required": true,
+    "description": "ID nhóm (string)"
+   },
+   {
+    "key": "topic",
+    "label": "topic",
+    "required": true,
+    "description": "Thông tin chủ đề cần bỏ ghim (hoặc `{ id, type }`) (unknown)"
+   },
+   {
+    "key": "boardVersion",
+    "label": "boardVersion",
+    "required": false,
+    "description": "Phiên bản bảng ghim hiện tại (mặc định `0`) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "unpin_friend_messages",
+  "no": null,
+  "kind": "zca",
+  "action": "unpin_friend_messages",
+  "group": "zca_board",
+  "label": "unpinFriendMessages — Bỏ ghim một hoặc nhiều tin nhắn trong hội thoại 1-1 (command 12069)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "conversationId",
+    "label": "conversationId",
+    "required": true,
+    "description": "ID hội thoại 1-1 (string)"
+   },
+   {
+    "key": "topics",
+    "label": "topics",
+    "required": true,
+    "description": "Danh sách tin nhắn / chủ đề cần bỏ ghim (unknown[])"
+   },
+   {
+    "key": "version",
+    "label": "version",
+    "required": false,
+    "description": "Phiên bản bảng ghim hiện tại (mặc định `0`) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_one_one_board_topic",
+  "no": null,
+  "kind": "zca",
+  "action": "update_one_one_board_topic",
+  "group": "zca_board",
+  "label": "updateOneOneBoardTopic — Cập nhật nhắc hẹn / chủ đề trong hội thoại cá nhân 1-1 (command 12430)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "toUid",
+    "label": "toUid",
+    "required": true,
+    "description": "toUid (string)"
+   },
+   {
+    "key": "reminderId",
+    "label": "reminderId",
+    "required": true,
+    "description": "reminderId (string)"
+   },
+   {
+    "key": "title",
+    "label": "title",
+    "required": false,
+    "description": "title (string)"
+   },
+   {
+    "key": "emoji",
+    "label": "emoji",
+    "required": false,
+    "description": "emoji (string)"
+   },
+   {
+    "key": "startTime",
+    "label": "startTime",
+    "required": false,
+    "description": "startTime (number)"
+   },
+   {
+    "key": "repeat",
+    "label": "repeat",
+    "required": false,
+    "description": "repeat (number)"
+   },
+   {
+    "key": "color",
+    "label": "color",
+    "required": false,
+    "description": "color (number)"
+   },
+   {
+    "key": "key",
+    "label": "key",
+    "required": true,
+    "description": "key (string]: unknown)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_todo",
+  "no": null,
+  "kind": "zca",
+  "action": "update_todo",
+  "group": "zca_board",
+  "label": "updateTodo — Cập nhật nội dung công việc trong Zalo To-Do (command 12414)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "id",
+    "label": "id",
+    "required": true,
+    "description": "id (string)"
+   },
+   {
+    "key": "title",
+    "label": "title",
+    "required": false,
+    "description": "title (string)"
+   },
+   {
+    "key": "content",
+    "label": "content",
+    "required": false,
+    "description": "content (string)"
+   },
+   {
+    "key": "assignees",
+    "label": "assignees",
+    "required": false,
+    "description": "assignees (string[])"
+   },
+   {
+    "key": "watchers",
+    "label": "watchers",
+    "required": false,
+    "description": "watchers (string[])"
+   },
+   {
+    "key": "dueDate",
+    "label": "dueDate",
+    "required": false,
+    "description": "dueDate (number)"
+   },
+   {
+    "key": "dateDefaultType",
+    "label": "dateDefaultType",
+    "required": false,
+    "description": "dateDefaultType (number)"
+   },
+   {
+    "key": "status",
+    "label": "status",
+    "required": false,
+    "description": "status (number)"
+   },
+   {
+    "key": "schedule",
+    "label": "schedule",
+    "required": false,
+    "description": "schedule (unknown)"
+   },
+   {
+    "key": "key",
+    "label": "key",
+    "required": true,
+    "description": "key (string]: unknown)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_todo_status",
+  "no": null,
+  "kind": "zca",
+  "action": "update_todo_status",
+  "group": "zca_board",
+  "label": "updateTodoStatus — Cập nhật trạng thái công việc trong Zalo To-Do (command 12418)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "todoId",
+    "label": "todoId",
+    "required": true,
+    "description": "ID công việc (string)"
+   },
+   {
+    "key": "status",
+    "label": "status",
+    "required": true,
+    "description": "Trạng thái mới (ví dụ: đang thực hiện, hoàn thành) (number)"
+   }
+  ]
+ },
+ {
+  "name": "verify_todo",
+  "no": null,
+  "kind": "zca",
+  "action": "verify_todo",
+  "group": "zca_board",
+  "label": "verifyTodo — Kiểm tra tính đồng bộ của danh sách công việc trong Zalo To-Do (command 12603)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "scrollId",
+    "label": "scrollId",
+    "required": false,
+    "description": "Mã cuộn hiện tại (string)"
+   },
+   {
+    "key": "lastUpdatedTime",
+    "label": "lastUpdatedTime",
+    "required": false,
+    "description": "Thời điểm cập nhật cuối cùng (number)"
+   }
+  ]
+ },
+ {
+  "name": "add_conversation_label",
+  "no": null,
+  "kind": "zca",
+  "action": "add_conversation_label",
+  "group": "zca_business",
+  "label": "addConversationLabel — Tạo nhãn phân loại hội thoại mới (command 12163)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "text",
+    "label": "text",
+    "required": true,
+    "description": "text (string)"
+   },
+   {
+    "key": "color",
+    "label": "color",
+    "required": true,
+    "description": "color (number)"
+   },
+   {
+    "key": "emoji",
+    "label": "emoji",
+    "required": false,
+    "description": "emoji (string)"
+   },
+   {
+    "key": "conversations",
+    "label": "conversations",
+    "required": false,
+    "description": "conversations (string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "block_o_a",
+  "no": null,
+  "kind": "zca",
+  "action": "block_o_a",
+  "group": "zca_business",
+  "label": "blockOA — Chặn nhận tin nhắn / thông báo từ một Zalo Official Account (OA) qua /api/social/oa/block (cmd 12681).",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "oaId",
+    "label": "oaId",
+    "required": true,
+    "description": "UID hoặc OA ID của Official Account cần chặn (string)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "convert_o_a_ids",
+  "no": null,
+  "kind": "zca",
+  "action": "convert_o_a_ids",
+  "group": "zca_business",
+  "label": "convertOAIds — Chuyển đổi danh sách OA ID sang Zalo UID nội bộ (hoặc ngược lại) qua /api/social/oa/convertid (cmd 11863).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "oaIds",
+    "label": "oaIds",
+    "required": true,
+    "description": "Một OA ID hoặc mảng các OA ID cần chuyển đổi (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "create_auto_reply",
+  "no": null,
+  "kind": "zca",
+  "action": "create_auto_reply",
+  "group": "zca_business",
+  "label": "createAutoReply — Tạo kịch bản Trả lời tự động (Auto Reply) theo khung giờ cho Zalo Business.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "content",
+    "label": "content",
+    "required": true,
+    "description": "content (string)"
+   },
+   {
+    "key": "isEnable",
+    "label": "isEnable",
+    "required": true,
+    "description": "isEnable (boolean)"
+   },
+   {
+    "key": "startTime",
+    "label": "startTime",
+    "required": true,
+    "description": "startTime (number)"
+   },
+   {
+    "key": "endTime",
+    "label": "endTime",
+    "required": true,
+    "description": "endTime (number)"
+   },
+   {
+    "key": "scope",
+    "label": "scope",
+    "required": true,
+    "description": "scope (AutoReplyScope)"
+   },
+   {
+    "key": "uids",
+    "label": "uids",
+    "required": false,
+    "description": "uids (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "create_bank_account",
+  "no": null,
+  "kind": "zca",
+  "action": "create_bank_account",
+  "group": "zca_business",
+  "label": "createBankAccount — Thêm thông tin tài khoản ngân hàng mới vào danh bạ ngân hàng.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "binBank",
+    "label": "binBank",
+    "required": true,
+    "description": "binBank (BinBankCard)"
+   },
+   {
+    "key": "numAccBank",
+    "label": "numAccBank",
+    "required": true,
+    "description": "numAccBank (string)"
+   },
+   {
+    "key": "nameAccBank",
+    "label": "nameAccBank",
+    "required": true,
+    "description": "nameAccBank (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "create_catalog",
+  "no": null,
+  "kind": "zca",
+  "action": "create_catalog",
+  "group": "zca_business",
+  "label": "createCatalog — Tạo Danh mục sản phẩm (Catalog) mới cho Zalo Business.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "catalogName",
+    "label": "catalogName",
+    "required": true,
+    "description": "catalog name (string)"
+   }
+  ]
+ },
+ {
+  "name": "create_product_catalog",
+  "no": null,
+  "kind": "zca",
+  "action": "create_product_catalog",
+  "group": "zca_business",
+  "label": "createProductCatalog — Thêm sản phẩm mới vào Danh mục sản phẩm (Product Catalog).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "catalogId",
+    "label": "catalogId",
+    "required": true,
+    "description": "catalogId (string)"
+   },
+   {
+    "key": "productName",
+    "label": "productName",
+    "required": true,
+    "description": "productName (string)"
+   },
+   {
+    "key": "price",
+    "label": "price",
+    "required": true,
+    "description": "price (string)"
+   },
+   {
+    "key": "description",
+    "label": "description",
+    "required": true,
+    "description": "description (string)"
+   },
+   {
+    "key": "files",
+    "label": "files",
+    "required": false,
+    "description": "Upto 5 media files are allowed, will be ignored if product_photos is provided (AttachmentSource[])"
+   },
+   {
+    "key": "product_photos",
+    "label": "product_photos",
+    "required": false,
+    "description": "List of product photo URLs, upto 5  You can manually get the URL using `uploadProductPhoto` api (string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "delete_auto_reply",
+  "no": null,
+  "kind": "zca",
+  "action": "delete_auto_reply",
+  "group": "zca_business",
+  "label": "deleteAutoReply — Xóa một kịch bản Trả lời tự động.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "id",
+    "label": "id",
+    "required": true,
+    "description": "id of auto reply (number)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "delete_bank_account",
+  "no": null,
+  "kind": "zca",
+  "action": "delete_bank_account",
+  "group": "zca_business",
+  "label": "deleteBankAccount — Xóa một tài khoản ngân hàng đã lưu.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "accountId",
+    "label": "accountId",
+    "required": true,
+    "description": "accountId (number)"
+   },
+   {
+    "key": "isDefault",
+    "label": "isDefault",
+    "required": true,
+    "description": "isDefault (boolean)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "delete_catalog",
+  "no": null,
+  "kind": "zca",
+  "action": "delete_catalog",
+  "group": "zca_business",
+  "label": "deleteCatalog — Xóa một Danh mục sản phẩm (Catalog).",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "catalogId",
+    "label": "catalogId",
+    "required": true,
+    "description": "catalog id (string)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "delete_conversation_label",
+  "no": null,
+  "kind": "zca",
+  "action": "delete_conversation_label",
+  "group": "zca_business",
+  "label": "deleteConversationLabel — Xóa một hoặc nhiều nhãn phân loại hội thoại (command 12165)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "labelIds",
+    "label": "labelIds",
+    "required": true,
+    "description": "ID hoặc danh sách ID nhãn cần xóa (number | number[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "delete_product_catalog",
+  "no": null,
+  "kind": "zca",
+  "action": "delete_product_catalog",
+  "group": "zca_business",
+  "label": "deleteProductCatalog — Xóa một hoặc nhiều sản phẩm khỏi Danh mục sản phẩm.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "productIds",
+    "label": "productIds",
+    "required": true,
+    "description": "productIds (string | string[])"
+   },
+   {
+    "key": "catalogId",
+    "label": "catalogId",
+    "required": true,
+    "description": "catalogId (string)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "delete_single_product",
+  "no": null,
+  "kind": "zca",
+  "action": "delete_single_product",
+  "group": "zca_business",
+  "label": "deleteSingleProduct — Xóa một sản phẩm đơn lẻ khỏi danh mục Zalo Business (command 12042)",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "productId",
+    "label": "productId",
+    "required": true,
+    "description": "productId (string)"
+   },
+   {
+    "key": "catalogId",
+    "label": "catalogId",
+    "required": true,
+    "description": "catalogId (string)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_auto_reply_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_auto_reply_list",
+  "group": "zca_business",
+  "label": "getAutoReplyList — Lấy danh sách các kịch bản Trả lời tự động của tài khoản.",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_biz_account",
+  "no": null,
+  "kind": "zca",
+  "action": "get_biz_account",
+  "group": "zca_business",
+  "label": "getBizAccount — Lấy thông tin cấu hình tài khoản Zalo Business (ZBusiness).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friendId",
+    "label": "friendId",
+    "required": true,
+    "description": "The friend ID to get biz account (string)"
+   }
+  ]
+ },
+ {
+  "name": "get_catalog_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_catalog_list",
+  "group": "zca_business",
+  "label": "getCatalogList — Lấy danh sách các Danh mục sản phẩm (Catalogs) của tài khoản.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Number of items to retrieve (default: 20) (number)"
+   },
+   {
+    "key": "lastProductId",
+    "label": "lastProductId",
+    "required": false,
+    "description": "lastProductId (number)"
+   },
+   {
+    "key": "page",
+    "label": "page",
+    "required": false,
+    "description": "Page number (default: 0) (number)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_list_bank",
+  "no": null,
+  "kind": "zca",
+  "action": "get_list_bank",
+  "group": "zca_business",
+  "label": "getListBank — Lấy danh sách mã ngân hàng (BIN / NAPAS) được Zalo hỗ trợ.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_list_bank_account",
+  "no": null,
+  "kind": "zca",
+  "action": "get_list_bank_account",
+  "group": "zca_business",
+  "label": "getListBankAccount — Lấy danh sách các tài khoản ngân hàng đã lưu của người dùng.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "page",
+    "label": "page",
+    "required": false,
+    "description": "Page number (default: 0) (number)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Number of items to retrieve (default: 20) (number)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "get_o_a_profile",
+  "no": null,
+  "kind": "zca",
+  "action": "get_o_a_profile",
+  "group": "zca_business",
+  "label": "getOAProfile — Lấy hồ sơ chuẩn hóa đầy đủ của một Zalo Official Account (OA) theo oaId (bao gồm tích vàng isVerified, isZaloBot, dnrStatus, hotline, website, giờ mở cửa, địa chỉ, danh mục...). (chưa tự động: khong dung dich vu Zalo qua serv",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_product_catalog_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_product_catalog_list",
+  "group": "zca_business",
+  "label": "getProductCatalogList — Lấy danh sách các sản phẩm nằm trong một Danh mục sản phẩm (Catalog).",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "catalogId",
+    "label": "catalogId",
+    "required": true,
+    "description": "catalogId (string)"
+   },
+   {
+    "key": "limit",
+    "label": "limit",
+    "required": false,
+    "description": "Number of items to retrieve (default: 100) (number)"
+   },
+   {
+    "key": "versionCatalog",
+    "label": "versionCatalog",
+    "required": false,
+    "description": "versionCatalog (number)"
+   },
+   {
+    "key": "lastProductId",
+    "label": "lastProductId",
+    "required": false,
+    "description": "lastProductId (string)"
+   },
+   {
+    "key": "page",
+    "label": "page",
+    "required": false,
+    "description": "Page number (default: 0) (number)"
+   }
+  ]
+ },
+ {
+  "name": "get_product_detail",
+  "no": null,
+  "kind": "zca",
+  "action": "get_product_detail",
+  "group": "zca_business",
+  "label": "getProductDetail — Lấy thông tin chi tiết một sản phẩm trong danh mục Zalo Business (command 12057)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "productId",
+    "label": "productId",
+    "required": true,
+    "description": "ID sản phẩm cần xem (string)"
+   }
+  ]
+ },
+ {
+  "name": "get_quick_message_list",
+  "no": null,
+  "kind": "zca",
+  "action": "get_quick_message_list",
+  "group": "zca_business",
+  "label": "getQuickMessageList — Lấy danh sách các mẫu Tin nhắn nhanh (Quick Messages) đã tạo.",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "register_catalog",
+  "no": null,
+  "kind": "zca",
+  "action": "register_catalog",
+  "group": "zca_business",
+  "label": "registerCatalog — Đăng ký kích hoạt tính năng Danh mục sản phẩm (Catalog) cho tài khoản.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "enable",
+    "label": "enable",
+    "required": true,
+    "description": "enable or disable catalog (boolean)"
+   }
+  ]
+ },
+ {
+  "name": "reorder_conversation_labels",
+  "no": null,
+  "kind": "zca",
+  "action": "reorder_conversation_labels",
+  "group": "zca_business",
+  "label": "reorderConversationLabels — Sắp xếp lại vị trí hiển thị của các nhãn phân loại hội thoại (command 12166)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "items",
+    "label": "items",
+    "required": true,
+    "description": "Danh sách `{ id, offset }` theo thứ tự mới (ReorderConversationLabelEntry[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "unblock_o_a",
+  "no": null,
+  "kind": "zca",
+  "action": "unblock_o_a",
+  "group": "zca_business",
+  "label": "unblockOA — Bỏ chặn một Zalo Official Account (OA) để tiếp tục nhận tin nhắn qua /api/social/oa/unblock (cmd 12682).",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "oaId",
+    "label": "oaId",
+    "required": true,
+    "description": "UID hoặc OA ID của Official Account cần bỏ chặn (string)"
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_auto_reply",
+  "no": null,
+  "kind": "zca",
+  "action": "update_auto_reply",
+  "group": "zca_business",
+  "label": "updateAutoReply — Cập nhật nội dung và thời gian hoạt động của kịch bản Trả lời tự động.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "id",
+    "label": "id",
+    "required": true,
+    "description": "id (number)"
+   },
+   {
+    "key": "content",
+    "label": "content",
+    "required": true,
+    "description": "content (string)"
+   },
+   {
+    "key": "isEnable",
+    "label": "isEnable",
+    "required": true,
+    "description": "isEnable (boolean)"
+   },
+   {
+    "key": "startTime",
+    "label": "startTime",
+    "required": true,
+    "description": "startTime (number)"
+   },
+   {
+    "key": "endTime",
+    "label": "endTime",
+    "required": true,
+    "description": "endTime (number)"
+   },
+   {
+    "key": "scope",
+    "label": "scope",
+    "required": true,
+    "description": "scope (AutoReplyScope)"
+   },
+   {
+    "key": "uids",
+    "label": "uids",
+    "required": false,
+    "description": "uids (string | string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_bank_account",
+  "no": null,
+  "kind": "zca",
+  "action": "update_bank_account",
+  "group": "zca_business",
+  "label": "updateBankAccount — Cập nhật thông tin tài khoản ngân hàng đã lưu.",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "accountId",
+    "label": "accountId",
+    "required": true,
+    "description": "accountId (number)"
+   },
+   {
+    "key": "binBank",
+    "label": "binBank",
+    "required": true,
+    "description": "binBank (BinBankCard)"
+   },
+   {
+    "key": "numAccBank",
+    "label": "numAccBank",
+    "required": true,
+    "description": "numAccBank (string)"
+   },
+   {
+    "key": "nameAccBank",
+    "label": "nameAccBank",
+    "required": true,
+    "description": "nameAccBank (string)"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   },
+   {
+    "key": "confirm",
+    "label": "confirm",
+    "required": false,
+    "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+    "selector": {
+     "boolean": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_catalog",
+  "no": null,
+  "kind": "zca",
+  "action": "update_catalog",
+  "group": "zca_business",
+  "label": "updateCatalog — Cập nhật tên hoặc ảnh của Danh mục sản phẩm.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "catalogId",
+    "label": "catalogId",
+    "required": true,
+    "description": "catalogId (string)"
+   },
+   {
+    "key": "catalogName",
+    "label": "catalogName",
+    "required": true,
+    "description": "catalogName (string)"
+   }
+  ]
+ },
+ {
+  "name": "update_conversation_label_item",
+  "no": null,
+  "kind": "zca",
+  "action": "update_conversation_label_item",
+  "group": "zca_business",
+  "label": "updateConversationLabelItem — Cập nhật thông tin một nhãn phân loại hội thoại và danh sách hội thoại gắn nhãn (command 12164)",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "id",
+    "label": "id",
+    "required": true,
+    "description": "id (number)"
+   },
+   {
+    "key": "text",
+    "label": "text",
+    "required": true,
+    "description": "text (string)"
+   },
+   {
+    "key": "color",
+    "label": "color",
+    "required": true,
+    "description": "color (number)"
+   },
+   {
+    "key": "offset",
+    "label": "offset",
+    "required": true,
+    "description": "offset (number)"
+   },
+   {
+    "key": "add",
+    "label": "add",
+    "required": false,
+    "description": "add (string[])"
+   },
+   {
+    "key": "remove",
+    "label": "remove",
+    "required": false,
+    "description": "remove (string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "update_labels",
+  "no": null,
+  "kind": "zca",
+  "action": "update_labels",
+  "group": "zca_business",
+  "label": "updateLabels — Cập nhật danh sách Nhãn phân loại (Labels) và gán nhãn cho các cuộc trò chuyện.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "labelData",
+    "label": "labelData",
+    "required": true,
+    "description": "labelData (LabelData[])"
+   },
+   {
+    "key": "version",
+    "label": "version",
+    "required": true,
+    "description": "version (number)"
+   }
+  ]
+ },
+ {
+  "name": "update_product_catalog",
+  "no": null,
+  "kind": "zca",
+  "action": "update_product_catalog",
+  "group": "zca_business",
+  "label": "updateProductCatalog — Cập nhật thông tin chi tiết, giá bán và hình ảnh của sản phẩm trong Danh mục.",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "catalogId",
+    "label": "catalogId",
+    "required": true,
+    "description": "catalogId (string)"
+   },
+   {
+    "key": "productId",
+    "label": "productId",
+    "required": true,
+    "description": "productId (string)"
+   },
+   {
+    "key": "productName",
+    "label": "productName",
+    "required": true,
+    "description": "productName (string)"
+   },
+   {
+    "key": "price",
+    "label": "price",
+    "required": true,
+    "description": "price (string)"
+   },
+   {
+    "key": "description",
+    "label": "description",
+    "required": true,
+    "description": "description (string)"
+   },
+   {
+    "key": "createTime",
+    "label": "createTime",
+    "required": true,
+    "description": "createTime (number)"
+   },
+   {
+    "key": "files",
+    "label": "files",
+    "required": false,
+    "description": "Upto 5 media files are allowed, will be ignored if product_photos is provided (AttachmentSource[])"
+   },
+   {
+    "key": "product_photos",
+    "label": "product_photos",
+    "required": false,
+    "description": "List of product photo URLs, upto 5  You can manually get the URL using `uploadProductPhoto` api (string[])"
+   },
+   {
+    "key": "params",
+    "label": "params",
+    "required": true,
+    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "selector": {
+     "object": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "upload_product_photo",
+  "no": null,
+  "kind": "zca",
+  "action": "upload_product_photo",
+  "group": "zca_business",
+  "label": "uploadProductPhoto — Tải ảnh sản phẩm lên máy chủ Zalo phục vụ cho Product Catalog hoặc Quick Message. (chưa tự động: tai tep len (multipart): dung khung chat/endpoint rieng cua app)",
+  "thread": "none",
+  "danger": false,
+  "fields": []
  }
 ]

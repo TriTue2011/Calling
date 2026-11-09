@@ -1938,7 +1938,10 @@ CATALOG = build_catalog()
 
 
 def catalog_public():
-    return CATALOG
+    from . import zca_api
+    out = dict(CATALOG)
+    out["zca"] = zca_api.catalog()
+    return out
 
 # ------------------------------------------------------------------ client
 class Services:
@@ -2211,7 +2214,23 @@ def handle_svc(state, action, body, files=None):
     try:
         data = svc.dispatch(action, params, files=files)
     except UnknownAction as e:
-        return 404, {"error": str(e)}
+        from . import zca_api
+        if zca_api.registry().get(action) is None:
+            return 404, {"error": str(e)}
+        try:
+            ctx = {"imei": sess.get("device_id", ""), "uid": sess.get("uid", "")}
+            data = zca_api.ZcaApi(svc, ctx).call(action, params)
+        except zca_api.ZcaManual as m:
+            return 409, {"error": m.reason, "service": m.name,
+                         "status": "manual"}
+        except zca_api.ZcaError as m:
+            return 400, {"error": str(m)}
+        except ValueError as m:
+            return 400, {"error": str(m)}
+        except Exception as m:  # noqa: BLE001 - loi Zalo/mang -> 502
+            return 502, {"error": str(m)}
+        return 200, {"ok": True, "action": action, "data": data,
+                     "source": "zca", "unverified": True}
     except UnsupportedService as e:
         return 409, {"error": e.reason, "service": e.service,
                      "status": e.status}

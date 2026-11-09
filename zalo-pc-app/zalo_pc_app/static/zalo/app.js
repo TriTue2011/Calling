@@ -614,6 +614,17 @@ async function renderServices() {
     const d = await api("/api/svc/catalog"); if (d.error) return box.replaceChildren(h("p", { class: "notice bad" }, "Lỗi: " + d.error));
     const seen = new Set();
     S.catalog = { groups: d.groups || [], items: (d.services || []).filter((s) => s.addon_no != null && !seen.has(s.addon_no) && seen.add(s.addon_no)).sort((a, b) => a.addon_no - b.addon_no) };
+    // 333 API của zca-js: những cái chưa có trong 96 dịch vụ PC được thêm vào (gọi bằng bộ gọi chung, CHƯA kiểm với Zalo thật).
+    const snake = (n) => n.replace(/[A-Z]/g, (c, k) => (k ? "_" : "") + c.toLowerCase());
+    const have = new Set(); for (const x of S.catalog.items) { have.add(x.addon); if (x.action) have.add(x.action); }
+    const ZG = { auth: "Xác thực & phiên", chat: "Tin nhắn & hội thoại", group: "Nhóm & cộng đồng", friend: "Bạn bè & danh bạ", profile: "Hồ sơ cá nhân", sync: "Đồng bộ", zcloud: "Đám mây", call: "Cuộc gọi", media: "Kho lưu trữ & giọng nói", sticker: "Nhãn dán", board: "Bảng tin & bình chọn", business: "Business & OA" };
+    const zitems = (((d.zca || {}).apis) || []).filter((a) => !have.has(snake(a.name))).map((a) => {
+      const fields = (a.args || []).map((f) => ({ key: f.name, label: (f.description || f.name) + " (" + f.type + ")", required: !!f.required }));
+      if (a.mode === "raw") fields.push({ key: "params", label: "params — JSON đúng như zca-js gửi", required: true });
+      return { addon: snake(a.name), action: snake(a.name), addon_no: "zca:" + a.name, group: "zca_" + a.domain, label: a.name, desc: a.summary, status: a.mode === "manual" ? "manual" : "supported", reason: a.reason, fields, thread: "none", danger: !!a.danger, zca: true };
+    });
+    const zgroups = Object.keys(ZG).filter((k) => zitems.some((x) => x.group === "zca_" + k)).map((k) => ({ id: "zca_" + k, label: "zca · " + ZG[k] }));
+    S.catalog.items = S.catalog.items.concat(zitems); S.catalog.groups = S.catalog.groups.concat(zgroups);
   }
   const { groups, items } = S.catalog, q = S.svcQ.trim().toLowerCase();
   const shown = items.filter((s) => (S.svcGroup === "all" || s.group === S.svcGroup) && (!q || s.addon.includes(q) || (s.label || "").toLowerCase().includes(q)));
@@ -628,7 +639,7 @@ async function renderServices() {
 const STATUS_HINT = { chat: "Dùng ngay trong khung chat (nhắn tin, đính kèm, ghi âm).", view: "Xem ở tab Danh bạ.", zalobot: "Chỉ có ở máy chủ zalobot (webhook, proxy, đa tài khoản): xem mục Cài đặt, hoặc tích hợp Home Assistant mô phỏng." };
 function svcItem(s) {
   const open = S.svcOpen === s.addon_no;
-  const pill = s.status === "supported" ? h("span", { class: "pill ok" }, "dùng được") : h("span", { class: "pill" }, s.status === "chat" ? "trong chat" : s.status === "view" ? "ở danh bạ" : "zalobot");
+  const pill = s.status === "supported" ? h("span", { class: "pill ok" }, "dùng được") : h("span", { class: "pill" }, s.status === "chat" ? "trong chat" : s.status === "view" ? "ở danh bạ" : s.status === "manual" ? "chưa tự động" : "zalobot");
   const el = h("div", { class: "svc" }, h("button", { type: "button", "aria-expanded": String(open), onclick: () => { S.svcOpen = open ? null : s.addon_no; renderServices(); } }, h("span", { class: "svc-name" }, s.label && s.label !== s.addon ? s.label : s.addon, h("div", { class: "svc-sub" }, s.addon + (s.danger ? " · không hoàn tác" : ""))), pill));
   if (open) el.append(svcBody(s)); return el;
 }
@@ -637,13 +648,14 @@ function svcBody(s) {
   if (s.status !== "supported") { body.append(h("p", { style: "color:var(--muted)" }, STATUS_HINT[s.status] || s.reason || "")); return body; }
   const need = s.thread && s.thread !== "none";
   if (need) body.append(h("p", { class: "notice", style: "margin:.625rem 0" }, S.cur ? "Áp dụng cho: " + (S.cur.name || S.cur.id) + (S.cur.type === "group" ? " (nhóm)" : "") : "Cần chọn hội thoại: mở một cuộc trò chuyện trước rồi quay lại đây."));
+  if (s.zca) body.append(h("p", { class: "notice", style: "margin:.625rem 0" }, (s.desc || "") + " — API lấy từ zca-js, CHƯA kiểm với máy chủ Zalo thật."));
   const inputs = {};
   for (const f of s.fields || []) { const input = h("input", { type: "text", id: "svc-" + f.key, autocomplete: "off" }); inputs[f.key] = input; body.append(h("div", { class: "field", style: "margin-top:.625rem" }, h("label", { for: "svc-" + f.key }, f.label + (f.required ? " *" : "")), input)); }
   const out = h("pre", { class: "out", hidden: true });
   const btn = h("button", { class: "btn primary", type: "button", style: "margin-top:.375rem", onclick: async () => {
     if (need && !S.cur) return toast("Hãy mở một cuộc trò chuyện trước.");
     if (s.danger && !confirm("“" + (s.label || s.addon) + "” không hoàn tác được. Tiếp tục?")) return;
-    const payload = need ? { thread_id: S.cur.id, type: S.cur.type } : {};
+    const payload = need ? { thread_id: S.cur.id, type: S.cur.type } : {}; if (s.zca && s.danger) payload.confirm = true;
     for (const [k, el] of Object.entries(inputs)) if (el.value.trim() !== "") payload[k] = el.value.trim();
     btn.disabled = true; const r = await api("/api/svc/" + s.action, "POST", payload); btn.disabled = false; out.hidden = false;
     out.textContent = r.error ? "Lỗi: " + r.error : JSON.stringify(r.data === undefined ? r : r.data, null, 2);

@@ -1,4 +1,4 @@
-"""Đăng ký 96 service Zalo + make_call / end_call.
+"""Đăng ký 96 service Zalo + ~260 API zca-js + make_call / end_call.
 
 Danh mục nằm trong catalog.json, SINH từ chính app
 (`zalo-pc-app/tools/gen_ha_catalog.py`) nên không bao giờ lệch với app.
@@ -145,7 +145,7 @@ def _make_handler(hass: HomeAssistant, e: dict) -> Callable:
         rt, api = _api(hass, call)
         d = {k: v for k, v in call.data.items() if k != "entry_id"}
         try:
-            if e["kind"] == "svc":
+            if e["kind"] in ("svc", "zca"):     # zca: app tu chuyen sang bo goi chung
                 res = await api.svc(e["action"], d)
             elif e["kind"] == "chat":
                 res = await _do_chat(hass, api, e, d)

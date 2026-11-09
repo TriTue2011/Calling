@@ -86,7 +86,11 @@ def _lookup(svc, key, meta):
 
 
 def _field_entry(svc, f, meta):
-    m = _lookup(svc, f["key"], meta)
+    m = dict(_lookup(svc, f["key"], meta))
+    if f.get("description"):
+        m["description"] = f["description"]
+    if "selector" in f:
+        m["selector"] = f["selector"]
     entry = {"name": f["label"],
              "description": m.get("description") or f["label"],
              "required": bool(f["required"]),
@@ -95,6 +99,41 @@ def _field_entry(svc, f, meta):
         if k in m:
             entry[k] = m[k]
     return entry
+
+
+
+def _zca_extras(core):
+    """Cac API zca-js KHONG nam trong 96 dich vu PC: moi cai thanh mot service HA,
+    goi qua POST /api/svc/<ten_snake> (app tu chuyen sang bo goi chung zca_api)."""
+    import re
+    reg_path = os.path.join(ROOT, "zalo_pc_app", "zca_registry.json")
+    with open(reg_path, encoding="utf-8") as fh:
+        apis = json.load(fh)["apis"]
+    have = {e["name"] for e in core} | {e["action"] for e in core if e["action"]}
+    extras = []
+    for a in apis:
+        name = re.sub(r"(?<!^)(?=[A-Z])", "_", a["name"]).lower()
+        if name in have or name in S.OPS or name in (
+                "make_call", "answer_call", "reject_call", "end_call"):
+            continue
+        fields = [{"key": f["name"], "label": f["name"], "required": bool(f["required"]),
+                   "description": ((f.get("description") or f["name"]) + " (" + f["type"] + ")")[:200]}
+                  for f in a.get("args", [])]
+        if a["mode"] == "raw":
+            fields.append({"key": "params", "label": "params", "required": True,
+                           "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+                           "selector": {"object": None}})
+        if a["danger"]:
+            fields.append({"key": "confirm", "label": "confirm", "required": False,
+                           "description": "Đặt true để xác nhận thao tác nguy hiểm.",
+                           "selector": {"boolean": None}})
+        label = a["name"] + (" — " + a["summary"] if a.get("summary") else "")
+        if a["mode"] == "manual":
+            label += " (chưa tự động: %s)" % a.get("reason", "")
+        extras.append({"name": name, "no": None, "kind": "zca", "action": name,
+                       "group": "zca_" + a["domain"], "label": label[:240],
+                       "thread": "none", "danger": a["danger"], "fields": fields})
+    return extras
 
 
 
@@ -126,6 +165,18 @@ def main():
                                for k, l, r in fields]})
     out.sort(key=lambda x: x["no"])
     assert len(out) == 96, len(out)
+    # Op co that trong app nhung nam ngoai 96 dich vu zalobot: van la service HA.
+    have = {e["name"] for e in out} | {e["action"] for e in out if e["action"]}
+    for action, spec in S.OPS.items():
+        if action in have or action == "keepAlive":
+            continue
+        out.append({"name": action, "no": None, "kind": "svc", "action": action,
+                    "group": spec["group"], "label": spec["label"],
+                    "thread": spec["thread"], "danger": bool(spec["danger"]),
+                    "fields": [{"key": f["key"], "label": f.get("label", f["key"]),
+                                "required": bool(f.get("required"))}
+                               for f in spec["fields"]]})
+    out.extend(_zca_extras(out))
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, "catalog.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
@@ -155,7 +206,9 @@ def main():
                 "selector": {"select": {"options": ["user", "group"]}}}
         for f in e["fields"]:
             fields[f["key"]] = _field_entry(e["name"], f, meta)
-        doc[e["name"]] = {"name": e["label"], "description": desc,
+        doc[e["name"]] = {"name": e["label"].split(" — ")[0]
+                          if e["kind"] == "zca" else e["label"],
+                          "description": desc,
                           "fields": fields}
     extra = yaml.safe_load(EXTRA_YAML)
     for name, svc in extra.items():
