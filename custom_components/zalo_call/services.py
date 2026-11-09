@@ -1,7 +1,7 @@
 """Đăng ký 96 service Zalo + ~260 API zca-js + make_call / end_call.
 
 Danh mục nằm trong catalog.json, SINH từ chính app
-(`zalo-pc-app/tools/gen_ha_catalog.py`) nên không bao giờ lệch với app.
+(`zalo/zalo-pc-app/tools/gen_ha_catalog.py`) nên không bao giờ lệch với app.
 Bốn nhóm cách gọi: svc (POST /api/svc/<action>), chat (khung chat),
 view (danh bạ), acct (webhook/tài khoản do tích hợp tự trả lời).
 """

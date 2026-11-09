@@ -1,12 +1,12 @@
 # Build image TRÊN SERVER từ source nhánh muse/zalo-addon-pivot, thay vì chờ
 # image từ GitHub Actions rồi pull về.
 #
-# Vị trí trong repo: zalo-pc-app/docker-compose.build.yml
+# Vị trí trong repo: zalo/zalo-pc-app/docker-compose.build.yml
 # (build context = chính thư mục này, chứa Dockerfile + zalo_pc_app/ +
 # docker-entrypoint.py — không cần file nào ngoài thư mục này.)
 #
 # Cách dùng (trên server): xem HUONG-DAN-BUILD-TREN-SERVER.md cùng thư mục.
-#   cd ~/calling/Calling/zalo-pc-app
+#   cd ~/calling/Calling/zalo/zalo-pc-app
 #   APP_VERSION=$(git rev-parse HEAD) docker compose -f docker-compose.build.yml up -d --build
 #
 # Đường image-based cũ (docker-compose.yml + ghcr.io/...:test) VẪN GIỮ NGUYÊN,

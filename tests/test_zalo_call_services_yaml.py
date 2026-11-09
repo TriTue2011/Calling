@@ -2,7 +2,7 @@
 
 HA bo CA tep neu mot service co `fields:` rong/null ("expected a mapping at
 'x.fields'") — khi do MOI service mat truong nhap tren giao dien. Test nay
-giu cho bo sinh (zalo-pc-app/tools/gen_ha_catalog.py) khong tai phat loi do.
+giu cho bo sinh (zalo/zalo-pc-app/tools/gen_ha_catalog.py) khong tai phat loi do.
 """
 import json
 import os
@@ -52,7 +52,7 @@ def test_every_field_is_described_and_account_selectable():
 def test_every_zca_service_routes_to_an_app_api():
     """Moi service kind `zca` cua HA phai goi duoc mot API co that trong app
     (POST /api/svc/<action> -> zca_api.registry), neu khong HA co service chet."""
-    sys.path.insert(0, os.path.join(HERE, "..", "zalo-pc-app"))
+    sys.path.insert(0, os.path.join(HERE, "..", "zalo", "zalo-pc-app"))
     from zalo_pc_app import zca_api, services as S
     with open(os.path.join(COMP, "catalog.json"), encoding="utf-8") as f:
         cat = json.load(f)

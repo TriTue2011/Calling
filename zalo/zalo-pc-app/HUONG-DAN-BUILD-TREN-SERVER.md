@@ -26,7 +26,7 @@ mkdir -p ~/calling && cd ~/calling
 git clone https://github.com/TriTue2011/Calling.git
 cd Calling
 git checkout muse/zalo-addon-pivot
-cd zalo-pc-app
+cd zalo/zalo-pc-app
 
 # Kiểm cú pháp file compose trước (in ra cấu hình đã resolve, không lỗi là được):
 docker compose -f docker-compose.build.yml config
@@ -52,7 +52,7 @@ cần quét lại QR, không cần chown gì thêm. Build lần đầu tải bas
 ```bash
 cd ~/calling/Calling
 git pull
-cd zalo-pc-app
+cd zalo/zalo-pc-app
 APP_VERSION=$(git rev-parse HEAD) docker compose -f docker-compose.build.yml up -d --build
 ```
 
@@ -97,12 +97,12 @@ thì thử, còn chắc chắn thì dùng lệnh trực tiếp ở trên.
 ## 4. Quay lại đường image cũ (nếu cần)
 
 ```bash
-cd ~/calling/Calling/zalo-pc-app
+cd ~/calling/Calling/zalo/zalo-pc-app
 docker compose -f docker-compose.build.yml down   # KHÔNG thêm -v
 ```
 
 Rồi trong Portainer start lại stack `zalo` như cũ (nó pull image
-`ghcr.io/tritue2011/zalo-pc-app-test:test` về chạy). Volume `/opt/zalo`
+`ghcr.io/tritue2011/zalo-calling:latest` về chạy). Volume `/opt/zalo`
 không bị đụng tới trong cả hai đường nên phiên đăng nhập vẫn còn.
 
 ## 5. Vòng sửa 4 lỗi (2026-11-06) — redeploy + kiểm tra từng lỗi
@@ -119,7 +119,7 @@ ffmpeg và lỗi 133 vẫn còn.
 ```bash
 cd ~/calling/Calling
 git pull
-cd zalo-pc-app
+cd zalo/zalo-pc-app
 APP_VERSION=$(git rev-parse HEAD) docker compose -f docker-compose.build.yml up -d --build
 ```
 
@@ -199,7 +199,7 @@ rebuild từ source** như mục 2 (image CI cũ không có 3 sửa này).
 ```bash
 cd ~/calling/Calling
 git pull
-cd zalo-pc-app
+cd zalo/zalo-pc-app
 APP_VERSION=$(git rev-parse HEAD) docker compose -f docker-compose.build.yml up -d --build
 ```
 

@@ -1,4 +1,4 @@
-# SINH TU DONG bang zalo-pc-app/tools/gen_ha_catalog.py — dung sua tay.
+# SINH TU DONG bang zalo/zalo-pc-app/tools/gen_ha_catalog.py — dung sua tay.
 send_message:
   name: send_message
   description: Gửi tin nhắn Zalo

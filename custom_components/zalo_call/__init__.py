@@ -1,7 +1,7 @@
 """Zalo Call — gọi điện, tin nhắn và 96 service Zalo cho Home Assistant.
 
 Tích hợp này không tự nói chuyện với Zalo: nó gọi sang app Zalo PC chạy
-trong Docker (`zalo-pc-app`, cùng repo), giống cách `zalo_bot` gọi gateway.
+trong Docker (`zalo/zalo-pc-app`, cùng repo), giống cách `zalo_bot` gọi gateway.
 App đẩy sự kiện (tin nhắn, cuộc gọi) về HA qua webhook; HA bắn lại lên bus
 dưới tên `zalo_call_message`, `zalo_call_call`, `zalo_call_group_event`,
 `zalo_call_reaction`.

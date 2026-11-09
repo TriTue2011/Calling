@@ -41,7 +41,7 @@ jobs:
           test "$V" = "${{ steps.t.outputs.version }}" || { echo "manifest=$V khác tag=${{ steps.t.outputs.version }}"; exit 1; }
       - run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg libopus0
-          cd zalo-pc-app && python3 -m zalo_pc_app.deps && python3 tests/ci_runner.py
+          cd zalo/zalo-pc-app && python3 -m zalo_pc_app.deps && python3 tests/ci_runner.py
 
   image:
     needs: check
@@ -59,15 +59,15 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
-          context: ./zalo-pc-app
-          file: ./zalo-pc-app/Dockerfile
+          context: ./zalo/zalo-pc-app
+          file: ./zalo/zalo-pc-app/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             APP_VERSION=${{ needs.check.outputs.tag }}
           tags: |
-            ghcr.io/tritue2011/zalo-pc-app:${{ needs.check.outputs.tag }}
-            ghcr.io/tritue2011/zalo-pc-app:latest
+            ghcr.io/tritue2011/zalo-calling:${{ needs.check.outputs.tag }}
+            ghcr.io/tritue2011/zalo-calling:latest
 
   release:
     needs: [check, image]
@@ -86,8 +86,8 @@ jobs:
           generate_release_notes: true
           files: |
             zalo_call.zip
-            zalo-pc-app/docker-compose.yml
+            zalo/zalo-pc-app/docker-compose.yml
           body: |
-            **Image**: `ghcr.io/tritue2011/zalo-pc-app:${{ needs.check.outputs.tag }}` (và `:latest`)
+            **Image**: `ghcr.io/tritue2011/zalo-calling:${{ needs.check.outputs.tag }}` (và `:latest`)
             **Tích hợp HA**: cập nhật bằng HACS, hoặc giải nén `zalo_call.zip` vào `custom_components/zalo_call`.
             Cập nhật máy chủ: `docker compose pull && docker compose up -d` (hoặc để Watchtower tự kéo `:latest`).

@@ -1,10 +1,10 @@
 """Sinh danh muc 96 service cho tich hop HA `zalo_call` tu danh muc cua
 chinh app (zalo_pc_app.services.build_catalog) — de services.yaml va
-catalog.json KHONG bao gio lech voi app. Chay tu thu muc zalo-pc-app:
+catalog.json KHONG bao gio lech voi app. Chay tu thu muc zalo/zalo-pc-app:
 
     python3 tools/gen_ha_catalog.py
 
-Ghi: ../custom_components/zalo_call/catalog.json va services.yaml.
+Ghi: ../../custom_components/zalo_call/catalog.json va services.yaml.
 Cach goi tung nhom (kind):
   svc   POST /api/svc/<action>                  (78 service)
   chat  /api/thread/<id>/{send,sendfile,...}    (11 service)
@@ -17,7 +17,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-OUT = os.path.join(os.path.dirname(ROOT), "custom_components", "zalo_call")
+REPO = os.path.dirname(os.path.dirname(ROOT))           # zalo/zalo-pc-app -> goc repo
+OUT = os.path.join(REPO, "custom_components", "zalo_call")
 sys.path.insert(0, ROOT)
 
 from zalo_pc_app import services as S  # noqa: E402
@@ -219,7 +220,7 @@ def main():
         svc["fields"] = {"entry_id": ENTRY_ID_FIELD, **flds}
         doc[name] = svc
     with open(os.path.join(OUT, "services.yaml"), "w", encoding="utf-8") as f:
-        f.write("# SINH TU DONG bang zalo-pc-app/tools/gen_ha_catalog.py — dung sua tay.\n")
+        f.write("# SINH TU DONG bang zalo/zalo-pc-app/tools/gen_ha_catalog.py — dung sua tay.\n")
         yaml.safe_dump(doc, f, allow_unicode=True, sort_keys=False, width=100)
     print("ok: %d service" % len(out))
 

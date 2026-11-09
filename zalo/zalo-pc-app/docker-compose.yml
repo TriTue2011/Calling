@@ -9,8 +9,8 @@
 # (python3 -m zalo_pc_app.deps). Kiểm tra bản đang chạy: GET /api/status -> version, deps.
 services:
   zalo-pc:
-    image: ghcr.io/tritue2011/zalo-pc-app:latest
-    container_name: zalo-pc
+    image: ghcr.io/tritue2011/zalo-calling:latest
+    container_name: zalo-calling
     ports:
       # Chỉ mở loopback; truy cập từ xa qua reverse proxy / ingress của bạn.
       # Đổi thành "8080:8080" nếu HA ở máy khác cần gọi trực tiếp trong LAN.
