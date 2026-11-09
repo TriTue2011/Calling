@@ -323,6 +323,26 @@ def test_probe_verbatim():
     assert ut.parse_probe(pkt)["timestamp_ms"] == 12345
 
 
+def test_rtp_plain_12_byte_header():
+    payload = bytes(range(20))
+    pkt = ut.build_rtp(5553, 1504637829, SSRC, payload, marker=True, ext=None)
+    assert len(pkt) == 12 + 20 and pkt[0] == 0x80 and pkt[1] == 0xF0
+    assert pkt[2:4] == struct.pack(">H", 5553) and pkt[12:] == payload
+    info = ut.parse_rtp(pkt)
+    assert info["seq"] == 5553 and info["ssrc"] == SSRC
+    assert info["ext"] == b"" and info["payload"] == payload
+    assert ut.build_rtp(1, 0, SSRC, b"", ext=None)[1] == 0x70
+    # Kieu PC van nhu cu, kieu la van bi tu choi.
+    assert ut.parse_rtp(ut.build_rtp(1, 0, SSRC, payload))["ext"] != b""
+    for bad in (b"\x00" + pkt[1:], b"\xa0" + pkt[1:], pkt[:11]):
+        try:
+            ut.parse_rtp(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(bad[:2].hex())
+
+
 def test_rtp_build_parse():
     payload = bytes(range(40))
     pkt = ut.build_rtp(1, 0, SSRC, payload, marker=True,
@@ -356,17 +376,288 @@ def test_ping_build():
     assert struct.unpack_from(">I", pkt, 34)[0] == 26  # RTT slot
 
 
-def test_rtcp_rr_build():
-    pkt = ut.build_rtcp_rr(SSRC, PEER_SSRC, highest_seq=99,
-                           relay_session=RELAY_SESSION)
-    assert pkt[0] == 0x05
-    assert pkt[1:5] == RELAY_SESSION
-    rr = pkt[5:]
-    assert len(rr) == 32
-    assert rr[0] == 0x81 and rr[1] == 201
-    assert struct.unpack_from(">I", rr, 4)[0] == SSRC
-    assert struct.unpack_from(">I", rr, 8)[0] == PEER_SSRC
-    assert struct.unpack_from(">I", rr, 16)[0] == 99
+def test_preferred_relay_beats_earlier_reply():
+    """Relay ma 11300 chi dinh (dien thoai dang o do) phai duoc chon du relay
+    khac tra loi truoc; neu khong uplink di sai relay va dien thoai khong nhan."""
+    a = ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4200)
+    b = ut.RelayServer("127.0.0.2", 4200, "127.0.0.2", 4200)
+    sess_a, sess_b = b"\xaa\xaa\xaa\xaa", b"\xbb\xbb\xbb\xbb"
+
+    def reply(session):
+        pkt = bytearray(_type02_packet("203.0.113.7|42000"))
+        pkt[29:33] = session
+        return bytes(pkt)
+
+    tr = ut.Udp4200Transport(make_config([a, b], preferred_rtp=a.rtp_addr()))
+    tr._on_type02(reply(sess_b), b.rtp_addr())          # b tra loi truoc
+    assert tr.selected_relay is b and tr.relay_session == sess_b
+    tr._on_type02(reply(sess_a), a.rtp_addr())          # relay duoc chi dinh den sau
+    assert tr.selected_relay is a and tr.relay_session == sess_a
+    tr._on_type02(reply(sess_b), b.rtp_addr())          # khong doi lai
+    assert tr.selected_relay is a and tr.relay_session == sess_a
+    # Khong chi dinh: ai tra loi truoc thang (hanh vi cu).
+    tr2 = ut.Udp4200Transport(make_config([a, b]))
+    tr2._on_type02(reply(sess_b), b.rtp_addr())
+    tr2._on_type02(reply(sess_a), a.rtp_addr())
+    assert tr2.selected_relay is b and tr2.relay_session == sess_b
+
+
+def test_rxstats_loss_jitter_wrap_and_dlsr():
+    st = ut.RxStats(16000)
+    assert st.block(0.0) is None
+    t = 1000.0
+    for i in range(10):                       # seq 65530.. qua vong; mat 65533 va 65534
+        seq = (65530 + i) & 0xFFFF
+        if seq in (65533, 65534):
+            continue
+        st.on_packet(seq, i * 320, 0xABCD, t + i * 20.0)   # den deu 20 ms
+        if i == 1:
+            st.on_packet(seq, i * 320, 0xABCD, t + 25.0)   # trung lap: khong dem
+    st.on_sr_middle_ntp(0x11223344, t + 100.0)
+    b = st.block(t + 600.0)
+    assert b["ssrc"] == 0xABCD and b["ext_high"] == 0x10000 + 3   # chu ky 1, seq 3
+    assert b["cum_lost"] == 2 and b["fraction"] == 2 * 256 // 10
+    assert b["jitter"] == 0                                        # den deu: jitter 0
+    assert b["lsr"] == 0x11223344 and b["dlsr"] == int(500.0 * 65536 / 1000)
+    again = st.block(t + 700.0)                                    # khoang ke: khong mat them
+    assert again["fraction"] == 0 and again["cum_lost"] == 2
+
+
+def test_read_twseq_rtp_walks_extension_elements():
+    base = bytes([0x90, 0x62]) + struct.pack(">HII", 7, 0, 0xC646DE5)
+    # id 3 (3 byte) roi id 5 (2 byte) roi dem 0.
+    ext = bytes([0x32, 1, 2, 3, 0x51, 0x12, 0x34, 0x00])
+    rtp = base + b"\xbe\xde" + struct.pack(">H", 2) + ext + b"payload"
+    assert ut.read_twseq_rtp(rtp) == 0x1234
+    assert ut.read_twseq_rtp(base + b"\xbe\xde\x00\x01" + b"\x32\x01\x02\x03") is None
+    assert ut.read_twseq_rtp(bytes([0x80, 0x62]) + base[2:] + b"xxxx") is None
+    assert ut.read_twseq_rtp(b"") is None
+
+
+def test_phone_video_packets_feed_twcc_and_video_report():
+    tr = ut.Udp4200Transport(make_config(
+        [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)]))
+    for i in range(5):
+        hdr = bytes([0x90, 0x62]) + struct.pack(">HII", 100 + i, 9000 * i, PEER_SSRC)
+        rtp = hdr + b"\xbe\xde\x00\x01" + bytes([0x51, 0x00, 10 + i, 0]) + b"v" * 20
+        tr._dispatch(b"\x0e" + rtp, ("127.0.0.1", 4200))
+    assert tr.counters["video_rx"] == 5 and tr.counters["unknown_rx"] == 0
+    fb = tr._twcc.build(SSRC, PEER_SSRC)
+    assert len(fb) == 1 and _parse_twcc(fb[0])[0] == 10           # base = twseq dau
+    assert [sq for sq, _ in _parse_twcc(fb[0])[4]] == [10, 11, 12, 13, 14]
+    blk = tr._rx_video.block(1.0)
+    assert blk["ssrc"] == PEER_SSRC and blk["ext_high"] == 104
+    rr = ut.build_rtcp_rr_video(SSRC, blk, RELAY_SESSION)
+    assert rr[0] == 0x0F and rr[1:5] == RELAY_SESSION
+    body = rr[5:]
+    assert body[0] == 0x81 and body[1] == 201 and len(body) == 32 + 12
+    assert struct.unpack_from(">II", body, 4) == (SSRC, PEER_SSRC)
+    assert body[32] == 0x81 and body[33] == 202
+    # RTCP video tu dien thoai: hoc LSR cho DLSR cua RR sau.
+    sr = bytes.fromhex("80c800060c646de5ee9c82e668a8e2e359ad0be0" "0000000000000000")
+    tr._dispatch(b"\x0f\x00\x00\x00\x00" + sr, ("127.0.0.1", 4200))
+    assert tr.counters["video_rtcp_rx"] == 1 and tr._rx_video.lsr == 0x82E668A8
+
+
+def test_send_pcm_serialises_concurrent_callers():
+    """Hai luong cung send_pcm khong duoc vao encode chong nhau (libopus abort)."""
+    inside, overlap, order = [0], [0], []
+
+    def encode(pcm):
+        inside[0] += 1
+        if inside[0] > 1:
+            overlap[0] += 1
+        time.sleep(0.01)
+        order.append(pcm[0])
+        inside[0] -= 1
+        return b"\x48\x00"
+
+    tr, received, close = _connected(
+        _Fabric(), keepalive_media_interval=3600.0, encode_frame=encode)
+    try:
+        def worker(tag):
+            for _ in range(10):
+                tr.send_pcm(bytes([tag]) * 640)
+        ts = [threading.Thread(target=worker, args=(t,)) for t in (1, 2, 3)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        assert overlap[0] == 0 and len(order) == 30, (overlap, len(order))
+    finally:
+        close()
+
+
+def test_send_video_frame_wire_format():
+    sent = []
+    tr = ut.Udp4200Transport(make_config(
+        [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)],
+        protect_video_rtp=lambda b: b + b"TAG"))
+    tr.selected_relay = tr.config.relays[0]
+    tr.relay_session = RELAY_SESSION
+    tr._send_to = lambda pkt, addr: sent.append((pkt, addr)) or True
+    tr._tw_seq = 41
+    frame = b"\x00\x00\x00\x01\x65" + bytes(i % 200 for i in range(2300))
+    assert tr.send_video_frame(frame, key=False) is False      # chua co khung khoa
+    assert sent == []
+    assert tr.send_video_frame(frame, key=True) is True
+    assert len(sent) == 3
+    seqs, tws = [], []
+    for i, (pkt, addr) in enumerate(sent):
+        assert addr == ("127.0.0.1", 4200) and pkt[0] == 0x0D
+        assert pkt[1:5] == RELAY_SESSION and pkt.endswith(b"TAG")
+        rtp = pkt[5:-3]
+        assert rtp[0] == 0x90 and (rtp[1] & 0x7F) == 98          # PT khung khoa
+        assert bool(rtp[1] & 0x80) == (i == 2)                   # marker o goi cuoi
+        assert rtp[8:12] == struct.pack(">I", SSRC)
+        seqs.append(struct.unpack_from(">H", rtp, 2)[0])
+        tws.append(struct.unpack_from(">H", rtp, 17)[0])
+        assert rtp[16] == 0x51
+    assert seqs[1] == (seqs[0] + 1) & 0xFFFF and seqs[2] == (seqs[0] + 2) & 0xFFFF
+    assert tws == [42, 43, 44]                                   # dung chung TWCC
+    sent.clear()
+    assert tr.send_video_frame(b"\x00\x00\x00\x01\x41abc", key=False) is True
+    assert (sent[0][0][6] & 0x7F) == 97                          # PT khung thuong
+    # Thieu hook SRTP video thi bao loi ro.
+    tr2 = ut.Udp4200Transport(make_config(
+        [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)]))
+    try:
+        tr2.send_video_frame(frame, True)
+    except ut.MissingTransportParam:
+        pass
+    else:
+        raise AssertionError("phai bao thieu protect_video_rtp")
+
+
+def test_call_session_defaults_to_callid_little_endian():
+    # InitZRTP cua Zalo PC that: callId 0x2b7a35f5 -> f5 35 7a 2b o byte 21..24.
+    cfg = make_config([ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)],
+                      call_id=0x2B7A35F5, call_session=None)
+    assert cfg.call_session == bytes.fromhex("f5357a2b")
+    init = ut.build_setup_init(SSRC, cfg.call_counter, cfg.call_session,
+                               PEER_SSRC, "A" * 154)
+    assert init[21:25] == bytes.fromhex("f5357a2b") and len(init) == 185
+
+
+def test_req_forward_sub8_and_ping_rx_slot():
+    pkt = ut.build_req_forward(SSRC, RELAY_SESSION, 0, 8, struct.pack("<II", 4, 0))
+    assert len(pkt) == 21 + 8 and pkt[0] == 0x01 and pkt[1] == 0x01
+    assert struct.unpack_from("<H", pkt, 18)[0] == 32 and pkt[20] == 8
+    assert pkt[10:14] == struct.pack("<I", SSRC) and pkt[14:18] == RELAY_SESSION
+    assert pkt[21:] == b"\x04\x00\x00\x00\x00\x00\x00\x00"
+    # Ping = sub 10; o 34..37 la so goi am thanh nhan trong giay qua.
+    ping = ut.build_ping(SSRC, RELAY_SESSION, seq=1, rtt_ms=49)
+    assert ping[20] == 0x0A and struct.unpack_from(">I", ping, 34)[0] == 49
+
+
+def test_ping_reports_audio_received_per_second_and_sub8_sent_once():
+    tr, received, close = _connected(_Fabric(), keepalive_media_interval=3600.0)
+    try:
+        for i in range(30):                    # 30 goi nhan duoc
+            tr._on_media(ut.build_rtp(i + 1, i * 320, PEER_SSRC, b"\x48\x01"),
+                         ("127.0.0.1", 9), "relay")
+        tr._rx_mark_t -= 1.1                   # het cua so 1 s
+        tr._rx_mark_n = 0
+        tr.counters["rtp_rx"] = 30
+        tr._send_ping()
+        assert tr._rx_last_sec == 30
+        time.sleep(0.6)
+        sub8 = [d for d in list(received) if len(d) == 29 and d[20] == 8]
+        assert len(sub8) == 1, len(sub8)       # dung mot lan, khong lap
+    finally:
+        close()
+
+
+def test_rtcp_compound_sr_sdes_like_zca():
+    pkt = ut.build_rtcp_compound(SSRC, 320000, 141, 1590, peer_ssrc=PEER_SSRC,
+                                 highest_seq=99, last_sr_mid=0xE2E359AD,
+                                 dlsr=3000, relay_session=RELAY_SESSION)
+    assert pkt[0] == 0x05 and pkt[1:5] == RELAY_SESSION
+    c = pkt[5:]
+    assert len(c) == 28 + 24 + 12
+    assert c[0] == 0x81 and c[1] == 200               # SR, 1 khoi bao cao
+    assert struct.unpack_from(">H", c, 2)[0] == (28 + 24) // 4 - 1
+    assert struct.unpack_from(">I", c, 4)[0] == SSRC
+    assert struct.unpack_from(">III", c, 16) == (320000, 141, 1590)
+    assert struct.unpack_from(">I", c, 28)[0] == PEER_SSRC
+    assert struct.unpack_from(">I", c, 36)[0] == 99
+    assert struct.unpack_from(">II", c, 44) == (0xE2E359AD, 3000)  # LSR, DLSR
+    assert c[52] == 0x81 and c[53] == 202 and c[60:64] == b"\x01\x00\x00\x00"
+    # Chua biet SSRC ben kia: SR tran (RC = 0), van co SDES.
+    c0 = ut.build_rtcp_compound(SSRC, 0, 0, 0, relay_session=RELAY_SESSION)[5:]
+    assert c0[0] == 0x80 and len(c0) == 28 + 12
+    # Chua nhan SR nao: LSR gia dinh 25 ms truoc, DLSR 1638 (RTT ~ 25 ms).
+    c1 = ut.build_rtcp_compound(SSRC, 0, 0, 0, peer_ssrc=PEER_SSRC,
+                                now=1000.0, relay_session=RELAY_SESSION)[5:]
+    assert struct.unpack_from(">I", c1, 48)[0] == 1638
+
+
+def _parse_twcc(b):
+    """Giai ma RTPFB 205 fmt 15 theo draft-holmer-rmcat-transport-wide-cc-01
+    (viet doc lap voi bo ma hoa): (base, count, ref_units, fb, [(seq, t250us)])."""
+    assert b[0] == 0x8F and b[1] == 205
+    assert (struct.unpack_from(">H", b, 2)[0] + 1) * 4 == len(b)
+    base, count = struct.unpack_from(">HH", b, 12)
+    ref, fb = int.from_bytes(b[16:19], "big"), b[19]
+    status, o = [], 20
+    while len(status) < count:
+        c = struct.unpack_from(">H", b, o)[0]
+        o += 2
+        if c & 0x8000 == 0:
+            status += [(c >> 13) & 3] * (c & 0x1FFF)
+        elif c & 0x4000:
+            status += [(c >> (12 - 2 * k)) & 3 for k in range(7)]
+        else:
+            status += [(c >> (13 - k)) & 1 for k in range(14)]
+    status = status[:count]
+    t, got = ref * 256, []
+    for i, sym in enumerate(status):
+        if sym == 1:
+            t += b[o]
+            o += 1
+        elif sym == 2:
+            t += struct.unpack_from(">h", b, o)[0]
+            o += 2
+        else:
+            continue
+        got.append(((base + i) & 0xFFFF, t))
+    return base, count, ref, fb, got
+
+
+def test_twcc_feedback_roundtrip():
+    r = ut.TwccRecorder()
+    t, want = 1000.0, []
+    for i in range(24):
+        if i in (5, 6, 14):                       # goi bi mat
+            continue
+        t += 90 if i == 12 else 20                # mot lan den tre
+        seq = (65530 + i) & 0xFFFF                # qua vong 16 bit
+        r.add(seq, t)
+        want.append((seq, int(round(t * 4))))
+    fbs = r.build(111, 222)
+    assert len(fbs) == 1 and r.build(111, 222) == []      # da bao cao thi het
+    assert struct.unpack_from(">II", fbs[0], 4) == (111, 222)
+    base, count, ref, fb, got = _parse_twcc(fbs[0])
+    assert base == 65530 and count == 24 and fb == 0
+    assert got == want                                    # thoi diem sai lech 0
+    # Goi den muon / trung lap khong duoc bao cao lai; dot sau tang fbCount.
+    r.add(65530, 5000.0)
+    r.add((65530 + 24) & 0xFFFF, 6000.0)
+    nxt = _parse_twcc(r.build(111, 222)[0])
+    assert nxt[3] == 1 and [sq for sq, _ in nxt[4]] == [(65530 + 24) & 0xFFFF]
+
+
+def test_read_twseq_and_rtp_ext():
+    assert ut.read_twseq(b"\x51\x12\x34\x00") == 0x1234
+    assert ut.read_twseq(b"\x31\x12\x34\x00") is None        # khong phai id 5
+    assert ut.read_twseq(b"") is None and ut.read_twseq(b"\x51\x00") is None
+
+
+def test_parse_sr_middle_ntp_from_real_phone_rtcp():
+    # RTCP that dien thoai gui (SR RC=0 + SDES), do 10/11/2026.
+    real = bytes.fromhex("80c800060c646de5ee9c82e668a8e2e359ad0be0"
+                         "0000000000000000" "81ca00020c646de501000000")
+    assert ut.parse_sr_middle_ntp(real) == 0x82E668A8
+    assert ut.parse_sr_middle_ntp(real[28:]) is None      # chi con SDES
+    assert ut.parse_sr_middle_ntp(b"") is None
 
 
 def test_extend_data_normalize():
@@ -999,6 +1290,9 @@ def test_keepalive_silence_flows_without_voice():
         assert all(p["payload"] == ut.OPUS_SILENCE_FRAME for p in rtp)
         seqs = [p["seq"] for p in rtp]
         assert all((b - a) & 0xFFFF == 1 for a, b in zip(seqs, seqs[1:]))
+        tw = [ut.read_twseq(p["ext"]) for p in rtp]       # transport-wide seq tang dan
+        assert None not in tw
+        assert all((b - a) & 0xFFFF == 1 for a, b in zip(tw, tw[1:]))
         st = tr.status()["counters"]
         assert st["keepalive_tx"] >= 30 and st["rtp_tx"] == 0, st
     finally:
@@ -1063,6 +1357,31 @@ def _feed(tr, payloads):
     for i, p in enumerate(payloads):
         tr._on_media(ut.build_rtp(i + 1, i * 320, PEER_SSRC, p),
                      ("127.0.0.1", 9), "relay")
+
+
+def test_transport_mirrors_peer_rtp_header_style():
+    tr, received, close = _connected(_Fabric(), keepalive_media_interval=3600.0)
+    try:
+        assert tr._peer_plain_rtp is False
+        tr.send_pcm(b"\x07" * 640)                 # chua nhan gi: kieu PC 20 byte
+        time.sleep(0.3)
+        first = _media_payloads(received)[-1]
+        assert first["ext"] != b""
+        # Dien thoai goi RTP tran 12 byte -> goi tiep theo cua ta cung 12 byte.
+        tr._on_media(ut.build_rtp(1, 0, PEER_SSRC, b"\x48\x01", ext=None),
+                     ("127.0.0.1", 9), "relay")
+        assert tr._peer_plain_rtp is True
+        n = len(list(received))
+        tr.send_pcm(b"\x07" * 640)
+        time.sleep(0.3)
+        raw = [d for d in list(received)[n:] if d[:1] == b"\x03"][-1]
+        assert raw[5] == 0x80 and ut.parse_rtp(raw[5:])["ext"] == b""
+        # Va quay lai kieu PC neu ben kia doi sang 0x90.
+        tr._on_media(ut.build_rtp(2, 320, PEER_SSRC, b"\x48\x01"),
+                     ("127.0.0.1", 9), "relay")
+        assert tr._peer_plain_rtp is False
+    finally:
+        close()
 
 
 def test_rx_sample_tells_plain_opus_from_ciphertext():

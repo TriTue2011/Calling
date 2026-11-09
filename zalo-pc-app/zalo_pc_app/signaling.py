@@ -140,6 +140,10 @@ class Signaling:
                               callee_id, call_id, call_type, host_call,
                               data, partners))
 
+    def conf(self, callee_id, call_id, cam=-1, mic=-1):
+        """Bao trang thai camera/mic cua ta (12006, /api/voicecall/conf)."""
+        return self._call("conf", protocol.vc_conf(callee_id, call_id, cam, mic))
+
     def hold_request(self, to_id):
         return self._call("holdreq", protocol.vc_hold(to_id))
 

@@ -1,10 +1,11 @@
 """Chon che do SRTP cua cuoc goi di theo KET QUA THAT, khong tin tuyet doi
 vao mot nguon (zca-js hay phan tich disassembly).
 
-Hai che do, chua biet may that chap nhan cai nao (xem server.py
-`_srtp_mode_for_call`):
-  "off" — RTP tran, extendData.srtpMode=0 (luong mac dinh cua zca-js);
-  "key" — ben goi tu sinh khoa SRTP, gui trong extendData.
+Ba che do (xem server.py `_srtp_mode_for_call`):
+  "sess" — MAC DINH: khoa = 30 ky tu dau sessId (do tren may that 09/11/2026:
+           8/8 goi xac thuc HMAC dung, giai ma ra Opus);
+  "off"  — RTP tran, extendData.srtpMode=0 (luong mac dinh cua zca-js);
+  "key"  — ben goi tu sinh khoa SRTP, gui trong extendData.
 
 Che do "auto" nho cach nao tung NHAN DUOC goi that tu ben kia: thanh cong
 thi giu, that bai thi cuoc goi sau thu cach con lai. Ket qua luu o
@@ -17,13 +18,18 @@ import os
 import threading
 import time
 
-MODES = ("off", "key")
-DEFAULT_MODE = "off"
+MODES = ("sess", "off", "key")
+DEFAULT_MODE = "sess"
 _HISTORY_MAX = 20
+# Doi khi cach hieu "che do nao dung" thay doi: file cu (do hai che do off/key
+# truoc khi tim ra khoa tu sessId) bi bo phan "preferred", tranh ghim vao che
+# do da hoc sai.
+_SCHEMA = 2
 
 
 def other(mode):
-    return "key" if mode == "off" else "off"
+    """Che do thu tiep khi `mode` that bai."""
+    return "off" if mode == "sess" else "sess"
 
 
 class SrtpModeStore:
@@ -41,7 +47,7 @@ class SrtpModeStore:
             raw = None
         state = {"preferred": DEFAULT_MODE, "history": []}
         if isinstance(raw, dict):
-            if raw.get("preferred") in MODES:
+            if raw.get("preferred") in MODES and raw.get("schema") == _SCHEMA:
                 state["preferred"] = raw["preferred"]
             hist = raw.get("history")
             if isinstance(hist, list):
@@ -54,7 +60,7 @@ class SrtpModeStore:
         tmp = self._path + ".tmp"
         try:
             with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(self._state, fh)
+                json.dump(dict(self._state, schema=_SCHEMA), fh)
             os.replace(tmp, self._path)
         except OSError:
             pass            # khong luu duoc thi van dung bo nho trong tien trinh

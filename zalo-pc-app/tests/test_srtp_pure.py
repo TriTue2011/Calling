@@ -113,6 +113,66 @@ def test_new_master_key_is_40_char_base64_of_30_bytes():
     assert k != srtp_pure.new_master_key_b64()
 
 
+def test_session_key_is_first_30_ascii_chars_of_sessid():
+    sess = "TQbwP5z1Y3Pqd6rJPqc9E7UU7Mu6JPrk" + "x" * 100   # dang sessId (gia)
+    assert srtp_pure.key_from_session(sess) == sess[:30].encode("ascii")
+    assert srtp_pure.key_from_session(sess.encode()) == sess[:30].encode()
+    # Thieu / sai kieu / khong phai ASCII -> None (khong doan, khong cat ngan).
+    for bad in (None, "", "ngan", "a" * 29, 123, "é" * 40):
+        assert srtp_pure.key_from_session(bad) is None, bad
+
+
+def test_session_key_roundtrips_plain_12_byte_rtp():
+    # Dien thoai that gui RTP tran 12 byte (0x80) + tai ma hoa + the 10 byte;
+    # SrtpSession phai ma hoa/giai ma dung goi kieu do voi khoa tu sessId.
+    import struct
+    sess = "Ab-_" * 38                                      # 152 ky tu
+    key = srtp_pure.key_from_session(sess)
+    rtp = bytes([0x80, 0x70]) + struct.pack(">HII", 5553, 1504637829,
+                                            0x0C646DE5) + b"\x48" + bytes(range(7))
+    a, b = SrtpSession(key), SrtpSession(key)
+    wire = a.protect(rtp)
+    assert len(wire) == len(rtp) + 10 and wire[:12] == rtp[:12]
+    assert wire[12:-10] != rtp[12:]                          # that su da ma hoa
+    assert b.unprotect(wire) == rtp
+    other = srtp_pure.key_from_session("Zz" + sess[2:])
+    try:
+        SrtpSession(other).unprotect(wire)
+    except SrtpError:
+        pass
+    else:
+        raise AssertionError("sai khoa phai bi tu choi")
+
+
+def test_openssl_keystream_matches_pure_python():
+    # Dong khoa OpenSSL phai KHAC KHONG so voi ban thuan Python (gom ca khi bo dem
+    # tran byte thap: iv ket thuc bang ff ff).
+    if srtp_pure._LIBCRYPTO is None:
+        return
+    import os as _os
+    for key in (bytes(range(16)), _os.urandom(16)):
+        for iv in (bytes(16), bytes(14) + b"\xff\xfe", _os.urandom(16),
+                   b"\xff" * 16):
+            for n in (1, 15, 16, 17, 100, 1400):
+                a = srtp_pure._aes_ctr_openssl(key, iv, n)
+                b = srtp_pure._aes_ctr_pure(key, iv, n)
+                assert a == b, (key.hex(), iv.hex(), n)
+
+
+def test_protect_1k_packet_is_fast_with_openssl():
+    if srtp_pure._LIBCRYPTO is None:
+        return
+    import struct as _st
+    import time as _t
+    s = SrtpSession(KEY)
+    pkt = bytes([0x90, 0x62]) + _st.pack(">HII", 1, 0, 7) + bytes(8) + bytes(1070)
+    t0 = _t.perf_counter()
+    for i in range(50):
+        s.protect(pkt[:2] + _st.pack(">H", i) + pkt[4:])
+    per = (_t.perf_counter() - t0) / 50
+    assert per < 0.005, "SRTP 1 KB mat %.1f ms/goi" % (per * 1000)   # ban thuan ~25-40 ms
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

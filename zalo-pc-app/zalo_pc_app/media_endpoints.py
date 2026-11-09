@@ -1038,6 +1038,25 @@ def zca_extend_data(rtp, rtcp, is_video=False, srtp_mode=0, srtp_key=None):
     return out
 
 
+def native_extend_data(rtp, rtcp, is_video=False, rtp_v6="", rtcp_v6=""):
+    """extendData cua 416 y het engine zcall-native (Zalo-Linux, chay that voi
+    dien thoai): newZrtc 1, platform 2, packetMode 2, gcc bat, spTcp 1,
+    supportCallBusy 1, serverAddr dang dict cua relay duoc chon. Do 10/11/2026:
+    voi bo "pc" cu (newZrtc 0, platform 3) dien thoai tra RTP kieu cu 12 byte va
+    khong bao nhan duoc luong cua ta (SR RC=0) -> tu giay thu 4 bao khong on dinh."""
+    return {
+        "callType": 1 if is_video else 0, "fecTP": 0, "gccAudio": 1,
+        "gccEarlyCall": 0, "gccMode": 1, "gccSVLR": 1, "maxFT": 60,
+        "newZrtc": 1, "p2p": [], "packetMode": 2, "platform": 2, "sP2P": 0,
+        "serverAddr": [{"rtcp": rtcp, "rtcpIPv6": rtcp_v6 or "::FFFF:%s" % rtcp,
+                        "rtp": rtp, "rtpIPv6": rtp_v6 or "::FFFF:%s" % rtp,
+                        "tpType": 0}],
+        "spTcp": 1, "srtcp": 0, "srtpMode": 1, "supportCallBusy": 1,
+        "supportHevcDecode": 0, "tpType": 0,
+        "video": {"codec": [{"name": "h264", "payload": 97}]},
+    }
+
+
 def _extend_data_dict(extend_data, srtp_mode, is_video=False,
                       server_addrs=None, srtp_key=None):
     """Normalize extendData to a dict for TransportConfig.
@@ -1268,6 +1287,7 @@ class MediaEndpoints:
                  extend_data=None, srtp_mode=None, is_video=False,
                  zrtc_config=None, requestcall_data=None,
                  protect_rtp=None, unprotect_rtp=None,
+                 protect_video_rtp=None,
                  encode_frame=None, decode_frame=None,
                  selection_timeout=5.0, transport_factory=None,
                  on_first_media=None, advertise_srtp_key=False,
@@ -1478,12 +1498,23 @@ class MediaEndpoints:
         # 7. Build the transport config (TransportConfig itself
         # re-validates relays/token/session/call identity and raises
         # MissingTransportParam naming the parameter).
+        preferred = None
+        _raw_rtp = alloc.get("rtp_ip")
+        _pa = _parse_addr_value(_raw_rtp) if isinstance(_raw_rtp, str) \
+            and _raw_rtp else None
+        if _pa is not None:
+            for _r in relay_list:
+                if _r.rtp_ip == _pa[0] and _pa[1] in (None, _r.rtp_port):
+                    preferred = _r.rtp_addr()
+                    break
         config = TransportConfig(
+            preferred_rtp=preferred,
             relays=relay_list, token=token,
             local_session=local_session, peer_session=peer_session,
             call_id=call_id, callee_id=str(callee_id),
             call_type=call_type, codec=codec, extend_data=ext_dict,
             protect_rtp=protect_rtp, unprotect_rtp=unprotect_rtp,
+            protect_video_rtp=protect_video_rtp,
             encode_frame=encode_frame, decode_frame=decode_frame,
             call_session=call_session,
             **({"call_counter": call_counter}
@@ -1539,7 +1570,16 @@ class MediaEndpoints:
         rtp_address, rtcp_address, rtp_source = \
             _resolve_11301_addresses(alloc.get("rtp_ip"),
                                      alloc.get("rtcp_ip"), selected)
-        if extend_profile == "zca":
+        if extend_profile == "native":
+            _sv = next((x for x in (servers or [])
+                        if isinstance(x, dict)
+                        and x.get("rtpaddr") == rtp_address), {})
+            extend_str = json.dumps(
+                native_extend_data(rtp_address, rtcp_address, is_video,
+                                   _sv.get("rtpIPv6", ""),
+                                   _sv.get("rtcpIPv6", "")),
+                separators=(",", ":"), ensure_ascii=False)
+        elif extend_profile == "zca":
             extend_str = json.dumps(
                 zca_extend_data(rtp_address, rtcp_address, is_video,
                                 ext_dict.get("srtpMode", 0), srtp_key

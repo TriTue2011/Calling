@@ -104,6 +104,7 @@ from . import services as services_mod
 from . import session as session_mod
 from . import signaling as signaling_mod
 from . import srtp_mode as srtp_mode_mod
+from . import video_tx as video_tx_mod
 from . import sync_poll as sync_poll_mod
 from . import voice_transcode as voice_mod
 from . import webhooks as webhooks_mod
@@ -411,13 +412,13 @@ _INCOMING_SRTP = {}              # call_id -> khoa SRTP ben goi (chi bo nho, kho
 def _srtp_mode_for_call(body):
     """(che_do, nguon) cho cuoc goi di; nguon = "forced" | "auto".
 
-    "off": RTP tran, extendData.srtpMode=0 — luong mac dinh cua
-    @softtynet/zca-js 2.3.13 (`enableSrtp` = false). "key" (THU): ben goi
-    tu sinh khoa SRTP, gui trong extendData (srtpMode=1 + srtpKey).
-    Chua biet may that chap nhan cai nao, nen KHONG tin tuyet doi mot
-    nguon: truong `srtp` trong body > bien moi truong ZALO_PC_SRTP ep cung
-    mot che do; neu khong thi "auto" = che do da tung nhan duoc goi that
-    tu ben kia (mac dinh "off"), doi sang cai con lai khi that bai."""
+    "sess" (MAC DINH): khoa SRTP = 30 ky tu dau `sessId` cua 11300 — do tren
+    may that 09/11/2026 (HMAC-SHA1-80 dung 8/8 goi, giai ma ra Opus). "off":
+    RTP tran, extendData.srtpMode=0 (luong mac dinh cua zca-js). "key" (THU):
+    ben goi tu sinh khoa, gui trong extendData (srtpMode=1 + srtpKey).
+    Truong `srtp` trong body > bien moi truong ZALO_PC_SRTP ep cung mot che
+    do; neu khong thi "auto" = che do da tung nhan duoc goi that tu ben kia
+    (mac dinh "sess"), doi sang cai khac khi that bai."""
     for value in ((body or {}).get("srtp"), os.environ.get("ZALO_PC_SRTP")):
         if isinstance(value, str) and value.strip().lower() in SRTP_MODES:
             return value.strip().lower(), "forced"
@@ -459,9 +460,15 @@ def _evaluate_srtp_outcome(ended):
             ok = float(sample.get("toc_agree", 0)) >= SRTP_PLAIN_MIN_AGREE
         pref = STATE.srtp_modes.record(mode, ok)
         _log_call("srtp outcome call_id=%s mode=%s source=%s ok=%s "
-                  "rx_ok=%s toc_agree=%s head=%s -> next_auto=%s"
+                  "rx_ok=%s toc_agree=%s head=%s peer_sr_blocks=%s "
+                  "rtcp_rx=%s rtcp_tx=%s video_rx=%s video_tx=%s "
+                  "unknown_rx=%s peer_twcc=%s peer_block=%s -> next_auto=%s"
                   % (ended.get("call_id"), mode, source, ok, got,
-                     sample.get("toc_agree"), sample.get("head"), pref))
+                     sample.get("toc_agree"), sample.get("head"),
+                     snap.get("peer_sr_blocks"), counters.get("rtcp_rx"),
+                     counters.get("rtcp_tx"), counters.get("video_rx"),
+                     counters.get("video_tx"), counters.get("unknown_rx"),
+                     snap.get("peer_twcc"), snap.get("peer_block"), pref))
     except Exception as exc:  # noqa: BLE001 - chi la ghi nho, khong chen ngang
         _log_call("srtp outcome error: %s" % str(exc)[:120])
 
@@ -787,16 +794,46 @@ def _send_answerack_async(call_id, thread_id):
                   % (call_id, e))
 
 
-EXTEND_PROFILES = ("pc", "zca")
+def _send_camera_state_async(call_id, thread_id, cam_on):
+    """Bao dien thoai camera cua ta bat/tat (12006). Chay luong rieng, khong
+    nem loi: hinh van gui duoc du bao that bai, chi la dien thoai khong ve."""
+    def run():
+        sess = STATE.session
+        if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
+            _log_call("camera state call_id=%s ok=False error=no_session"
+                      % call_id)
+            return
+        try:
+            transport = make_transport(sess["zpw_sek"])
+            sig = signaling_mod.Signaling(transport, sess["device_id"],
+                                          sess["zpw_enk"])
+            sig.conf(thread_id, call_id, cam=1 if cam_on else 0)
+            _log_call("camera state call_id=%s on=%s ok=True"
+                      % (call_id, bool(cam_on)))
+        except Exception as e:  # noqa: BLE001 - best-effort
+            _log_call("camera state call_id=%s on=%s ok=False error=%s"
+                      % (call_id, bool(cam_on), str(e)[:120]))
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _thread_of_call(call_id):
+    for c in STATE.calls.snapshot()["calls"]:
+        if str(c["call_id"]) == str(call_id):
+            return str(c.get("thread_id") or c.get("peer") or "")
+    return ""
+
+
+EXTEND_PROFILES = ("native", "pc", "zca")
 
 
 def _extend_profile_for_call(body):
     """Hồ sơ extendData của cuộc gọi đi: body `extend_profile` > env
-    ZALO_PC_EXTEND_PROFILE > "pc" (mặc định cũ, đã biết làm điện thoại đổ chuông).
-    "zca" = bộ giá trị của zca-js (newZrtc=1...) — xem media_endpoints.zca_extend_data."""
+    ZALO_PC_EXTEND_PROFILE > "native" (mặc định: y hệt engine zcall-native của
+    Zalo-Linux, đã chạy thật với điện thoại — xem media_endpoints.native_extend_data).
+    "pc" = bộ cũ (newZrtc=0), "zca" = bộ của zca-js."""
     want = str((body or {}).get("extend_profile")
-               or os.environ.get("ZALO_PC_EXTEND_PROFILE") or "pc").strip().lower()
-    return want if want in EXTEND_PROFILES else "pc"
+               or os.environ.get("ZALO_PC_EXTEND_PROFILE") or "native").strip().lower()
+    return want if want in EXTEND_PROFILES else "native"
 
 
 def _find_req_id(obj, depth=0):
@@ -859,11 +896,22 @@ def _engine_for_call(call_id):
     return None
 
 
+VIDEO_SENDERS = {}               # call_id -> video_tx.VideoSender
+
+
+def _stop_video(call_id):
+    sender = VIDEO_SENDERS.pop(str(call_id), None)
+    if sender is not None:
+        sender.stop()
+    return sender
+
+
 def _cleanup_call_media(entry):
     """Cuoc goi da ket thuc: danh gia ket qua SRTP, dung engine + transport,
     huy token am thanh. Best-effort, khong nem loi."""
     try:
         _evaluate_srtp_outcome(entry)
+        _stop_video(entry["call_id"])
         engine_seam.SEAM.stop_media()
         media_endpoints.ENDPOINTS.stop_call(int(entry["call_id"]))
         STATE.audio_tokens.drop(entry["call_id"])
@@ -1927,14 +1975,19 @@ class AppState:
         peer = event.get("caller_name") or caller_id
         entry = STATE.calls.record_incoming(
             call_id, peer, caller_id, "user")
-        _key = ctrl_poll_mod.find_srtp_key(event.get("data"))
+        _explicit_key = ctrl_poll_mod.find_srtp_key(event.get("data"))
+        # Khong co khoa tuong minh thi dung khoa tu sessId cua chinh su kien
+        # (ben goi dung sessId nay; tren may that khong thay khoa nao khac).
+        from . import srtp_pure as _srtp_pure
+        _key = _explicit_key or _srtp_pure.key_from_session(
+            event.get("session"))
         if _key:
             if len(_INCOMING_SRTP) > 50:
                 _INCOMING_SRTP.clear()
             _INCOMING_SRTP[str(call_id)] = _key
         STATE.calls.record_diag(call_id, {
             "incoming_codec": event.get("codec") or "",
-            "incoming_srtp_key_present": bool(_key),
+            "incoming_srtp_key_present": bool(_explicit_key),
             "incoming_session_present": bool(event.get("session")),
             "incoming_rtp_present": bool(event.get("rtp_address")),
             "incoming_ringring_sent": False})
@@ -3867,11 +3920,18 @@ class Handler(BaseHTTPRequestHandler):
                             _srtp_mode = "server"
                             hooks, _notes = pc_media.hooks_for_call(
                                 _alloc["srtp_key"])
+                        elif _srtp_mode == "sess" and srtp_pure.\
+                                key_from_session(_alloc.get("session")):
+                            hooks, _notes = pc_media.hooks_for_call(
+                                srtp_pure.key_from_session(
+                                    _alloc["session"]))
                         elif _srtp_mode == "key":
                             _local_key = srtp_pure.new_master_key_b64()
                             hooks, _notes = pc_media.hooks_for_call(
                                 _local_key)
                         else:
+                            if _srtp_mode == "sess":
+                                _srtp_mode = "off"   # 11300 khong co sessId
                             hooks, _notes = pc_media.hooks_for_call(None)
                         if _srtp_mode in SRTP_MODES:
                             _CALL_SRTP[str(call_id)] = (_srtp_mode, _srtp_src)
@@ -4137,6 +4197,63 @@ class Handler(BaseHTTPRequestHandler):
                  "zalo_signal": signal,
                  "zalo_endcall_ok": zalo_ok, "zalo_error": zalo_error,
                  "data": data})
+        if path == "/api/call/video":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            # Phat hinh len cuoc goi dang song: {"action": "start"|"stop"|
+            # "status", "call_id"?, "source": "test"|rtsp://...|tep,
+            # "width","height","fps","bitrate_kbps"}. Cuoc goi phai da nghe may.
+            snap = STATE.calls.snapshot()
+            live = snap["active"]
+            call_id = _coerce_call_id(body.get("call_id", ""))
+            if call_id is None and live is not None:
+                call_id = int(live["call_id"])
+            if call_id is None:
+                return self._send_json({"ok": False, "error": "no_live_call"})
+            action = str(body.get("action") or "start").lower()
+            if action == "status":
+                sender = VIDEO_SENDERS.get(str(call_id))
+                return self._send_json({"ok": True, "call_id": call_id,
+                                        "video": sender.status() if sender
+                                        else None})
+            if action == "stop":
+                sender = _stop_video(call_id)
+                if sender is not None:
+                    _send_camera_state_async(call_id, _thread_of_call(call_id),
+                                             False)
+                return self._send_json({"ok": True, "call_id": call_id,
+                                        "video": sender.status() if sender
+                                        else None})
+            if action != "start":
+                return self._send_json({"error": "action_khong_hop_le"},
+                                       status=400)
+            rec = media_endpoints.ENDPOINTS.active_record(call_id)
+            if rec is None:
+                return self._send_json({"ok": False,
+                                        "error": "no_live_transport"})
+            try:
+                def _int(key, default, lo, hi):
+                    return max(lo, min(hi, int(body.get(key) or default)))
+                _stop_video(call_id)
+                sender = video_tx_mod.VideoSender(
+                    rec["transport"].send_video_frame,
+                    source=str(body.get("source") or "test"),
+                    width=_int("width", 640, 160, 1280),
+                    height=_int("height", 360, 120, 720),
+                    fps=_int("fps", 15, 5, 30),
+                    bitrate_kbps=_int("bitrate_kbps", 300, 50, 1500))
+                sender.start()
+            except (ValueError, RuntimeError) as exc:
+                return self._send_json({"ok": False, "error": str(exc)[:120]})
+            VIDEO_SENDERS[str(call_id)] = sender
+            _send_camera_state_async(call_id, _thread_of_call(call_id), True)
+            _log_call("video start call_id=%s source=%s" % (
+                call_id, "test" if str(body.get("source") or "test") == "test"
+                else "stream"))
+            return self._send_json({"ok": True, "call_id": call_id,
+                                    "video": sender.status()})
         if path == "/api/call/answered":
             sess = self._require_login()
             if sess is None:
@@ -4281,6 +4398,10 @@ class Handler(BaseHTTPRequestHandler):
                 _in_key = _alloc.get("srtp_key")
                 if _in_key is None:
                     _in_key = _INCOMING_SRTP.pop(str(call_id), None)
+                if _in_key is None:
+                    from . import srtp_pure as _srtp_pure
+                    _in_key = _srtp_pure.key_from_session(
+                        _alloc.get("session"))
                 try:
                     from . import pc_media
                     hooks, _notes = pc_media.hooks_for_call(_in_key)

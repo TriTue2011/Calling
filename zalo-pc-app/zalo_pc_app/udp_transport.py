@@ -85,9 +85,17 @@ __all__ = [
     "build_type02_keepalive",
     "parse_type02_keepalive",
     "build_ping",
+    "build_req_forward",
     "build_rtp",
     "parse_rtp",
-    "build_rtcp_rr",
+    "build_rtcp_compound",
+    "parse_sr_middle_ntp",
+    "TwccRecorder",
+    "RxStats",
+    "read_twseq_rtp",
+    "build_rtcp_rr_video",
+    "read_twseq",
+    "wrap_rtcp",
     "build_p2p_hello",
     "build_p2p_ack",
     "build_p2p_confirm",
@@ -105,11 +113,20 @@ FRAME_SAMPLES = 320           # 20 ms @ 16 kHz mono
 FRAME_BYTES = FRAME_SAMPLES * 2  # PCM16 mono LE: 640 bytes/frame
 RTP_PT = 112                  # payload type observed on the wire
 RTP_HEADER_LEN = 20
+RTP_PLAIN_HEADER_LEN = 12
+CONNECTED_PING_INTERVAL = 1.0   # ReqForward sub 10 sau khi nghe may
+VIDEO_RTCP_MSG_TYPE = 0x0F  # RTCP cua luong video
+VIDEO_MSG_TYPE = 0x0D       # relay: RTP video (zcall-native MSG_TYPES.VIDEO_RTP)
+VIDEO_PT_KEY = 98           # khung khoa (SPS/PPS/IDR)
+VIDEO_PT_DELTA = 97         # khung con lai, cung mot day seq
+VIDEO_MAX_CHUNK = 1068      # dien thoai cat manh 1068 byte (1070 ca header 1c xx)
+VIDEO_BURST = 6             # goi gui lien tiep truoc khi nghi 1 ms
+SUB8_DELAY = 0.2           # zcall-native: ReqForward sub 8 ~0,2 s sau khi media bat dau
+TWCC_INTERVAL = 0.05       # ZaloCall: transport-cc moi ~50 ms
 TOKEN_ASCII_LEN = 154         # base64url chars on the wire
 TOKEN_RAW_LEN = 115           # decoded bytes
 DEVICE_CONST_PROBE_ID = 0x003E9765   # hardcoded probe id (disasm 0x894b2e)
 DEVICE_CONST_PROBE_C2 = 0x012F833C   # hardcoded 2nd probe constant
-CALL_SESSION_LAST_BYTE = 0x2B        # last byte of call session, all captures
 SETUP_REFRESH_INTERVAL = 6.0         # setup 177B repeat, seconds
 PING_INTERVAL = 0.1                  # ping keepalive, seconds (~10 Hz:
                                     # the real client pings the relay at
@@ -436,8 +453,12 @@ class TransportConfig:
     callee (the wire values in all three captures: outgoing 11,
     incoming 12; the Init ctor writes (role^1)+11). Override it
     explicitly when the real counter is known.
-    ``call_session`` defaults to fresh random bytes with the
-    last byte 0x2b (the invariant seen in all captures).
+    ``call_session`` defaults to the 4 bytes of ``call_id`` little-endian:
+    InitZRTP carries the signalling callId there (official PC capture
+    37.51 s: f5357a2b = callId 0x2b7a35f5; zcall-native `buildInitZrtpPacket`
+    writes u32 callId). Random bytes (the old default — the "0x2b last byte
+    invariant" was only the high byte of the callId) leave the relay unable
+    to pair us with the phone's InitZRTP of the same call.
     ``peer_session`` is the peer's session/SSRC (int u32 or
     None when not yet known — e.g. before the callee's 416).
     """
@@ -446,12 +467,19 @@ class TransportConfig:
     local_session: int
     peer_session: object = None
     call_id: int = 0
+    # (ip, port) cua relay ma 11300 chi dinh (`rtpIP`) — relay MA DIEN THOAI DANG
+    # DUNG (11301 bao no cho dien thoai). Neu relay do tra loi thi chon no du
+    # relay khac tra loi truoc: gui uplink len relay khac thi dien thoai khong
+    # bao gio nhan duoc goi cua ta (do 10/11: SR cua dien thoai RC=0).
+    preferred_rtp: object = None
     callee_id: str = ""
     call_type: int = 1  # 1 = audio 1-1, 5 = audio group
     codec: str = "opus"
     extend_data: dict | None = None
     protect_rtp: object = None
     unprotect_rtp: object = None
+    # SRTP rieng cho day seq video (cung khoa, ROC rieng) — khong co thi khong gui hinh.
+    protect_video_rtp: object = None
     # Optional extras (documented extensions to the contract):
     encode_frame: object = None
     decode_frame: object = None
@@ -530,8 +558,7 @@ class TransportConfig:
         if not 0 <= self.call_counter <= 0xFFFF:
             raise ValueError("call_counter: must fit in u16")
         if self.call_session is None:
-            self.call_session = os.urandom(3) + bytes(
-                [CALL_SESSION_LAST_BYTE])
+            self.call_session = struct.pack("<I", self.call_id & 0xFFFFFFFF)
         else:
             self.call_session = _session_to_bytes(
                 self.call_session, "call_session")
@@ -755,7 +782,11 @@ def parse_type02_keepalive(data):
 
 
 def build_ping(local_ssrc, relay_session, seq, rtt_ms=0):
-    """Ping 45B (client -> relay, disasm §7.2).
+    """Ping 45B (client -> relay, disasm §7.2) = ReqForward cmd 32 sub 10.
+
+    Slot `rtt_ms` (u32 o byte 34..37) la SO GOI AM THANH NHAN DUOC TRONG GIAY
+    QUA (zcall-native `reqForwardStatus`, ~50 khi on) — server chuyen no cho
+    ben kia nhu bao cao nhan cua ta; gui 0 la bao "khong nhan duoc gi".
 
     [0]=0x01 [1]=0x01 [2..5]=00 [6..7]=seq LE [8..9]=00
     [10..13]=local session LE [14..17]=relay-id
@@ -779,24 +810,70 @@ def build_ping(local_ssrc, relay_session, seq, rtt_ms=0):
     return bytes(pkt)
 
 
-def build_rtp(seq, timestamp, ssrc, payload, marker=False,
-              ext=b"\x51\x00\x00\x00"):
-    """RTP packet with the 20-byte PC header (bao-cao.md B.5).
+def packetize_video_frame(annexb, max_chunk=VIDEO_MAX_CHUNK):
+    """Mot khung H.264 (Annex-B) -> cac payload RTP theo cach dien thoai dong
+    goi (zcall-native `packetizeFrame`): vua thi gui nguyen, khong thi cat
+    manh <= max_chunk byte kem header 2 byte 1c 80 (dau) / 1c 00 (giua) /
+    1c 40 (cuoi). Bit marker dat o goi cuoi do nguoi goi."""
+    annexb = bytes(annexb)
+    if len(annexb) <= max_chunk:
+        return [annexb]
+    out = []
+    for off in range(0, len(annexb), max_chunk):
+        end = min(off + max_chunk, len(annexb))
+        flag = 0x80 if off == 0 else (0x40 if end == len(annexb) else 0x00)
+        out.append(bytes([0x1C, flag]) + annexb[off:end])
+    return out
 
-    [0]=0x90 (V2, X=1, CC=0) [1]=0x70/0xF0 (marker + PT 112)
+
+def build_req_forward(local_ssrc, relay_session, seq, sub_cmd, payload=b""):
+    """ReqForward (cmd 32) 21 byte header + payload, cung bo cuc voi `build_ping`.
+    zcall-native gui sub 8 payload [4, 0] (2 u32 LE) mot lan ~0,2 s sau khi
+    media bat dau."""
+    relay_session = _session_to_bytes(relay_session, "relay_session")
+    pkt = bytearray(21)
+    pkt[0] = 0x01
+    pkt[1] = 0x01
+    struct.pack_into("<H", pkt, 6, seq & 0xFFFF)
+    struct.pack_into("<I", pkt, 10, local_ssrc & 0xFFFFFFFF)
+    pkt[14:18] = relay_session
+    struct.pack_into("<H", pkt, 18, 32)
+    pkt[20] = sub_cmd & 0xFF
+    return bytes(pkt) + bytes(payload)
+
+
+def build_rtp(seq, timestamp, ssrc, payload, marker=False,
+              ext=b"\x51\x00\x00\x00", pt=None):
+    """RTP packet with the 20-byte PC header (bao-cao.md B.5), or the
+    plain 12-byte RTP header when ``ext`` is None.
+
+    PC style: [0]=0x90 (V2, X=1, CC=0) [1]=0x70/0xF0 (marker + PT 112)
     [2..3]=seq BE u16 [4..7]=timestamp BE u32 [8..11]=SSRC
     [12..13]=0xBEDE [14..15]=0x0001 [16..19]=extension 4B
     (default 51 00 00 00; byte 16 is 0x51, byte 17 is 0x00/0x01
     voice-activity-ish on downlink, byte 18 changes per packet
     — exact meaning UNCONFIRMED, pass ``ext`` to set it).
+    Plain style (``ext=None``): [0]=0x80, same [1..11], payload at 12 —
+    what the phone sends when the call is negotiated as the old ZRTC
+    (measured 2026-11-09: every inbound packet starts 0x80).
     Payload follows the header and is SRTP-encrypted on the
     wire; this function builds the PLAINTEXT header only.
     """
+    pt = RTP_PT if pt is None else pt
+    if ext is None:
+        pkt = bytearray(RTP_PLAIN_HEADER_LEN + len(payload))
+        pkt[0] = 0x80
+        pkt[1] = (0x80 if marker else 0x00) | pt
+        struct.pack_into(">H", pkt, 2, seq & 0xFFFF)
+        struct.pack_into(">I", pkt, 4, timestamp & 0xFFFFFFFF)
+        struct.pack_into(">I", pkt, 8, ssrc & 0xFFFFFFFF)
+        pkt[RTP_PLAIN_HEADER_LEN:] = payload
+        return bytes(pkt)
     if len(ext) != 4:
         raise ValueError("RTP extension must be 4 bytes")
     pkt = bytearray(RTP_HEADER_LEN + len(payload))
     pkt[0] = 0x90
-    pkt[1] = (0x80 if marker else 0x00) | RTP_PT
+    pkt[1] = (0x80 if marker else 0x00) | pt
     struct.pack_into(">H", pkt, 2, seq & 0xFFFF)
     struct.pack_into(">I", pkt, 4, timestamp & 0xFFFFFFFF)
     struct.pack_into(">I", pkt, 8, ssrc & 0xFFFFFFFF)
@@ -808,56 +885,396 @@ def build_rtp(seq, timestamp, ssrc, payload, marker=False,
 
 
 def parse_rtp(data):
-    """Parse a 20-byte-header RTP packet; payload is opaque."""
-    if len(data) < RTP_HEADER_LEN:
+    """Parse an RTP packet: PC style (0x90, 20-byte header with BEDE
+    extension) or plain (0x80, 12-byte header); payload is opaque.
+    ``ext`` is b"" for the plain style."""
+    if len(data) < RTP_PLAIN_HEADER_LEN:
         raise ValueError("RTP packet too short: %d bytes" % len(data))
-    if data[0] != 0x90:
-        raise ValueError("RTP first byte must be 0x90, got 0x%02x"
-                         % data[0])
+    if data[0] not in (0x90, 0x80):
+        raise ValueError("RTP first byte must be 0x90 (PC) or 0x80 "
+                         "(plain), got 0x%02x" % data[0])
     if data[1] & 0x7F != RTP_PT:
         raise ValueError("RTP payload type must be 112, got %d"
                          % (data[1] & 0x7F))
-    if data[12:14] != b"\xbe\xde":
-        raise ValueError("RTP extension profile must be BEDE, got %s"
-                         % bytes(data[12:14]).hex())
-    (ext_len,) = struct.unpack_from(">H", data, 14)
-    if ext_len != 1:
-        raise ValueError("RTP extension length must be 1 word, got %d"
-                         % ext_len)
     (seq,) = struct.unpack_from(">H", data, 2)
     (timestamp,) = struct.unpack_from(">I", data, 4)
     (ssrc,) = struct.unpack_from(">I", data, 8)
+    if data[0] == 0x80:
+        ext, payload = b"", bytes(data[RTP_PLAIN_HEADER_LEN:])
+    else:
+        if len(data) < RTP_HEADER_LEN:
+            raise ValueError("RTP packet too short: %d bytes" % len(data))
+        if data[12:14] != b"\xbe\xde":
+            raise ValueError("RTP extension profile must be BEDE, got %s"
+                             % bytes(data[12:14]).hex())
+        (ext_len,) = struct.unpack_from(">H", data, 14)
+        if ext_len != 1:
+            raise ValueError("RTP extension length must be 1 word, got %d"
+                             % ext_len)
+        ext, payload = bytes(data[16:20]), bytes(data[20:])
     return {"version": 2, "marker": bool(data[1] & 0x80),
             "payload_type": RTP_PT, "seq": seq,
             "timestamp": timestamp, "ssrc": ssrc,
-            "ext": bytes(data[16:20]),
-            "payload": bytes(data[20:])}
+            "ext": ext, "payload": payload}
 
 
-def build_rtcp_rr(local_ssrc, peer_ssrc, highest_seq, packets_lost=0,
-                  jitter=0, relay_session=b"\x00\x00\x00\x00"):
-    """Minimal RTCP receiver report, wrapped as type-05 (disasm §7.5).
+def _ntp_now(now=None):
+    """(ntp_sec, ntp_frac) cua thoi diem hien tai (epoch Unix -> NTP)."""
+    t = time.time() if now is None else now
+    sec = int(t)
+    return (sec + 2208988800) & 0xFFFFFFFF, int((t - sec) * (1 << 32)) & 0xFFFFFFFF
 
-    Outbound type-05 = [0x05][relay-id 4B][RTCP RR 32B].
-    The RR itself is plain RFC 3550: 0x81 (V2, RC=1), PT 201,
-    length 7, SSRC, one report block (peer SSRC, fraction lost 0,
-    cumulative lost, highest seq, jitter, LSR 0, DLSR 0).
-    This is the MINIMUM RTCP the transport sends; the capture
-    also shows SR + SDES in type-05, which is not reproduced.
-    """
+
+def build_rtcp_compound(local_ssrc, rtp_ts, pkt_count, octet_count,
+                        peer_ssrc=None, highest_seq=0, last_sr_mid=0,
+                        dlsr=0, now=None, relay_session=b"\x00\x00\x00\x00",
+                        block=None):
+    """RTCP ghep SR (PT 200) [+ 1 khoi bao cao] + SDES CNAME, boc type-05.
+
+    Y het `buildCompoundRtcpReport` cua @softtynet/zca-js 2.3.13: dien thoai
+    doi "bao cao" tu ben kia trong `durationCheckNoReportSec` (4 s) — do 10/11:
+    chi RR tran (LSR/DLSR = 0) thi tu giay thu 4 dien thoai bao ket noi khong
+    on dinh. Khoi bao cao chi co khi da biet SSRC cua ben kia; LSR/DLSR lay tu
+    SR cuoi cung nhan duoc de ben kia tinh duoc RTT (1 <= rtt < 9999 ms), chua
+    nhan SR nao thi gia dinh 25 ms nhu zca.
+
+    Outbound type-05 = [0x05][relay-id 4B][compound RTCP]."""
     relay_session = _session_to_bytes(relay_session, "relay_session")
-    rr = bytearray(32)
-    rr[0] = 0x81
-    rr[1] = 201
-    struct.pack_into(">H", rr, 2, 7)
+    sec, frac = _ntp_now(now)
+    rc = 1 if (peer_ssrc is not None or block is not None) else 0
+    sr = bytearray(28 + 24 * rc)
+    sr[0] = 0x80 | rc
+    sr[1] = 200
+    struct.pack_into(">H", sr, 2, len(sr) // 4 - 1)
+    struct.pack_into(">IIIIII", sr, 4, local_ssrc & 0xFFFFFFFF, sec, frac,
+                     rtp_ts & 0xFFFFFFFF, pkt_count & 0xFFFFFFFF,
+                     octet_count & 0xFFFFFFFF)
+    if rc and block is not None:
+        _pack_block(sr, 28, block)        # thong ke that (mat goi, jitter, LSR/DLSR)
+    elif rc:
+        mid_now = (((sec & 0xFFFF) << 16) | (frac >> 16)) & 0xFFFFFFFF
+        if last_sr_mid:
+            lsr, dl = last_sr_mid & 0xFFFFFFFF, max(65, int(dlsr)) & 0xFFFFFFFF
+        else:
+            lsr, dl = (mid_now - 1638) & 0xFFFFFFFF, 1638
+        struct.pack_into(">IIIIII", sr, 28, peer_ssrc & 0xFFFFFFFF, 0,
+                         highest_seq & 0xFFFFFFFF, 10, lsr, dl)
+    sdes = bytearray(12)                  # nhu ZaloCall: CNAME rong
+    sdes[0], sdes[1] = 0x81, 202
+    struct.pack_into(">H", sdes, 2, 2)
+    struct.pack_into(">I", sdes, 4, local_ssrc & 0xFFFFFFFF)
+    sdes[8] = 1
+    return b"\x05" + relay_session + bytes(sr) + bytes(sdes)
+
+
+TWCC_EXT_ID = 5
+MAX_TWCC_PACKETS = 400
+
+
+def read_twseq(ext):
+    """So thu tu transport-wide (RTP header extension id 5) tu 4 byte `ext`
+    cua header 20 byte, hoac None. Dang ZaloCall: 0x51 hi lo 0x00."""
+    if len(ext) == 4 and ext[0] >> 4 == TWCC_EXT_ID and ext[0] & 0x0F == 1:
+        return (ext[1] << 8) | ext[2]
+    return None
+
+
+class TwccRecorder:
+    """Ghi thoi diem nhan cac goi co so thu tu transport-wide va dung RTCP
+    transport-cc (RTPFB 205, fmt 15) — thu ZaloCall that gui cho dien thoai
+    moi ~50 ms. Thieu duong hoi nay thi bo uoc luong bang thong cua dien thoai
+    thay "duong tra ve chet". Cong tu zcall-native `TwccRecorder`/`encodeTwcc`."""
+
+    def __init__(self):
+        self.arrivals = {}      # seq mo rong -> thoi diem den (don vi 250 us)
+        self.top = None
+        self.next = None
+        self.fb_count = 0
+        self._lock = threading.Lock()   # add() o luong nhan, build() o luong lich
+
+    def _unwrap(self, seq):
+        if self.top is None:
+            return seq
+        u = seq + (self.top - (self.top & 0xFFFF))
+        if u - self.top > 0x8000:
+            u -= 0x10000
+        elif self.top - u > 0x8000:
+            u += 0x10000
+        return u
+
+    def add(self, seq, now_ms):
+        with self._lock:
+            self._add(seq, now_ms)
+
+    def _add(self, seq, now_ms):
+        u = self._unwrap(seq & 0xFFFF)
+        if self.next is None:
+            self.next = u
+        if u < self.next or u in self.arrivals:
+            return
+        self.arrivals[u] = int(round(now_ms * 4))
+        if self.top is None or u > self.top:
+            self.top = u
+
+    def pending(self):
+        return self.next is not None and self.top is not None \
+            and self.top >= self.next
+
+    def build(self, sender_ssrc, media_ssrc):
+        with self._lock:
+            return self._build(sender_ssrc, media_ssrc)
+
+    def _build(self, sender_ssrc, media_ssrc):
+        out = []
+        while self.pending():
+            base = self.next
+            end = min(self.top, base + MAX_TWCC_PACKETS - 1)
+            if not any(sq in self.arrivals for sq in range(base, end + 1)):
+                self.next = end + 1
+                continue
+            out.append(_encode_twcc(sender_ssrc, media_ssrc, base, end,
+                                    self.arrivals, self.fb_count & 0xFF))
+            self.fb_count += 1
+            for sq in range(base, end + 1):
+                self.arrivals.pop(sq, None)
+            self.next = end + 1
+        return out
+
+
+def _encode_twcc(sender_ssrc, media_ssrc, base, end, arrivals, fb_count):
+    count = end - base + 1
+    first_q = next(arrivals[sq] for sq in range(base, end + 1)
+                   if sq in arrivals)
+    ref_units = first_q // 256              # moc tham chieu: don vi 64 ms
+    prev_q = ref_q = ref_units * 256
+    symbols, deltas = [], []
+    for sq in range(base, end + 1):
+        q = arrivals.get(sq)
+        if q is None:
+            symbols.append(0)
+            continue
+        d = q - prev_q
+        prev_q = q
+        if 0 <= d <= 255:
+            symbols.append(1)
+        else:
+            symbols.append(2)
+            d = max(-32768, min(32767, d))
+        deltas.append(d)
+    chunks, i = [], 0
+    while i < len(symbols):
+        run = 1
+        while i + run < len(symbols) and symbols[i + run] == symbols[i] \
+                and run < 0x1FFF:
+            run += 1
+        if run >= 8:
+            chunks.append((symbols[i] << 13) | run)
+            i += run
+            continue
+        v = 0xC000
+        for k in range(7):
+            v |= (symbols[i + k] if i + k < len(symbols) else 0) << (12 - 2 * k)
+        chunks.append(v)
+        i += 7
+    delta_bytes = symbols.count(1) + 2 * symbols.count(2)
+    length = 4 + 8 + 8 + 2 * len(chunks) + delta_bytes
+    padded = (length + 3) & ~3
+    b = bytearray(padded)
+    b[0], b[1] = 0x8F, 205
+    struct.pack_into(">H", b, 2, padded // 4 - 1)
+    struct.pack_into(">II", b, 4, sender_ssrc & 0xFFFFFFFF,
+                     media_ssrc & 0xFFFFFFFF)
+    struct.pack_into(">HH", b, 12, base & 0xFFFF, count)
+    b[16:19] = (ref_units & 0xFFFFFF).to_bytes(3, "big")
+    b[19] = fb_count & 0xFF
+    o = 20
+    for c in chunks:
+        struct.pack_into(">H", b, o, c)
+        o += 2
+    di = 0
+    for sym in symbols:
+        if sym == 1:
+            b[o] = deltas[di]
+            o += 1
+            di += 1
+        elif sym == 2:
+            struct.pack_into(">h", b, o, deltas[di])
+            o += 2
+            di += 1
+    return bytes(b)
+
+
+def parse_twcc_status(b):
+    """(nhan, mat) cua mot RTPFB transport-cc 205/15: so goi cua TA ma dien thoai
+    bao da nhan va chua nhan (chi dem, khong lay thoi gian)."""
+    if len(b) < 20 or b[1] != 205 or b[0] & 0x1F != 15:
+        return 0, 0
+    count = struct.unpack_from(">H", b, 14)[0]
+    status, off = [], 20
+    while len(status) < count and off + 2 <= len(b):
+        c = struct.unpack_from(">H", b, off)[0]
+        off += 2
+        if c & 0x8000 == 0:
+            status += [(c >> 13) & 3] * (c & 0x1FFF)
+        elif c & 0x4000:
+            status += [(c >> (12 - 2 * k)) & 3 for k in range(7)]
+        else:
+            status += [(c >> (13 - k)) & 1 for k in range(14)]
+    status = status[:count]
+    got = sum(1 for x in status if x)
+    return got, len(status) - got
+
+
+def wrap_rtcp(rtcp, relay_session):
+    """Boc mot goi RTCP tran thanh type-05 qua relay."""
+    return b"\x05" + _session_to_bytes(relay_session, "relay_session") + rtcp
+
+
+def read_twseq_rtp(rtp):
+    """So thu tu transport-wide trong header RTP day du (duyet cac phan tu
+    mo rong one-byte BEDE), hoac None. Goi video cua dien thoai co the mang
+    them phan tu khac ngoai id 5."""
+    if len(rtp) < 16 or not rtp[0] & 0x10:
+        return None
+    off = 12 + 4 * (rtp[0] & 0x0F)
+    if off + 4 > len(rtp) or rtp[off:off + 2] != b"\xbe\xde":
+        return None
+    end = min(len(rtp), off + 4 + 4 * struct.unpack_from(">H", rtp, off + 2)[0])
+    off += 4
+    while off < end:
+        b = rtp[off]
+        if b == 0:
+            off += 1
+            continue
+        eid, ln = b >> 4, (b & 0x0F) + 1
+        if eid == 15:
+            return None
+        if eid == TWCC_EXT_ID and ln == 2 and off + 3 <= end:
+            return struct.unpack_from(">H", rtp, off + 1)[0]
+        off += 1 + ln
+    return None
+
+
+class RxStats:
+    """Thong ke nhan mot luong RTP (RFC 3550 A.1/A.3/6.4.1) de dien khoi bao cao
+    cua RTCP: mat goi, jitter that, LSR/DLSR cua SR cuoi tu ben kia. Cong tu
+    zcall-native `RxStats`."""
+
+    def __init__(self, clock_hz):
+        self.clock_hz = clock_hz
+        self.ssrc = 0
+        self.started = False
+        self.base_seq = self.max_seq = 0
+        self.cycles = 0
+        self.received = 0
+        self.expected_prior = self.received_prior = 0
+        self.jitter = 0.0
+        self.transit = None
+        self.lsr = 0
+        self.lsr_at = None
+        self._seen = collections.deque(maxlen=512)
+        self._seen_set = set()
+
+    def on_packet(self, seq, ts, ssrc, now_ms):
+        if not self.started:
+            self.started = True
+            self.ssrc = ssrc & 0xFFFFFFFF
+            self.base_seq = self.max_seq = seq
+        else:
+            d = (seq - self.max_seq) & 0xFFFF
+            if d != 0 and d < 0x8000:
+                if seq < self.max_seq:
+                    self.cycles += 0x10000
+                self.max_seq = seq
+        ext = self.cycles + seq
+        if ext in self._seen_set:
+            return
+        if len(self._seen) == self._seen.maxlen:
+            self._seen_set.discard(self._seen[0])
+        self._seen.append(ext)
+        self._seen_set.add(ext)
+        self.received += 1
+        transit = now_ms * self.clock_hz / 1000.0 - ts
+        if self.transit is not None:
+            self.jitter += (abs(transit - self.transit) - self.jitter) / 16.0
+        self.transit = transit
+
+    def on_sr_middle_ntp(self, mid, now_ms):
+        self.lsr, self.lsr_at = mid & 0xFFFFFFFF, now_ms
+
+    def block(self, now_ms):
+        """Khoi bao cao (dict) hoac None khi chua nhan goi nao."""
+        if not self.started:
+            return None
+        ext_high = self.cycles + self.max_seq
+        expected = ext_high - self.base_seq + 1
+        lost = expected - self.received
+        exp_int = expected - self.expected_prior
+        rec_int = self.received - self.received_prior
+        self.expected_prior, self.received_prior = expected, self.received
+        lost_int = exp_int - rec_int
+        frac = 0 if exp_int <= 0 or lost_int <= 0 else min(255, lost_int * 256 // exp_int)
+        return {"ssrc": self.ssrc, "fraction": frac,
+                "cum_lost": max(-0x800000, min(0x7FFFFF, lost)),
+                "ext_high": ext_high & 0xFFFFFFFF,
+                "jitter": int(round(self.jitter)),
+                "lsr": self.lsr,
+                "dlsr": (int((now_ms - self.lsr_at) * 65536 / 1000.0)
+                         if self.lsr_at is not None else 0) & 0xFFFFFFFF}
+
+
+def _pack_block(buf, off, blk):
+    struct.pack_into(">I", buf, off, blk["ssrc"] & 0xFFFFFFFF)
+    buf[off + 4] = blk["fraction"] & 0xFF
+    buf[off + 5:off + 8] = (blk["cum_lost"] & 0xFFFFFF).to_bytes(3, "big")
+    struct.pack_into(">IIII", buf, off + 8, blk["ext_high"] & 0xFFFFFFFF,
+                     blk["jitter"] & 0xFFFFFFFF, blk["lsr"] & 0xFFFFFFFF,
+                     blk["dlsr"] & 0xFFFFFFFF)
+
+
+def build_rtcp_rr_video(local_ssrc, block, relay_session,
+                        msg_type=VIDEO_RTCP_MSG_TYPE):
+    """RTCP video: RR (PT 201) voi khoi bao cao luong video cua dien thoai +
+    SDES rong, boc relay loai 0x0f (zcall-native `videoReport`)."""
+    relay_session = _session_to_bytes(relay_session, "relay_session")
+    rr = bytearray(8 + 24)
+    rr[0], rr[1] = 0x81, 201
+    struct.pack_into(">H", rr, 2, len(rr) // 4 - 1)
     struct.pack_into(">I", rr, 4, local_ssrc & 0xFFFFFFFF)
-    struct.pack_into(">I", rr, 8, peer_ssrc & 0xFFFFFFFF)
-    rr[12] = 0  # fraction lost
-    struct.pack_into(">I", rr, 13, packets_lost & 0xFFFFFF)
-    struct.pack_into(">I", rr, 16, highest_seq & 0xFFFFFFFF)
-    struct.pack_into(">I", rr, 20, jitter & 0xFFFFFFFF)
-    # LSR (24..27) and DLSR (28..31) stay 0.
-    return b"\x05" + relay_session + bytes(rr)
+    _pack_block(rr, 8, block)
+    sdes = bytearray(12)
+    sdes[0], sdes[1] = 0x81, 202
+    struct.pack_into(">H", sdes, 2, 2)
+    struct.pack_into(">I", sdes, 4, local_ssrc & 0xFFFFFFFF)
+    sdes[8] = 1
+    return bytes([msg_type]) + relay_session + bytes(rr) + bytes(sdes)
+
+
+def rtcp_kinds(rtcp):
+    """[(PT, RC/FMT, byte)] cua tung goi con trong RTCP ghep (chan doan)."""
+    out, off = [], 0
+    while off + 4 <= len(rtcp) and len(out) < 8:
+        length = (struct.unpack_from(">H", rtcp, off + 2)[0] + 1) * 4
+        out.append((rtcp[off + 1], rtcp[off] & 0x1F, length))
+        if length <= 0:
+            break
+        off += length
+    return out
+
+
+def parse_sr_middle_ntp(rtcp):
+    """Gia tri LSR (32 bit giua cua NTP) cua SR dau tien trong goi RTCP ghep,
+    hoac None. `rtcp` la RTCP tran (da bo phan boc type-05)."""
+    off = 0
+    while off + 4 <= len(rtcp):
+        length = (struct.unpack_from(">H", rtcp, off + 2)[0] + 1) * 4
+        if rtcp[off + 1] == 200 and off + 16 <= len(rtcp):
+            sec, frac = struct.unpack_from(">II", rtcp, off + 8)
+            return ((sec & 0xFFFF) << 16) | (frac >> 16)
+        if length <= 0:
+            break
+        off += length
+    return None
 
 
 # ---------------------------------------------------------------- P2P (0x7f)
@@ -1121,6 +1538,7 @@ class Udp4200Transport:
         # never breaks the receiver loop. None by default.
         self.on_first_media = None
         self._first_media_seen = False
+        self._peer_plain_rtp = False   # hoc tu goi nhan duoc (xem _on_media)
         self._sock = None
         self._stop = threading.Event()
         self._recv_thread = None
@@ -1130,6 +1548,10 @@ class Udp4200Transport:
         self._seq = random.randint(0, 0xFFFF)  # RTP seq, u16
         self._timestamp = random.randint(0, 0xFFFFFFFF)
         self._ping_seq = 0
+        self._rx_mark_t = time.monotonic()   # cua so 1 s dem goi am thanh nhan
+        self._rx_mark_n = 0
+        self._rx_last_sec = 0
+        self._sub8_due = None               # gui ReqForward sub 8 mot lan
         self._hello_count = 0
         self._p2p_acked = False
         self._p2p_confirmed = False
@@ -1158,6 +1580,26 @@ class Udp4200Transport:
         self._voice_until = 0.0
         self._rx_head = []          # (do dai, byte dau) cua RX_SAMPLE_MAX payload dau
         self._highest_rx_seq = None
+        self._twcc = TwccRecorder()
+        self._rx_audio = RxStats(16000)
+        self._rx_video = RxStats(90000)
+        self._last_video_report = 0.0
+        self._last_twcc = 0.0
+        self._vseq = random.randrange(0x8000)   # day seq video rieng
+        self._v_ts_base = random.randrange(0x7FFFFFFF)
+        self._v_start = None
+        self._v_key_sent = False
+        self._pcm_lock = threading.Lock()   # tuan tu hoa ma hoa + gui tieng that
+        self._tw_seq = 0                # so thu tu transport-wide goi di
+        self._tx_pkts = 0               # cho SR cua RTCP
+        self._tx_octets = 0
+        self._last_sr_mid = 0           # LSR cua SR cuoi nhan duoc
+        self._last_sr_at = 0.0
+        self._tw_ok = 0                 # goi cua ta dien thoai bao da nhan (TWCC)
+        self._tw_lost = 0
+        self._peer_block = None         # khoi bao cao cuoi cua dien thoai ve luong cua ta
+        self._peer_log_at = 0.0
+        self._peer_sr_blocks = None     # RC cua SR cuoi tu ben kia
         self.counters = {
             "probe_tx": 0, "setup_init_tx": 0, "setup_refresh_tx": 0,
             "ping_tx": 0, "rtcp_tx": 0, "rtcp_rx": 0, "hello_tx": 0, "ack_tx": 0,
@@ -1253,8 +1695,53 @@ class Udp4200Transport:
                 "protect_rtp: missing (SRTP hook is required to send "
                 "media; inject it via TransportConfig)")
         encode = self.config.encode_frame or (lambda b: b)
-        self._send_payload(encode(pcm))
-        self._voice_until = time.monotonic() + VOICE_HOLD_SECONDS
+        # Nhieu luong (moi POST /api/call/audio/in la mot luong) co the goi cung
+        # luc: ma hoa + cap seq phai tuan tu, khong thi thu tu goi dao lon va
+        # trang thai codec bi pha.
+        with self._pcm_lock:
+            self._send_payload(encode(pcm))
+            self._voice_until = time.monotonic() + VOICE_HOLD_SECONDS
+
+    def send_video_frame(self, annexb, key):
+        """Gui mot khung H.264 (Annex-B): cat manh -> RTP (PT 98 khung khoa /
+        97 con lai, marker o goi cuoi, TWCC dung chung voi am thanh) -> SRTP rieng
+        -> relay loai 0x0d. Khung dau tien PHAI la khung khoa (dien thoai khong
+        ve gi truoc khung khoa) — khung khac bi bo qua, tra False."""
+        if self.config.protect_video_rtp is None:
+            raise MissingTransportParam(
+                "protect_video_rtp: missing (video needs its own SRTP hook)")
+        if self.selected_relay is None or not self.relay_session:
+            raise RuntimeError("no relay selected yet")
+        if not key and not self._v_key_sent:
+            return False
+        self._v_key_sent = self._v_key_sent or bool(key)
+        now = time.monotonic()
+        if self._v_start is None:
+            self._v_start = now
+        ts = (self._v_ts_base + int((now - self._v_start) * 90000)) \
+            & 0xFFFFFFFF
+        chunks = packetize_video_frame(annexb)
+        for i, chunk in enumerate(chunks):
+            with self._lock:
+                self._tw_seq = (self._tw_seq + 1) & 0xFFFF
+                rtp = build_rtp(
+                    self._vseq, ts, self.config.local_ssrc, chunk,
+                    marker=(i == len(chunks) - 1),
+                    ext=bytes([0x51, self._tw_seq >> 8,
+                               self._tw_seq & 0xFF, 0]),
+                    pt=VIDEO_PT_KEY if key else VIDEO_PT_DELTA)
+                protected = self.config.protect_video_rtp(rtp)
+                self._vseq = (self._vseq + 1) & 0xFFFF
+                pkt = bytes([VIDEO_MSG_TYPE]) + self.relay_session + protected
+                ok = self._send_to(pkt, self.selected_relay.rtp_addr())
+            if not ok:
+                raise RuntimeError("send failed: %s" % self._last_error)
+            self.counters["video_tx"] = self.counters.get("video_tx", 0) + 1
+            if i % VIDEO_BURST == VIDEO_BURST - 1:
+                time.sleep(0.001)
+        self.counters["video_frames_tx"] = \
+            self.counters.get("video_frames_tx", 0) + 1
+        return True
 
     def _send_payload(self, payload, keepalive=False):
         """One RTP media packet: header (seq +1, ts +320) -> protect_rtp
@@ -1270,8 +1757,12 @@ class Udp4200Transport:
         with self._lock:
             self._seq = (self._seq + 1) & 0xFFFF
             self._timestamp = (self._timestamp + RTP_TS_STEP) & 0xFFFFFFFF
-            rtp = build_rtp(self._seq, self._timestamp,
-                            self.config.local_ssrc, payload)
+            self._tw_seq = (self._tw_seq + 1) & 0xFFFF
+            rtp = build_rtp(
+                self._seq, self._timestamp,
+                self.config.local_ssrc, payload,
+                ext=(None if self._peer_plain_rtp else bytes(
+                    [0x51, self._tw_seq >> 8, self._tw_seq & 0xFF, 0])))
             protected = self.config.protect_rtp(rtp)
             if self.mode == "p2p" and self.peer_p2p_addr is not None:
                 pkt = build_p2p_media(self._role_byte(),
@@ -1287,6 +1778,11 @@ class Udp4200Transport:
             if not ok:
                 raise RuntimeError("send failed: %s" % self._last_error)
             self._last_media_tx = time.monotonic()
+            if self._tx_pkts == 0:
+                print("[media] first tx len=%d head=%s" % (
+                    len(pkt), bytes(pkt[:24]).hex()), flush=True)
+            self._tx_pkts += 1
+            self._tx_octets += len(payload)
             self.counters["keepalive_tx" if keepalive else "rtp_tx"] += 1
 
     def begin_p2p(self, peer_ip=None, peer_port=None):
@@ -1374,6 +1870,9 @@ class Udp4200Transport:
             "codec": self.config.codec,
             "counters": dict(self.counters),
             "rx_sample": self._rx_sample(),
+            "peer_sr_blocks": self._peer_sr_blocks,
+            "peer_twcc": {"ok": self._tw_ok, "lost": self._tw_lost},
+            "peer_block": self._peer_block,
             "jitter_dropped_late": self._jitter.dropped_late,
             "jitter_reordered": self._jitter.reordered,
             "last_error": self._last_error,
@@ -1472,8 +1971,13 @@ class Udp4200Transport:
         if self.selected_relay is None or not self.relay_session:
             return
         self._ping_seq = (self._ping_seq + 1) & 0xFFFF
+        now = time.monotonic()
+        if now - self._rx_mark_t >= 1.0:
+            got = self.counters["rtp_rx"] - self.counters["rtp_rx_dropped"]
+            self._rx_last_sec = max(0, got - self._rx_mark_n)
+            self._rx_mark_t, self._rx_mark_n = now, got
         pkt = build_ping(self.config.local_ssrc, self.relay_session,
-                         self._ping_seq)
+                         self._ping_seq, rtt_ms=self._rx_last_sec)
         if self._send_to(pkt, self.selected_relay.rtp_addr()):
             self.counters["ping_tx"] += 1
 
@@ -1495,14 +1999,40 @@ class Udp4200Transport:
         self._last_hello = time.monotonic()
 
     def _send_rtcp(self):
-        if self.selected_relay is None or self._peer_ssrc is None:
+        if self.selected_relay is None:
             return
-        pkt = build_rtcp_rr(
-            self.config.local_ssrc, self._peer_ssrc,
-            self._highest_rx_seq or 0,
+        now = time.monotonic()
+        dlsr = int((now - self._last_sr_at) * 65536) if self._last_sr_mid else 0
+        pkt = build_rtcp_compound(
+            self.config.local_ssrc, self._timestamp, self._tx_pkts,
+            self._tx_octets, peer_ssrc=self._peer_ssrc,
+            block=self._rx_audio.block(now * 1000.0),
+            highest_seq=self._highest_rx_seq or 0,
+            last_sr_mid=self._last_sr_mid, dlsr=dlsr,
             relay_session=self.relay_session or b"\x00\x00\x00\x00")
         if self._send_to(pkt, self.selected_relay.rtcp_addr()):
             self.counters["rtcp_tx"] += 1
+
+    def _send_video_report(self, now):
+        if self.selected_relay is None or not self.relay_session:
+            return
+        blk = self._rx_video.block(now * 1000.0)
+        if blk is None:
+            return
+        pkt = build_rtcp_rr_video(self.config.local_ssrc, blk,
+                                  self.relay_session)
+        if self._send_to(pkt, self.selected_relay.rtcp_addr()):
+            self.counters["video_rtcp_tx"] = \
+                self.counters.get("video_rtcp_tx", 0) + 1
+
+    def _send_twcc(self):
+        if self.selected_relay is None or self._peer_ssrc is None \
+                or not self.relay_session:
+            return
+        for fb in self._twcc.build(self.config.local_ssrc, self._peer_ssrc):
+            if self._send_to(wrap_rtcp(fb, self.relay_session),
+                             self.selected_relay.rtcp_addr()):
+                self.counters["twcc_tx"] = self.counters.get("twcc_tx", 0) + 1
 
     def _local_addr_string(self):
         """Our address as "IP|port" for P2P ack/confirm."""
@@ -1538,8 +2068,12 @@ class Udp4200Transport:
                         >= cfg.setup_refresh_interval):
                     self._send_setup_refresh()
                     self._last_setup_refresh = now
+                # Do khi do chuong ~10 Hz, sau khi nghe may 1 Hz (pcap Zalo PC
+                # chinh thuc: gap 1,0 s suot cuoc goi).
+                _ping_gap = (max(cfg.ping_interval, CONNECTED_PING_INTERVAL)
+                             if self._first_media_seen else cfg.ping_interval)
                 if (self.selected_relay is not None
-                        and now - self._last_ping >= cfg.ping_interval):
+                        and now - self._last_ping >= _ping_gap):
                     self._send_ping()
                     self._last_ping = now
                 if (self.peer_reflexive is not None
@@ -1551,6 +2085,22 @@ class Udp4200Transport:
                         and now - self._last_rtcp >= cfg.rtcp_interval):
                     self._send_rtcp()
                     self._last_rtcp = now
+                if (self.state == "connected" and self._rx_video.started
+                        and now - self._last_video_report >= 1.0):
+                    self._last_video_report = now
+                    self._send_video_report(now)
+                if (self.state == "connected"
+                        and now - self._last_twcc >= TWCC_INTERVAL):
+                    self._send_twcc()
+                    self._last_twcc = now
+                if self._sub8_due is not None and now >= self._sub8_due \
+                        and self.selected_relay is not None \
+                        and self.relay_session:
+                    self._sub8_due = None
+                    self._send_to(build_req_forward(
+                        cfg.local_ssrc, self.relay_session, 0, 8,
+                        struct.pack("<II", 4, 0)),
+                        self.selected_relay.rtp_addr())
                 self._maybe_send_keepalive_media(now)
             except Exception as exc:  # noqa: BLE001 - scheduler survives
                 self._last_error = "scheduler: %s" % exc
@@ -1614,6 +2164,10 @@ class Udp4200Transport:
             self._on_media(data[1:], addr, via="relay")
         elif head == 0x05:
             self._on_rtcp(data, addr)
+        elif head == 0x0E:
+            self._on_video(data[1:])
+        elif head == 0x0F:
+            self._on_video_rtcp(data)
         elif head == 0x7F:
             self._on_p2p(data, addr)
         elif head == 0x01:
@@ -1679,12 +2233,19 @@ class Udp4200Transport:
         # self-handshake.
         self.peer_reflexive = (info["reflexive_ip"],
                                info["reflexive_port"])
-        if self.selected_relay is None:
-            # First type-02 wins and sticks (initSuccessTime
-            # rule; UDP challenger never replaces a UDP best).
-            self.selected_relay = relay
-            self.relay_session = info["relay_session"]
+        pref = self.config.preferred_rtp
+        is_pref = pref is not None and relay.rtp_addr() == tuple(pref)
+        if self.selected_relay is None or (
+                is_pref and self.selected_relay is not relay):
+            # First type-02 wins (initSuccessTime rule) — except that the
+            # relay the 11300 designated beats any earlier one (see
+            # TransportConfig.preferred_rtp). Both fields change together.
+            with self._lock:
+                self.selected_relay = relay
+                self.relay_session = info["relay_session"]
             self.state = "connected"
+            print("[media] relay selected %s:%s preferred=%s" % (
+                relay.rtp_ip, relay.rtp_port, is_pref), flush=True)
             # NO begin_p2p() here (2026-11-08, step 3): the P2P
             # hello handshake starts only when the peer has
             # answered (server.py _mark_answered calls
@@ -1703,10 +2264,68 @@ class Udp4200Transport:
         else:
             self.counters["ping_reply_rx"] += 1
 
+    def _on_video(self, rtp):
+        """Goi RTP video tu dien thoai (loai 0x0e): khong giai ma hinh, nhung PHAI
+        ghi vao TWCC (chung khong gian so thu tu voi am thanh) va thong ke nhan
+        — thieu thi dien thoai thay phan lon goi video cua no \"mat\" va bao mang
+        yeu (do 10/11: dong ho cuoc goi video chuyen cam)."""
+        if len(rtp) < 12 or rtp[0] >> 6 != 2:
+            self.counters["unknown_rx"] += 1
+            return
+        now_ms = time.monotonic() * 1000.0
+        self.counters["video_rx"] = self.counters.get("video_rx", 0) + 1
+        tw = read_twseq_rtp(rtp)
+        if tw is not None:
+            self._twcc.add(tw, now_ms)
+        seq, ts, ssrc = struct.unpack_from(">HII", rtp, 2)[0], \
+            struct.unpack_from(">I", rtp, 4)[0], struct.unpack_from(">I", rtp, 8)[0]
+        self._rx_video.on_packet(seq, ts, ssrc, now_ms)
+
+    def _on_video_rtcp(self, data):
+        self.counters["video_rtcp_rx"] = self.counters.get("video_rtcp_rx", 0) + 1
+        mid = parse_sr_middle_ntp(bytes(data[5:]))
+        if mid is not None:
+            self._rx_video.on_sr_middle_ntp(mid, time.monotonic() * 1000.0)
+
     def _on_rtcp(self, data, addr):
-        # Minimal: count inbound RTCP; contents (SR/SDES) are not
-        # needed for the media path yet.
+        # Dem RTCP vao; chi cac truong SR can cho LSR/DLSR cua bao cao ta gui.
         self.counters["rtcp_rx"] += 1
+        body = bytes(data[5:])
+        if self.counters["rtcp_rx"] <= 6:
+            print("[rtcp-rx] #%d %s" % (self.counters["rtcp_rx"],
+                                        rtcp_kinds(body)), flush=True)
+        off = 0
+        while off + 4 <= len(body):
+            plen = (struct.unpack_from(">H", body, off + 2)[0] + 1) * 4
+            pt, rc = body[off + 1], body[off] & 0x1F
+            if pt == 205 and rc == 15:
+                ok, lost = parse_twcc_status(body[off:off + plen])
+                self._tw_ok += ok
+                self._tw_lost += lost
+            elif pt in (200, 201) and rc >= 1:
+                boff = off + (28 if pt == 200 else 8)
+                if boff + 24 <= len(body):
+                    ssrc, fl, hi, jit = struct.unpack_from(">IIII", body, boff)
+                    self._peer_block = {"fraction": fl >> 24,
+                                        "cum_lost": fl & 0xFFFFFF,
+                                        "jitter": jit}
+            if plen <= 0:
+                break
+            off += plen
+        _now = time.monotonic()
+        if _now - self._peer_log_at >= 5.0 and (self._tw_ok or self._tw_lost):
+            self._peer_log_at = _now
+            print("[peer-view] twcc ok=%d lost=%d block=%s" % (
+                self._tw_ok, self._tw_lost, self._peer_block), flush=True)
+        if len(body) >= 2 and body[1] == 200:
+            # So khoi bao cao trong SR cua ben kia: 0 = ben kia CHUA nhan duoc
+            # luong RTP hop le nao cua ta (do 10/11: dien thoai bao RC=0).
+            self._peer_sr_blocks = body[0] & 0x1F
+        mid = parse_sr_middle_ntp(body)
+        if mid is not None:
+            self._last_sr_mid = mid
+            self._last_sr_at = time.monotonic()
+            self._rx_audio.on_sr_middle_ntp(mid, time.monotonic() * 1000.0)
 
     def _on_media(self, rtp_data, addr, via):
         self.counters["rtp_rx"] += 1
@@ -1720,6 +2339,7 @@ class Udp4200Transport:
         # receiver loop must not die on it.
         if not self._first_media_seen:
             self._first_media_seen = True
+            self._sub8_due = time.monotonic() + SUB8_DELAY
             hook = self.on_first_media
             if hook is not None:
                 try:
@@ -1745,6 +2365,17 @@ class Udp4200Transport:
                     self.counters["rtp_rx_dropped"], len(rtp_data), via,
                     bytes(rtp_data[:24]).hex(), exc), flush=True)
             return
+        # Dien thoai goi kieu ZRTC cu gui RTP tran 12 byte (0x80); gui lai
+        # cung kieu de ben kia phan tich duoc goi cua ta.
+        if self.counters["rtp_rx"] == 1:
+            print("[media] first rx len=%d head=%s" % (
+                len(rtp_data), bytes(rtp_data[:24]).hex()), flush=True)
+        self._peer_plain_rtp = not rtp["ext"]
+        _tw = read_twseq(rtp["ext"])
+        if _tw is not None:
+            self._twcc.add(_tw, time.monotonic() * 1000.0)
+        self._rx_audio.on_packet(rtp["seq"], rtp["timestamp"], rtp["ssrc"],
+                                 time.monotonic() * 1000.0)
         if len(self._rx_head) < RX_SAMPLE_MAX and rtp["payload"]:
             self._rx_head.append((len(rtp["payload"]), rtp["payload"][0]))
         if self._peer_ssrc is None:

@@ -22,36 +22,50 @@ def _store(tmp=None):
     return srtp_mode.SrtpModeStore(os.path.join(d, "srtp_mode.json")), d
 
 
-def test_default_is_off_and_failure_flips_success_sticks():
+def test_default_is_sess_and_failure_flips_success_sticks():
     st, _ = _store()
-    assert st.pick() == "off"
-    assert st.record("off", False) == "key"        # off hong -> thu key
-    assert st.record("key", True) == "key"         # key duoc -> giu
-    assert st.record("key", False) == "off"        # key hong -> quay lai off
-    assert st.record("off", True) == "off"
+    assert st.pick() == "sess"
+    assert st.record("sess", False) == "off"       # sess hong -> thu off
+    assert st.record("off", True) == "off"         # off duoc -> giu
+    assert st.record("off", False) == "sess"       # off hong -> quay lai sess
+    assert st.record("sess", True) == "sess"
     # Hong o che do KHONG phai che do uu tien thi khong doi y.
-    assert st.record("key", False) == "off"
-    assert st.record("zzz", False) == "off"        # che do la bi bo qua
+    assert st.record("key", False) == "sess"
+    assert st.record("zzz", False) == "sess"       # che do la bi bo qua
+
+
+def test_old_schema_preference_is_discarded():
+    # File cu (hoc khi chi co hai che do off/key) ghim "key": khong duoc giu.
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "srtp_mode.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"preferred": "key", "history": [
+            {"mode": "off", "ok": False, "at": 1}]}, fh)
+    st = srtp_mode.SrtpModeStore(path)
+    assert st.pick() == "sess"
+    assert st.snapshot()["history"][0]["mode"] == "off"   # lich su van giu
+    st.record("sess", True)
+    assert srtp_mode.SrtpModeStore(path).pick() == "sess"
 
 
 def test_persists_and_survives_corrupt_file():
     st, d = _store()
-    st.record("off", False)
+    st.record("sess", False)
     again, _ = _store(d)
-    assert again.pick() == "key"
+    assert again.pick() == "off"
     assert again.snapshot()["history"][-1]["ok"] is False
     path = os.path.join(d, "srtp_mode.json")
     for junk in ("{khong phai json", json.dumps({"preferred": "xyz"}),
                  json.dumps(["list"]), ""):
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(junk)
-        assert srtp_mode.SrtpModeStore(path).pick() == "off", junk
+        assert srtp_mode.SrtpModeStore(path).pick() == "sess", junk
 
 
 def test_history_is_bounded_and_has_no_secret_fields():
     st, _ = _store()
     for i in range(60):
-        st.record("off", i % 2 == 0)
+        st.record("sess", i % 2 == 0)
     snap = st.snapshot()
     assert len(snap["history"]) <= 20
     assert set(snap["history"][0]) == {"mode", "ok", "at"}
@@ -84,18 +98,18 @@ def _judge(mode, counters, answered=100.0, ended=110.0, source="auto",
 
 
 def test_answered_but_nothing_received_marks_mode_bad():
-    st = _judge("off", {"rtp_rx": 0, "rtp_rx_dropped": 0, "p2p_media_rx": 0})
-    assert st.pick() == "key"
+    st = _judge("sess", {"rtp_rx": 0, "rtp_rx_dropped": 0, "p2p_media_rx": 0})
+    assert st.pick() == "off"
     assert st.snapshot()["history"][-1] == {
-        "mode": "off", "ok": False, "at": st.snapshot()["history"][-1]["at"]}
+        "mode": "sess", "ok": False, "at": st.snapshot()["history"][-1]["at"]}
 
 
 def test_key_mode_dropped_packets_do_not_count_as_received():
     # Toan bo goi bi loai (HMAC sai) = khong phai bang chung cua che do dung.
-    st = _judge("key", {"rtp_rx": 40, "rtp_rx_dropped": 40, "p2p_media_rx": 0})
+    st = _judge("sess", {"rtp_rx": 40, "rtp_rx_dropped": 40, "p2p_media_rx": 0})
     assert st.pick() == "off"
-    st = _judge("key", {"rtp_rx": 40, "rtp_rx_dropped": 0, "p2p_media_rx": 0})
-    assert st.pick() == "key" and st.snapshot()["history"][-1]["ok"] is True
+    st = _judge("sess", {"rtp_rx": 40, "rtp_rx_dropped": 0, "p2p_media_rx": 0})
+    assert st.pick() == "sess" and st.snapshot()["history"][-1]["ok"] is True
 
 
 def test_off_mode_needs_plain_looking_payloads_to_count_as_success():
@@ -103,16 +117,16 @@ def test_off_mode_needs_plain_looking_payloads_to_count_as_success():
     # Ben kia gui ban ma: o che do "off" van "nhan duoc" 40 goi nhung byte
     # dau ngau nhien -> that bai, lan sau auto thu "key".
     st = _judge("off", rx, sample={"n": 20, "toc_agree": 0.1, "head": []})
-    assert st.pick() == "key" and st.snapshot()["history"][-1]["ok"] is False
+    assert st.pick() == "sess" and st.snapshot()["history"][-1]["ok"] is False
     # Opus tran (byte dau on dinh) -> thanh cong, giu "off".
     st = _judge("off", rx, sample={"n": 20, "toc_agree": 0.95, "head": []})
     assert st.pick() == "off" and st.snapshot()["history"][-1]["ok"] is True
     # Qua it mau -> chua ket luan, KHONG ghi nho (khoi khoa nham vao "off").
     st = _judge("off", rx, sample={"n": 3, "toc_agree": 1.0, "head": []})
-    assert st.snapshot()["history"] == [] and st.pick() == "off"
-    # Che do "key": xac thuc HMAC la bang chung du, khong can mau.
-    st = _judge("key", rx, sample=None)
-    assert st.pick() == "key" and st.snapshot()["history"][-1]["ok"] is True
+    assert st.snapshot()["history"] == [] and st.pick() == "sess"
+    # Che do "sess": xac thuc HMAC la bang chung du, khong can mau.
+    st = _judge("sess", rx, sample=None)
+    assert st.pick() == "sess" and st.snapshot()["history"][-1]["ok"] is True
 
 
 def test_short_or_unanswered_calls_are_not_judged():
@@ -120,23 +134,24 @@ def test_short_or_unanswered_calls_are_not_judged():
                dict(answered=None, ended=110.0)):      # chua nghe may
         st = _judge("off", {"rtp_rx": 0}, **kw)
         assert st.snapshot()["history"] == [], kw
-        assert st.pick() == "off"
+        assert st.pick() == "sess"
     assert "7" not in sv._CALL_SRTP                    # va khong ro ri bo nho
 
 
 def test_forced_mode_beats_auto_and_env():
     st, _ = _store()
-    st.record("off", False)                            # auto se chon "key"
+    st.record("sess", False)                           # auto se chon "off"
     sv.STATE = types.SimpleNamespace(srtp_modes=st)
     old = os.environ.pop("ZALO_PC_SRTP", None)
     try:
-        assert sv._srtp_mode_for_call({}) == ("key", "auto")
+        assert sv._srtp_mode_for_call({}) == ("off", "auto")
         assert sv._srtp_mode_for_call({"srtp": "OFF"}) == ("off", "forced")
+        assert sv._srtp_mode_for_call({"srtp": "Sess"}) == ("sess", "forced")
         os.environ["ZALO_PC_SRTP"] = "key"
         assert sv._srtp_mode_for_call({}) == ("key", "forced")
         assert sv._srtp_mode_for_call({"srtp": "off"}) == ("off", "forced")
         os.environ["ZALO_PC_SRTP"] = "bậy"
-        assert sv._srtp_mode_for_call({}) == ("key", "auto")
+        assert sv._srtp_mode_for_call({}) == ("off", "auto")
     finally:
         os.environ.pop("ZALO_PC_SRTP", None)
         if old is not None:

@@ -12,9 +12,11 @@ Nguon doi chieu: `@softtynet/zca-js` 2.3.13, `ZaloSrtpSession.js`
 (`deriveSrtpSessionKey`, `buildSrtpCtrIv`, `protectRtp`, `unprotectRtp`).
 Test doi chieu bang vector chay tu chinh thu vien do: tests/test_srtp_pure.py.
 
-Khoa: 30 byte = 16 byte khoa chu + 14 byte muoi. Zalo: BEN GOI tu sinh
-(30 byte ngau nhien, base64 40 ky tu) va gui trong extendData.srtpKey
-cua tin hieu 416 (11301); hai chieu dung chung mot khoa chu.
+Khoa: 30 byte = 16 byte khoa chu + 14 byte muoi. Dien thoai that dung
+`key_from_session` (30 ky tu dau cua sessId, do 09/11/2026); zca-js thi cho
+ben goi tu sinh (30 byte ngau nhien, base64 40 ky tu) gui trong
+extendData.srtpKey cua tin hieu 416 — che do "key", khong thay may that
+chap nhan. Hai chieu dung chung mot khoa chu.
 
 Gioi han co y: khong chong phat lai (replay), khong SRTCP (extendData gui
 srtcp=0), khong suite GCM. Khoa khong bao gio duoc ghi log.
@@ -41,7 +43,73 @@ def new_master_key_b64():
     return base64.b64encode(os.urandom(KEY_MATERIAL_LEN)).decode("ascii")
 
 
-def _aes_ctr(key, iv16, length):
+def key_from_session(session):
+    """Khoa chu SRTP cua cuoc goi = 30 KY TU DAU cua `sessId` (chuoi base64url
+    server cap o phan hoi 11300), dung nguyen ky tu ASCII lam byte.
+
+    Do 09/11/2026 tren cuoc goi that toi dien thoai Android: ca 8 goi nhan duoc
+    xac thuc HMAC-SHA1-80 dung va giai ma ra Opus 16 kHz 20 ms (TOC 0x48) voi
+    khoa nay; khong co khoa nao khac xuat hien trong 11300 / su kien tra loi /
+    su kien cuoc goi den. Hai chieu dung chung khoa. Tra None khi `session`
+    khong phai chuoi ASCII du 30 ky tu."""
+    if isinstance(session, (bytes, bytearray)):
+        session = bytes(session).decode("ascii", "ignore")
+    if not isinstance(session, str) or len(session) < KEY_MATERIAL_LEN \
+            or not session.isascii():
+        return None
+    return session[:KEY_MATERIAL_LEN].encode("ascii")
+
+
+def _load_libcrypto():
+    """OpenSSL (libcrypto) qua ctypes de tao dong khoa AES-CTR nhanh. Python
+    chuan da keo theo libcrypto (hashlib/ssl dung no) nen khong them goi nao.
+    Tra None neu khong nap duoc — khi do dung ban thuan Python (cham: ~25 ms
+    moi goi 1 KB, du de hinh video lam nghen am thanh)."""
+    try:
+        import ctypes
+        import ctypes.util
+        lib = ctypes.CDLL(ctypes.util.find_library("crypto")
+                          or "libcrypto.so.3")
+        vp, ci = ctypes.c_void_p, ctypes.c_int
+        lib.EVP_CIPHER_CTX_new.restype = vp
+        lib.EVP_CIPHER_CTX_free.argtypes = [vp]
+        lib.EVP_aes_128_ctr.restype = vp
+        lib.EVP_EncryptInit_ex.argtypes = [vp, vp, vp, ctypes.c_char_p,
+                                           ctypes.c_char_p]
+        lib.EVP_EncryptInit_ex.restype = ci
+        lib.EVP_EncryptUpdate.argtypes = [vp, ctypes.c_char_p,
+                                          ctypes.POINTER(ci),
+                                          ctypes.c_char_p, ci]
+        lib.EVP_EncryptUpdate.restype = ci
+        return lib
+    except (OSError, AttributeError):
+        return None
+
+
+_LIBCRYPTO = _load_libcrypto()
+
+
+def _aes_ctr_openssl(key, iv16, length):
+    import ctypes
+    lib = _LIBCRYPTO
+    ctx = lib.EVP_CIPHER_CTX_new()
+    if not ctx:
+        raise SrtpError("EVP_CIPHER_CTX_new that bai")
+    try:
+        if lib.EVP_EncryptInit_ex(ctx, lib.EVP_aes_128_ctr(), None,
+                                  bytes(key), bytes(iv16)) != 1:
+            raise SrtpError("EVP_EncryptInit_ex that bai")
+        out = ctypes.create_string_buffer(length + 16)
+        outl = ctypes.c_int(0)
+        if lib.EVP_EncryptUpdate(ctx, out, ctypes.byref(outl),
+                                 bytes(length), length) != 1:
+            raise SrtpError("EVP_EncryptUpdate that bai")
+        return out.raw[:length]
+    finally:
+        lib.EVP_CIPHER_CTX_free(ctx)
+
+
+def _aes_ctr_pure(key, iv16, length):
     """Dong khoa AES-CTR `length` byte; bo dem la so nguyen 128 bit tang dan."""
     counter = int.from_bytes(iv16, "big")
     out = bytearray()
@@ -50,6 +118,19 @@ def _aes_ctr(key, iv16, length):
                                       .to_bytes(16, "big"))
         counter += 1
     return bytes(out[:length])
+
+
+def _aes_ctr(key, iv16, length):
+    if length <= 0:
+        return b""
+    if _LIBCRYPTO is not None:
+        return _aes_ctr_openssl(key, iv16, length)
+    return _aes_ctr_pure(key, iv16, length)
+
+
+def _xor(a, b):
+    n = len(a)
+    return (int.from_bytes(a, "big") ^ int.from_bytes(b, "big")).to_bytes(n, "big")
 
 
 def derive_session_key(master_key, master_salt, label, length):
@@ -127,7 +208,7 @@ class SrtpSession:
         roc = self._send_roc
         stream = _aes_ctr(self._key, _ctr_iv(self._salt, ssrc, roc, seq),
                           len(rtp) - header)
-        enc = bytes(a ^ b for a, b in zip(rtp[header:], stream))
+        enc = _xor(rtp[header:], stream)
         head = bytes(rtp[:header])
         tag = hmac.new(self._auth, head + enc + struct.pack(">I", roc),
                        hashlib.sha1).digest()[:self._tag_len]
@@ -163,5 +244,5 @@ class SrtpSession:
             self._recv_roc, self._recv_s_l = roc, seq
         stream = _aes_ctr(self._key, _ctr_iv(self._salt, ssrc, roc, seq),
                           len(body) - header)
-        dec = bytes(a ^ b for a, b in zip(body[header:], stream))
+        dec = _xor(body[header:], stream)
         return body[:header] + dec

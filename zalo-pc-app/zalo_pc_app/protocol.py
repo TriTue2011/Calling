@@ -431,6 +431,16 @@ def vc_endcall_group(callee_id, call_id, call_type, host_call, data,
             "partners": partners if partners is not None else []}
 
 
+def vc_conf(callee_id, call_id, cam=-1, mic=-1):
+    """Body of voicecall/conf (code 12006, `sendOnOffMicCam`): trang thai camera
+    / mic cua ta cho dien thoai. cam: 1 bat, 0 tat, -1 giu nguyen; mic: 1 =
+    TAT tieng (co mute), 0 = bo mute, -1 giu nguyen (zcall-native `_micState`).
+    Khong co thi dien thoai coi camera cua ta la TAT va khong ve hinh du ta
+    dang gui (do 10/11: «BenBap dang tat camera»)."""
+    return {"calleeId": str(callee_id), "callId": call_id,
+            "isOnCam": cam, "isOnMic": mic, "data": ""}
+
+
 def vc_hold(to_id):
     return {"toId": to_id}
 

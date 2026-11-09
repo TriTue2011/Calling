@@ -340,6 +340,28 @@ def test_extend_profile_zca_matches_zca_js_values_and_default_is_unchanged():
     assert len(pc) >= 23, len(pc)
 
 
+def test_extend_profile_native_matches_zalo_linux_engine():
+    """Ho so "native" = _extendData cua zcall-native (Zalo-Linux): newZrtc 1,
+    platform 2, packetMode 2, gcc bat, spTcp 1, relay IPv6 lay tu 11300."""
+    import json
+    kw = _good_kwargs(extend_profile="native", servers=[{
+        "rtpaddr": "127.0.0.1:4200", "rtcpaddr": "127.0.0.1:4201",
+        "rtpIPv6": "2401:db8::1:4200", "rtcpIPv6": "2401:db8::1:4201"}])
+    ext = json.loads(_provider().for_call(**kw)["extend_data"])
+    want = {"newZrtc": 1, "platform": 2, "packetMode": 2, "gccAudio": 1,
+            "gccMode": 1, "gccSVLR": 1, "maxFT": 60, "spTcp": 1, "srtcp": 0,
+            "srtpMode": 1, "supportCallBusy": 1, "supportHevcDecode": 0,
+            "sP2P": 0, "callType": 0}
+    assert {k: ext[k] for k in want} == want, ext
+    sa = ext["serverAddr"][0]
+    assert sa["rtp"] == "127.0.0.1:4200" and sa["tpType"] == 0, sa
+    assert ext["video"] == {"codec": [{"name": "h264", "payload": 97}]}
+    # Khong co IPv6 trong 11300 thi dung dang ::FFFF:.
+    ext2 = json.loads(_provider().for_call(**_good_kwargs(
+        call_id=CALL_ID + 31, extend_profile="native"))["extend_data"])
+    assert ext2["serverAddr"][0]["rtpIPv6"].startswith("::FFFF:")
+
+
 def test_caller_key_mode_advertises_srtp_key_in_extend_data():
     """Che do thu "key" (2026-11-09): extendData mang srtpKey + srtpMode=1
     y het zca-js buildZrtcExtendData. Mac dinh va khi khong yeu cau thi

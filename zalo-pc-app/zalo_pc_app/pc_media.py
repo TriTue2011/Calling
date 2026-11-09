@@ -100,6 +100,11 @@ class Opus16kCodec:
 
     def __init__(self):
         self._lib = _load_libopus()
+        # libopus KHONG an toan khi hai luong cung dung MOT trang thai ma hoa/giai
+        # ma (do 10/11: hai POST /api/call/audio/in chay chong nhau -> assertion
+        # trong silk/resampler.c -> abort ca tien trinh). Moi huong mot khoa.
+        self._enc_lock = threading.Lock()
+        self._dec_lock = threading.Lock()
         lib = self._lib
         lib.opus_encoder_create.argtypes = [
             ctypes.c_int, ctypes.c_int, ctypes.c_int,
@@ -140,8 +145,11 @@ class Opus16kCodec:
                 % (FRAME_BYTES, len(pcm)))
         in_buf = (ctypes.c_int16 * FRAME_SAMPLES).from_buffer_copy(pcm)
         out_buf = (ctypes.c_ubyte * 4000)()
-        n = self._lib.opus_encode(self._enc, in_buf, FRAME_SAMPLES,
-                                  out_buf, 4000)
+        with self._enc_lock:
+            if not self._enc:
+                raise OpusUnavailable("opus encoder closed")
+            n = self._lib.opus_encode(self._enc, in_buf, FRAME_SAMPLES,
+                                      out_buf, 4000)
         if n < 0:
             raise OpusUnavailable("opus_encode failed: %d" % n)
         return bytes(out_buf[:n])
@@ -154,8 +162,11 @@ class Opus16kCodec:
             return b"\x00" * FRAME_BYTES
         in_buf = (ctypes.c_ubyte * len(packet)).from_buffer_copy(packet)
         out_buf = (ctypes.c_int16 * FRAME_SAMPLES)()
-        n = self._lib.opus_decode(self._dec, in_buf, len(packet),
-                                  out_buf, FRAME_SAMPLES, 0)
+        with self._dec_lock:
+            if not self._dec:
+                raise OpusUnavailable("opus decoder closed")
+            n = self._lib.opus_decode(self._dec, in_buf, len(packet),
+                                      out_buf, FRAME_SAMPLES, 0)
         if n < 0:
             raise OpusUnavailable("opus_decode failed: %d" % n)
         pcm = bytes(out_buf)[:n * 2]
@@ -164,12 +175,14 @@ class Opus16kCodec:
         return pcm
 
     def close(self):
-        if getattr(self, "_enc", None):
-            self._lib.opus_encoder_destroy(self._enc)
-            self._enc = None
-        if getattr(self, "_dec", None):
-            self._lib.opus_decoder_destroy(self._dec)
-            self._dec = None
+        with self._enc_lock:
+            if getattr(self, "_enc", None):
+                self._lib.opus_encoder_destroy(self._enc)
+                self._enc = None
+        with self._dec_lock:
+            if getattr(self, "_dec", None):
+                self._lib.opus_decoder_destroy(self._dec)
+                self._dec = None
 
 
 # ------------------------------------------------------------------ SRTP hooks
@@ -270,6 +283,11 @@ def hooks_for_call(srtp_key=None, suite="aes_cm_128_hmac_sha1_80",
         protect, unprotect = make_srtp_hooks(srtp_key, suite=suite)
         srtp_note = "srtp"
     hooks = {"protect_rtp": protect, "unprotect_rtp": unprotect}
+    # Day seq video co ROC rieng: can mot phien SRTP thu hai CUNG KHOA (dung
+    # chung phien voi am thanh thi ROC cua hai day seq lan vao nhau).
+    hooks["protect_video_rtp"] = (plain_media_hooks()[0] if srtp_key is None
+                                  else make_srtp_hooks(srtp_key,
+                                                       suite=suite)[0])
     notes = {"srtp": srtp_note, "opus": "ok"}
     try:
         codec = codec or Opus16kCodec()
