@@ -693,7 +693,7 @@ class CtrlPoller:
             while not self._stop.is_set():
                 started = time.time()
                 try:
-                    self.poll_once()
+                    result = self.poll_once()
                     backoff = RETRY_BASE_SECONDS
                 except KickOut:
                     return
@@ -716,7 +716,8 @@ class CtrlPoller:
                     backoff = min(backoff * 2, RETRY_MAX_SECONDS)
                     continue
                 elapsed = time.time() - started
-                if elapsed < 1.0 and self._stop.wait(1.0 - elapsed):
+                if result != "ok" and elapsed < 1.0 \
+                        and self._stop.wait(1.0 - elapsed):
                     return
         finally:
             self.registry.feeder_running = False

@@ -278,6 +278,13 @@ def build_message_event(msg, account_id):
                                                    msg.get("id", "")))),
         "content": content,
         "is_self": bool(msg.get("isSelf", msg.get("is_self", False))),
+        # Ten hien thi Zalo gui kem tin (dName) va co "nguoi la" (khong co
+        # trong danh ba) de HA/n8n biet ai vua nhan tin ma khong tra them.
+        "sender_name": str(msg.get("senderName", msg.get("sender_name", "")) or ""),
+        # Gio Zalo ghi cho tin (giay) va gio app nhan duoc: hieu so la do tre.
+        "zalo_time": msg.get("time", msg.get("ts", 0)) or 0,
+        "received_at": round(time.time(), 3),
+        "is_stranger": bool(msg.get("isStranger", msg.get("is_stranger", False))),
     })
     if msg.get("self_reply"):
         payload["self_reply"] = True

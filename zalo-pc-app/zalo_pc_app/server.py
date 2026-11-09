@@ -67,6 +67,7 @@ import json
 import os
 import socket
 import sys
+import queue
 import threading
 import time
 import urllib.error
@@ -86,6 +87,8 @@ from . import engine_seam
 from . import file_inbox as file_inbox_mod
 from . import media_endpoints
 from . import message_store as message_store_mod
+from . import events as events_mod
+from . import proxy_store as proxy_store_mod
 from . import protocol
 from . import qr_login
 from . import services as services_mod
@@ -158,6 +161,40 @@ def _poller_is_alive(poller):
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 
+def _zalo_urlopen(req, timeout):
+    """Mo mot request toi Zalo, qua proxy dang bat (neu co). Chi dung cho
+    luong goi ra Zalo; webhook ve HA/n8n dung urlopen thang (khong qua proxy)."""
+    state = globals().get("STATE")
+    proxy = state.proxy_store.active_url() if state is not None else ""
+    if proxy:
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+        return opener.open(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _test_proxy(url):
+    """Thu di qua mot proxy toi Zalo: {ok, status, ms, error}. Nhan duoc bat
+    ky ma HTTP nao (ke ca 4xx) nghia la proxy thong."""
+    try:
+        url = proxy_store_mod.validate_proxy_url(url)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": url, "https": url}))
+    started = time.time()
+    req = urllib.request.Request("https://wpa.zalo.me/",
+                                 headers={"User-Agent": "zalo-pc-qr/1.0"})
+    try:
+        with opener.open(req, timeout=8) as r:
+            status = r.status
+    except urllib.error.HTTPError as e:
+        status = e.code
+    except Exception as e:  # noqa: BLE001 - bao loi cho nguoi dung
+        return {"ok": False, "error": str(getattr(e, "reason", e))[:160]}
+    return {"ok": True, "status": status, "ms": int((time.time() - started) * 1000)}
+
+
 class _Transport:
     """HTTP transport for one session: callable as http_get(url,
     timeout) (the shape qr_login/signaling/contacts expect) plus an
@@ -182,7 +219,7 @@ class _Transport:
             req.add_header("Cookie", "%s=%s" % (COOKIE_NAME,
                                                 self.cookie_value))
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _zalo_urlopen(req, timeout) as resp:
                 raw = resp.read()
                 # Giai ma mot lan (utf-8-sig bo BOM neu co);
                 # body khong phai JSON -> NonJsonResponse mang
@@ -231,7 +268,7 @@ class _Transport:
             req.add_header("Cookie", "%s=%s" % (COOKIE_NAME,
                                                 self.cookie_value))
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _zalo_urlopen(req, timeout) as resp:
                 status = resp.status
                 if max_bytes is None:
                     return status, resp.read()
@@ -777,6 +814,14 @@ class AppState:
             os.path.join(data_dir, message_store_mod.FILENAME))
         if self.session and self.session.get("uid"):
             self.message_store.set_account(self.session["uid"])
+        # Proxy ra Zalo, kenh day su kien cho giao dien (SSE), chan do mat
+        # khau dang nhap app, va do tre nhan tin gan day (ms).
+        self.proxy_store = proxy_store_mod.ProxyStore(
+            os.path.join(data_dir, proxy_store_mod.FILENAME))
+        self.events = events_mod.EventHub()
+        self.login_limiter = app_auth.LoginLimiter(
+            max_fails=int(os.environ.get("ZALO_PC_APP_LOGIN_MAX_FAILS") or 5))
+        self.sync_lag = []
         # FILE INBOX (file_inbox.py): file den qua kenh sync duoc
         # tai ve dia + registry, de tai xuong / gui lai giu nguyen
         # ten goc. Getter doc phien tai thoi diem goi (phien co the
@@ -1410,6 +1455,16 @@ class AppState:
             return
         if not is_new:
             return
+        # Day ngay cho giao dien (SSE) TRUOC moi viec nang (DB, tai file).
+        self._note_lag(msg)
+        try:
+            self.events.publish({
+                "type": "message", "thread_type": thread_type,
+                "thread_id": str(thread_id), "msg": msg,
+                "stranger": self.is_stranger(thread_type, thread_id),
+                "received_at": time.time()})
+        except Exception:  # noqa: BLE001 - UI khong duoc chan kenh sync
+            pass
         # Ban ghi ben TRUOC khi dispatch: neu webhook loi / app
         # tat ngay sau do, tin van con trong DB de bu sau.
         try:
@@ -1437,7 +1492,12 @@ class AppState:
                  "senderId": msg.get("sender_id", ""),
                  "msgId": msg.get("id", ""),
                  "content": msg.get("text", ""),
-                 "isSelf": bool(msg.get("is_self", False))},
+                 "isSelf": bool(msg.get("is_self", False)),
+                 "time": msg.get("time"),
+                 "senderName": msg.get("sender_name") or (
+                     msg.get("raw") if isinstance(msg.get("raw"), dict)
+                     else {}).get("dName") or "",
+                 "isStranger": self.is_stranger(thread_type, thread_id)},
                 account_id)
         except Exception:
             pass
@@ -1909,6 +1969,40 @@ class AppState:
             return "no_endpoints"
         return "stopped"
 
+    def _friend_ids(self):
+        """Tap userId ban be tu cache danh ba; None neu chua tai danh ba."""
+        with self._contacts_lock:
+            cache = self._contacts_cache
+        if cache is None:
+            return None
+        rows = (cache.get("friends") or {}).get("rows") or []
+        return {str(r["id"]) for r in rows if isinstance(r, dict) and r.get("id")}
+
+    def is_stranger(self, thread_type, thread_id):
+        """Nguoi lap tin 1-1 khong co trong danh ba (chi biet khi da tai danh ba)."""
+        if thread_type == "group":
+            return False
+        ids = self._friend_ids()
+        mine = str((self.session or {}).get("uid", ""))
+        return ids is not None and str(thread_id) not in ids and str(thread_id) != mine
+
+    def _note_lag(self, msg):
+        """Ghi do tre = gio app nhan - gio Zalo ghi cho tin (ms). Chi tham khao:
+        lech dong ho giua may chu va Zalo cung nam trong so nay."""
+        try:
+            raw = msg.get("raw") if isinstance(msg.get("raw"), dict) else {}
+            ts_ms = float(raw.get("ts") or 0) or float(msg.get("time") or 0) * 1000
+            if ts_ms:
+                self.sync_lag = (self.sync_lag + [time.time() * 1000 - ts_ms])[-20:]
+        except (TypeError, ValueError):
+            pass
+
+    def lag_summary(self):
+        lag = self.sync_lag
+        if not lag:
+            return None
+        return {"last": int(lag[-1]), "avg": int(sum(lag) / len(lag)), "n": len(lag)}
+
     def _sender_names(self):
         """Map userId -> ten hien thi tu cache danh ba (friends
         rows) — lam giau sender_name cho tin lich su/inbox ma
@@ -2073,7 +2167,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             if self._require_app_login() is None:
                 return self._send_redirect("/login")
+            return self._serve_static("zalo/index.html", "text/html")
+        if path == "/classic":
+            # Giao dien cu (giu lai de doi chieu / lui lai neu can).
+            if self._require_app_login() is None:
+                return self._send_redirect("/login")
             return self._serve_static("app.html", "text/html")
+        if path == "/ui/app.css":
+            return self._serve_static("zalo/app.css", "text/css")
+        if path == "/ui/app.js":
+            if self._require_app_login() is None:
+                return self._unauthorized()
+            return self._serve_static("zalo/app.js", "text/javascript")
         if path == "/app.js":
             if self._require_app_login() is None:
                 return self._unauthorized()
@@ -2100,7 +2205,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_get(self, path, app_user):
         if path == "/api/status":
-            return self._send_json(STATE.public_status(app_user))
+            status = STATE.public_status(app_user)
+            status["sync_lag_ms"] = STATE.lag_summary()
+            return self._send_json(status)
         if path == "/api/qr/status":
             return self._send_json(STATE.qr_status())
         if path == "/api/engine/status":
@@ -2212,6 +2319,7 @@ class Handler(BaseHTTPRequestHandler):
                 STATE._enrich_sender_names(
                     merged, STATE._sender_names())
                 STATE.inbox.mark_read(thread_type, thread_id)
+                STATE.message_store.mark_read(thread_type, thread_id)
                 result = dict(result)
                 result["messages"] = merged
                 result["thread_id"] = thread_id
@@ -2251,6 +2359,7 @@ class Handler(BaseHTTPRequestHandler):
             STATE._enrich_sender_names(messages, STATE._sender_names())
             if messages:
                 STATE.inbox.mark_read(thread_type, thread_id)
+                STATE.message_store.mark_read(thread_type, thread_id)
             return self._send_json({
                 "messages": messages,
                 "thread_id": thread_id, "type": thread_type,
@@ -2259,6 +2368,64 @@ class Handler(BaseHTTPRequestHandler):
         # GET /api/inbox/summary — moi thread co tin trong Inbox:
         # unread + tin moi nhat (de UI gan huy hieu / xem truoc o
         # thread list). Khong goi Zalo.
+        if path in ("/api/conversations", "/api/watch"):
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            rows = STATE.message_store.threads(limit=300)
+            ids = STATE._friend_ids()
+            mine = str(sess.get("uid", ""))
+            for r in rows:
+                r["stranger"] = bool(
+                    r["thread_type"] == "user" and ids is not None
+                    and r["thread_id"] not in ids and r["thread_id"] != mine)
+            if path == "/api/watch":
+                return self._send_json({
+                    "ready": ids is not None,
+                    "strangers": [r for r in rows
+                                  if r["stranger"] and r["incoming_count"] > 0]})
+            return self._send_json({
+                "threads": rows, "contacts_ready": ids is not None,
+                "unread_total": sum(r["unread"] for r in rows)})
+        if path == "/api/proxy":
+            return self._send_json(STATE.proxy_store.public())
+        if path == "/api/security":
+            return self._send_json({
+                "app_user": app_user,
+                "session_hours": STATE.auth.session_hours if STATE.auth else None,
+                "sessions": STATE.auth.session_count() if STATE.auth else 0,
+                "blocked_ips": STATE.login_limiter.blocked_count(),
+                "login_max_fails": STATE.login_limiter.max_fails,
+                "password_source": ("hash" if os.environ.get(
+                    "ZALO_PC_APP_PASSWORD_HASH") else "env")})
+        if path == "/api/events":
+            q = STATE.events.subscribe()
+            if q is None:
+                return self._send_json({"error": "qua_nhieu_ket_noi"},
+                                       status=429)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+                self.wfile.write(b"retry: 2000\n\n")
+                self.wfile.flush()
+                while True:
+                    try:
+                        ev = q.get(timeout=15)
+                        self.wfile.write(("event: %s\ndata: %s\n\n" % (
+                            ev.get("type", "message"),
+                            json.dumps(ev, ensure_ascii=False))).encode("utf-8"))
+                    except queue.Empty:
+                        self.wfile.write(b": ping\n\n")
+                    self.wfile.flush()
+            except OSError:
+                pass  # nguoi xem dong tab
+            finally:
+                STATE.events.unsubscribe(q)
+            return
         if path == "/api/inbox/summary":
             sess = self._require_login()
             if sess is None:
@@ -2606,8 +2773,14 @@ class Handler(BaseHTTPRequestHandler):
             if STATE.auth is None:
                 return self._send_json(
                     {"error": "app_chua_cau_hinh"}, status=503)
+            ip = self.client_address[0]
+            if STATE.login_limiter.blocked(ip):
+                return self._send_json(
+                    {"error": "qua_nhieu_lan_sai", "retry_after_seconds": 900},
+                    status=429)
             if STATE.auth.verify(body.get("username", ""),
                                  body.get("password", "")):
+                STATE.login_limiter.reset(ip)
                 token, expires = STATE.auth.create_session(
                     body.get("username", ""))
                 max_age = max(0, int(expires - time.time()))
@@ -2615,6 +2788,7 @@ class Handler(BaseHTTPRequestHandler):
                     {"ok": True, "username": body.get("username", "")},
                     extra_headers=[("Set-Cookie",
                                     app_auth.cookie_header(token, max_age))])
+            STATE.login_limiter.fail(ip)
             return self._send_json({"error": "sai_tai_khoan"}, status=401)
         if path == "/api/app/logout":
             # Public on purpose: a stale page must be able to drop a
@@ -2631,15 +2805,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_post(path, body, app_user)
         return self._send_json({"error": "not_found"}, status=404)
 
-    def _revoke_app_token(self):
-        if STATE.auth is None:
-            return
+    def _cookie_token(self):
         cookies = {}
         for part in (self.headers.get("Cookie") or "").split(";"):
             if "=" in part:
                 name, value = part.strip().split("=", 1)
                 cookies[name.strip()] = value.strip()
-        STATE.auth.revoke_token(cookies.get(app_auth.COOKIE_NAME, ""))
+        return cookies.get(app_auth.COOKIE_NAME, "")
+
+    def _revoke_app_token(self):
+        if STATE.auth is None:
+            return
+        STATE.auth.revoke_token(self._cookie_token())
 
     def _api_post(self, path, body, app_user):
         if path == "/api/qr/new":
@@ -3288,6 +3465,43 @@ class Handler(BaseHTTPRequestHandler):
         # Synchronous on purpose: the settings page needs the HTTP
         # status back. Short timeout (5 s); a failure is reported,
         # never raised.
+        if path == "/api/proxy":
+            action = body.get("action")
+            try:
+                if action == "add":
+                    STATE.proxy_store.add(body.get("url", ""),
+                                          body.get("name", ""))
+                elif action == "remove":
+                    STATE.proxy_store.remove(str(body.get("id", "")))
+                elif action == "activate":
+                    STATE.proxy_store.set_active(str(body.get("id", "")))
+                elif action == "deactivate":
+                    STATE.proxy_store.set_active("")
+                elif action == "test":
+                    url = (STATE.proxy_store.url_of(str(body.get("id", "")))
+                           or body.get("url", ""))
+                    return self._send_json(_test_proxy(url))
+                else:
+                    return self._send_json({"error": "action khong hop le"},
+                                           status=400)
+            except ValueError as e:
+                return self._send_json({"error": str(e)}, status=400)
+            return self._send_json(STATE.proxy_store.public())
+        if path == "/api/security":
+            action = body.get("action")
+            if STATE.auth is None:
+                return self._send_json({"ok": True, "revoked": 0})
+            if action == "revoke_others":
+                n = STATE.auth.revoke_all(keep_token=self._cookie_token())
+                return self._send_json({"ok": True, "revoked": n})
+            if action == "revoke_all":
+                n = STATE.auth.revoke_all()
+                return self._send_json(
+                    {"ok": True, "revoked": n},
+                    extra_headers=[("Set-Cookie",
+                                    app_auth.clear_cookie_header())])
+            return self._send_json({"error": "action khong hop le"},
+                                   status=400)
         if path == "/api/webhooks/test":
             sess = self._require_login()
             if sess is None:
@@ -3311,6 +3525,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 

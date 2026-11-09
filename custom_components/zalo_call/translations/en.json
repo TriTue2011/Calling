@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Zalo PC app",
+        "description": "Address and login of the zalo-pc-app container.",
+        "data": {
+          "url": "App URL",
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the app. Check address and port 8080.",
+      "invalid_auth": "Wrong app username or password."
+    },
+    "abort": {
+      "already_configured": "This app is already added."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Zalo Call options",
+        "data": {
+          "ha_url": "HA address reachable by the app (webhook)",
+          "ai_enabled": "AI auto-reply to 1-1 messages",
+          "ai_agent": "Conversation agent for AI",
+          "ai_threads": "Only reply to these threadIds (comma separated, empty = all)",
+          "speaker": "Call speaker",
+          "mic": "Mic source",
+          "camera": "Camera for video calls"
+        }
+      }
+    }
+  }
+}

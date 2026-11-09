@@ -1,0 +1,1643 @@
+[
+ {
+  "name": "send_message",
+  "no": 1,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_message",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "message",
+    "label": "Nội dung tin nhắn",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_file",
+  "no": 2,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_file",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "file",
+    "label": "Đường dẫn tệp trong HA hoặc URL",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_image",
+  "no": 3,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_image",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "file",
+    "label": "Ảnh (đường dẫn trong HA hoặc URL)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_logged_accounts",
+  "no": 4,
+  "kind": "acct",
+  "action": null,
+  "group": "khac",
+  "label": "get_logged_accounts",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_account_details",
+  "no": 5,
+  "kind": "acct",
+  "action": null,
+  "group": "khac",
+  "label": "get_account_details",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "find_user",
+  "no": 6,
+  "kind": "svc",
+  "action": "find_user",
+  "group": "ho_so",
+  "label": "Tìm người dùng theo SĐT",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "phone",
+    "label": "Số điện thoại",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_user_info",
+  "no": 7,
+  "kind": "svc",
+  "action": "get_user_info",
+  "group": "ho_so",
+  "label": "Xem thông tin người dùng",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "user_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_friend_request",
+  "no": 8,
+  "kind": "svc",
+  "action": "send_friend_request",
+  "group": "ho_so",
+  "label": "Gửi lời mời kết bạn",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "user_id",
+    "label": "UserId",
+    "required": true
+   },
+   {
+    "key": "message",
+    "label": "Lời nhắn",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "create_group",
+  "no": 9,
+  "kind": "svc",
+  "action": "create_group",
+  "group": "nhom",
+  "label": "Tạo nhóm mới",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "name",
+    "label": "Tên nhóm",
+    "required": true
+   },
+   {
+    "key": "member_ids",
+    "label": "Thành viên (userId, cách nhau bằng dấu phẩy)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "get_group_info",
+  "no": 10,
+  "kind": "svc",
+  "action": "get_group_info",
+  "group": "nhom",
+  "label": "Xem thông tin nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "add_user_to_group",
+  "no": 11,
+  "kind": "svc",
+  "action": "add_user_to_group",
+  "group": "nhom",
+  "label": "Mời thành viên vào nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "member_id",
+    "label": "UserId (cách nhau bằng dấu phẩy)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "remove_user_from_group",
+  "no": 12,
+  "kind": "svc",
+  "action": "remove_user_from_group",
+  "group": "nhom",
+  "label": "Đuổi thành viên",
+  "thread": "group",
+  "danger": true,
+  "fields": [
+   {
+    "key": "member_id",
+    "label": "UserId (cách nhau bằng dấu phẩy)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_image_to_user",
+  "no": 13,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_image_to_user",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "file",
+    "label": "Ảnh (đường dẫn hoặc URL)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_images_to_user",
+  "no": 14,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_images_to_user",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "files",
+    "label": "Các ảnh, cách nhau dấu phẩy",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_image_to_group",
+  "no": 15,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_image_to_group",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "file",
+    "label": "Ảnh (đường dẫn hoặc URL)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_images_to_group",
+  "no": 16,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_images_to_group",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "files",
+    "label": "Các ảnh, cách nhau dấu phẩy",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_account_webhooks",
+  "no": 17,
+  "kind": "acct",
+  "action": null,
+  "group": "khac",
+  "label": "get_account_webhooks",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_account_webhook",
+  "no": 18,
+  "kind": "acct",
+  "action": null,
+  "group": "khac",
+  "label": "get_account_webhook",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "set_account_webhook",
+  "no": 19,
+  "kind": "acct",
+  "action": null,
+  "group": "khac",
+  "label": "set_account_webhook",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "message_webhook_url",
+    "label": "URL webhook tin nhắn",
+    "required": false
+   },
+   {
+    "key": "group_event_webhook_url",
+    "label": "URL webhook sự kiện nhóm",
+    "required": false
+   },
+   {
+    "key": "reaction_webhook_url",
+    "label": "URL webhook cảm xúc",
+    "required": false
+   },
+   {
+    "key": "call_webhook_url",
+    "label": "URL webhook cuộc gọi",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "delete_account_webhook",
+  "no": 20,
+  "kind": "acct",
+  "action": null,
+  "group": "khac",
+  "label": "delete_account_webhook",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_proxies",
+  "no": 21,
+  "kind": "acct",
+  "action": null,
+  "group": "khac",
+  "label": "get_proxies",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "add_proxy",
+  "no": 22,
+  "kind": "acct",
+  "action": null,
+  "group": "khac",
+  "label": "add_proxy",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "remove_proxy",
+  "no": 23,
+  "kind": "acct",
+  "action": null,
+  "group": "khac",
+  "label": "remove_proxy",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "accept_friend_request",
+  "no": 24,
+  "kind": "svc",
+  "action": "accept_friend_request",
+  "group": "ho_so",
+  "label": "Chấp nhận kết bạn",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "user_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "block_user",
+  "no": 25,
+  "kind": "svc",
+  "action": "block_user",
+  "group": "ho_so",
+  "label": "Chặn người dùng",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "user_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "unblock_user",
+  "no": 26,
+  "kind": "svc",
+  "action": "unblock_user",
+  "group": "ho_so",
+  "label": "Bỏ chặn người dùng",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "user_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_sticker",
+  "no": 27,
+  "kind": "svc",
+  "action": "send_sticker",
+  "group": "sticker",
+  "label": "Gửi sticker",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "sticker_id",
+    "label": "Sticker ID",
+    "required": true
+   },
+   {
+    "key": "cate_id",
+    "label": "Cate ID",
+    "required": false
+   },
+   {
+    "key": "sticker_type",
+    "label": "Type",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "undo_message",
+  "no": 28,
+  "kind": "svc",
+  "action": "undo_message",
+  "group": "tin_nhan",
+  "label": "Thu hồi tin nhắn",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "msg_id",
+    "label": "ID tin nhắn",
+    "required": true
+   },
+   {
+    "key": "cli_msg_id",
+    "label": "Client ID tin nhắn",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "create_reminder",
+  "no": 29,
+  "kind": "svc",
+  "action": "create_reminder",
+  "group": "nhac",
+  "label": "Tạo nhắc hẹn",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "title",
+    "label": "Tiêu đề",
+    "required": true
+   },
+   {
+    "key": "content",
+    "label": "Nội dung",
+    "required": false
+   },
+   {
+    "key": "remind_time",
+    "label": "Thời gian nhắc (ISO-8601 hoặc epoch)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "remove_reminder",
+  "no": 30,
+  "kind": "svc",
+  "action": "remove_reminder",
+  "group": "nhac",
+  "label": "Xóa nhắc hẹn",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "reminder_id",
+    "label": "ID nhắc hẹn",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "change_group_name",
+  "no": 31,
+  "kind": "svc",
+  "action": "change_group_name",
+  "group": "nhom",
+  "label": "Đổi tên nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "name",
+    "label": "Tên mới",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "change_group_avatar",
+  "no": 32,
+  "kind": "svc",
+  "action": "change_group_avatar",
+  "group": "nhom",
+  "label": "Đổi ảnh đại diện nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "file",
+    "label": "Ảnh đại diện (upload file)",
+    "required": true
+   },
+   {
+    "key": "width",
+    "label": "Chiều rộng ảnh",
+    "required": false
+   },
+   {
+    "key": "height",
+    "label": "Chiều cao ảnh",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "send_voice",
+  "no": 33,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_voice",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "file",
+    "label": "Tệp âm thanh (đường dẫn hoặc URL)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_all_friends",
+  "no": 34,
+  "kind": "view",
+  "action": null,
+  "group": "ho_so",
+  "label": "get_all_friends",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_sent_friend_requests",
+  "no": 35,
+  "kind": "svc",
+  "action": "get_sent_friend_requests",
+  "group": "ho_so",
+  "label": "Xem lời mời kết bạn đã gửi",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "undo_friend_request",
+  "no": 36,
+  "kind": "svc",
+  "action": "undo_friend_request",
+  "group": "ho_so",
+  "label": "Thu hồi lời mời kết bạn",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friend_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "remove_friend",
+  "no": 37,
+  "kind": "svc",
+  "action": "remove_friend",
+  "group": "ho_so",
+  "label": "Hủy kết bạn",
+  "thread": "none",
+  "danger": true,
+  "fields": [
+   {
+    "key": "friend_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "change_friend_alias",
+  "no": 38,
+  "kind": "svc",
+  "action": "change_friend_alias",
+  "group": "ho_so",
+  "label": "Đổi biệt danh",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friend_id",
+    "label": "UserId",
+    "required": true
+   },
+   {
+    "key": "alias",
+    "label": "Biệt danh mới",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "remove_friend_alias",
+  "no": 39,
+  "kind": "svc",
+  "action": "remove_friend_alias",
+  "group": "ho_so",
+  "label": "Xóa biệt danh",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "friend_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_all_groups",
+  "no": 40,
+  "kind": "view",
+  "action": null,
+  "group": "ho_so",
+  "label": "get_all_groups",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_group_chat_history",
+  "no": 41,
+  "kind": "svc",
+  "action": "get_group_chat_history",
+  "group": "tin_nhan",
+  "label": "Xem lịch sử nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "count",
+    "label": "Số tin (tối đa 1000)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "add_group_deputy",
+  "no": 42,
+  "kind": "svc",
+  "action": "add_group_deputy",
+  "group": "nhom",
+  "label": "Thêm phó nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "member_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "remove_group_deputy",
+  "no": 43,
+  "kind": "svc",
+  "action": "remove_group_deputy",
+  "group": "nhom",
+  "label": "Xóa phó nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "member_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "change_group_owner",
+  "no": 44,
+  "kind": "svc",
+  "action": "change_group_owner",
+  "group": "nhom",
+  "label": "Chuyển quyền sở hữu nhóm",
+  "thread": "group",
+  "danger": true,
+  "fields": [
+   {
+    "key": "member_id",
+    "label": "UserId chủ mới",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "disperse_group",
+  "no": 45,
+  "kind": "svc",
+  "action": "disperse_group",
+  "group": "nhom",
+  "label": "Giải tán nhóm",
+  "thread": "group",
+  "danger": true,
+  "fields": []
+ },
+ {
+  "name": "enable_group_link",
+  "no": 46,
+  "kind": "svc",
+  "action": "enable_group_link",
+  "group": "nhom",
+  "label": "Bật link tham gia nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "disable_group_link",
+  "no": 47,
+  "kind": "svc",
+  "action": "disable_group_link",
+  "group": "nhom",
+  "label": "Tắt link tham gia nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "join_group",
+  "no": 48,
+  "kind": "svc",
+  "action": "join_group",
+  "group": "nhom",
+  "label": "Tham gia nhóm bằng link",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "link",
+    "label": "Link mời",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "leave_group",
+  "no": 49,
+  "kind": "svc",
+  "action": "leave_group",
+  "group": "nhom",
+  "label": "Rời nhóm",
+  "thread": "group",
+  "danger": true,
+  "fields": [
+   {
+    "key": "silent",
+    "label": "Rời lặng lẽ (true/false)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "update_profile",
+  "no": 50,
+  "kind": "svc",
+  "action": "update_profile",
+  "group": "ho_so",
+  "label": "Cập nhật thông tin cá nhân",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "name",
+    "label": "Tên hiển thị",
+    "required": false
+   },
+   {
+    "key": "dob",
+    "label": "Ngày sinh (yyyy-mm-dd)",
+    "required": false
+   },
+   {
+    "key": "gender",
+    "label": "Giới tính (0=Nam, 1=Nữ)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "update_settings",
+  "no": 51,
+  "kind": "svc",
+  "action": "update_settings",
+  "group": "ho_so",
+  "label": "Cập nhật cài đặt riêng tư",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "setting_type",
+    "label": "Loại (online_status/seen_status/receive_message/phone_search)",
+    "required": true
+   },
+   {
+    "key": "status",
+    "label": "Trạng thái (1=bật, 0=tắt)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "set_mute",
+  "no": 52,
+  "kind": "svc",
+  "action": "set_mute",
+  "group": "hoi_thoai",
+  "label": "Tắt thông báo",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "duration",
+    "label": "Thời lượng giây (3600/14400/-1=vĩnh viễn/0=bật lại)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "set_pinned_conversation",
+  "no": 53,
+  "kind": "svc",
+  "action": "set_pinned_conversation",
+  "group": "hoi_thoai",
+  "label": "Ghim/bỏ ghim hội thoại",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "pinned",
+    "label": "Ghim (true/false)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_unread_mark",
+  "no": 54,
+  "kind": "svc",
+  "action": "get_unread_mark",
+  "group": "hoi_thoai",
+  "label": "Xem hội thoại chưa đọc",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "add_unread_mark",
+  "no": 55,
+  "kind": "svc",
+  "action": "add_unread_mark",
+  "group": "hoi_thoai",
+  "label": "Đánh dấu hội thoại chưa đọc",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "remove_unread_mark",
+  "no": 56,
+  "kind": "svc",
+  "action": "remove_unread_mark",
+  "group": "hoi_thoai",
+  "label": "Bỏ đánh dấu chưa đọc",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "delete_chat",
+  "no": 57,
+  "kind": "svc",
+  "action": "delete_chat",
+  "group": "hoi_thoai",
+  "label": "Xóa hội thoại",
+  "thread": "both",
+  "danger": true,
+  "fields": [
+   {
+    "key": "cli_msg_id",
+    "label": "Client ID tin cuối",
+    "required": false
+   },
+   {
+    "key": "conver",
+    "label": "Conver của tin cuối",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "get_archived_chat_list",
+  "no": 58,
+  "kind": "svc",
+  "action": "get_archived_chat_list",
+  "group": "hoi_thoai",
+  "label": "Xem hội thoại đã lưu trữ",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_auto_delete_chat",
+  "no": 59,
+  "kind": "svc",
+  "action": "get_auto_delete_chat",
+  "group": "hoi_thoai",
+  "label": "Xem hội thoại đang tự xóa",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "update_auto_delete_chat",
+  "no": 60,
+  "kind": "svc",
+  "action": "update_auto_delete_chat",
+  "group": "hoi_thoai",
+  "label": "Bật/tắt tự xóa tin nhắn",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "ttl",
+    "label": "TTL (0=tắt, 86400000=1 ngày, 604800000=7 ngày)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_hidden_conversations",
+  "no": 61,
+  "kind": "svc",
+  "action": "get_hidden_conversations",
+  "group": "hoi_thoai",
+  "label": "Xem hội thoại ẩn",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "set_hidden_conversations",
+  "no": 62,
+  "kind": "svc",
+  "action": "set_hidden_conversations",
+  "group": "hoi_thoai",
+  "label": "Ẩn/bỏ ẩn hội thoại",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "hidden",
+    "label": "Ẩn (true/false)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "update_hidden_convers_pin",
+  "no": 63,
+  "kind": "svc",
+  "action": "update_hidden_convers_pin",
+  "group": "hoi_thoai",
+  "label": "Đặt PIN hội thoại ẩn",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "pin",
+    "label": "PIN mới",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "reset_hidden_convers_pin",
+  "no": 64,
+  "kind": "svc",
+  "action": "reset_hidden_convers_pin",
+  "group": "hoi_thoai",
+  "label": "Gỡ PIN hội thoại ẩn",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_mute",
+  "no": 65,
+  "kind": "svc",
+  "action": "get_mute",
+  "group": "hoi_thoai",
+  "label": "Xem danh sách tắt thông báo",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_pin_conversations",
+  "no": 66,
+  "kind": "svc",
+  "action": "get_pin_conversations",
+  "group": "hoi_thoai",
+  "label": "Xem hội thoại đã ghim",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "add_reaction",
+  "no": 67,
+  "kind": "svc",
+  "action": "add_reaction",
+  "group": "tin_nhan",
+  "label": "Thả reaction",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "icon",
+    "label": "Icon (like/heart/haha/...)",
+    "required": true
+   },
+   {
+    "key": "msg_id",
+    "label": "ID tin nhắn",
+    "required": true
+   },
+   {
+    "key": "cli_msg_id",
+    "label": "Client ID tin nhắn",
+    "required": true
+   },
+   {
+    "key": "r_icon",
+    "label": "rIcon (khi icon chưa map)",
+    "required": false
+   },
+   {
+    "key": "r_type",
+    "label": "rType (khi icon chưa map)",
+    "required": false
+   },
+   {
+    "key": "msg_type",
+    "label": "Loại tin (mặc định 1=text)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "delete_message",
+  "no": 68,
+  "kind": "svc",
+  "action": "delete_message",
+  "group": "tin_nhan",
+  "label": "Xóa tin nhắn",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "msg_id",
+    "label": "ID tin nhắn",
+    "required": true
+   },
+   {
+    "key": "cli_msg_id",
+    "label": "Client ID tin nhắn",
+    "required": false
+   },
+   {
+    "key": "only_me",
+    "label": "Chỉ xóa phía mình (true/false)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "forward_message",
+  "no": 69,
+  "kind": "svc",
+  "action": "forward_message",
+  "group": "tin_nhan",
+  "label": "Chuyển tiếp tin nhắn",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "message",
+    "label": "Nội dung tin",
+    "required": false
+   },
+   {
+    "key": "dest_thread_ids",
+    "label": "Thread đích (cách nhau bằng dấu phẩy)",
+    "required": true
+   },
+   {
+    "key": "type",
+    "label": "Loại thread đích (user/group)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "parse_link",
+  "no": 70,
+  "kind": "svc",
+  "action": "parse_link",
+  "group": "tin_nhan",
+  "label": "Phân tích link lấy preview",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "link",
+    "label": "Link",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_card",
+  "no": 71,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_card",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "user_id",
+    "label": "UserId của danh thiếp",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_link",
+  "no": 72,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_link",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "link",
+    "label": "Đường link",
+    "required": true
+   },
+   {
+    "key": "message",
+    "label": "Lời nhắn kèm theo",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "get_stickers",
+  "no": 73,
+  "kind": "svc",
+  "action": "get_stickers",
+  "group": "sticker",
+  "label": "Xem danh mục sticker",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_stickers_detail",
+  "no": 74,
+  "kind": "svc",
+  "action": "get_stickers_detail",
+  "group": "sticker",
+  "label": "Xem chi tiết bộ sticker",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "sticker_album",
+    "label": "Album/Cate ID",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_video",
+  "no": 75,
+  "kind": "chat",
+  "action": null,
+  "group": "tin_nhan",
+  "label": "send_video",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "file",
+    "label": "Tệp video (đường dẫn hoặc URL)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "create_note_group",
+  "no": 76,
+  "kind": "svc",
+  "action": "create_note_group",
+  "group": "nhom",
+  "label": "Tạo ghi chú trong nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "title",
+    "label": "Tiêu đề ghi chú",
+    "required": true
+   },
+   {
+    "key": "pin_act",
+    "label": "Ghim (true/false)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "edit_note_group",
+  "no": 77,
+  "kind": "svc",
+  "action": "edit_note_group",
+  "group": "nhom",
+  "label": "Sửa ghi chú trong nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "topic_id",
+    "label": "ID ghi chú",
+    "required": true
+   },
+   {
+    "key": "title",
+    "label": "Tiêu đề mới",
+    "required": true
+   },
+   {
+    "key": "pin_act",
+    "label": "Ghim (true/false)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "get_list_board",
+  "no": 78,
+  "kind": "svc",
+  "action": "get_list_board",
+  "group": "nhom",
+  "label": "Xem bảng tin của nhóm",
+  "thread": "group",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "create_poll",
+  "no": 79,
+  "kind": "svc",
+  "action": "create_poll",
+  "group": "nhom",
+  "label": "Tạo bình chọn",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "question",
+    "label": "Câu hỏi",
+    "required": true
+   },
+   {
+    "key": "options",
+    "label": "Lựa chọn (cách nhau bằng dấu phẩy)",
+    "required": true
+   },
+   {
+    "key": "allow_multi_choices",
+    "label": "Cho chọn nhiều (true/false)",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "get_poll_detail",
+  "no": 80,
+  "kind": "svc",
+  "action": "get_poll_detail",
+  "group": "nhom",
+  "label": "Xem chi tiết bình chọn",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "poll_id",
+    "label": "ID bình chọn",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "lock_poll",
+  "no": 81,
+  "kind": "svc",
+  "action": "lock_poll",
+  "group": "nhom",
+  "label": "Khóa bình chọn",
+  "thread": "group",
+  "danger": false,
+  "fields": [
+   {
+    "key": "poll_id",
+    "label": "ID bình chọn",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "edit_reminder",
+  "no": 82,
+  "kind": "svc",
+  "action": "edit_reminder",
+  "group": "nhac",
+  "label": "Sửa nhắc hẹn",
+  "thread": "both",
+  "danger": false,
+  "fields": [
+   {
+    "key": "topic_id",
+    "label": "ID nhắc hẹn",
+    "required": true
+   },
+   {
+    "key": "title",
+    "label": "Tiêu đề mới",
+    "required": true
+   },
+   {
+    "key": "remind_time",
+    "label": "Thời gian nhắc mới",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "get_reminder",
+  "no": 83,
+  "kind": "svc",
+  "action": "get_reminder",
+  "group": "nhac",
+  "label": "Xem chi tiết nhắc hẹn",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "reminder_id",
+    "label": "ID nhắc hẹn",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_list_reminder",
+  "no": 84,
+  "kind": "svc",
+  "action": "get_list_reminder",
+  "group": "nhac",
+  "label": "Xem danh sách nhắc hẹn",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_reminder_responses",
+  "no": 85,
+  "kind": "svc",
+  "action": "get_reminder_responses",
+  "group": "nhac",
+  "label": "Xem phản hồi nhắc hẹn",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "reminder_id",
+    "label": "ID nhắc hẹn",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "add_quick_message",
+  "no": 86,
+  "kind": "svc",
+  "action": "add_quick_message",
+  "group": "nhac",
+  "label": "Thêm tin nhắn nhanh",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "keyword",
+    "label": "Từ khóa",
+    "required": true
+   },
+   {
+    "key": "title",
+    "label": "Nội dung",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_quick_message",
+  "no": 87,
+  "kind": "svc",
+  "action": "get_quick_message",
+  "group": "nhac",
+  "label": "Xem tin nhắn nhanh",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "remove_quick_message",
+  "no": 88,
+  "kind": "svc",
+  "action": "remove_quick_message",
+  "group": "nhac",
+  "label": "Xóa tin nhắn nhanh",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "item_ids",
+    "label": "ID (cách nhau bằng dấu phẩy)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "update_quick_message",
+  "no": 89,
+  "kind": "svc",
+  "action": "update_quick_message",
+  "group": "nhac",
+  "label": "Sửa tin nhắn nhanh",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "item_id",
+    "label": "ID",
+    "required": true
+   },
+   {
+    "key": "keyword",
+    "label": "Từ khóa",
+    "required": false
+   },
+   {
+    "key": "title",
+    "label": "Nội dung",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "get_labels",
+  "no": 90,
+  "kind": "svc",
+  "action": "get_labels",
+  "group": "nhan",
+  "label": "Xem danh sách nhãn",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "block_view_feed",
+  "no": 91,
+  "kind": "svc",
+  "action": "block_view_feed",
+  "group": "ho_so",
+  "label": "Chặn xem nhật ký",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "user_id",
+    "label": "UserId",
+    "required": true
+   },
+   {
+    "key": "is_block_feed",
+    "label": "Chặn (true/false)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "change_account_avatar",
+  "no": 92,
+  "kind": "svc",
+  "action": "change_account_avatar",
+  "group": "ho_so",
+  "label": "Đổi ảnh đại diện",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "file",
+    "label": "Ảnh đại diện (upload file)",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "get_avatar_list",
+  "no": 93,
+  "kind": "svc",
+  "action": "get_avatar_list",
+  "group": "ho_so",
+  "label": "Xem ảnh đại diện đã dùng",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "count",
+    "label": "Số lượng",
+    "required": false
+   },
+   {
+    "key": "page",
+    "label": "Trang",
+    "required": false
+   }
+  ]
+ },
+ {
+  "name": "last_online",
+  "no": 94,
+  "kind": "svc",
+  "action": "last_online",
+  "group": "ho_so",
+  "label": "Xem hoạt động cuối",
+  "thread": "none",
+  "danger": false,
+  "fields": [
+   {
+    "key": "user_id",
+    "label": "UserId",
+    "required": true
+   }
+  ]
+ },
+ {
+  "name": "send_typing_event",
+  "no": 95,
+  "kind": "svc",
+  "action": "send_typing_event",
+  "group": "nhan",
+  "label": "Gửi trạng thái đang gõ",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ },
+ {
+  "name": "get_login_qr",
+  "no": 96,
+  "kind": "acct",
+  "action": null,
+  "group": "khac",
+  "label": "get_login_qr",
+  "thread": "both",
+  "danger": false,
+  "fields": []
+ }
+]

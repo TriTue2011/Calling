@@ -205,6 +205,52 @@ class AppAuth:
         with self._lock:
             return len(self._sessions)
 
+    def revoke_all(self, keep_token=None):
+        """Thu hoi moi phien (tru keep_token neu co). Tra so phien da xoa."""
+        with self._lock:
+            drop = [t for t in self._sessions if t != keep_token]
+            for t in drop:
+                del self._sessions[t]
+            return len(drop)
+
+
+class LoginLimiter:
+    """Chan do mat khau: sai qua `max_fails` lan trong `window` giay tu
+    cung mot dia chi thi khoa dia chi do den het cua so. Trong bo nho."""
+
+    def __init__(self, max_fails=5, window=900):
+        self.max_fails = max_fails
+        self.window = window
+        self._fails = {}
+        import threading
+        self._lock = threading.Lock()
+
+    def _prune(self, ip, now):
+        self._fails[ip] = [t for t in self._fails.get(ip, []) if now - t < self.window]
+
+    def blocked(self, ip, now=None):
+        now = time.time() if now is None else now
+        with self._lock:
+            self._prune(ip, now)
+            return len(self._fails[ip]) >= self.max_fails
+
+    def fail(self, ip, now=None):
+        now = time.time() if now is None else now
+        with self._lock:
+            self._prune(ip, now)
+            self._fails[ip].append(now)
+
+    def reset(self, ip):
+        with self._lock:
+            self._fails.pop(ip, None)
+
+    def blocked_count(self, now=None):
+        now = time.time() if now is None else now
+        with self._lock:
+            for ip in list(self._fails):
+                self._prune(ip, now)
+            return sum(1 for v in self._fails.values() if len(v) >= self.max_fails)
+
 
 def cookie_header(token, max_age_seconds):
     """Set-Cookie cho phien app: HttpOnly + SameSite=Lax; Secure chi

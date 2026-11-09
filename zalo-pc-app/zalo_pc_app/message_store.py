@@ -26,6 +26,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 
 FILENAME = "messages.db"
 DEFAULT_MAX_PER_THREAD = 5000
@@ -47,6 +48,12 @@ _SCHEMA = (
     "  PRIMARY KEY (thread_type, thread_id, dedup_key))",
     "CREATE INDEX IF NOT EXISTS idx_messages_thread_ts"
     " ON messages (thread_type, thread_id, ts DESC)",
+    # Dau "da doc" tung hoi thoai: so tin chua doc = tin den co ts lon hon
+    # moc nay. Ben qua restart (Inbox trong RAM thi khong).
+    "CREATE TABLE IF NOT EXISTS reads ("
+    "  thread_type TEXT NOT NULL, thread_id TEXT NOT NULL,"
+    "  ts REAL NOT NULL DEFAULT 0,"
+    "  PRIMARY KEY (thread_type, thread_id))",
 )
 
 
@@ -76,8 +83,18 @@ class MessageStore:
             conn = sqlite3.connect(self.path, check_same_thread=False)
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
+            had_reads = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='reads'"
+            ).fetchone() is not None
             for stmt in _SCHEMA:
                 conn.execute(stmt)
+            if not had_reads:
+                # Lan dau co bang `reads`: tin cu coi nhu da doc, de khong
+                # bao hang tram tin chua doc tu lich su co san.
+                conn.execute(
+                    "INSERT OR REPLACE INTO reads (thread_type, thread_id, ts)"
+                    " SELECT thread_type, thread_id, MAX(ts) FROM messages"
+                    " GROUP BY thread_type, thread_id")
             conn.commit()
             self._conn = conn
             row = conn.execute(
@@ -208,6 +225,116 @@ class MessageStore:
             if isinstance(item, dict):
                 out.append(item)
         return out
+
+    def _incoming(self, thread_type, thread_id):
+        """(menh de SQL, tham so) chon tin DEN cua mot hoi thoai: 1-1 thi
+        nguoi gui chinh la thread; nhom thi nguoi gui khac minh."""
+        if thread_type == "group":
+            return ("sender_id NOT IN (?, 'me', '')",
+                    [self._account_uid or "-"])
+        return "sender_id = ?", [thread_id]
+
+    @staticmethod
+    def _preview(m):
+        kind = m.get("kind") or ""
+        if kind == "photo":
+            return "[Ảnh]"
+        if kind == "voice":
+            return "[Tin nhắn thoại]"
+        if kind == "file":
+            return "[Tệp] " + (m.get("file_name") or "")
+        return m.get("text") or m.get("file_name") or ""
+
+    def threads(self, thread_type=None, limit=500):
+        """Moi hoi thoai co tin, moi nhat truoc: {thread_type, thread_id,
+        count, incoming_count, unread, first_ts, last_ts, last_text,
+        last_out, last_sender_name, name}. `name` = ten hien thi cua nguoi
+        gui trong tin den gan nhat (Zalo gui kem dName) — cach lay ten
+        nguoi la. Tra [] neu DB khong dung duoc. Khong bao gio nem loi."""
+        try:
+            limit = max(1, int(limit))
+        except (TypeError, ValueError):
+            limit = 500
+        with self._lock:
+            if not self._connect():
+                return []
+            try:
+                sql = ("SELECT thread_type, thread_id, COUNT(*), MIN(ts), MAX(ts)"
+                       " FROM messages")
+                args = []
+                if thread_type:
+                    sql += " WHERE thread_type=?"
+                    args.append(str(thread_type))
+                sql += (" GROUP BY thread_type, thread_id"
+                        " ORDER BY MAX(ts) DESC LIMIT ?")
+                args.append(limit)
+                rows = self._conn.execute(sql, args).fetchall()
+                out = []
+                for ttype, tid, cnt, first, last in rows:
+                    cond, cargs = self._incoming(ttype, tid)
+                    base = [ttype, tid] + cargs
+                    inc = self._conn.execute(
+                        "SELECT COUNT(*) FROM messages WHERE thread_type=?"
+                        " AND thread_id=? AND " + cond, base).fetchone()[0]
+                    read_ts = (self._conn.execute(
+                        "SELECT ts FROM reads WHERE thread_type=? AND thread_id=?",
+                        (ttype, tid)).fetchone() or (0,))[0]
+                    unread = self._conn.execute(
+                        "SELECT COUNT(*) FROM messages WHERE thread_type=?"
+                        " AND thread_id=? AND " + cond + " AND ts > ?",
+                        base + [read_ts]).fetchone()[0]
+
+                    def _latest(extra, xargs):
+                        r = self._conn.execute(
+                            "SELECT sender_id, raw_json FROM messages WHERE"
+                            " thread_type=? AND thread_id=?" + extra +
+                            " ORDER BY ts DESC, rowid DESC LIMIT 1",
+                            [ttype, tid] + xargs).fetchone()
+                        if not r:
+                            return "", {}
+                        try:
+                            m = json.loads(r[1])
+                        except ValueError:
+                            m = {}
+                        return r[0], (m if isinstance(m, dict) else {})
+                    last_sender, last_m = _latest("", [])
+                    _, in_m = _latest(" AND " + cond, cargs)
+                    raw = in_m.get("raw") if isinstance(in_m.get("raw"), dict) else {}
+                    name = in_m.get("sender_name") or raw.get("dName") or ""
+                    last_in = (last_sender == tid) if ttype != "group" else (
+                        last_sender not in (self._account_uid, "me", ""))
+                    out.append({
+                        "thread_type": ttype, "thread_id": tid, "count": cnt,
+                        "incoming_count": inc, "unread": unread,
+                        "first_ts": first, "last_ts": last,
+                        "last_text": self._preview(last_m), "last_out": not last_in,
+                        "last_sender_name": last_m.get("sender_name") or "",
+                        "name": name})
+                return out
+            except sqlite3.Error:
+                return []
+
+    def mark_read(self, thread_type, thread_id):
+        """Dat dau da doc cho hoi thoai (moc = thoi diem hien tai hoac ts
+        tin moi nhat, lay so lon hon). Khong bao gio nem loi."""
+        thread_type, thread_id = str(thread_type or ""), str(thread_id or "")
+        if not thread_type or not thread_id:
+            return False
+        with self._lock:
+            if not self._connect():
+                return False
+            try:
+                top = self._conn.execute(
+                    "SELECT MAX(ts) FROM messages WHERE thread_type=?"
+                    " AND thread_id=?", (thread_type, thread_id)).fetchone()[0] or 0
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO reads (thread_type, thread_id, ts)"
+                    " VALUES (?,?,?)", (thread_type, thread_id,
+                                        max(float(top), time.time())))
+                self._conn.commit()
+                return True
+            except sqlite3.Error:
+                return False
 
     def count(self, thread_type=None, thread_id=None):
         """So tin da luu (toan DB hoac mot thread). Tra 0 neu loi."""

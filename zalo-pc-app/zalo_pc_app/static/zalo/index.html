@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="vi" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Zalo</title>
+<link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+<div id="app" class="app" data-tab="chats" data-pane="list" data-info="off">
+  <nav class="rail" aria-label="Điều hướng chính" id="rail">
+    <button class="me" id="me-btn" aria-label="Tài khoản" title="Tài khoản"></button>
+    <button class="rail-btn" data-tab="chats" aria-label="Tin nhắn" title="Tin nhắn"><span data-i="chat"></span><span class="dot" id="dot-chats" hidden></span></button>
+    <button class="rail-btn" data-tab="contacts" aria-label="Danh bạ" title="Danh bạ"><span data-i="contact"></span></button>
+    <button class="rail-btn" data-tab="calls" aria-label="Cuộc gọi" title="Cuộc gọi"><span data-i="phone"></span><span class="dot live" id="dot-calls" hidden></span></button>
+    <button class="rail-btn" data-tab="services" aria-label="Dịch vụ (96)" title="96 dịch vụ"><span data-i="grid"></span></button>
+    <span class="rail-sp"></span>
+    <button class="rail-btn" id="btn-cog" aria-label="Cài đặt" aria-haspopup="menu" title="Cài đặt"><span data-i="cog"></span></button>
+  </nav>
+
+  <section class="listcol" id="listcol" aria-label="Danh sách">
+    <div class="list-head">
+      <div class="searchbar">
+        <div class="search"><span data-i="search"></span><label class="sr" for="q">Tìm kiếm</label><input id="q" type="search" placeholder="Tìm kiếm" autocomplete="off"></div>
+        <button class="icon-btn" id="btn-reload" aria-label="Tải lại danh bạ" title="Tải lại danh bạ"><span data-i="refresh"></span></button>
+      </div>
+      <div id="chips" role="group" aria-label="Lọc"></div>
+    </div>
+    <ul class="list" id="list"></ul>
+    <div class="list-foot" id="list-foot"></div>
+  </section>
+
+  <main class="mainpane" id="mainpane">
+    <div class="pane on" id="pane-empty"><div class="empty"><div class="brand" aria-hidden="true">Z</div><h2>Chào mừng đến với Zalo</h2><p id="empty-note">Chọn một cuộc trò chuyện ở bên trái để bắt đầu nhắn tin hoặc gọi.</p></div></div>
+
+    <div class="pane" id="pane-chat">
+      <header class="head">
+        <button class="icon-btn back" id="chat-back" aria-label="Quay lại"><span data-i="back"></span></button>
+        <span class="av" id="chat-av"></span>
+        <div class="head-main"><div class="head-name" id="chat-name"></div><div class="head-sub" id="chat-sub"></div></div>
+        <button class="icon-btn" id="btn-call" aria-label="Gọi thoại" title="Gọi thoại"><span data-i="phone"></span></button>
+        <button class="icon-btn" id="btn-video" aria-label="Gọi video" title="Gọi video"><span data-i="video"></span></button>
+        <button class="icon-btn" id="btn-info" aria-label="Thông tin hội thoại" aria-pressed="false" title="Thông tin hội thoại"><span data-i="panel"></span></button>
+      </header>
+      <div class="notice" id="chat-notice" hidden></div>
+      <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Tin nhắn"></div>
+      <div class="composer" id="composer">
+        <input type="file" id="file-in" multiple hidden>
+        <input type="file" id="img-in" accept="image/*" multiple hidden>
+        <div class="ctools">
+          <button class="icon-btn" id="btn-img" aria-label="Gửi ảnh" title="Gửi ảnh"><span data-i="image"></span></button>
+          <button class="icon-btn" id="btn-attach" aria-label="Đính kèm tệp" title="Đính kèm tệp"><span data-i="clip"></span></button>
+          <button class="icon-btn" id="btn-rec" aria-label="Ghi âm tin nhắn thoại" title="Ghi âm"><span data-i="mic"></span></button>
+          <button class="icon-btn" id="btn-thread-svc" aria-label="Dịch vụ cho hội thoại này" title="Dịch vụ cho hội thoại này"><span data-i="grid"></span></button>
+        </div>
+        <div class="cinput">
+          <label class="sr" for="msg-in">Soạn tin nhắn</label>
+          <textarea id="msg-in" rows="1" placeholder="Nhập tin nhắn…"></textarea>
+          <button class="icon-btn" id="btn-emoji" aria-label="Chọn biểu tượng cảm xúc" title="Biểu tượng cảm xúc"><span data-i="smile"></span></button>
+          <button class="icon-btn send" id="btn-send" aria-label="Gửi" hidden><span data-i="send"></span></button>
+          <button class="icon-btn" id="btn-like" aria-label="Gửi 👍" title="Gửi 👍"><span data-i="thumb"></span></button>
+          <div class="emoji" id="emoji" hidden></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-contacts"><header class="head"><button class="icon-btn back" data-back aria-label="Quay lại"><span data-i="back"></span></button><div class="head-main"><div class="head-name" id="contacts-title">Danh sách bạn bè</div></div></header><div class="page" id="contacts-page"></div></div>
+    <div class="pane" id="pane-calls"><header class="head"><button class="icon-btn back" data-back aria-label="Quay lại"><span data-i="back"></span></button><div class="head-main"><div class="head-name">Cuộc gọi</div><div class="head-sub" id="calls-sub"></div></div></header><div class="page" id="calls-page"></div></div>
+    <div class="pane" id="pane-services"><header class="head"><button class="icon-btn back" data-back aria-label="Quay lại"><span data-i="back"></span></button><div class="head-main"><div class="head-name">96 dịch vụ Zalo</div><div class="head-sub" id="svc-sub"></div></div></header><div class="page" id="svc-page"></div></div>
+    <div class="pane" id="pane-settings"><header class="head"><button class="icon-btn back" data-back aria-label="Quay lại"><span data-i="back"></span></button><div class="head-main"><div class="head-name">Cài đặt</div></div></header><div class="page" id="set-page"></div></div>
+  </main>
+
+  <aside class="info" id="info" aria-label="Thông tin hội thoại"></aside>
+  <aside class="callcard" id="callcard" hidden aria-live="polite"></aside>
+</div>
+
+<div class="overlay" id="qr" hidden>
+  <div class="qrbox">
+    <div class="brand" aria-hidden="true">Z</div>
+    <h2 style="margin:0 0 4px">Đăng nhập Zalo</h2>
+    <p style="margin:0 0 16px;color:var(--muted)">Mở Zalo trên điện thoại → Quét mã QR.</p>
+    <div id="qr-slot"><div class="qrph">Đang tạo mã…</div></div>
+    <p id="qr-status" style="margin:14px 0 8px;color:var(--muted);min-height:20px"></p>
+    <button class="btn primary" id="qr-again" hidden>Lấy mã mới</button>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="/ui/app.js" defer></script>
+</body>
+</html>

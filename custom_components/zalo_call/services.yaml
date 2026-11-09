@@ -1,0 +1,1532 @@
+# SINH TU DONG bang zalo-pc-app/tools/gen_ha_catalog.py — dung sua tay.
+send_message:
+  name: "send_message"
+  description: "send_message"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    message:
+      name: "Nội dung tin nhắn"
+      required: true
+      selector:
+        text:
+send_file:
+  name: "send_file"
+  description: "send_file"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    file:
+      name: "Đường dẫn tệp trong HA hoặc URL"
+      required: true
+      selector:
+        text:
+send_image:
+  name: "send_image"
+  description: "send_image"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    file:
+      name: "Ảnh (đường dẫn trong HA hoặc URL)"
+      required: true
+      selector:
+        text:
+get_logged_accounts:
+  name: "get_logged_accounts"
+  description: "get_logged_accounts"
+  fields:
+get_account_details:
+  name: "get_account_details"
+  description: "get_account_details"
+  fields:
+find_user:
+  name: "Tìm người dùng theo SĐT"
+  description: "Tìm người dùng theo SĐT"
+  fields:
+    phone:
+      name: "Số điện thoại"
+      required: true
+      selector:
+        text:
+get_user_info:
+  name: "Xem thông tin người dùng"
+  description: "Xem thông tin người dùng"
+  fields:
+    user_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+send_friend_request:
+  name: "Gửi lời mời kết bạn"
+  description: "Gửi lời mời kết bạn"
+  fields:
+    user_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+    message:
+      name: "Lời nhắn"
+      required: false
+      selector:
+        text:
+create_group:
+  name: "Tạo nhóm mới"
+  description: "Tạo nhóm mới"
+  fields:
+    name:
+      name: "Tên nhóm"
+      required: true
+      selector:
+        text:
+    member_ids:
+      name: "Thành viên (userId, cách nhau bằng dấu phẩy)"
+      required: false
+      selector:
+        text:
+get_group_info:
+  name: "Xem thông tin nhóm"
+  description: "Xem thông tin nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+add_user_to_group:
+  name: "Mời thành viên vào nhóm"
+  description: "Mời thành viên vào nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    member_id:
+      name: "UserId (cách nhau bằng dấu phẩy)"
+      required: true
+      selector:
+        text:
+remove_user_from_group:
+  name: "Đuổi thành viên"
+  description: "Đuổi thành viên (không hoàn tác được)"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    member_id:
+      name: "UserId (cách nhau bằng dấu phẩy)"
+      required: true
+      selector:
+        text:
+send_image_to_user:
+  name: "send_image_to_user"
+  description: "send_image_to_user"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    file:
+      name: "Ảnh (đường dẫn hoặc URL)"
+      required: true
+      selector:
+        text:
+send_images_to_user:
+  name: "send_images_to_user"
+  description: "send_images_to_user"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    files:
+      name: "Các ảnh, cách nhau dấu phẩy"
+      required: true
+      selector:
+        text:
+send_image_to_group:
+  name: "send_image_to_group"
+  description: "send_image_to_group"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    file:
+      name: "Ảnh (đường dẫn hoặc URL)"
+      required: true
+      selector:
+        text:
+send_images_to_group:
+  name: "send_images_to_group"
+  description: "send_images_to_group"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    files:
+      name: "Các ảnh, cách nhau dấu phẩy"
+      required: true
+      selector:
+        text:
+get_account_webhooks:
+  name: "get_account_webhooks"
+  description: "get_account_webhooks"
+  fields:
+get_account_webhook:
+  name: "get_account_webhook"
+  description: "get_account_webhook"
+  fields:
+set_account_webhook:
+  name: "set_account_webhook"
+  description: "set_account_webhook"
+  fields:
+    message_webhook_url:
+      name: "URL webhook tin nhắn"
+      required: false
+      selector:
+        text:
+    group_event_webhook_url:
+      name: "URL webhook sự kiện nhóm"
+      required: false
+      selector:
+        text:
+    reaction_webhook_url:
+      name: "URL webhook cảm xúc"
+      required: false
+      selector:
+        text:
+    call_webhook_url:
+      name: "URL webhook cuộc gọi"
+      required: false
+      selector:
+        text:
+delete_account_webhook:
+  name: "delete_account_webhook"
+  description: "delete_account_webhook"
+  fields:
+get_proxies:
+  name: "get_proxies"
+  description: "get_proxies"
+  fields:
+add_proxy:
+  name: "add_proxy"
+  description: "add_proxy"
+  fields:
+remove_proxy:
+  name: "remove_proxy"
+  description: "remove_proxy"
+  fields:
+accept_friend_request:
+  name: "Chấp nhận kết bạn"
+  description: "Chấp nhận kết bạn"
+  fields:
+    user_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+block_user:
+  name: "Chặn người dùng"
+  description: "Chặn người dùng"
+  fields:
+    user_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+unblock_user:
+  name: "Bỏ chặn người dùng"
+  description: "Bỏ chặn người dùng"
+  fields:
+    user_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+send_sticker:
+  name: "Gửi sticker"
+  description: "Gửi sticker"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    sticker_id:
+      name: "Sticker ID"
+      required: true
+      selector:
+        text:
+    cate_id:
+      name: "Cate ID"
+      required: false
+      selector:
+        text:
+    sticker_type:
+      name: "Type"
+      required: false
+      selector:
+        text:
+undo_message:
+  name: "Thu hồi tin nhắn"
+  description: "Thu hồi tin nhắn"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    msg_id:
+      name: "ID tin nhắn"
+      required: true
+      selector:
+        text:
+    cli_msg_id:
+      name: "Client ID tin nhắn"
+      required: false
+      selector:
+        text:
+create_reminder:
+  name: "Tạo nhắc hẹn"
+  description: "Tạo nhắc hẹn"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    title:
+      name: "Tiêu đề"
+      required: true
+      selector:
+        text:
+    content:
+      name: "Nội dung"
+      required: false
+      selector:
+        text:
+    remind_time:
+      name: "Thời gian nhắc (ISO-8601 hoặc epoch)"
+      required: true
+      selector:
+        text:
+remove_reminder:
+  name: "Xóa nhắc hẹn"
+  description: "Xóa nhắc hẹn"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    reminder_id:
+      name: "ID nhắc hẹn"
+      required: true
+      selector:
+        text:
+change_group_name:
+  name: "Đổi tên nhóm"
+  description: "Đổi tên nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    name:
+      name: "Tên mới"
+      required: true
+      selector:
+        text:
+change_group_avatar:
+  name: "Đổi ảnh đại diện nhóm"
+  description: "Đổi ảnh đại diện nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    file:
+      name: "Ảnh đại diện (upload file)"
+      required: true
+      selector:
+        text:
+    width:
+      name: "Chiều rộng ảnh"
+      required: false
+      selector:
+        text:
+    height:
+      name: "Chiều cao ảnh"
+      required: false
+      selector:
+        text:
+send_voice:
+  name: "send_voice"
+  description: "send_voice"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    file:
+      name: "Tệp âm thanh (đường dẫn hoặc URL)"
+      required: true
+      selector:
+        text:
+get_all_friends:
+  name: "get_all_friends"
+  description: "get_all_friends"
+  fields:
+get_sent_friend_requests:
+  name: "Xem lời mời kết bạn đã gửi"
+  description: "Xem lời mời kết bạn đã gửi"
+  fields:
+undo_friend_request:
+  name: "Thu hồi lời mời kết bạn"
+  description: "Thu hồi lời mời kết bạn"
+  fields:
+    friend_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+remove_friend:
+  name: "Hủy kết bạn"
+  description: "Hủy kết bạn (không hoàn tác được)"
+  fields:
+    friend_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+change_friend_alias:
+  name: "Đổi biệt danh"
+  description: "Đổi biệt danh"
+  fields:
+    friend_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+    alias:
+      name: "Biệt danh mới"
+      required: true
+      selector:
+        text:
+remove_friend_alias:
+  name: "Xóa biệt danh"
+  description: "Xóa biệt danh"
+  fields:
+    friend_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+get_all_groups:
+  name: "get_all_groups"
+  description: "get_all_groups"
+  fields:
+get_group_chat_history:
+  name: "Xem lịch sử nhóm"
+  description: "Xem lịch sử nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    count:
+      name: "Số tin (tối đa 1000)"
+      required: false
+      selector:
+        text:
+add_group_deputy:
+  name: "Thêm phó nhóm"
+  description: "Thêm phó nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    member_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+remove_group_deputy:
+  name: "Xóa phó nhóm"
+  description: "Xóa phó nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    member_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+change_group_owner:
+  name: "Chuyển quyền sở hữu nhóm"
+  description: "Chuyển quyền sở hữu nhóm (không hoàn tác được)"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    member_id:
+      name: "UserId chủ mới"
+      required: true
+      selector:
+        text:
+disperse_group:
+  name: "Giải tán nhóm"
+  description: "Giải tán nhóm (không hoàn tác được)"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+enable_group_link:
+  name: "Bật link tham gia nhóm"
+  description: "Bật link tham gia nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+disable_group_link:
+  name: "Tắt link tham gia nhóm"
+  description: "Tắt link tham gia nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+join_group:
+  name: "Tham gia nhóm bằng link"
+  description: "Tham gia nhóm bằng link"
+  fields:
+    link:
+      name: "Link mời"
+      required: true
+      selector:
+        text:
+leave_group:
+  name: "Rời nhóm"
+  description: "Rời nhóm (không hoàn tác được)"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    silent:
+      name: "Rời lặng lẽ (true/false)"
+      required: false
+      selector:
+        text:
+update_profile:
+  name: "Cập nhật thông tin cá nhân"
+  description: "Cập nhật thông tin cá nhân"
+  fields:
+    name:
+      name: "Tên hiển thị"
+      required: false
+      selector:
+        text:
+    dob:
+      name: "Ngày sinh (yyyy-mm-dd)"
+      required: false
+      selector:
+        text:
+    gender:
+      name: "Giới tính (0=Nam, 1=Nữ)"
+      required: false
+      selector:
+        text:
+update_settings:
+  name: "Cập nhật cài đặt riêng tư"
+  description: "Cập nhật cài đặt riêng tư"
+  fields:
+    setting_type:
+      name: "Loại (online_status/seen_status/receive_message/phone_search)"
+      required: true
+      selector:
+        text:
+    status:
+      name: "Trạng thái (1=bật, 0=tắt)"
+      required: true
+      selector:
+        text:
+set_mute:
+  name: "Tắt thông báo"
+  description: "Tắt thông báo"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    duration:
+      name: "Thời lượng giây (3600/14400/-1=vĩnh viễn/0=bật lại)"
+      required: true
+      selector:
+        text:
+set_pinned_conversation:
+  name: "Ghim/bỏ ghim hội thoại"
+  description: "Ghim/bỏ ghim hội thoại"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    pinned:
+      name: "Ghim (true/false)"
+      required: true
+      selector:
+        text:
+get_unread_mark:
+  name: "Xem hội thoại chưa đọc"
+  description: "Xem hội thoại chưa đọc"
+  fields:
+add_unread_mark:
+  name: "Đánh dấu hội thoại chưa đọc"
+  description: "Đánh dấu hội thoại chưa đọc"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+remove_unread_mark:
+  name: "Bỏ đánh dấu chưa đọc"
+  description: "Bỏ đánh dấu chưa đọc"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+delete_chat:
+  name: "Xóa hội thoại"
+  description: "Xóa hội thoại (không hoàn tác được)"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    cli_msg_id:
+      name: "Client ID tin cuối"
+      required: false
+      selector:
+        text:
+    conver:
+      name: "Conver của tin cuối"
+      required: false
+      selector:
+        text:
+get_archived_chat_list:
+  name: "Xem hội thoại đã lưu trữ"
+  description: "Xem hội thoại đã lưu trữ"
+  fields:
+get_auto_delete_chat:
+  name: "Xem hội thoại đang tự xóa"
+  description: "Xem hội thoại đang tự xóa"
+  fields:
+update_auto_delete_chat:
+  name: "Bật/tắt tự xóa tin nhắn"
+  description: "Bật/tắt tự xóa tin nhắn"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    ttl:
+      name: "TTL (0=tắt, 86400000=1 ngày, 604800000=7 ngày)"
+      required: true
+      selector:
+        text:
+get_hidden_conversations:
+  name: "Xem hội thoại ẩn"
+  description: "Xem hội thoại ẩn"
+  fields:
+set_hidden_conversations:
+  name: "Ẩn/bỏ ẩn hội thoại"
+  description: "Ẩn/bỏ ẩn hội thoại"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    hidden:
+      name: "Ẩn (true/false)"
+      required: true
+      selector:
+        text:
+update_hidden_convers_pin:
+  name: "Đặt PIN hội thoại ẩn"
+  description: "Đặt PIN hội thoại ẩn"
+  fields:
+    pin:
+      name: "PIN mới"
+      required: true
+      selector:
+        text:
+reset_hidden_convers_pin:
+  name: "Gỡ PIN hội thoại ẩn"
+  description: "Gỡ PIN hội thoại ẩn"
+  fields:
+get_mute:
+  name: "Xem danh sách tắt thông báo"
+  description: "Xem danh sách tắt thông báo"
+  fields:
+get_pin_conversations:
+  name: "Xem hội thoại đã ghim"
+  description: "Xem hội thoại đã ghim"
+  fields:
+add_reaction:
+  name: "Thả reaction"
+  description: "Thả reaction"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    icon:
+      name: "Icon (like/heart/haha/...)"
+      required: true
+      selector:
+        text:
+    msg_id:
+      name: "ID tin nhắn"
+      required: true
+      selector:
+        text:
+    cli_msg_id:
+      name: "Client ID tin nhắn"
+      required: true
+      selector:
+        text:
+    r_icon:
+      name: "rIcon (khi icon chưa map)"
+      required: false
+      selector:
+        text:
+    r_type:
+      name: "rType (khi icon chưa map)"
+      required: false
+      selector:
+        text:
+    msg_type:
+      name: "Loại tin (mặc định 1=text)"
+      required: false
+      selector:
+        text:
+delete_message:
+  name: "Xóa tin nhắn"
+  description: "Xóa tin nhắn"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    msg_id:
+      name: "ID tin nhắn"
+      required: true
+      selector:
+        text:
+    cli_msg_id:
+      name: "Client ID tin nhắn"
+      required: false
+      selector:
+        text:
+    only_me:
+      name: "Chỉ xóa phía mình (true/false)"
+      required: false
+      selector:
+        text:
+forward_message:
+  name: "Chuyển tiếp tin nhắn"
+  description: "Chuyển tiếp tin nhắn"
+  fields:
+    message:
+      name: "Nội dung tin"
+      required: false
+      selector:
+        text:
+    dest_thread_ids:
+      name: "Thread đích (cách nhau bằng dấu phẩy)"
+      required: true
+      selector:
+        text:
+    type:
+      name: "Loại thread đích (user/group)"
+      required: false
+      selector:
+        text:
+parse_link:
+  name: "Phân tích link lấy preview"
+  description: "Phân tích link lấy preview"
+  fields:
+    link:
+      name: "Link"
+      required: true
+      selector:
+        text:
+send_card:
+  name: "send_card"
+  description: "send_card"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    user_id:
+      name: "UserId của danh thiếp"
+      required: true
+      selector:
+        text:
+send_link:
+  name: "send_link"
+  description: "send_link"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    link:
+      name: "Đường link"
+      required: true
+      selector:
+        text:
+    message:
+      name: "Lời nhắn kèm theo"
+      required: false
+      selector:
+        text:
+get_stickers:
+  name: "Xem danh mục sticker"
+  description: "Xem danh mục sticker"
+  fields:
+get_stickers_detail:
+  name: "Xem chi tiết bộ sticker"
+  description: "Xem chi tiết bộ sticker"
+  fields:
+    sticker_album:
+      name: "Album/Cate ID"
+      required: true
+      selector:
+        text:
+send_video:
+  name: "send_video"
+  description: "send_video"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    file:
+      name: "Tệp video (đường dẫn hoặc URL)"
+      required: true
+      selector:
+        text:
+create_note_group:
+  name: "Tạo ghi chú trong nhóm"
+  description: "Tạo ghi chú trong nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    title:
+      name: "Tiêu đề ghi chú"
+      required: true
+      selector:
+        text:
+    pin_act:
+      name: "Ghim (true/false)"
+      required: false
+      selector:
+        text:
+edit_note_group:
+  name: "Sửa ghi chú trong nhóm"
+  description: "Sửa ghi chú trong nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    topic_id:
+      name: "ID ghi chú"
+      required: true
+      selector:
+        text:
+    title:
+      name: "Tiêu đề mới"
+      required: true
+      selector:
+        text:
+    pin_act:
+      name: "Ghim (true/false)"
+      required: false
+      selector:
+        text:
+get_list_board:
+  name: "Xem bảng tin của nhóm"
+  description: "Xem bảng tin của nhóm"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+create_poll:
+  name: "Tạo bình chọn"
+  description: "Tạo bình chọn"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    question:
+      name: "Câu hỏi"
+      required: true
+      selector:
+        text:
+    options:
+      name: "Lựa chọn (cách nhau bằng dấu phẩy)"
+      required: true
+      selector:
+        text:
+    allow_multi_choices:
+      name: "Cho chọn nhiều (true/false)"
+      required: false
+      selector:
+        text:
+get_poll_detail:
+  name: "Xem chi tiết bình chọn"
+  description: "Xem chi tiết bình chọn"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    poll_id:
+      name: "ID bình chọn"
+      required: true
+      selector:
+        text:
+lock_poll:
+  name: "Khóa bình chọn"
+  description: "Khóa bình chọn"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    poll_id:
+      name: "ID bình chọn"
+      required: true
+      selector:
+        text:
+edit_reminder:
+  name: "Sửa nhắc hẹn"
+  description: "Sửa nhắc hẹn"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+    topic_id:
+      name: "ID nhắc hẹn"
+      required: true
+      selector:
+        text:
+    title:
+      name: "Tiêu đề mới"
+      required: true
+      selector:
+        text:
+    remind_time:
+      name: "Thời gian nhắc mới"
+      required: false
+      selector:
+        text:
+get_reminder:
+  name: "Xem chi tiết nhắc hẹn"
+  description: "Xem chi tiết nhắc hẹn"
+  fields:
+    reminder_id:
+      name: "ID nhắc hẹn"
+      required: true
+      selector:
+        text:
+get_list_reminder:
+  name: "Xem danh sách nhắc hẹn"
+  description: "Xem danh sách nhắc hẹn"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+get_reminder_responses:
+  name: "Xem phản hồi nhắc hẹn"
+  description: "Xem phản hồi nhắc hẹn"
+  fields:
+    reminder_id:
+      name: "ID nhắc hẹn"
+      required: true
+      selector:
+        text:
+add_quick_message:
+  name: "Thêm tin nhắn nhanh"
+  description: "Thêm tin nhắn nhanh"
+  fields:
+    keyword:
+      name: "Từ khóa"
+      required: true
+      selector:
+        text:
+    title:
+      name: "Nội dung"
+      required: true
+      selector:
+        text:
+get_quick_message:
+  name: "Xem tin nhắn nhanh"
+  description: "Xem tin nhắn nhanh"
+  fields:
+remove_quick_message:
+  name: "Xóa tin nhắn nhanh"
+  description: "Xóa tin nhắn nhanh"
+  fields:
+    item_ids:
+      name: "ID (cách nhau bằng dấu phẩy)"
+      required: true
+      selector:
+        text:
+update_quick_message:
+  name: "Sửa tin nhắn nhanh"
+  description: "Sửa tin nhắn nhanh"
+  fields:
+    item_id:
+      name: "ID"
+      required: true
+      selector:
+        text:
+    keyword:
+      name: "Từ khóa"
+      required: false
+      selector:
+        text:
+    title:
+      name: "Nội dung"
+      required: false
+      selector:
+        text:
+get_labels:
+  name: "Xem danh sách nhãn"
+  description: "Xem danh sách nhãn"
+  fields:
+block_view_feed:
+  name: "Chặn xem nhật ký"
+  description: "Chặn xem nhật ký"
+  fields:
+    user_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+    is_block_feed:
+      name: "Chặn (true/false)"
+      required: true
+      selector:
+        text:
+change_account_avatar:
+  name: "Đổi ảnh đại diện"
+  description: "Đổi ảnh đại diện"
+  fields:
+    file:
+      name: "Ảnh đại diện (upload file)"
+      required: true
+      selector:
+        text:
+get_avatar_list:
+  name: "Xem ảnh đại diện đã dùng"
+  description: "Xem ảnh đại diện đã dùng"
+  fields:
+    count:
+      name: "Số lượng"
+      required: false
+      selector:
+        text:
+    page:
+      name: "Trang"
+      required: false
+      selector:
+        text:
+last_online:
+  name: "Xem hoạt động cuối"
+  description: "Xem hoạt động cuối"
+  fields:
+    user_id:
+      name: "UserId"
+      required: true
+      selector:
+        text:
+send_typing_event:
+  name: "Gửi trạng thái đang gõ"
+  description: "Gửi trạng thái đang gõ"
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId (1-1) hoặc GroupId (nhóm).
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại hội thoại
+      description: user = 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, group]
+get_login_qr:
+  name: "get_login_qr"
+  description: "get_login_qr"
+  fields:
+make_call:
+  name: Gọi điện
+  description: Gọi thoại hoặc video cho một người hay nhóm.
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      required: true
+      selector:
+        text:
+    type:
+      name: Loại cuộc gọi
+      description: user = thoại 1-1, video = video 1-1, group = nhóm.
+      default: user
+      selector:
+        select:
+          options: [user, video, group]
+    peer_name:
+      name: Tên hiển thị
+      selector:
+        text:
+end_call:
+  name: Kết thúc cuộc gọi
+  description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống để kết thúc cuộc gọi gần nhất.
+      selector:
+        text:

@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kết nối app Zalo PC",
+        "description": "Nhập địa chỉ và tài khoản của container zalo-pc-app.",
+        "data": {"url": "Địa chỉ app", "username": "Tên đăng nhập", "password": "Mật khẩu"}
+      }
+    },
+    "error": {
+      "cannot_connect": "Không gọi được tới app. Kiểm tra địa chỉ và cổng 8080.",
+      "invalid_auth": "Sai tên đăng nhập hoặc mật khẩu của app."
+    },
+    "abort": {"already_configured": "App này đã được thêm."}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tuỳ chọn Zalo Call",
+        "data": {
+          "ha_url": "Địa chỉ HA mà app gọi được (webhook)",
+          "ai_enabled": "AI tự trả lời tin nhắn 1-1",
+          "ai_agent": "Trợ lý hội thoại cho AI",
+          "ai_threads": "Chỉ trả lời các threadId này (cách nhau dấu phẩy, bỏ trống = tất cả)",
+          "speaker": "Loa phát tiếng cuộc gọi",
+          "mic": "Nguồn mic",
+          "camera": "Camera cho cuộc gọi video"
+        }
+      }
+    }
+  }
+}

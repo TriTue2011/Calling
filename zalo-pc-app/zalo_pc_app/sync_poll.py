@@ -617,7 +617,7 @@ class SyncPoller:
         while not self._stop.is_set():
             started = time.time()
             try:
-                self.poll_once()
+                result = self.poll_once()
                 backoff = RETRY_BASE_SECONDS
             except KickOut:
                 return
@@ -646,7 +646,11 @@ class SyncPoller:
                 backoff = min(backoff * 2, RETRY_MAX_SECONDS)
                 continue
             elapsed = time.time() - started
-            if elapsed < 1.0 and self._stop.wait(1.0 - elapsed):
+            # Co tin ("ok") thi hoi tiep NGAY: san 1 giay cu lam tin den
+            # trong luc cho bi tre toi 1 giay. San chi con ap khi luot
+            # hoi tra ve rong/xoay endpoint (chong quay vong doi Zalo).
+            if result != "ok" and elapsed < 1.0 \
+                    and self._stop.wait(1.0 - elapsed):
                 return
 
     def is_alive(self):
