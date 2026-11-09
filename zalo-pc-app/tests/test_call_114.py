@@ -145,42 +145,29 @@ def test_server_normalizes_old_ui_payload():
     """Phong thu o server: UI cu gui call_id chuoi mili-giay +
     type_request 0 thi server phai chuan hoa (callId so uint32,
     typeRequest 1) truoc khi gui Zalo, va tra ve call_id hieu luc
-    de UI dung cung id do cho /api/call/end."""
+    de UI dung cung id do cho /api/call/end.
+
+    (2026-11-09, deep comparison §5.1): callId khong con lay tu UI
+    nua — server cap tu counter noi bo bat dau 1 (nhu engine dung
+    `lock xadd`), bo qua moi gia tri UI gui len (epoch seconds,
+    chuoi mili-giay, rac, thieu, vuot uint32)."""
     from zalo_pc_app.server import _normalize_call_id, _type_request_for
 
-    now = int(time.time())
-
-    def _is_now(value):
-        # Fallback values are epoch seconds generated at call time.
-        return isinstance(value, int) and abs(value - now) <= 2
-
-    def _fresh(value):
-        # Reset the monotonic guard so a fallback is judged on its
-        # own value, not on ids handed out by earlier checks.
-        app_server._LAST_CALL_ID = 0
-        return _normalize_call_id(value)
-
-    # Old UI payload: 13-digit millis string -> out of uint32 range,
-    # so it falls back to epoch seconds (never the millis value).
-    assert _is_now(_fresh(str(int(time.time() * 1000))))
-    # Digit strings and ints inside uint32 range are kept verbatim
-    # (values chosen safely above "now" so the monotonic guard in
-    # _normalize_call_id does not bump them).
-    assert _normalize_call_id(str(now + 100000)) == now + 100000
-    assert _normalize_call_id(now + 200000) == now + 200000
-    # Non-numeric / missing / out-of-range values fall back to now.
-    assert _is_now(_fresh("c9"))
-    assert _is_now(_fresh(""))
-    assert _is_now(_fresh(None))
-    assert _is_now(_fresh(2 ** 32))
-    assert _is_now(_fresh(0))
-    assert _is_now(_fresh(-5))
-    # Two taps inside the same second must never reuse one callId:
-    # repeating the same input yields a strictly larger id.
-    app_server._LAST_CALL_ID = 0
-    first = _normalize_call_id(now + 300000)
-    second = _normalize_call_id(now + 300000)
-    assert second == first + 1, (first, second)
+    app_server._CALL_ID_COUNTER = 0
+    # Bat ky gia tri UI nao cung cho ra id counter tiep theo.
+    assert _normalize_call_id(str(int(time.time() * 1000))) == 1
+    assert _normalize_call_id(1762345678) == 2
+    assert _normalize_call_id("c9") == 3
+    assert _normalize_call_id("") == 4
+    assert _normalize_call_id(None) == 5
+    assert _normalize_call_id(2 ** 32) == 6
+    assert _normalize_call_id(0) == 7
+    assert _normalize_call_id(-5) == 8
+    # Hai tap lien tiep khong bao gio trung id.
+    app_server._CALL_ID_COUNTER = 0
+    first = _normalize_call_id(1762345678)
+    second = _normalize_call_id(1762345678)
+    assert (first, second) == (1, 2), (first, second)
     assert _type_request_for("user") == 1
     assert _type_request_for("group") == 5
     assert _type_request_for(None) == 1

@@ -7,7 +7,8 @@ import sys
 HERE = os.path.dirname(__file__)
 FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
          "test_logininfo.py", "test_contacts.py", "test_calls.py",
-         "test_call_114.py", "test_call_11301.py", "test_call_end.py",
+         "test_call_114.py", "test_call_id_counter.py",
+         "test_call_11301.py", "test_call_end.py",
          "test_call_ringing.py", "test_call_answered.py",
          "test_call_states.py", "test_call_diag_11301.py",
          "test_call_local_session.py",

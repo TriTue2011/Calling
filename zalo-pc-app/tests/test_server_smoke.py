@@ -137,15 +137,15 @@ def test_server_e2e():
         status, body = api("POST", "/api/call/request",
                            {"callee_id": "20001", "call_id": "9001"})
         assert body["ok"] is True, body
-        # §7k contract (114 fix, parallel agent): call_id is
-        # normalized to a uint32 JSON number server-side and the
-        # EFFECTIVE id is returned — the client must use that id
-        # for /api/call/end, not the id it sent. Non-numeric ids
-        # ("c9"/"g9" as before) fall back to epoch seconds and can
-        # collide within one second, so this test sends numeric
-        # ids and asserts on the returned ones.
+        # §7k contract (114 fix, parallel agent): call_id is a
+        # uint32 JSON number server-side and the EFFECTIVE id is
+        # returned — the client must use that id for /api/call/end,
+        # not the id it sent. (2026-11-09, deep comparison §5.1):
+        # the effective id is minted from the server counter
+        # (starting at 1, like the engine's `lock xadd`), and the
+        # UI-sent value is ignored entirely.
         cid_user = body["call_id"]
-        assert cid_user == 9001, body
+        assert isinstance(cid_user, int) and 1 <= cid_user < 1000000, body
 
         # A group tap goes to the group endpoint (12433), addressed
         # by the group threadId — not to the 1-1 requestcall — with
@@ -162,7 +162,7 @@ def test_server_e2e():
                             "type": "group", "partners": members})
         assert body["ok"] is True, body
         cid_group = body["call_id"]
-        assert cid_group == 9002, body
+        assert cid_group == cid_user + 1, body
 
         # The call log (UI Calls view + rail) records both calls,
         # newest first, with threadId + type, and the live one.

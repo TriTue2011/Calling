@@ -65,8 +65,9 @@ CALL_ID_11301_STATUS = 1763200003
 CALL_ID_BODY = 1763200004
 CALL_ID_TIMEOUT = 1763200005
 CALL_ID_DIAG_OK = 1763200006
-# Id tang dan theo thu tu chay (test sap theo ten): server giu
-# guard don dieu _LAST_CALL_ID, id nho hon id truoc se bi day len.
+# Id tang dan theo thu tu chay (test sap theo ten): chi la gia tri
+# UI gui len khac nhau; server bo qua het va cap callId tu counter
+# noi bo (bat dau 1, deep comparison §5.1).
 
 
 def _run(mock, fn):

@@ -54,12 +54,12 @@ from zalo_pc_app import protocol  # noqa: E402
 from zalo_pc_app import server as app_server  # noqa: E402
 from zalo_pc_app import signaling  # noqa: E402
 
-CALL_ID = 1762345678  # epoch seconds — fits uint32, like the real client
+CALL_ID = 1762345678  # epoch seconds — fits uint32, like the old UI sent
 CALL_ID_GROUP = 1762345679
-# Rieng cho test failure-mode: phai khac CALL_ID/CALL_ID_GROUP vi
-# server giu guard don dieu _LAST_CALL_ID (module-global, song
-# suot process test) — dung lai CALL_ID o test sau se bi day len
-# mot id khac, mock se khong thay buoc nao cho CALL_ID cu.
+# Rieng cho test failure-mode: cac hang nay chi la gia tri UI gui
+# len khac nhau; server bo qua het va cap callId tu counter noi bo
+# (bat dau 1, deep comparison §5.1), nen test nao can id that deu
+# lay tu response (xem eff_id) thay vi dung lai hang nay.
 CALL_ID_FAIL = 1762545678
 CALL_ID_REAL_SHAPE = 1762645678  # test hinh 11300 that (§7n)
 CALL_ID_REAL_SHAPE_1106 = 1762745678  # test hinh 11300 that 2026-11-06
@@ -236,9 +236,10 @@ def test_no_allocation_not_delivered_e2e():
         assert body["ok"] is True, body
         assert body["request_sent"] is False, body
         assert "relays" in body["request_error"], body
-        # call_id hieu luc lay tu response: server giu guard don
-        # dieu _LAST_CALL_ID (module-global) nen goi lai cung ID o
-        # test sau trong cung process se duoc day len mot id khac.
+        # call_id hieu luc lay tu response: server cap tu counter
+        # noi bo (bat dau 1, deep comparison §5.1) va bo qua gia tri
+        # UI gui len, nen goi lai cung ID o test sau trong cung
+        # process van nhan id counter tiep theo.
         eff_id = body["call_id"]
         state = mock.voice_call_state(eff_id)
         assert state["steps"] == ["requestcall"], state
@@ -285,9 +286,8 @@ def test_allocated_flow_delivered_e2e():
         assert body["ok"] is True, body
         assert body["request_sent"] is True, body
         assert body["request_error"] == "", body
-        # call_id hieu luc lay tu response (guard don dieu
-        # _LAST_CALL_ID co the day ID len khi test chay sau test
-        # khac trong cung process — xem test_no_allocation).
+        # call_id hieu luc lay tu response (server cap tu counter
+        # noi bo — xem test_no_allocation).
         eff_id = body["call_id"]
         state = mock.voice_call_state(eff_id)
         assert state["steps"] == ["requestcall", "request"], state
@@ -340,7 +340,7 @@ def test_request_failure_is_non_fatal_e2e():
         assert body["ok"] is True, body
         assert body["request_sent"] is False, body
         assert "relays" in body["request_error"], body
-        eff_id = body["call_id"]  # guard don dieu co the day ID len
+        eff_id = body["call_id"]  # server cap tu counter noi bo
         state = mock.voice_call_state(eff_id)
         assert state["requested"] is True, state
         assert state["delivered"] is False, state
@@ -380,7 +380,7 @@ def test_request_114_with_allocation_e2e():
         assert body["ok"] is True, body
         assert body["request_sent"] is False, body
         assert "114" in body["request_error"], body
-        eff_id = body["call_id"]  # guard don dieu co the day ID len
+        eff_id = body["call_id"]  # server cap tu counter noi bo
         state = mock.voice_call_state(eff_id)
         assert state["requested"] is True, state
         assert state["delivered"] is False, state

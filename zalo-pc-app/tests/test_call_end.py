@@ -49,9 +49,11 @@ from mock_server import MockZalo  # noqa: E402
 from zalo_pc_app import protocol  # noqa: E402
 from zalo_pc_app import server as app_server  # noqa: E402
 
-# Id rieng cho file nay, tang dan theo thu tu test (sap xep theo
-# ten): server giu guard don dieu _LAST_CALL_ID (module-global),
-# dung lai id cu o test sau se bi day len mot id khac.
+# Id rieng cho file nay (chi khac nhau de de doc): server cap
+# callId tu counter noi bo (bat dau 1, deep comparison §5.1) va bo
+# qua gia tri UI gui len, nen test nao can id that deu lay tu
+# response cua /api/call/request (xem _start_call) thay vi dung
+# lai hang nay.
 CID_SLOW = 1762346001
 CID_OK = 1762346002
 CID_TWICE = 1762346003
@@ -110,8 +112,10 @@ def _start_call(base, call_id, call_type="user"):
         body["partners"] = ["20001", "20002"]
     status, resp = _api(base, "POST", "/api/call/request", body)
     assert resp["ok"] is True, resp
-    assert resp["call_id"] == call_id, resp
-    return resp
+    # Server cap callId tu counter noi bo (bat dau 1, deep comparison
+    # §5.1) va bo qua gia tri UI gui len: tra ve id hieu luc de test
+    # dung chinh id do cho /api/call/end (nhu UI that lam).
+    return resp["call_id"]
 
 
 def _calls(base):
@@ -155,14 +159,14 @@ def test_end_clears_log_before_slow_zalo_reply():
     try:
         httpd, base = _start_app(mock)
         _login(base)
-        _start_call(base, CID_SLOW)
+        eff_id = _start_call(base, CID_SLOW)
         assert _calls(base)["active"] is not None
         result = {}
 
         def _end():
             result["resp"] = _api(base, "POST", "/api/call/end",
                                   {"uid_to": "20001",
-                                   "call_id": CID_SLOW})
+                                   "call_id": eff_id})
 
         t = threading.Thread(target=_end, daemon=True)
         t.start()
@@ -191,15 +195,15 @@ def test_end_ok_clears_active():
     try:
         httpd, base = _start_app(mock)
         _login(base)
-        _start_call(base, CID_OK)
+        eff_id = _start_call(base, CID_OK)
         status, resp = _api(base, "POST", "/api/call/end",
-                            {"uid_to": "20001", "call_id": CID_OK})
+                            {"uid_to": "20001", "call_id": eff_id})
         assert resp["ok"] is True, resp
-        assert resp["ended_call_id"] == CID_OK, resp
+        assert resp["ended_call_id"] == eff_id, resp
         calls = _calls(base)
         assert calls["active"] is None, calls
         by_id = {c["call_id"]: c for c in calls["calls"]}
-        assert by_id[str(CID_OK)]["status"] == "ended", calls
+        assert by_id[str(eff_id)]["status"] == "ended", calls
         httpd.shutdown()
     finally:
         _shutdown(httpd, mock) if httpd else mock.stop()
@@ -213,15 +217,15 @@ def test_end_twice_is_safe():
     try:
         httpd, base = _start_app(mock)
         _login(base)
-        _start_call(base, CID_TWICE)
+        eff_id = _start_call(base, CID_TWICE)
         for _ in range(2):
             status, resp = _api(base, "POST", "/api/call/end",
-                                {"uid_to": "20001", "call_id": CID_TWICE})
+                                {"uid_to": "20001", "call_id": eff_id})
             assert resp["ok"] is True, resp
         calls = _calls(base)
         assert calls["active"] is None, calls
         by_id = {c["call_id"]: c for c in calls["calls"]}
-        assert by_id[str(CID_TWICE)]["status"] == "ended", calls
+        assert by_id[str(eff_id)]["status"] == "ended", calls
         httpd.shutdown()
     finally:
         _shutdown(httpd, mock) if httpd else mock.stop()
@@ -239,16 +243,16 @@ def test_end_when_zalo_cancel_fails_still_ends_locally():
     try:
         httpd, base = _start_app(mock)
         _login(base)
-        _start_call(base, CID_FAIL)
+        eff_id = _start_call(base, CID_FAIL)
         status, resp = _api(base, "POST", "/api/call/end",
-                            {"uid_to": "20001", "call_id": CID_FAIL})
+                            {"uid_to": "20001", "call_id": eff_id})
         assert resp["ok"] is True, resp
         assert resp["zalo_endcall_ok"] is False, resp
         assert resp["zalo_error"], resp
         calls = _calls(base)
         assert calls["active"] is None, calls
         by_id = {c["call_id"]: c for c in calls["calls"]}
-        entry = by_id[str(CID_FAIL)]
+        entry = by_id[str(eff_id)]
         assert entry["status"] == "ended", calls
         assert "mock cancel rejected" in entry["detail"], entry
         httpd.shutdown()
@@ -266,18 +270,18 @@ def test_end_with_string_call_id():
     try:
         httpd, base = _start_app(mock)
         _login(base)
-        _start_call(base, CID_STRING)
+        eff_id = _start_call(base, CID_STRING)
         status, resp = _api(base, "POST", "/api/call/end",
                             {"uid_to": "20001",
-                             "call_id": str(CID_STRING)})
+                             "call_id": str(eff_id)})
         assert resp["ok"] is True, resp
         # Mock echo lai body da gui di: callId phai la JSON number.
-        assert resp["data"]["body"]["callId"] == CID_STRING, resp
+        assert resp["data"]["body"]["callId"] == eff_id, resp
         assert isinstance(resp["data"]["body"]["callId"], int), resp
         calls = _calls(base)
         assert calls["active"] is None, calls
         by_id = {c["call_id"]: c for c in calls["calls"]}
-        assert by_id[str(CID_STRING)]["status"] == "ended", calls
+        assert by_id[str(eff_id)]["status"] == "ended", calls
         httpd.shutdown()
     finally:
         _shutdown(httpd, mock) if httpd else mock.stop()
@@ -292,15 +296,15 @@ def test_end_wrong_id_falls_back_to_active():
     try:
         httpd, base = _start_app(mock)
         _login(base)
-        _start_call(base, CID_WRONG)
+        eff_id = _start_call(base, CID_WRONG)
         status, resp = _api(base, "POST", "/api/call/end",
                             {"uid_to": "20001", "call_id": 999999})
         assert resp["ok"] is True, resp
-        assert resp["ended_call_id"] == CID_WRONG, resp
+        assert resp["ended_call_id"] == eff_id, resp
         calls = _calls(base)
         assert calls["active"] is None, calls
         by_id = {c["call_id"]: c for c in calls["calls"]}
-        assert by_id[str(CID_WRONG)]["status"] == "ended", calls
+        assert by_id[str(eff_id)]["status"] == "ended", calls
         httpd.shutdown()
     finally:
         _shutdown(httpd, mock) if httpd else mock.stop()
@@ -315,18 +319,18 @@ def test_group_end_routes_to_group_endcall():
     try:
         httpd, base = _start_app(mock)
         _login(base)
-        _start_call(base, CID_GROUP, call_type="group")
+        eff_id = _start_call(base, CID_GROUP, call_type="group")
         status, resp = _api(base, "POST", "/api/call/end",
-                            {"uid_to": "30001", "call_id": CID_GROUP,
+                            {"uid_to": "30001", "call_id": eff_id,
                              "type": "group"})
         assert resp["ok"] is True, resp
-        assert resp["ended_call_id"] == CID_GROUP, resp
+        assert resp["ended_call_id"] == eff_id, resp
         paths = [p for p, _, _ in mock.seen]
         assert "/api/voicecall/group/endcall" in paths, paths
         calls = _calls(base)
         assert calls["active"] is None, calls
         by_id = {c["call_id"]: c for c in calls["calls"]}
-        assert by_id[str(CID_GROUP)]["status"] == "ended", calls
+        assert by_id[str(eff_id)]["status"] == "ended", calls
         httpd.shutdown()
     finally:
         _shutdown(httpd, mock) if httpd else mock.stop()

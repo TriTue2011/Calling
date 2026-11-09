@@ -366,17 +366,18 @@ def test_api_webhooks_e2e():
 
         # A real call request still answers ok AND dispatches
         # call.sent to the webhook (async — wait briefly).
-        # call_id must be a uint32 number: the server normalizes a
-        # non-numeric id to epoch seconds (114 fix), so the webhook
-        # carries the EFFECTIVE id, not the raw string.
+        # call_id is minted from the server counter (deep comparison
+        # §5.1, starting at 1), so the webhook carries the EFFECTIVE
+        # id from the response, not the raw string the UI sent.
         _Capture.received = []
         status, body = _api(base, "POST", "/api/call/request",
                             {"callee_id": "20001", "call_id": "123456789"})
         assert status == 200 and body["ok"] is True, body
+        eff_id = body["call_id"]
         assert _wait_received(1), "call.sent webhook never arrived"
         sent = json.loads(_Capture.received[0]["body"].decode())
         assert sent["event"] == "call" and sent["type"] == "call.sent"
-        assert sent["call_id"] == "123456789" and sent["thread_id"] == "20001"
+        assert sent["call_id"] == str(eff_id) and sent["thread_id"] == "20001"
 
         # Webhook endpoint down: the call still succeeds (the
         # failure is swallowed, never breaks the original op).

@@ -264,7 +264,28 @@ def make_transport(cookie_value=""):
     return _Transport(cookie_value)
 
 
-_LAST_CALL_ID = 0
+# Call-id counter (deep comparison §5.1, 2026-11-09): the native
+# engine mints callId from a process-wide atomic counter — 1, 2, 3,
+# ... (`lock xadd` in ZaloCall.exe) — never from the UI. The app used
+# to keep the UI's epoch seconds (~1.7e9): the server accepts both
+# (status=0) but the peer may treat the engine's small counter
+# differently from epoch seconds, so the small counter is the top
+# suspect for the no-ring bug. The counter is guarded by a lock so
+# concurrent calls never collide; it wraps to 1 after uint32 max
+# (unreachable in practice — ~4 billion calls per process).
+_CALL_ID_LOCK = threading.Lock()
+_CALL_ID_COUNTER = 0
+
+
+def _next_call_id():
+    """Mint the next callId from the process-wide counter, starting
+    at 1 (native engine behaviour)."""
+    global _CALL_ID_COUNTER
+    with _CALL_ID_LOCK:
+        _CALL_ID_COUNTER += 1
+        if _CALL_ID_COUNTER > 2 ** 32 - 1:
+            _CALL_ID_COUNTER = 1
+        return _CALL_ID_COUNTER
 
 
 def _log_call(msg):
@@ -616,26 +637,18 @@ def _mark_answered(call_id, source):
 
 
 def _normalize_call_id(value):
-    """Coerce a UI-supplied call_id to the JSON NUMBER the real
-    client sends (native engine: callId is uint32 — ZaloCall.exe
-    `_initCallConfig ... callId = %u`). The pre-fix UI sent
-    String(Date.now()) — a 13-digit string, wrong type AND out of
-    uint32 range — one of the two 114 suspects (§7k). Digit
-    strings are kept (int of them); anything else (missing,
-    non-numeric, out of range) falls back to epoch seconds, which
-    fits uint32. Every result is made strictly greater than the
-    previous callId, so rapid successive calls never collide."""
-    global _LAST_CALL_ID
-    try:
-        n = int(value)
-    except (TypeError, ValueError):
-        n = 0
-    if not 1 <= n <= 2 ** 32 - 1:
-        n = int(time.time())
-    if n <= _LAST_CALL_ID:
-        n = _LAST_CALL_ID + 1
-    _LAST_CALL_ID = n
-    return n
+    """Effective callId for a new outgoing call: always minted from
+    the process-wide counter (see _next_call_id), starting at 1.
+    The UI-supplied value is IGNORED by design — the real client's
+    callId comes from the native engine's atomic counter (`lock
+    xadd`), never from the UI; the UI used to send epoch seconds
+    (~1.7e9), which the server accepts (status=0) but which is the
+    top suspect for the peer never ringing (deep comparison §5.1).
+    Like _type_request_for, this does not trust the body's value.
+    The minted id is returned to the UI in the /api/call/request
+    response, and the UI reuses it for /api/call/end — so one call
+    keeps one id across 11300, 11301, cancel/endcall/answerack."""
+    return _next_call_id()
 
 
 def _coerce_call_id(value):
@@ -2771,10 +2784,12 @@ class Handler(BaseHTTPRequestHandler):
             # the UI sends the peer's display name; the log never
             # carries secrets, only who/when/which thread/result.
             # The requestcall body is built to match the real client
-            # (§7k): call_id is normalized to a uint32 JSON number
-            # and type_request is derived from the thread type
-            # (1-1 audio=1, group audio=5) — the body's own
-            # type_request is NOT trusted (the pre-fix UI sent 0).
+            # (§7k): call_id is minted from the process counter
+            # (deep comparison §5.1 — engine: small counter 1, 2,
+            # 3, ...; the body's call_id is NOT trusted, like
+            # type_request) and type_request is derived from the
+            # thread type (1-1 audio=1, group audio=5) — the body's
+            # own type_request is NOT trusted (the pre-fix UI sent 0).
             # The effective call_id is returned so the UI uses the
             # same id for /api/call/end (endcall must carry the same
             # callId the requestcall used).
