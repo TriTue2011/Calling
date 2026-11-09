@@ -28,6 +28,8 @@ from homeassistant.helpers.update_coordinator import (
 
 from .ai import async_ai_reply
 from .api import ZaloCallApi, ZaloCallAuthError, ZaloCallError
+from .bridge import CallAudioBridge
+from .bridge_core import derive_state
 from .const import (
     CONF_HA_URL,
     CONF_PASSWORD,
@@ -36,6 +38,7 @@ from .const import (
     CONF_WEBHOOK_ID,
     DOMAIN,
     EVENT_PREFIX,
+    EVENT_STATE,
     SCAN_INTERVAL_SECONDS,
 )
 from .services import async_register_services
@@ -43,12 +46,16 @@ from .services import async_register_services
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "binary_sensor"]
 WEBHOOK_KINDS = ("message", "group_event", "reaction", "call")
+# Trang thai ket thuc: dung cau noi am thanh (loa/mic) cua cuoc goi do.
+TERMINAL_STATES = ("ended", "no_answer", "declined", "missed", "rejected",
+                   "error")
 
 
 @dataclass
 class ZaloCallData:
     api: ZaloCallApi
     coordinator: "ZaloCallCoordinator"
+    bridge: CallAudioBridge
 
 
 class ZaloCallCoordinator(DataUpdateCoordinator[dict]):
@@ -89,7 +96,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = ZaloCallCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
-    hass.data[DOMAIN][entry.entry_id] = ZaloCallData(api, coordinator)
+    bridge = CallAudioBridge(hass, entry, api)
+    hass.data[DOMAIN][entry.entry_id] = ZaloCallData(api, coordinator, bridge)
 
     webhook_id = entry.data[CONF_WEBHOOK_ID]
 
@@ -105,6 +113,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass_.bus.async_fire(EVENT_PREFIX + kind, payload)
         if kind == "call":
             await coordinator.async_request_refresh()
+            await _async_call_state(hass_, bridge, payload)
         elif kind == "message":
             hass_.async_create_task(async_ai_reply(hass_, entry, payload))
         return web.Response(status=200)
@@ -122,8 +131,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+        data = hass.data[DOMAIN].pop(entry.entry_id, None)
+        if data is not None:
+            await data.bridge.async_shutdown()
     return ok
+
+
+async def _async_call_state(hass: HomeAssistant, bridge: CallAudioBridge,
+                            payload: dict) -> None:
+    """Su kien `zalo_call_call_state` cho automation + dieu khien cau noi am
+    thanh. state: incoming / ringing / answered / declined / no_answer /
+    missed / rejected / ended / error ("tu choi" va "khong nghe may" la
+    declined va no_answer — dung de lam tac vu khac sau do)."""
+    state = derive_state(payload)
+    if state is None:
+        return
+    call_id = payload.get("call_id")
+    devices: dict[str, str] = {}
+    if state == "answered":
+        devices = await bridge.start(call_id)
+    elif state in TERMINAL_STATES:
+        await bridge.stop(call_id)
+    event = {"state": state, "call_id": call_id,
+             "thread_id": payload.get("thread_id"), "peer": payload.get("peer"),
+             "call_type": payload.get("call_type"),
+             "end_reason": payload.get("end_reason", "")}
+    if devices:    # khong dua mic_url (co the chua mat khau) ra bus
+        event["speaker"] = devices.get("speaker", "")
+        event["camera"] = devices.get("camera", "")
+        event["mic"] = devices.get("mic", "") or (
+            "url" if devices.get("mic_url") else "")
+    hass.bus.async_fire(EVENT_STATE, event)
 
 
 async def _async_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:

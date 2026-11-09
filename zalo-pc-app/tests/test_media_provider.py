@@ -354,7 +354,9 @@ def test_normalize_extend_data_drops_malformed_srtp_key():
 
 def test_allocation_from_requestcall_data():
     """Lay dung vat lieu tu response 11300: servers/sessId/srtpKey/
-    srtpMode/g711 — khong phat minh gia tri nao."""
+    srtpMode — khong phat minh gia tri nao. g711 KHONG con quyet
+    dinh codec signaling (zca-js: g711 mo ta codec media, khong
+    phai chuoi codec trong 11301; xem test_codec_zca_js.py)."""
     data = {"zrtc_config": {
         "servers": "10.0.0.1:4200,10.0.0.1:4201",
         "sessId": "sess-xyz", "srtpKey": "k1", "srtpMode": 2,

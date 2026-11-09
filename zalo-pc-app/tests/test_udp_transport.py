@@ -1017,16 +1017,26 @@ def test_rtcp_report_arrives_well_inside_4_seconds():
 
 
 def test_real_voice_preempts_keepalive():
-    # Dat nhip keepalive rat dai de vong lich khong tu gui; goi truc tiep.
+    # Nhip keepalive dat rat dai de vong lich khong tu gui; ta goi truc tiep
+    # voi thoi diem gia lap de tach rieng dieu kien "dang co tieng".
     tr, received, close = _connected(
         _Fabric(), keepalive_media_interval=3600.0)
     try:
         tr.send_pcm(b"\x07" * 640)
-        before = tr.status()["counters"]["keepalive_tx"]
+        assert tr._voice_until > time.monotonic()            # vua co tieng
+        counters = lambda: tr.status()["counters"]["keepalive_tx"]
+        before = counters()
         tr._maybe_send_keepalive_media(time.monotonic())
-        assert tr.status()["counters"]["keepalive_tx"] == before   # vua co tieng
-        tr._maybe_send_keepalive_media(time.monotonic() + 7200)
-        assert tr.status()["counters"]["keepalive_tx"] == before + 1
+        assert counters() == before                          # chua toi nhip
+        # Da qua nhip (gia lap +2 gio) nhung con trong khoang giu 250 ms:
+        # KHONG chen khung im lang (mic gui theo goi 100 ms, chen vao se keo
+        # gian thoi gian va tre tang dan).
+        now = time.monotonic() + 7200
+        tr._voice_until = now + ut.VOICE_HOLD_SECONDS
+        tr._maybe_send_keepalive_media(now + 0.1)
+        assert counters() == before
+        tr._maybe_send_keepalive_media(now + 0.4)            # het khoang giu
+        assert counters() == before + 1
     finally:
         close()
 

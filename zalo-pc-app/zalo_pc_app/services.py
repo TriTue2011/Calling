@@ -374,6 +374,13 @@ def _b_friend_accept(p, tid, tt):
             "language": LANGUAGE}
 
 
+def _b_friend_reject(p, tid, tt):
+    # POST /api/friend/reject 11428 (bundle SERVICE-MAP §2.1 +
+    # zca-js rejectFriendRequest): {fid} — KHONG imei, KHONG
+    # language (khac accept: {fid, language}).
+    return {"fid": _need(p, "user_id", "reject_friend_request")}
+
+
 def _b_friend_block(p, tid, tt):
     return {"fid": _need(p, "user_id", "block_user"),
             "imei": p["_imei"]}
@@ -553,6 +560,25 @@ def _b_poll_detail(p, tid, tt):
 
 def _b_poll_lock(p, tid, tt):
     return {"poll_id": _need(p, "poll_id", "lock_poll"),
+            "imei": p["_imei"]}
+
+
+def _b_poll_vote(p, tid, tt):
+    # GET /api/poll/vote 12084 (bundle SERVICE-MAP §2.4 +
+    # zca-js votePoll): {poll_id, option_ids, imei}. option_ids
+    # la list (UI: CSV; alias option_id cho 1 lua chon).
+    # zca-js: unvote = option_ids rong — op nay chi bo phieu nen
+    # yeu cau it nhat 1 lua chon. poll_id/option_ids giu nguyen
+    # dang chuoi nhu create_poll/get_poll_detail (khong ep int).
+    raw = p.get("option_ids")
+    if raw in (None, ""):
+        raw = p.get("option_id")
+    option_ids = _csv(raw)
+    if not option_ids:
+        raise ValueError("vote_poll: thiếu tham số bắt buộc "
+                         "option_ids")
+    return {"poll_id": _need(p, "poll_id", "vote_poll"),
+            "option_ids": option_ids,
             "imei": p["_imei"]}
 
 
@@ -945,6 +971,12 @@ def _b_labels(p, tid, tt):
     return {"imei": p["_imei"]}
 
 
+def _b_keepalive(p, tid, tt):
+    # GET chat /keepalive (11770) — zca-js auth/keepAlive: chi gui
+    # {imei}, params AES nhu moi GET post-login khac.
+    return {"imei": p["_imei"]}
+
+
 def _b_label_update(p, tid, tt):
     # POST /api/convlabel/update 12160: {labelData, version, imei}
     # chua lan — giu body cua audit cu, danh dau unverified.
@@ -1104,6 +1136,15 @@ OPS = {
         "friend", "/api/friend/accept", 11427, "POST", "none",
         [{"key": "user_id", "label": "UserId", "required": True}],
         _b_friend_accept, body_unverified=False),
+    "reject_friend_request": _op(
+        None, "(từ chối kết bạn — ngoài 96)", "ho_so",
+        "Từ chối lời mời kết bạn",
+        "POST friend-wpa /api/friend/reject (11428) {fid} "
+        "(KHÔNG imei, KHÔNG language) — bundle SERVICE-MAP §2.1 "
+        "+ zca-js rejectFriendRequest.",
+        "friend", "/api/friend/reject", 11428, "POST", "none",
+        [{"key": "user_id", "label": "UserId", "required": True}],
+        _b_friend_reject, body_unverified=False),
     "block_user": _op(
         25, "block_user", "ho_so", "Chặn người dùng",
         "POST friend-wpa /api/friend/block (11422) {fid, imei}.",
@@ -1605,6 +1646,19 @@ OPS = {
         [{"key": "poll_id", "label": "ID bình chọn",
           "required": True}],
         _b_poll_lock, body_unverified=False),
+    "vote_poll": _op(
+        None, "(bỏ phiếu — ngoài 96)", "nhom", "Bỏ phiếu bình chọn",
+        "GET group-wpa /api/poll/vote (12084) {poll_id, "
+        "option_ids, imei} — bundle SERVICE-MAP §2.4 + zca-js "
+        "votePoll (pollId, optionId); unvote = option_ids rỗng "
+        "(op này chỉ bỏ phiếu: cần ít nhất 1 lựa chọn).",
+        "group", "/api/poll/vote", 12084, "GET", "group",
+        [{"key": "poll_id", "label": "ID bình chọn",
+          "required": True},
+         {"key": "option_ids",
+          "label": "ID lựa chọn (cách nhau bằng dấu phẩy)",
+          "required": True}],
+        _b_poll_vote, body_unverified=False),
     # --- Tin nhắn nhanh (nhóm, SERVICE-MAP §2.5) ---
     "add_quick_message": _op(
         86, "add_quick_message", "nhac", "Thêm tin nhắn nhanh",
@@ -1656,6 +1710,19 @@ OPS = {
         [{"key": "label_ids", "label": "ID nhãn (cách nhau bằng dấu "
           "phẩy)", "required": True}],
         _b_label_update),
+    # --- Kiem chung phien (ngoai 96; loi H5 + I1) ---
+    # zca-js auth/keepAlive (src/apis/auth/keepAlive.ts): GET
+    # {zpwServiceMap.chat[0]}/keepalive, params AES {imei}, lenh
+    # 11770, tra ve envelope hai lop (config_vesion). Domain "chat"
+    # o day resolve ve protocol.CHAT_DOMAIN nhu cac op chat khac.
+    "keepAlive": _op(
+        None, "keepAlive", "khac", "Kiểm tra phiên còn sống",
+        "GET chat /keepalive (11770) {imei} — hoi Zalo xem phien "
+        "con song khong (zca-js auth/keepAlive). App dung de phat "
+        "hien phien bi da (600/401/403) thay vi chi kiem "
+        "session.json con zpw_sek.",
+        "chat", "/keepalive", 11770, "GET", "none", [],
+        _b_keepalive, body_unverified=False),
 }
 
 # Đường dây 1-1/nhóm cho các op có 2 endpoint (path/code khác nhau
@@ -1803,7 +1870,8 @@ _NOT_SUPPORTED = [
 
 def build_catalog():
     """Toàn bộ 96 service addon + các op ngoài 96 (quote, seen,
-    fetchImportant, group link detail, label update): mỗi entry có
+    fetchImportant, group link detail, label update, vote poll,
+    reject friend request): mỗi entry có
     status để UI vẽ nút bấm hoặc trạng thái 'Chưa hỗ trợ' — không
     nút giả."""
     entries = []

@@ -1521,6 +1521,36 @@ make_call:
       name: Tên hiển thị
       selector:
         text:
+    srtp:
+      name: Chế độ mã hoá tiếng
+      description: auto = tự chọn theo kết quả thật (mặc định); off = RTP trần; key = khoá tự sinh (thử).
+      default: auto
+      selector:
+        select:
+          options: [auto, "off", key]
+    speaker:
+      name: Loa (ghi đè mặc định)
+      description: media_player phát tiếng bên kia. Bỏ trống = dùng loa mặc định, nhập rỗng/không chọn = không phát cho cuộc này.
+      selector:
+        entity:
+          domain: media_player
+    mic:
+      name: Mic từ camera (ghi đè mặc định)
+      description: Camera có mic (lấy tiếng từ stream của nó).
+      selector:
+        entity:
+          domain: camera
+    mic_url:
+      name: Mic từ URL bất kỳ (ghi đè mặc định)
+      description: rtsp/rtsps/http/https/rtmp. Thắng ô "Mic từ camera".
+      selector:
+        text:
+    camera:
+      name: Camera video (ghi đè mặc định)
+      description: Chỉ ghi nhận; app chưa truyền hình trong cuộc gọi.
+      selector:
+        entity:
+          domain: camera
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.
@@ -1528,5 +1558,46 @@ end_call:
     call_id:
       name: Mã cuộc gọi
       description: Bỏ trống để kết thúc cuộc gọi gần nhất.
+      selector:
+        text:
+answer_call:
+  name: Nghe máy
+  description: Nghe cuộc gọi đến (nối loa/mic đã chọn).
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống để nghe cuộc gọi đến hiện tại.
+      selector:
+        text:
+    speaker:
+      name: Loa (ghi đè mặc định)
+      description: media_player phát tiếng bên kia. Bỏ trống = dùng loa mặc định, nhập rỗng/không chọn = không phát cho cuộc này.
+      selector:
+        entity:
+          domain: media_player
+    mic:
+      name: Mic từ camera (ghi đè mặc định)
+      description: Camera có mic (lấy tiếng từ stream của nó).
+      selector:
+        entity:
+          domain: camera
+    mic_url:
+      name: Mic từ URL bất kỳ (ghi đè mặc định)
+      description: rtsp/rtsps/http/https/rtmp. Thắng ô "Mic từ camera".
+      selector:
+        text:
+    camera:
+      name: Camera video (ghi đè mặc định)
+      description: Chỉ ghi nhận; app chưa truyền hình trong cuộc gọi.
+      selector:
+        entity:
+          domain: camera
+reject_call:
+  name: Từ chối cuộc gọi đến
+  description: Từ chối cuộc gọi đang đổ chuông.
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống để từ chối cuộc gọi đến hiện tại.
       selector:
         text:

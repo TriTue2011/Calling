@@ -238,7 +238,11 @@ class MockZalo:
         requested = ("requestcall" in steps
                      or "group/requestcall" in steps)
         return {"requested": requested,
-                "delivered": bool(entry["delivered"]), "steps": steps}
+                "delivered": bool(entry["delivered"]), "steps": steps,
+                "requestcall_codec": entry.get("requestcall_codec"),
+                "request_codec": entry.get("request_codec"),
+                "answer_codec": entry.get("answer_codec"),
+                "answer_addresses": entry.get("answer_addresses")}
 
     def server_call_state(self, call_id):
         """The SERVER-side call state the mock models for one callId:
@@ -300,13 +304,33 @@ class MockZalo:
         ends connected). `body` (the 11301 request body, when given)
         is kept as request_addresses so tests can assert the media
         endpoints the app sent are real relay addresses, never
-        empty."""
+        empty. `body`'s `codec` is kept too (requestcall_codec /
+        request_codec) so tests can assert the WIRE codec string
+        on both steps (11300 + 11301) — the zca-js codec fix.
+        The callee's "answer" (11303) is recorded the same way
+        (answer_codec / answer_addresses) and moves the modeled
+        server state ringing -> connected, like answerack does for
+        an outgoing call."""
         entry = self.voice_calls.setdefault(
             call_id, {"steps": [], "delivered": False,
                       "server_state": None, "record": None,
-                      "request_addresses": None})
+                      "request_addresses": None,
+                      "requestcall_codec": None,
+                      "request_codec": None,
+                      "answer_codec": None,
+                      "answer_addresses": None})
         if step not in entry["steps"]:
             entry["steps"].append(step)
+        if body is not None:
+            if step in ("requestcall", "group/requestcall"):
+                entry["requestcall_codec"] = body.get("codec")
+            elif step in ("request", "group/request"):
+                entry["request_codec"] = body.get("codec")
+            elif step == "answer":
+                entry["answer_codec"] = body.get("codec")
+                entry["answer_addresses"] = {
+                    "rtcp": body.get("rtcpAddress"),
+                    "rtp": body.get("rtpAddress")}
         if step in ("request", "group/request") and (
                 "requestcall" in entry["steps"]
                 or "group/requestcall" in entry["steps"]):
@@ -322,6 +346,11 @@ class MockZalo:
                     "rtcp": body.get("rtcpAddress"),
                     "rtp": body.get("rtpAddress")}
         elif step == "answerack":
+            if entry["server_state"] == "ringing":
+                entry["server_state"] = "connected"
+        elif step == "answer":
+            # Callee answered an incoming call (11303): the call
+            # is connected now, like answerack for an outgoing one.
             if entry["server_state"] == "ringing":
                 entry["server_state"] = "connected"
         elif step == "cancel":
@@ -414,6 +443,10 @@ class MockZalo:
             return self._confirm()
         if path == "/api/login/getLoginInfo":
             return 200, self._logininfo(qs, headers)
+        if path == "/keepalive":
+            # keepAlive (11770, zca-js auth/keepAlive): GET chat
+            # /keepalive, params AES {imei} — echo nhu _svc_get.
+            return 200, self._svc_get(path, qs, headers, raw_qs)
         if path.startswith("/api/voicecall/"):
             return 200, self._voicecall(path, qs, headers, raw_qs)
         if path == "/api/social/friend/getfriends":
@@ -1297,7 +1330,7 @@ class MockZalo:
                     or not id_ok or not body.get(id_field)):
                 return self._postlogin_envelope_error(
                     114, "Tham số không hợp lệ")
-            self._record_voice_step(call_id, sub)
+            self._record_voice_step(call_id, sub, body)
             data = {"ok": True, "path": path, "body": body}
             if self.requestcall_data:
                 data.update(self.requestcall_data)
@@ -1426,6 +1459,50 @@ class MockZalo:
                 return self._postlogin_envelope_error(
                     114, "Tham số không hợp lệ")
             self._record_voice_step(call_id, sub)
+            return self._postlogin_envelope(
+                {"ok": True, "path": path, "body": body})
+        if sub == "ringring":
+            # Callee reports ringing (bundle wZ ringRingVoiceCall,
+            # code 11302, mobile opcode 407): {callerId, callId,
+            # status:0, imei}. The mock records it so tests can
+            # assert the app rings the caller back on an incoming
+            # call_event.
+            call_id = body.get("callId")
+            id_ok = (isinstance(call_id, int)
+                     and not isinstance(call_id, bool)
+                     and 1 <= call_id <= 2 ** 32 - 1)
+            shape_ok = (bool(body.get("callerId")) and id_ok
+                        and body.get("status") == 0
+                        and body.get("imei"))
+            if not shape_ok:
+                return self._postlogin_envelope_error(
+                    114, "Tham số không hợp lệ")
+            self._record_voice_step(call_id, sub, body)
+            return self._postlogin_envelope(
+                {"ok": True, "path": path, "body": body})
+        if sub == "answer":
+            # Callee answers (bundle wZ answerVoiceCall, code
+            # 11303, mobile opcode 402): {callerId, callId,
+            # status:0, codec, rtcpAddress, rtpAddress, session_id}
+            # (+ extendData / subCommand=3). NOTE: NO imei in this
+            # body (zca-js answerVoiceCall.ts) — the generic
+            # fallthrough below would wrongly reject it, so this
+            # branch must come first. The codec is recorded so
+            # tests can assert the JSON-list codec went on the wire.
+            call_id = body.get("callId")
+            id_ok = (isinstance(call_id, int)
+                     and not isinstance(call_id, bool)
+                     and 1 <= call_id <= 2 ** 32 - 1)
+            shape_ok = (bool(body.get("callerId")) and id_ok
+                        and body.get("status") == 0
+                        and isinstance(body.get("codec"), str)
+                        and body.get("rtcpAddress")
+                        and body.get("rtpAddress")
+                        and isinstance(body.get("session_id"), str))
+            if not shape_ok:
+                return self._postlogin_envelope_error(
+                    114, "Tham số không hợp lệ")
+            self._record_voice_step(call_id, sub, body)
             return self._postlogin_envelope(
                 {"ok": True, "path": path, "body": body})
         # 1-1 requestcall carries imei; group/requestcall carries

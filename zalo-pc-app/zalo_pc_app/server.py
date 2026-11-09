@@ -35,6 +35,13 @@ API (all JSON, never returns session secrets):
                           1-1 calls; also fired by first inbound
                           RTP (media proves the answer, no sync
                           channel needed)
+  POST /api/call/answer   {call_id} -> answer an INCOMING call
+                          (we are the callee): 11300 fallback +
+                          11303 answer; NO 11301 and NO 11304
+                          (both are the caller's signals, zca-js)
+  POST /api/call/reject   {call_id} -> reject an INCOMING call:
+                          cancel (11305) + endcall (11306),
+                          zca-js rejectIncomingCall
   GET  /api/svc/catalog   96-service catalog + support status
   POST /api/svc/<action>  addon-service op (services.py; needs login)
   GET  /api/engine/status media-engine seam status
@@ -65,6 +72,7 @@ session cookie — never the post-login zpw_ver/zpw_type params.
 
 import json
 import os
+import re
 import socket
 import sys
 import queue
@@ -78,6 +86,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import VERSION as _PKG_VERSION
 from . import app_auth
+from . import call_audio as call_audio_mod
 from . import call_log
 from . import chat as chat_mod
 from . import contacts as contacts_mod
@@ -94,6 +103,7 @@ from . import qr_login
 from . import services as services_mod
 from . import session as session_mod
 from . import signaling as signaling_mod
+from . import srtp_mode as srtp_mode_mod
 from . import sync_poll as sync_poll_mod
 from . import voice_transcode as voice_mod
 from . import webhooks as webhooks_mod
@@ -147,6 +157,43 @@ SYNC_RETRY_CHECK_SECONDS = 60
 SYNC_RETRY_INTERVAL_SECONDS = 300
 SYNC_RETRY_COOLDOWN_SECONDS = 30
 
+# Kiem chung phien bang keepAlive (sua loi H5 + I1): /api/status
+# truoc day chi kiem session.json con zpw_sek nen phien bi da van
+# bao login=true. keepAlive la GET chat /keepalive (11770) nhe,
+# body chi {imei} — xem services.OPS["keepAlive"].
+#   CHECK_INTERVAL 300s: vong nen hoi lai dinh ky (5 phut/lan —
+#     du thua de phat hien phien bi da ma khong hammer Zalo).
+#   STATUS_TTL 60s: /api/status dung ket qua keepAlive gan nhat;
+#     chi kich probe nen khi ket qua cu hon 60s, khong goi moi lan
+#     status duoc hoi.
+#   AUTH_FAILURES_TO_EXPIRE 2: phien chi bi xoa sau 2 loi auth
+#     (600/401/403) LIEN TIEP — 1 lan co the la loi thoang qua,
+#     loi mang khong bao gio xoa phien (chi dem loi auth).
+KEEPALIVE_CHECK_INTERVAL_SECONDS = 300
+KEEPALIVE_STATUS_TTL_SECONDS = 60
+KEEPALIVE_AUTH_FAILURES_TO_EXPIRE = 2
+KEEPALIVE_AUTH_CODES = (600, 401, 403)
+
+
+def _classify_keepalive_error(exc):
+    """Xep loai loi keepAlive: "auth" neu phien het han,
+    "transient" neu loi mang / loi khac (khong duoc xoa phien).
+    Auth la: ServiceError ma 600 (phien het han — loi audit H5) /
+    401 / 403, hoac HTTP status 401/403 trong thong diep loi mang
+    ("network status=401" — Services._unwrap nem khi HTTP != 200),
+    hoac "error_code=600/401/403" trong thong diep (inner envelope).
+    Moi thu khac (URLError, timeout, 500, ma loi la) la transient:
+    chi ghi nhan, retry lan sau."""
+    if isinstance(exc, services_mod.ServiceError) \
+            and exc.code in KEEPALIVE_AUTH_CODES:
+        return "auth"
+    text = str(exc)
+    if re.search(r"network status=(401|403)\b", text):
+        return "auth"
+    if re.search(r"error_code=(600|401|403)\b", text):
+        return "auth"
+    return "transient"
+
 
 def _poller_is_alive(poller):
     """True khi poller dang chay. Poller that (SyncPoller /
@@ -159,6 +206,38 @@ def _poller_is_alive(poller):
     return True
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+FONTS_DIR = os.path.join(STATIC_DIR, "fonts")
+
+
+def _safe_static_path(name, base_dir=STATIC_DIR):
+    """Resolve `name` inside `base_dir`, or return None.
+
+    H1 (path traversal qua /fonts/): the old _serve_static joined
+    STATIC_DIR + name unchecked, so /fonts/../../... read any file
+    (session.json, app_auth.json, messages.db trong container).
+    Giai ma percent-escape LAP (toi da 3 vong, de double-encode
+    %252e%252e khong luon qua), loai NUL byte va duong dan tuyet
+    doi, roi kiem realpath phai nam trong base_dir (symlink cung
+    khong thoat ra ngoai duoc). Tra ve duong dan tuyet doi da giai
+    quyet, hoac None khi khong hop le — caller tra 404 chung chung,
+    khong lo duong dan that.
+    """
+    decoded = name
+    for _ in range(3):
+        nxt = urllib.parse.unquote(decoded)
+        if nxt == decoded:
+            break
+        decoded = nxt
+    if "\x00" in decoded:
+        return None
+    decoded = decoded.replace("\\", "/")
+    if os.path.isabs(decoded):
+        return None
+    base = os.path.realpath(base_dir)
+    resolved = os.path.realpath(os.path.join(base, decoded))
+    if resolved != base and not resolved.startswith(base + os.sep):
+        return None
+    return resolved
 
 
 def _zalo_urlopen(req, timeout):
@@ -314,22 +393,57 @@ _CALL_ID_LOCK = threading.Lock()
 _CALL_ID_COUNTER = 0
 
 
-SRTP_MODES = ("off", "key")
+SRTP_MODES = srtp_mode_mod.MODES
+SRTP_JUDGE_MIN_SECONDS = 6.0     # nghe may it nhat chung nay giay moi xet dung/sai
+_CALL_SRTP = {}                  # call_id -> che do da dung cho cuoc goi di
+_INCOMING_SRTP = {}              # call_id -> khoa SRTP ben goi (chi bo nho, khong API)
 
 
 def _srtp_mode_for_call(body):
-    """Che do SRTP cua cuoc goi di.
+    """(che_do, nguon) cho cuoc goi di; nguon = "forced" | "auto".
 
-    "off" (mac dinh): RTP tran, extendData.srtpMode=0 — luong mac dinh cua
+    "off": RTP tran, extendData.srtpMode=0 — luong mac dinh cua
     @softtynet/zca-js 2.3.13 (`enableSrtp` = false). "key" (THU): ben goi
-    tu sinh khoa SRTP, gui trong extendData (srtpMode=1 + srtpKey) nhu
-    `buildZrtcExtendData` cua zca-js. Chua biet may that chap nhan cai nao
-    nen chon duoc moi cuoc goi: truong `srtp` trong body > bien moi truong
-    ZALO_PC_SRTP > "off"."""
+    tu sinh khoa SRTP, gui trong extendData (srtpMode=1 + srtpKey).
+    Chua biet may that chap nhan cai nao, nen KHONG tin tuyet doi mot
+    nguon: truong `srtp` trong body > bien moi truong ZALO_PC_SRTP ep cung
+    mot che do; neu khong thi "auto" = che do da tung nhan duoc goi that
+    tu ben kia (mac dinh "off"), doi sang cai con lai khi that bai."""
     for value in ((body or {}).get("srtp"), os.environ.get("ZALO_PC_SRTP")):
         if isinstance(value, str) and value.strip().lower() in SRTP_MODES:
-            return value.strip().lower()
-    return "off"
+            return value.strip().lower(), "forced"
+    return STATE.srtp_modes.pick(), "auto"
+
+
+def _evaluate_srtp_outcome(ended):
+    """Cuoc goi di vua ket thuc: nghe may du lau ma van KHONG nhan duoc goi
+    nao tu ben kia (da qua xac thuc/giai ma) thi coi che do da dung la hong.
+    Phai goi TRUOC khi dung transport. Khong bao gio nem loi.
+
+    Han che da biet: o che do "off" khong co xac thuc nen goi rac van tinh
+    la "nhan duoc" — bang chung manh chi o che do "key" (HMAC dung)."""
+    try:
+        info = _CALL_SRTP.pop(str(ended.get("call_id")), None)
+        if info is None:
+            return
+        mode, source = info
+        answered, finished = ended.get("answered_at"), ended.get("ended_at")
+        if not answered or not finished \
+                or float(finished) - float(answered) < SRTP_JUDGE_MIN_SECONDS:
+            return
+        rec = media_endpoints.ENDPOINTS.active_record(int(ended["call_id"]))
+        counters = (rec["transport"].status().get("counters") or {}) \
+            if rec else {}
+        got = int(counters.get("rtp_rx", 0)) \
+            - int(counters.get("rtp_rx_dropped", 0)) \
+            + int(counters.get("p2p_media_rx", 0))
+        ok = got > 0
+        pref = STATE.srtp_modes.record(mode, ok)
+        _log_call("srtp outcome call_id=%s mode=%s source=%s ok=%s "
+                  "rx_ok=%s -> next_auto=%s"
+                  % (ended.get("call_id"), mode, source, ok, got, pref))
+    except Exception as exc:  # noqa: BLE001 - chi la ghi nho, khong chen ngang
+        _log_call("srtp outcome error: %s" % str(exc)[:120])
 
 
 def _next_call_id():
@@ -510,8 +624,7 @@ def _terminate_call(call_id, reason, sess, group_data=None,
     # Phase 2: stop the media engine + the relay transport for this
     # call (best-effort; a stuck UDP socket must not leave the call
     # half-alive after it ends).
-    engine_seam.SEAM.stop_media()
-    media_endpoints.ENDPOINTS.stop_call(int(ended["call_id"]))
+    _cleanup_call_media(ended)
     _log_call("end call_id=%s reason=%s duration=%.0fs "
               "zalo_signal=%s zalo_ok=%s%s"
               % (ended["call_id"], reason,
@@ -601,6 +714,35 @@ def _disarm_ring_timer(call_id):
             pass
 
 
+def _send_ringring_async(call_id, thread_id):
+    """Best-effort ringring (11302, bundle wZ ringRingVoiceCall):
+    the callee reports ringing to the caller. Runs on a daemon
+    thread so it never blocks the ctrl poller — the call_event
+    callback runs on the poller's thread, and a slow signaling
+    round-trip there would stall the whole ctrl channel. The
+    session is read fresh from STATE; without one the ring is
+    skipped (logged, not fatal: the incoming entry is still
+    recorded). Only for 1-1 calls. On success the entry's diag
+    gains incoming_ringring_sent=True, so POST /api/call/answer
+    knows it does not need to ring again."""
+    sess = STATE.session
+    if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
+        _log_call("ringring call_id=%s ok=False error=no_session"
+                  % call_id)
+        return
+    try:
+        transport = make_transport(sess["zpw_sek"])
+        sig = signaling_mod.Signaling(transport, sess["device_id"],
+                                      sess["zpw_enk"])
+        sig.ringring(thread_id, call_id)
+        STATE.calls.record_diag(
+            call_id, {"incoming_ringring_sent": True})
+        _log_call("ringring call_id=%s ok=True" % call_id)
+    except Exception as e:  # noqa: BLE001 - best-effort
+        _log_call("ringring call_id=%s ok=False error=%s"
+                  % (call_id, e))
+
+
 def _send_answerack_async(call_id, thread_id):
     """Best-effort answerack (11304, bundle wZ sendAnswerACKCall):
     the caller ACKs the callee's answer. Runs on a daemon thread
@@ -641,22 +783,64 @@ def _calls_snapshot_with_media():
         except Exception:  # noqa: BLE001 - media is best-effort
             record = None
         if record is not None:
-            entry["media"] = {"srtp": record.get("srtp", "not-wired")}
+            media = {"srtp": record.get("srtp", "not-wired")}
+            mode = _CALL_SRTP.get(str(entry["call_id"]))
+            if mode:
+                media["srtp_mode"] = mode[0]
+            try:
+                counters = record["transport"].status().get("counters") or {}
+                media["counters"] = {k: counters.get(k, 0) for k in (
+                    "rtp_tx", "keepalive_tx", "rtcp_tx", "rtp_rx",
+                    "rtp_rx_dropped", "p2p_media_rx")}
+            except Exception:  # noqa: BLE001 - chan doan, khong chen ngang
+                pass
+            # Token phat am thanh theo cuoc goi — chi cap cho phien da dang
+            # nhap app (route nay yeu cau cookie), het han khi goi ket thuc.
+            media["audio_token"] = STATE.audio_tokens.token_for(
+                entry["call_id"])
+            entry["media"] = media
     return snap
 
 
-def _mark_answered(call_id, source):
+def _engine_for_call(call_id):
+    """Engine media dang gan cho dung cuoc goi nay, hoac None."""
+    engine = engine_seam.SEAM.engine
+    info = getattr(engine, "call_info", None) or {}
+    if engine is not None and str(info.get("call_id")) == str(call_id):
+        return engine
+    return None
+
+
+def _cleanup_call_media(entry):
+    """Cuoc goi da ket thuc: danh gia ket qua SRTP, dung engine + transport,
+    huy token am thanh. Best-effort, khong nem loi."""
+    try:
+        _evaluate_srtp_outcome(entry)
+        engine_seam.SEAM.stop_media()
+        media_endpoints.ENDPOINTS.stop_call(int(entry["call_id"]))
+        STATE.audio_tokens.drop(entry["call_id"])
+    except Exception as exc:  # noqa: BLE001
+        _log_call("cleanup media error: %s" % str(exc)[:120])
+
+
+def _mark_answered(call_id, source, send_ack=True):
     """Mark a live (ringing) call answered: the peer picked up and
     the call is connected. `source` names how the app learned it
     ("api" = POST /api/call/answered, e.g. from a sync push event;
-    "media" = first inbound RTP arrived). Idempotent: marking an
+    "media" = first inbound RTP arrived; "sync" = a call_event
+    "answer" on ctrl 99101). Idempotent: marking an
     already-answered call returns it unchanged without re-logging
     or re-ACKing. Returns the entry, or None when there is no live
     call with that id. Side effects on transition: the ring timer
     is disarmed (an answered call is never ring-timed-out), a
     [call] answered line is logged, a call webhook event fires,
-    and an answerack (11304) is sent best-effort on a daemon
-    thread for 1-1 calls. It also starts the P2P hello handshake
+    and — for an OUTGOING call only (send_ack=True) — an answerack
+    (11304) is sent best-effort on a daemon thread for 1-1 calls.
+    An INCOMING call is answered with send_ack=False: the callee
+    never sends 11304 — it is the CALLER's signal (zca-js
+    acceptIncomingCall sends no answerack; the mock's
+    server_call_state confirms 11304 is the caller's ACK of the
+    callee's answer). It also starts the P2P hello handshake
     (transport.begin_p2p, best-effort): only now — after the
     answer — does the relay know the peer's address, so only
     now can the hello go to the peer instead of to ourselves
@@ -665,7 +849,7 @@ def _mark_answered(call_id, source):
     live = None
     for c in snap["calls"]:
         if str(c["call_id"]) == str(call_id) \
-                and c["status"] in ("sent", "answered"):
+                and c["status"] in ("sent", "answered", "incoming"):
             live = c
             break
     if live is None:
@@ -698,7 +882,7 @@ def _mark_answered(call_id, source):
     webhooks_mod.dispatch_call_event(
         STATE.webhook_dispatcher, entry,
         (STATE.session or {}).get("uid", ""))
-    if (entry.get("type") or "user") != "group":
+    if send_ack and (entry.get("type") or "user") != "group":
         thread = threading.Thread(
             target=_send_answerack_async,
             args=(int(entry["call_id"]), entry["thread_id"]),
@@ -756,6 +940,11 @@ def _type_request_for(call_type):
 class AppState:
     def __init__(self, data_dir, auth=None):
         self.data_dir = data_dir
+        # Nho che do SRTP nao tung nhan duoc goi that tu ben kia (che do
+        # "auto" — khong tin tuyet doi vao mot nguon, xem srtp_mode.py).
+        self.srtp_modes = srtp_mode_mod.SrtpModeStore(
+            os.path.join(data_dir, "srtp_mode.json"))
+        self.audio_tokens = call_audio_mod.CallAudioTokens()
         # App login (cong ngoai): load from env unless the caller
         # injects one (tests). Missing credentials -> auth is None and
         # auth_error names the missing env vars; main() refuses to
@@ -780,6 +969,11 @@ class AppState:
         # rejected|rate_limited|error
         self.qr_error = ""
         self.qr_wait = 0
+        # load() tra None ca khi file hong (H4): file da duoc doi
+        # ten thanh session.json.corrupt trong load(), server khoi
+        # dong voi phien trong thay vi chet truoc main(). Moi cho
+        # dung self.session deu chiu duoc None (xem public_status,
+        # start_sync, cac handler dung `(self.session or {})`).
         self.session = self.store.load() if self.store.exists() else None
         # First friends load after start/login sends init=1 (real client
         # _isFirstReq()). Cleared after the first successful friends call.
@@ -890,6 +1084,22 @@ class AppState:
         self._sync_retry_thread = None
         self._sync_last_retry_at = 0.0
         self.thread = None
+        # Ket qua keepAlive gan nhat (sua H5 + I1) — duoc bao ve
+        # boi self.lock (cung khoa voi session). _ka_uid: uid ma
+        # cache thuoc ve; doi tai khoan thi cache cu vo hieu
+        # (trang thai ve "unknown", dem auth ve 0). _ka_state:
+        # "unknown" (chua check) | "ok" | "auth_failed" (loi auth,
+        # chua du nguong) | "network_error" (loi mang, phien giu
+        # nguyen) | "expired" (du nguong, phien da bi xoa).
+        # _ka_probe_running: co probe nen dang chay khong (de
+        # /api/status khong spawn nhieu thread khi cache het han).
+        self._ka_uid = None
+        self._ka_at = 0.0
+        self._ka_ok = None
+        self._ka_state = "unknown"
+        self._ka_auth_failures = 0
+        self._ka_probe_running = False
+        self._keepalive_thread = None
         # Stale-while-revalidate (sửa lỗi load chậm 2026-11-05): khi
         # cache đã hết TTL, GET /api/contacts trả cache cũ NGAY
         # (source "stale") rồi làm mới nền trong một thread riêng,
@@ -926,6 +1136,39 @@ class AppState:
             logged = bool(sess and sess.get("zpw_sek"))
             uid = sess.get("uid", "") if sess else ""
             phonenum = sess.get("phonenum", "") if sess else ""
+            # Ket qua keepAlive gan nhat (sua H5): /api/status
+            # khong chi dua vao zpw_sek con trong file — neu
+            # keepAlive da bao phien het (expired) thi session da
+            # bi xoa o check_keepalive nen logged o tren la False.
+            # Cache tu tai khoan khac khong duoc dung (ve unknown).
+            if uid and self._ka_uid == uid:
+                ka_state = self._ka_state
+                ka_at = self._ka_at
+                ka_failures = self._ka_auth_failures
+            elif not uid and self._ka_state == "expired":
+                # Phien vua bi keepAlive xoa (logout() reset ve
+                # "unknown" nen "expired" chi co tu _expire_session):
+                # giu lai ly do de status noi ro vi sao login=false.
+                ka_state = "expired"
+                ka_at = self._ka_at
+                ka_failures = self._ka_auth_failures
+            else:
+                ka_state = "unknown"
+                ka_at = 0.0
+                ka_failures = 0
+            # Cache het TTL + chua co probe nao dang chay thi kich
+            # probe nen (khong goi mang ngay trong request status —
+            # lan nay tra ket qua cu, lan sau co ket qua moi).
+            need_probe = (
+                logged and not self._ka_probe_running
+                and (ka_at == 0.0
+                     or time.time() - ka_at > KEEPALIVE_STATUS_TTL_SECONDS))
+            if need_probe:
+                self._ka_probe_running = True
+        if need_probe:
+            threading.Thread(
+                target=self._keepalive_probe_background,
+                daemon=True).start()
         base = {"version": VERSION,
                 "engine": engine_seam.SEAM.status(),
                 "sync": self.sync_status(),
@@ -937,6 +1180,14 @@ class AppState:
                 # xoa khi poll thanh cong) nen chi hien loi
                 # dang ton tai, khong phai loi cu da khoi phuc.
                 "ctrl_error": self._ctrl_error_text(),
+                # keepalive: lan hoi Zalo gan nhat ve phien
+                # (state/checked_at/auth_failures — khong lo
+                # secret). UI hien QR khi login=false; khi state
+                # la "expired" thi qr_error o /api/qr/status giai
+                # thich ly do quet lai.
+                "keepalive": {"state": ka_state,
+                              "checked_at": ka_at,
+                              "auth_failures": ka_failures},
                 "app_user": app_user}
         if self.sync_debug:
             base["sync_debug"] = dict(self.sync_debug)
@@ -1432,6 +1683,11 @@ class AppState:
             self.session = None
             self.qr = None
             self.qr_state = "idle"
+            self._ka_uid = None
+            self._ka_at = 0.0
+            self._ka_ok = None
+            self._ka_state = "unknown"
+            self._ka_auth_failures = 0
         # Logged out: the session's contacts cache must go too.
         self._contacts_clear_cache()
         # Dang xuat: dung kenh sync + xoa tin den trong phien.
@@ -1551,6 +1807,109 @@ class AppState:
                 self.webhook_dispatcher, event, account_id)
         except Exception:
             pass
+
+    def _on_ctrl_call_event(self, event):
+        """Callback call_event tu CtrlPoller (99101): su kien goi
+        thoai theo flow zca-js (ZaloRtcSession: call_event act
+        "request" -> ringring 11302 -> answer 11303 -> answerack
+        11304 o phia caller; tu choi bang cancel 11305 + endcall
+        11306). Chi log dang event + id, khong log noi dung."""
+        try:
+            act = (event or {}).get("act", "")
+            call_id = (event or {}).get("call_id")
+            if call_id is None:
+                return
+            if act == "request":
+                self._on_incoming_call_request(event)
+            elif act in ("cancel", "end", "endcall"):
+                self._on_incoming_call_ended(event, act)
+            elif act == "answer":
+                # Peer answered OUR outgoing call (sync path):
+                # mark answered, source "sync" — _mark_answered
+                # sends the caller's answerack (11304) itself.
+                entry = _mark_answered(call_id, "sync")
+                if entry is not None:
+                    _log_call("call_event answer call_id=%s "
+                              "answered" % call_id)
+            elif act in ("ringring", "answer_ack"):
+                _log_call("call_event %s call_id=%s" % (act, call_id))
+            elif act in ("group_request", "group_cancel",
+                         "group_end"):
+                # Group incoming: chua ho tro (chi 1-1 o vong nay).
+                _log_call("call_event %s call_id=%s "
+                          "unsupported=group" % (act, call_id))
+            else:
+                _log_call("call_event act=%s call_id=%s ignored"
+                          % (act, call_id))
+        except Exception:
+            pass
+
+    def _on_incoming_call_request(self, event):
+        """Cuoc goi den (call_event act "request"): ghi entry
+        "incoming" (thay the cuoc live truoc), gui ringring 11302
+        best-effort tren daemon thread, day webhook call.incoming.
+        Khong arm ring timer — phia goi quyet dinh khi nao dung
+        do chuong."""
+        call_id = int(event["call_id"])
+        caller_id = str(event.get("caller_id") or "")
+        peer = event.get("caller_name") or caller_id
+        entry = STATE.calls.record_incoming(
+            call_id, peer, caller_id, "user")
+        _key = ctrl_poll_mod.find_srtp_key(event.get("data"))
+        if _key:
+            if len(_INCOMING_SRTP) > 50:
+                _INCOMING_SRTP.clear()
+            _INCOMING_SRTP[str(call_id)] = _key
+        STATE.calls.record_diag(call_id, {
+            "incoming_codec": event.get("codec") or "",
+            "incoming_srtp_key_present": bool(_key),
+            "incoming_session_present": bool(event.get("session")),
+            "incoming_rtp_present": bool(event.get("rtp_address")),
+            "incoming_ringring_sent": False})
+        _log_call("incoming call_id=%s peer=%s thread=%s"
+                  % (call_id, peer, caller_id))
+        thread = threading.Thread(
+            target=_send_ringring_async,
+            args=(call_id, caller_id), daemon=True)
+        thread.start()
+        webhooks_mod.dispatch_call_event(
+            STATE.webhook_dispatcher, entry,
+            (STATE.session or {}).get("uid", ""))
+
+    def _on_incoming_call_ended(self, event, act):
+        """Caller ket thuc truoc khi ta tra loi (cancel/end), hoac
+        ket thuc mot cuoc dang noi: chi GHI NHAN, khong gui tin
+        hieu (phia kia da ket thuc roi). Incoming chua tra loi ->
+        "missed" (cuoc goi nho); outgoing/answered -> peer ket
+        thuc. Webhook call.ended."""
+        call_id = int(event["call_id"])
+        snap = STATE.calls.snapshot()
+        target = None
+        for c in snap["calls"]:
+            if str(c["call_id"]) == str(call_id) \
+                    and c["status"] in ("incoming", "sent",
+                                        "answered"):
+                target = c
+                break
+        if target is None:
+            _log_call("call_event %s call_id=%s ignored=no_live"
+                      % (act, call_id))
+            return
+        if target["status"] == "incoming":
+            detail = "missed"
+        elif act == "cancel":
+            detail = "peer_declined"
+        else:
+            detail = "peer_ended"
+        entry = STATE.calls.record_end(call_id, detail)
+        if entry is not None:
+            _disarm_ring_timer(call_id)
+            _cleanup_call_media(entry)
+            _log_call("call_event %s call_id=%s ended detail=%s"
+                      % (act, call_id, detail))
+            webhooks_mod.dispatch_call_event(
+                STATE.webhook_dispatcher, entry,
+                (STATE.session or {}).get("uid", ""))
 
     @staticmethod
     def _sync_error_text(exc):
@@ -1783,6 +2142,7 @@ class AppState:
                 on_cursor=lambda c: self._save_sync_cursor("ctrl", c),
                 on_group_event=self._on_ctrl_group_event,
                 on_reaction=self._on_ctrl_reaction,
+                on_call_event=self._on_ctrl_call_event,
                 file_registry=self.file_async)
         except ValueError as e:
             print("[sync-poll] kenh ctrl khong mo duoc: %s"
@@ -1920,6 +2280,136 @@ class AppState:
                     self.start_sync()
             except Exception:  # noqa: BLE001 - retry nen khong chet
                 pass
+
+    # -- kiem chung phien bang keepAlive (sua H5 + I1) --------------
+    def _keepalive_probe(self, sess):
+        """Mot lan goi keepAlive that (GET chat /keepalive, {imei}).
+        Tra data da giai ma; nem ServiceError / RuntimeError khi
+        loi. Tach rieng de test monkeypatch duoc (mock/offline)."""
+        transport = make_transport(sess["zpw_sek"])
+        svc = services_mod.Services(
+            transport, transport.http_post,
+            sess["device_id"], sess["zpw_enk"],
+            service_map=sess.get("service_map") or {},
+            http_post_multipart=transport.http_post_multipart)
+        return svc.dispatch("keepAlive", {})
+
+    def check_keepalive(self):
+        """Hoi Zalo mot lan xem phien hien tai con song khong.
+        Tra True (phien song) / False (loi) / None (khong co
+        phien de hoi — khong lam gi). Khong bao gio nem loi ra
+        ngoai (loi da phan loai o day); khong crash server.
+        Loi auth (600/401/403) dem lien tiep; du nguong
+        KEEPALIVE_AUTH_FAILURES_TO_EXPIRE thi xoa phien (xem
+        _expire_session) de UI hien lai QR. Loi mang chi ghi
+        nhan — phien duoc giu, retry lan sau."""
+        with self.lock:
+            sess = dict(self.session) if self.session else None
+        if not sess or not sess.get("zpw_sek"):
+            return None
+        try:
+            self._keepalive_probe(sess)
+        except Exception as e:  # noqa: BLE001 - phan loai roi xu ly
+            kind = _classify_keepalive_error(e)
+            expired = False
+            with self.lock:
+                cur = self.session
+                if cur is None or cur.get("uid") != sess.get("uid"):
+                    # Phien doi giua chung (dang nhap moi / dang
+                    # xuat) — bo ket qua cua phien cu.
+                    return False
+                if self._ka_uid != sess.get("uid"):
+                    self._ka_uid = sess.get("uid")
+                    self._ka_auth_failures = 0
+                self._ka_at = time.time()
+                self._ka_ok = False
+                if kind == "auth":
+                    self._ka_auth_failures += 1
+                    self._ka_state = "auth_failed"
+                    expired = (self._ka_auth_failures
+                               >= KEEPALIVE_AUTH_FAILURES_TO_EXPIRE)
+                else:
+                    # Loi mang / loi khac: phien giu nguyen, dem
+                    # auth khong tang (loi thoang qua khong xoa).
+                    self._ka_state = "network_error"
+            if expired:
+                self._expire_session(
+                    sess.get("uid"),
+                    "Phiên Zalo đã hết hạn (keepAlive báo lỗi xác "
+                    "thực %d lần liên tiếp) — quét lại QR để đăng "
+                    "nhập." % KEEPALIVE_AUTH_FAILURES_TO_EXPIRE)
+            return False
+        with self.lock:
+            cur = self.session
+            if cur is None or cur.get("uid") != sess.get("uid"):
+                return False
+            if self._ka_uid != sess.get("uid"):
+                self._ka_uid = sess.get("uid")
+            self._ka_at = time.time()
+            self._ka_ok = True
+            self._ka_state = "ok"
+            self._ka_auth_failures = 0
+        return True
+
+    def _expire_session(self, uid, reason):
+        """Xoa phien Zalo da het han (keepAlive bao loi auth du
+        nguong) — giong logout nhung chi khi phien hien tai dung
+        la phien da check (uid khop), de khong xoa nham mot lan
+        dang nhap moi vua xong. UI se hien lai QR vi /api/status
+        ve login=false; qr_error giai thich ly do quet lai.
+        Tra True khi da xoa, False khi phien da doi."""
+        with self.lock:
+            cur = self.session
+            if cur is None or cur.get("uid") != uid:
+                return False
+            self.store.clear()
+            self.session = None
+            self.qr = None
+            self.qr_state = "idle"
+            self.qr_error = reason
+            self._ka_state = "expired"
+        # Du lieu cua tai khoan cu phai di theo phien (giong
+        # logout): cache danh ba, kenh sync, tin den, con tro +
+        # ban ghi tin — khong de tai khoan moi doc du lieu cu.
+        self._contacts_clear_cache()
+        self.stop_sync()
+        self.inbox.clear()
+        self.cursor_store.clear()
+        self.message_store.clear()
+        return True
+
+    def start_keepalive_thread(self):
+        """Vong nen keepAlive (chi main() goi): hoi ngay luc khoi
+        dong de validate phien cu, roi moi
+        KEEPALIVE_CHECK_INTERVAL_SECONDS. An toan khi goi nhieu
+        lan; khong bao gio chet vi loi (vong loop bat het)."""
+        with self.lock:
+            if self._keepalive_thread is not None \
+                    and self._keepalive_thread.is_alive():
+                return False
+            thread = threading.Thread(target=self._keepalive_loop,
+                                      daemon=True)
+            self._keepalive_thread = thread
+            thread.start()
+            return True
+
+    def _keepalive_loop(self):
+        while True:
+            try:
+                self.check_keepalive()
+            except Exception:  # noqa: BLE001 - vong nen khong chet
+                pass
+            time.sleep(KEEPALIVE_CHECK_INTERVAL_SECONDS)
+
+    def _keepalive_probe_background(self):
+        """Probe nen do /api/status kich khi cache het TTL."""
+        try:
+            self.check_keepalive()
+        except Exception:  # noqa: BLE001 - loi nen khong chet
+            pass
+        finally:
+            with self.lock:
+                self._ka_probe_running = False
 
     def stop_sync(self):
         """Dung kenh sync + kenh ctrl (dang xuat)."""
@@ -2167,6 +2657,60 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return {}
 
+    def _serve_call_audio_out(self, token):
+        """Phat lien tuc am thanh ben kia (WAV 16 kHz mono) cho mot thiet
+        bi bat ky. Xac thuc bang token cua cuoc goi, khong dung cookie."""
+        call_id = STATE.audio_tokens.call_for(token)
+        if call_id is None:
+            return self._send_json({"error": "token_khong_hop_le"},
+                                   status=404)
+        engine = _engine_for_call(call_id)
+        if engine is None:
+            return self._send_json({"error": "chua_co_media"}, status=409)
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        def write(chunk):
+            self.wfile.write(chunk)
+            self.wfile.flush()
+
+        def live():
+            return (STATE.audio_tokens.call_for(token) is not None
+                    and _engine_for_call(call_id) is engine)
+
+        try:
+            call_audio_mod.stream_out(engine, write, live)
+        except OSError:
+            pass            # thiet bi ngat ket noi: binh thuong
+
+    def _handle_call_audio_in(self, call_id):
+        """Nhan PCM16 16 kHz mono (boi so 640 byte) tu mic cua thiet bi bat
+        ky va dua vao cuoc goi. Can dang nhap app."""
+        if self._require_app_login() is None:
+            return self._unauthorized()
+        engine = _engine_for_call(call_id)
+        if engine is None:
+            return self._send_json({"ok": False, "error": "chua_co_media"},
+                                   status=409)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return self._send_json({"ok": False, "error": "thieu_noi_dung"},
+                                   status=400)
+        if length > call_audio_mod.MAX_IN_BYTES:
+            return self._send_json({"ok": False, "error": "qua_lon"},
+                                   status=413)
+        data = self.rfile.read(length)
+        sent, errors, last = call_audio_mod.feed_frames(engine, data)
+        return self._send_json({"ok": errors == 0, "frames": sent,
+                                "errors": errors, "last_error": last})
+
     def _require_login(self):
         sess = STATE.session
         if not sess or not sess.get("zpw_sek"):
@@ -2176,6 +2720,10 @@ class Handler(BaseHTTPRequestHandler):
     # -- routing ---------------------------------------------------------
     def do_GET(self):
         path = self.path.split("?", 1)[0]
+        if path.startswith("/api/call/audio/out/"):
+            # Public theo TOKEN (media_player khong co cookie).
+            return self._serve_call_audio_out(
+                path[len("/api/call/audio/out/"):])
         if path == "/login":
             # The login page itself is public. Already logged in?
             # Back to the app.
@@ -2205,9 +2753,19 @@ class Handler(BaseHTTPRequestHandler):
             # Shared by the login page: public.
             return self._serve_static("style.css", "text/css")
         if path.startswith("/fonts/"):
-            # Login page resources: public.
-            return self._serve_static(path.lstrip("/"),
-                                      "font/woff2")
+            # Login page resources: public — NHUNG chi file font
+            # that trong static/fonts (H1): realpath phai nam trong
+            # FONTS_DIR va duoi .woff2 (toan bo font UI hien dung
+            # .woff2, xem style.css). Duong con trong fonts/ duoc
+            # phep; moi duong ra ngoai (.., encode, null byte)
+            # deu tra 404 chung chung, khong lo noi dung.
+            rel = path[len("/fonts/"):]
+            resolved = _safe_static_path(rel, FONTS_DIR)
+            if (resolved is None
+                    or not resolved.lower().endswith(".woff2")):
+                return self._send_json({"error": "not_found"},
+                                       status=404)
+            return self._serve_static_file(resolved, "font/woff2")
         if path == "/api/app/status":
             # Public: the login page uses it to redirect when the
             # session is already valid. Never leaks anything else.
@@ -2566,11 +3124,14 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_thread_post(self, path):
         """-- CHAT HOOK (module chat.py; diem moc duy nhat o do_POST) --
         POST /api/thread/<id>/send | sendfile | sendvoice | typing
-        | seen | sendlink. Tat ca can _require_login (phien Zalo);
-        dang nhap app chua co trong ban copy — xem ghi
-        chu o route history tren. sendfile/sendvoice la multipart
-        (doc raw, khong doc JSON nhu cac POST khac). sendlink gui
-        link (11286/11193) qua chat.send_link."""
+        | seen | sendlink. Tat ca can dang nhap app TRUOC (cong
+        _require_app_login, giong moi /api/* khac — H2: nhanh nay
+        tung re truoc cong app o do_POST nen chi kiem phien Zalo)
+        roi moi can _require_login (phien Zalo). sendfile/sendvoice
+        la multipart (doc raw, khong doc JSON nhu cac POST khac).
+        sendlink gui link (11286/11193) qua chat.send_link."""
+        if self._require_app_login() is None:
+            return self._unauthorized()
         import urllib.parse as _up
         segs = [s for s in path.split("/") if s]
         # segs = ["api", "thread", <id>, <action>]
@@ -2778,9 +3339,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?", 1)[0]
         # CHAT HOOK: route /api/thread/* doc o _handle_thread_post
-        # (multipart thi doc raw, khong doc JSON truoc).
+        # (multipart thi doc raw, khong doc JSON truoc). Dang nhap
+        # app kiem tra ngay dau _handle_thread_post (H2) — nhanh
+        # nay phai o truoc cong /api/* chung vi no doc body rieng.
         if path.startswith("/api/thread/"):
             return self._handle_thread_post(path)
+        # Am thanh mic vao cuoc goi: body la PCM tho, khong phai JSON.
+        if path.startswith("/api/call/audio/in/"):
+            return self._handle_call_audio_in(
+                path[len("/api/call/audio/in/"):])
         # /api/svc/* multipart (doi avatar): doc raw o _api_post,
         # khong doc JSON truoc (giong /api/thread/*).
         if path.startswith("/api/svc/") and "multipart/form-data" in (
@@ -3032,10 +3599,15 @@ class Handler(BaseHTTPRequestHandler):
                         body.get("data"),
                         body.get("partners"))
                 else:
+                    # 11300 codec (zca-js: the engine always sends
+                    # its Opus JSON list here; "[]" is only the
+                    # factory fallback). An explicit UI codec still
+                    # wins so a later test can force another list.
                     data = sig.request_call(
                         thread_id,
                         call_id,
-                        body.get("codec"),
+                        body.get("codec")
+                        or media_endpoints.DEFAULT_ZALO_AUDIO_CODEC,
                         type_request)
                 # §7l — SECOND STEP, the one the 17:51 live call was
                 # missing: after requestcall the real client sends
@@ -3179,7 +3751,7 @@ class Handler(BaseHTTPRequestHandler):
                     # khung im lang giu ket noi va ben nhan bao "tin hieu
                     # yeu". Truoc 2026-11-09 hook chi duoc dung khi 11300
                     # tra srtp_key — ma server khong bao gio tra.
-                    _srtp_mode = _srtp_mode_for_call(body)
+                    _srtp_mode, _srtp_src = _srtp_mode_for_call(body)
                     try:
                         from . import pc_media, srtp_pure
                         if _alloc.get("srtp_key") is not None:
@@ -3192,10 +3764,12 @@ class Handler(BaseHTTPRequestHandler):
                                 _local_key)
                         else:
                             hooks, _notes = pc_media.hooks_for_call(None)
+                        if _srtp_mode in SRTP_MODES:
+                            _CALL_SRTP[str(call_id)] = (_srtp_mode, _srtp_src)
                         _log_call("media hooks call_id=%s srtp_mode=%s "
-                                  "srtp=%s opus=%s"
-                                  % (call_id, _srtp_mode, _notes["srtp"],
-                                     _notes["opus"][:90]))
+                                  "source=%s srtp=%s opus=%s"
+                                  % (call_id, _srtp_mode, _srtp_src,
+                                     _notes["srtp"], _notes["opus"][:90]))
                     except Exception as exc:  # noqa: BLE001 - optional
                         hooks, _local_key = {}, None
                         _log_call("media hooks failed call_id=%s: %s"
@@ -3491,6 +4065,181 @@ class Handler(BaseHTTPRequestHandler):
                  "status": entry["status"],
                  "answered_at": entry.get("answered_at"),
                  "answer_source": entry.get("answer_source", "")})
+        if path == "/api/call/answer":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            # Answer an INCOMING call (we are the callee). zca-js
+            # acceptIncomingCall: ringring 11302 (unless the
+            # call_event handler already sent it) -> requestVoiceCall
+            # 11300 fallback for a fresh allocation (same callId,
+            # partner = caller) -> answerVoiceCall 11303 with the
+            # allocation's endpoints. The 11301 request step is NOT
+            # sent — that is the caller's signal — and no answerack
+            # (11304) is sent either: 11304 is the CALLER's signal
+            # (zca-js + mock server_call_state). Target resolution
+            # mirrors /api/call/answered, but only an "incoming"
+            # entry counts.
+            raw_id = body.get("call_id", "")
+            call_id = _coerce_call_id(raw_id)
+            snap = STATE.calls.snapshot()
+            live = snap["active"]
+            target = None
+            if call_id is not None:
+                for c in snap["calls"]:
+                    if (str(c["call_id"]) == str(call_id)
+                            and c["status"] == "incoming"):
+                        target = c
+                        break
+            if target is None and live is not None \
+                    and live["status"] == "incoming":
+                target = live
+            if target is None:
+                _log_call("answer call_id=%s reason=no_incoming_call"
+                          % raw_id)
+                return self._send_json(
+                    {"ok": False, "error": "no_incoming_call"})
+            call_id = int(target["call_id"])
+            caller_id = target["thread_id"]
+            codec = ((target.get("diag") or {}).get("incoming_codec")
+                     or media_endpoints.DEFAULT_ZALO_AUDIO_CODEC)
+            # Ringring first when the call_event handler has not
+            # sent it yet (best-effort, synchronous here: the
+            # answer must reach the caller after the ring).
+            if not (target.get("diag") or {}).get(
+                    "incoming_ringring_sent"):
+                try:
+                    transport = make_transport(sess["zpw_sek"])
+                    sig = signaling_mod.Signaling(
+                        transport, sess["device_id"], sess["zpw_enk"])
+                    sig.ringring(caller_id, call_id)
+                    STATE.calls.record_diag(
+                        call_id, {"incoming_ringring_sent": True})
+                except Exception as e:  # noqa: BLE001 - best-effort
+                    _log_call("ringring call_id=%s ok=False "
+                              "error=%s" % (call_id, e))
+            try:
+                transport = make_transport(sess["zpw_sek"])
+                sig = signaling_mod.Signaling(
+                    transport, sess["device_id"], sess["zpw_enk"])
+                data = sig.request_call(
+                    caller_id, call_id, codec,
+                    _type_request_for("user"))
+                _alloc = media_endpoints. \
+                    allocation_from_requestcall_data(data)
+                # Hook ma hoa LUON duoc dung (xem cuoc goi di): khoa SRTP lay
+                # tu 11300 neu co, neu khong thi khoa ben goi gui kem trong
+                # su kien cuoc goi den, neu khong thi RTP tran.
+                hooks = {}
+                _in_key = _alloc.get("srtp_key")
+                if _in_key is None:
+                    _in_key = _INCOMING_SRTP.pop(str(call_id), None)
+                try:
+                    from . import pc_media
+                    hooks, _notes = pc_media.hooks_for_call(_in_key)
+                    _log_call("answer media hooks call_id=%s srtp=%s opus=%s"
+                              % (call_id, _notes["srtp"],
+                                 _notes["opus"][:90]))
+                except Exception as exc:  # noqa: BLE001 - optional
+                    hooks = {}
+                    _log_call("answer media hooks failed call_id=%s: %s"
+                              % (call_id, str(exc)[:160]))
+
+                def _on_first_media():
+                    _mark_answered(call_id, "media", send_ack=False)
+
+                endpoints = media_endpoints.ENDPOINTS.for_call(
+                    call_id=call_id, callee_id=caller_id,
+                    call_type="user", codec=body.get("codec") or codec,
+                    local_session=_alloc.get("local_session"),
+                    peer_session=_alloc.get("peer_session"),
+                    requestcall_data=data,
+                    on_first_media=_on_first_media, **hooks)
+                sig.answer(caller_id, call_id, 0, endpoints["codec"],
+                           endpoints["rtcp_address"],
+                           endpoints["rtp_address"],
+                           endpoints["session"],
+                           endpoints["extend_data"])
+                # Gan engine media de cau noi am thanh (loa/mic) hoat dong.
+                engine_seam.SEAM.attach_pc_media(
+                    media_endpoints.ENDPOINTS.active_record(call_id))
+            except Exception as e:  # noqa: BLE001 - loi ro
+                _log_call("answer call_id=%s ok=False error=%s"
+                          % (call_id, e))
+                return self._send_json(
+                    {"ok": False, "error": str(e)})
+            entry = _mark_answered(call_id, "api", send_ack=False)
+            if entry is None:
+                return self._send_json(
+                    {"ok": False, "error": "no_incoming_call"})
+            return self._send_json(
+                {"ok": True, "call_id": call_id,
+                 "status": entry["status"],
+                 "answered_at": entry.get("answered_at"),
+                 "answer_source": entry.get("answer_source", "")})
+        if path == "/api/call/reject":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            # Reject an INCOMING call (we are the callee). zca-js
+            # rejectIncomingCall (1-1): cancelVoiceCall (11305)
+            # AND endVoiceCall (11306, status 3), both best-effort.
+            # LOCAL-FIRST like /api/call/end: the entry is ended
+            # locally first, then the signals are attempted.
+            raw_id = body.get("call_id", "")
+            call_id = _coerce_call_id(raw_id)
+            snap = STATE.calls.snapshot()
+            live = snap["active"]
+            target = None
+            if call_id is not None:
+                for c in snap["calls"]:
+                    if (str(c["call_id"]) == str(call_id)
+                            and c["status"] == "incoming"):
+                        target = c
+                        break
+            if target is None and live is not None \
+                    and live["status"] == "incoming":
+                target = live
+            if target is None:
+                _log_call("reject call_id=%s reason=no_incoming_call"
+                          % raw_id)
+                return self._send_json(
+                    {"ok": False, "error": "no_incoming_call"})
+            call_id = int(target["call_id"])
+            caller_id = target["thread_id"]
+            entry = STATE.calls.record_end(call_id, "user_rejected")
+            if entry is not None:
+                _cleanup_call_media(entry)
+            zalo_ok = True
+            zalo_error = ""
+            for signal in ("cancel", "endcall"):
+                try:
+                    transport = make_transport(sess["zpw_sek"])
+                    sig = signaling_mod.Signaling(
+                        transport, sess["device_id"], sess["zpw_enk"])
+                    if signal == "cancel":
+                        # callerId = the CALLER (peer), callType =
+                        # the 1-1 audio enum (1), like _send_end_signal.
+                        sig.cancel(caller_id, call_id,
+                                   _type_request_for("user"))
+                    else:
+                        sig.endcall(caller_id, call_id)
+                except Exception as e:  # noqa: BLE001 - best-effort
+                    zalo_ok = False
+                    zalo_error = str(e)
+            if entry is not None:
+                webhooks_mod.dispatch_call_event(
+                    STATE.webhook_dispatcher, entry,
+                    (STATE.session or {}).get("uid", ""))
+                _log_call("reject call_id=%s zalo_ok=%s%s"
+                          % (call_id, zalo_ok,
+                             (" zalo_error=" + zalo_error)
+                             if zalo_error else ""))
+            return self._send_json(
+                {"ok": True, "ended_call_id": call_id,
+                 "zalo_ok": zalo_ok, "zalo_error": zalo_error})
         # WEBHOOK HOOK (webhooks.py): save the webhook config. Auth is
         # the same _require_login() as /api/calls. Bad URL -> 400,
         # nothing written. Unknown keys are dropped by normalize.
@@ -3561,10 +4310,21 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_json({"error": "not_found"}, status=404)
 
     def _serve_static(self, name, ctype):
+        # Ten co dinh o do_GET (login.html/app.html/app.js/style.css)
+        # cung di qua _safe_static_path: phong thu theo chieu sau,
+        # khong rieng route /fonts/ moi an toan.
+        resolved = _safe_static_path(name)
+        if resolved is None:
+            return self._send_json({"error": "not_found"}, status=404)
+        return self._serve_static_file(resolved, ctype)
+
+    def _serve_static_file(self, resolved, ctype):
+        # `resolved` da qua _safe_static_path (nam trong thu muc
+        # cho phep). Chi tra 404 chung chung, khong lo duong dan.
         try:
-            with open(os.path.join(STATIC_DIR, name), "rb") as f:
+            with open(resolved, "rb") as f:
                 body = f.read()
-        except FileNotFoundError:
+        except (FileNotFoundError, IsADirectoryError, OSError):
             return self._send_json({"error": "not_found"}, status=404)
         self.send_response(200)
         self.send_header("Content-Type", ctype)
@@ -3622,6 +4382,14 @@ def main():
         STATE.start_sync_retry_thread()
     except Exception as e:  # noqa: BLE001 - best-effort
         print("[sync-poll] khong mo duoc vong retry: %s"
+              % type(e).__name__, flush=True)
+    # Validate phien cu ngay luc khoi dong + hoi lai dinh ky
+    # (keepAlive nhe): phien bi da se tu xoa + hien lai QR thay
+    # vi bao login=true voi du lieu cu (loi H5).
+    try:
+        STATE.start_keepalive_thread()
+    except Exception as e:  # noqa: BLE001 - best-effort
+        print("[keepalive] khong mo duoc vong kiem chung phien: %s"
               % type(e).__name__, flush=True)
     try:
         server.serve_forever()

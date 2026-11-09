@@ -131,6 +131,10 @@ KEEPALIVE_MEDIA_INTERVAL = 0.02      # goi am thanh giu ket noi, 50 goi/giay.
                                     # Ben nhan can >= 14 goi/2 s (zca-js:
                                     # audio_recheck_sock checkPkgRec) — khong
                                     # co thi bao "tin hieu yeu" du mang tot.
+VOICE_HOLD_SECONDS = 0.25            # co tieng that trong khoang nay thi KHONG chen
+                                    # khung im lang: mic gui theo goi 100 ms, chen
+                                    # im lang vao khoang trong se keo gian thoi
+                                    # gian va tre tang dan.
 OPUS_SILENCE_FRAME = b"\xf8\xff\xfe"   # khung Opus im lang 20 ms (TOC 0xf8 +
                                     # 0xff 0xfe), hang so cua zca-js
                                     # OPUS_SILENCE_20MS_FRAME; KHONG can libopus.
@@ -1150,6 +1154,7 @@ class Udp4200Transport:
         self._last_hello = 0.0
         self._last_rtcp = 0.0
         self._last_media_tx = 0.0
+        self._voice_until = 0.0
         self._highest_rx_seq = None
         self.counters = {
             "probe_tx": 0, "setup_init_tx": 0, "setup_refresh_tx": 0,
@@ -1247,6 +1252,7 @@ class Udp4200Transport:
                 "media; inject it via TransportConfig)")
         encode = self.config.encode_frame or (lambda b: b)
         self._send_payload(encode(pcm))
+        self._voice_until = time.monotonic() + VOICE_HOLD_SECONDS
 
     def _send_payload(self, payload, keepalive=False):
         """One RTP media packet: header (seq +1, ts +320) -> protect_rtp
@@ -1541,7 +1547,8 @@ class Udp4200Transport:
         if (not cfg.keepalive_media or cfg.protect_rtp is None
                 or self.selected_relay is None or not self.relay_session):
             return
-        if now - self._last_media_tx < cfg.keepalive_media_interval:
+        if now - self._last_media_tx < cfg.keepalive_media_interval \
+                or now < self._voice_until:
             return
         try:
             self._send_payload(OPUS_SILENCE_FRAME, keepalive=True)

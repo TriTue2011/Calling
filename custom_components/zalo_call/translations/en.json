@@ -29,7 +29,8 @@
           "ai_agent": "Conversation agent for AI",
           "ai_threads": "Only reply to these threadIds (comma separated, empty = all)",
           "speaker": "Call speaker",
-          "mic": "Mic source",
+          "mic": "Mic from camera",
+          "mic_url": "Mic from any URL (rtsp/http…, wins over camera)",
           "camera": "Camera for video calls"
         }
       }

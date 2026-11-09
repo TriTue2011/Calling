@@ -248,6 +248,13 @@ def build_call_event(call_entry, account_id):
     })
     if status == "error":
         payload["detail"] = call_entry.get("detail", "") or ""
+    if status == "ended":
+        # Ly do ket thuc that (user_end / ring_timeout / peer_declined /
+        # peer_ended / missed / user_rejected ...), chi phan truoc dau ";"
+        # (phan sau la loi tin hieu Zalo, khong dua ra ngoai). Cho phep
+        # automation phan biet "tu choi" / "khong nghe may" / "cup may".
+        payload["end_reason"] = str(
+            call_entry.get("detail", "") or "").split(";", 1)[0].strip()
     return payload
 
 

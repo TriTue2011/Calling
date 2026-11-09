@@ -5,16 +5,18 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(__file__)
-FILES = ["test_aes.py", "test_srtp_pure.py", "test_crypto.py", "test_flow_mock.py",
+FILES = ["test_aes.py", "test_srtp_pure.py", "test_srtp_mode.py", "test_call_audio.py", "test_crypto.py", "test_flow_mock.py",
          "test_logininfo.py", "test_contacts.py", "test_calls.py",
          "test_call_114.py", "test_call_id_counter.py",
          "test_call_11301.py", "test_call_end.py",
          "test_call_ringing.py", "test_call_answered.py",
          "test_call_states.py", "test_call_diag_11301.py",
-         "test_call_local_session.py",
+         "test_call_local_session.py", "test_codec_zca_js.py",
+         "test_call_incoming_zca.py",
          "test_media_provider.py", "test_udp_transport.py",
          "test_p2p.py",
          "test_app_auth.py",
+         "test_security_h2_thread_auth.py",
          "test_contacts_cache_429.py", "test_contacts_stale_swr.py",
          "test_view_decision.py", "test_webhooks.py", "test_chat.py",
          "test_incoming.py",
@@ -28,7 +30,11 @@ FILES = ["test_aes.py", "test_srtp_pure.py", "test_crypto.py", "test_flow_mock.p
          "test_voice_async_114.py",
          "test_photo_silent.py", "test_photo_group.py",
          "test_services.py", "test_watch_proxy_security.py",
-         "test_server_smoke.py"]
+         "test_server_smoke.py",
+         "test_security_h1_fonts.py",
+         "test_security_h4_session_corrupt.py",
+         "test_security_h5_keepalive.py",
+         "test_services_f1d1.py"]
 
 # Node checks: app.js syntax + the vm harness for the End button
 # (§7m) — the UI fix cannot be covered by the Python suites.

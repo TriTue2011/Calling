@@ -23,7 +23,8 @@
           "ai_agent": "Trợ lý hội thoại cho AI",
           "ai_threads": "Chỉ trả lời các threadId này (cách nhau dấu phẩy, bỏ trống = tất cả)",
           "speaker": "Loa phát tiếng cuộc gọi",
-          "mic": "Nguồn mic",
+          "mic": "Mic từ camera",
+          "mic_url": "Mic từ URL bất kỳ (rtsp/http…, thắng ô camera)",
           "camera": "Camera cho cuộc gọi video"
         }
       }

@@ -25,6 +25,7 @@ from .const import (
     CONF_CAMERA,
     CONF_HA_URL,
     CONF_MIC,
+    CONF_MIC_URL,
     CONF_PASSWORD,
     CONF_SPEAKER,
     CONF_URL,
@@ -105,7 +106,8 @@ class ZaloCallOptionsFlow(OptionsFlow):
             opt(CONF_SPEAKER, selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="media_player"))),
             opt(CONF_MIC, selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["assist_satellite", "sensor", "media_player"]))),
+                selector.EntitySelectorConfig(domain="camera"))),
+            opt(CONF_MIC_URL, selector.TextSelector()),
             opt(CONF_CAMERA, selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="camera"))),
         ])

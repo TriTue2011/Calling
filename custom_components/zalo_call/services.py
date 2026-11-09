@@ -179,12 +179,36 @@ async def async_register_services(hass: HomeAssistant) -> None:
             DOMAIN, e["name"], _make_handler(hass, e), schema=_schema(e),
             supports_response=SupportsResponse.OPTIONAL)
 
+    def _device_override(call: ServiceCall) -> dict:
+        """Thiet bi ghi de cua service nay (vang = dung mac dinh; "" = tat)."""
+        return {k: call.data[k] for k in ("speaker", "mic", "mic_url", "camera")
+                if k in call.data}
+
     async def make_call(call: ServiceCall) -> dict:
-        _, api = _api(hass, call)
+        rt, api = _api(hass, call)
+        rt.bridge.remember(None, _device_override(call))
         try:
             res = await api.call_request(str(call.data["thread_id"]),
                                          call.data.get("type", "user"),
-                                         call.data.get("peer_name", ""))
+                                         call.data.get("peer_name", ""),
+                                         call.data.get("srtp"))
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"result": res}
+
+    async def answer_call(call: ServiceCall) -> dict:
+        rt, api = _api(hass, call)
+        rt.bridge.remember(call.data.get("call_id"), _device_override(call))
+        try:
+            res = await api.call_answer(call.data.get("call_id"))
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"result": res}
+
+    async def reject_call(call: ServiceCall) -> dict:
+        _, api = _api(hass, call)
+        try:
+            res = await api.call_reject(call.data.get("call_id"))
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
         return {"result": res}
@@ -197,13 +221,30 @@ async def async_register_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(str(err)) from err
         return {"result": res}
 
+    devices = {vol.Optional("speaker"): cv.string,
+               vol.Optional("mic"): cv.string,
+               vol.Optional("mic_url"): cv.string,
+               vol.Optional("camera"): cv.string}
     hass.services.async_register(
         DOMAIN, "make_call", make_call,
         schema=vol.Schema({
             vol.Optional("entry_id"): cv.string,
             vol.Required("thread_id"): cv.string,
             vol.Optional("type", default="user"): vol.In(["user", "video", "group"]),
-            vol.Optional("peer_name"): cv.string}),
+            vol.Optional("peer_name"): cv.string,
+            vol.Optional("srtp"): vol.In(["auto", "off", "key"]),
+            **devices}),
+        supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "answer_call", answer_call,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string,
+                           vol.Optional("call_id"): vol.Any(int, cv.string),
+                           **devices}),
+        supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "reject_call", reject_call,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string,
+                           vol.Optional("call_id"): vol.Any(int, cv.string)}),
         supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, "end_call", end_call,
