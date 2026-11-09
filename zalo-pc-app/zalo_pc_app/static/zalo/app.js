@@ -537,3 +537,290 @@ function renderCallsPage() {
       h("div", {}, list.map((c) => h("div", { style: "display:flex;gap:.625rem;align-items:center;padding:.5rem 0;border-top:1px solid var(--line)" },
         h("div", { style: "flex:1;min-width:0" }, h("div", { style: "font-weight:500" }, c.peer || c.thread_id), h("div", { style: "color:var(--muted);font-size:.78rem" }, (c.type === "video" ? "Video" : c.type === "group" ? "Nhóm" : "Thoại") + " · " + fmtDT(c.started_at) + (c.ended_at ? " · " + fmtDur(c.ended_at - c.started_at) : ""))), callPill(c))))));
 }
+
+// ---- danh bạ --------------------------------------------------------------------------------------------------
+const CMENU = [["friends", "Danh sách bạn bè", "user"], ["groups", "Danh sách nhóm và cộng đồng", "users"], ["invites", "Lời mời kết bạn", "userplus"], ["ginvites", "Lời mời vào nhóm và cộng đồng", "users"]];
+function renderContactMenu(ul) {
+  for (const [id, label, icon] of CMENU) ul.append(h("li", { class: "cmenu" }, h("button", { class: "row", type: "button", "aria-current": S.cmenu === id ? "true" : null, onclick: () => { S.cmenu = id; renderContactMenu(ul.replaceChildren() || ul); renderContactsPage(); $("app").dataset.pane = "main"; } }, svg(icon), label)));
+  $("list-foot").replaceChildren(h("span", {}, S.friends.length + " bạn · " + S.groups.length + " nhóm"));
+}
+function contactMenu(anchor, r) {
+  popup(anchor, [{ label: "Nhắn tin", icon: "chat", run: () => openThread(r) }, { label: "Gọi thoại", icon: "phone", run: () => { openThread(r); setTimeout(() => startCall(false), 50); } },
+    r.type === "user" ? { label: "Gọi video", icon: "video", run: () => { openThread(r); setTimeout(() => startCall(true), 50); } } : null,
+    { label: "Sao chép threadId", icon: "copy", run: () => copyText(r.id, "threadId") }, { label: "Dịch vụ…", icon: "grid", run: () => { S.cur = r; setTab("services"); } }].filter(Boolean));
+}
+async function renderContactsPage() {
+  const box = $("contacts-page"); box.replaceChildren();
+  const title = CMENU.find((m) => m[0] === S.cmenu)[1]; $("contacts-title").textContent = title;
+  if (S.cmenu === "invites") {
+    box.append(h("div", { class: "card wide" }, h("h3", {}, "Lời mời kết bạn đã gửi"), h("p", { id: "inv-body", style: "color:var(--muted);margin:0" }, "Đang tải…")));
+    const d = await api("/api/svc/get_sent_friend_requests", "POST", {}); const body = $("inv-body"); if (!body) return;
+    const list = Array.isArray(d.data) ? d.data : d.data && Array.isArray(d.data.requests) ? d.data.requests : null;
+    if (d.error) body.textContent = "Không tải được: " + d.error;
+    else if (list && list.length) body.replaceChildren(...list.map((x) => h("div", { class: "crow" }, h("span", { class: "cname", style: "cursor:default" }, x.displayName || x.zaloName || x.userId || x.uid || JSON.stringify(x).slice(0, 80)))));
+    else body.textContent = "Không có lời mời nào đang chờ.";
+    return;
+  }
+  if (S.cmenu === "ginvites") return void box.append(h("div", { class: "card wide" }, h("h3", {}, title), h("p", { style: "color:var(--muted);margin:0" }, "Zalo PC chưa cho app đọc danh sách lời mời vào nhóm. Khi có người mời, tin báo sẽ hiện trong mục Tin nhắn.")));
+  let rows = S.cmenu === "groups" ? S.groups : S.friends;
+  const q = plain(S.q);
+  rows = rows.filter((r) => !q || plain(r.name).includes(q) || r.id.includes(q));
+  rows = [...rows].sort((a, b) => (a.name || "").localeCompare(b.name || "", "vi") * (S.csort === "za" ? -1 : 1));
+  box.append(h("p", { style: "font-weight:600;margin:0 0 .625rem" }, (S.cmenu === "groups" ? "Nhóm" : "Bạn bè") + " (" + rows.length + ")"));
+  const local = h("input", { type: "search", placeholder: S.cmenu === "groups" ? "Tìm nhóm" : "Tìm bạn", "aria-label": "Tìm trong danh bạ", value: S.q, oninput: (e) => { S.q = e.target.value; $("q").value = S.q; renderContactsPage(); } });
+  box.append(h("div", { class: "cbar" }, h("div", { class: "search" }, svg("search"), local), h("select", { "aria-label": "Sắp xếp", onchange: (e) => { S.csort = e.target.value; renderContactsPage(); } }, h("option", { value: "az", selected: S.csort === "az" }, "Tên (A-Z)"), h("option", { value: "za", selected: S.csort === "za" }, "Tên (Z-A)"))));
+  if (!rows.length) return void box.append(h("p", { style: "color:var(--muted)" }, S.contactsErr || "Không có kết quả."));
+  let letter = "";
+  const card = h("div", { class: "card wide" });
+  for (const r of rows) {
+    const L = (plain(r.name)[0] || "#").toUpperCase(); const key = /[A-Z]/.test(L) ? L : "#";
+    if (key !== letter) { letter = key; card.append(h("div", { class: "letter" }, key)); }
+    const more = h("button", { class: "icon-btn", type: "button", "data-pop": "1", "aria-label": "Tuỳ chọn", onclick: () => contactMenu(more, r) }, svg("more"));
+    card.append(h("div", { class: "crow" }, avatar(r), h("div", { class: "cname", role: "button", tabindex: "0", onclick: () => openThread(r), onkeydown: (e) => { if (e.key === "Enter") openThread(r); } }, r.name || r.id, h("div", { class: "mono", style: "color:var(--muted);font-weight:400" }, r.id)), more));
+  }
+  box.append(card);
+}
+
+// ---- theo dõi người lạ ---------------------------------------------------------------------------------------------
+async function renderWatch() {
+  const box = $("watch-page"); box.replaceChildren();
+  const list = strangerList().sort((a, b) => (b.last_ts || 0) - (a.last_ts || 0));
+  $("watch-sub").textContent = list.length + " người lạ đã nhắn" + (S.contactsMeta ? "" : " · đang tải danh bạ");
+  box.append(h("div", { class: "card wide" }, h("h3", {}, "Người lạ nhắn tin vào"),
+    h("p", { style: "color:var(--muted);margin:0 0 .75rem;font-size:.85rem" }, "Người không có trong danh bạ nhắn cho tài khoản này sẽ hiện ở đây ngay khi tin tới, kèm tên hiển thị và threadId (dùng được cho dịch vụ, webhook, trợ lý AI). Bấm một dòng để xem các tin gần nhất."),
+    !list.length ? h("p", { style: "margin:0" }, "Chưa có người lạ nào nhắn.") :
+      h("table", { class: "tbl" }, h("thead", {}, h("tr", {}, ...["Tên", "threadId", "Tin gần nhất", "Số tin", ""].map((t) => h("th", {}, t)))),
+        h("tbody", {}, ...list.flatMap((c) => {
+          const open = S.watchOpen === c.thread_id, row = convRow(c);
+          const tr = h("tr", { class: open ? "sel" : "", style: "cursor:pointer", onclick: async () => { S.watchOpen = open ? null : c.thread_id; if (S.watchOpen && !S.watchMsgs[c.thread_id]) { const d = await api("/api/thread/" + c.thread_id + "/history?type=user&count=10"); S.watchMsgs[c.thread_id] = d.messages || []; } renderWatch(); } },
+            h("td", {}, h("div", { style: "display:flex;gap:.625rem;align-items:center" }, avatar(row, "sm"), h("div", {}, h("div", { style: "font-weight:500" }, convName(c)), h("div", { style: "color:var(--muted);font-size:.75rem" }, "Từ " + fmtDT(c.first_ts))))),
+            h("td", {}, h("span", { class: "mono" }, c.thread_id), " ", h("button", { class: "icon-btn", type: "button", "aria-label": "Sao chép threadId", onclick: (e) => { e.stopPropagation(); copyText(c.thread_id, "threadId"); } }, svg("copy"))),
+            h("td", {}, h("div", { style: "max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, c.last_text || ""), h("div", { style: "color:var(--muted);font-size:.75rem" }, fmtRel(c.last_ts))),
+            h("td", {}, c.unread > 0 ? h("span", { class: "badge" }, c.unread) : String(c.incoming_count || 0)),
+            h("td", {}, h("button", { class: "btn sm", type: "button", onclick: (e) => { e.stopPropagation(); openThread(row); } }, "Mở chat")));
+          const out = [tr];
+          if (open) out.push(h("tr", {}, h("td", { colspan: "5" }, h("div", { class: "watch-msgs" }, (S.watchMsgs[c.thread_id] || []).slice(-10).map((m) => h("div", { class: "wm" }, h("span", { class: "wt" }, fmtTime(m.time)), h("span", {}, (m.sender_id === c.thread_id ? "" : "Bạn: ") + (m.text || m.file_name || "[" + (m.kind || "tệp") + "]")))), h("div", {}, h("button", { class: "btn sm", type: "button", onclick: () => copyText(JSON.stringify({ thread_id: c.thread_id, name: convName(c), last: c.last_text }), "JSON") }, "Sao chép JSON"))))));
+          return out;
+        })))));
+}
+
+// ---- 96 dịch vụ ------------------------------------------------------------------------------------------------------------
+async function renderServices() {
+  const box = $("svc-page");
+  if (!S.catalog) {
+    box.replaceChildren(h("p", { style: "color:var(--muted)" }, "Đang tải danh mục…"));
+    const d = await api("/api/svc/catalog"); if (d.error) return box.replaceChildren(h("p", { class: "notice bad" }, "Lỗi: " + d.error));
+    const seen = new Set();
+    S.catalog = { groups: d.groups || [], items: (d.services || []).filter((s) => s.addon_no != null && !seen.has(s.addon_no) && seen.add(s.addon_no)).sort((a, b) => a.addon_no - b.addon_no) };
+  }
+  const { groups, items } = S.catalog, q = S.svcQ.trim().toLowerCase();
+  const shown = items.filter((s) => (S.svcGroup === "all" || s.group === S.svcGroup) && (!q || s.addon.includes(q) || (s.label || "").toLowerCase().includes(q)));
+  $("svc-sub").textContent = items.length + " dịch vụ" + (S.cur ? " · đang chọn: " + (S.cur.name || S.cur.id) : "");
+  const keep = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.svcq;
+  box.replaceChildren(
+    h("div", { class: "search", style: "max-width:48rem;margin-bottom:.625rem" }, svg("search"), h("input", { type: "search", "data-svcq": "1", placeholder: "Tìm dịch vụ…", value: S.svcQ, "aria-label": "Tìm dịch vụ", oninput: (e) => { S.svcQ = e.target.value; renderServices(); } })),
+    h("div", { class: "chips", style: "margin-bottom:.75rem;max-width:48rem" }, [{ id: "all", label: "Tất cả" }, ...groups].map((g) => h("button", { class: "chip", type: "button", "aria-pressed": String(S.svcGroup === g.id), onclick: () => { S.svcGroup = g.id; renderServices(); } }, g.label))),
+    ...shown.map(svcItem));
+  if (keep) { const i = box.querySelector("[data-svcq]"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+}
+const STATUS_HINT = { chat: "Dùng ngay trong khung chat (nhắn tin, đính kèm, ghi âm).", view: "Xem ở tab Danh bạ.", zalobot: "Chỉ có ở máy chủ zalobot (webhook, proxy, đa tài khoản): xem mục Cài đặt, hoặc tích hợp Home Assistant mô phỏng." };
+function svcItem(s) {
+  const open = S.svcOpen === s.addon_no;
+  const pill = s.status === "supported" ? h("span", { class: "pill ok" }, "dùng được") : h("span", { class: "pill" }, s.status === "chat" ? "trong chat" : s.status === "view" ? "ở danh bạ" : "zalobot");
+  const el = h("div", { class: "svc" }, h("button", { type: "button", "aria-expanded": String(open), onclick: () => { S.svcOpen = open ? null : s.addon_no; renderServices(); } }, h("span", { class: "svc-name" }, s.label && s.label !== s.addon ? s.label : s.addon, h("div", { class: "svc-sub" }, s.addon + (s.danger ? " · không hoàn tác" : ""))), pill));
+  if (open) el.append(svcBody(s)); return el;
+}
+function svcBody(s) {
+  const body = h("div", { class: "svc-body" });
+  if (s.status !== "supported") { body.append(h("p", { style: "color:var(--muted)" }, STATUS_HINT[s.status] || s.reason || "")); return body; }
+  const need = s.thread && s.thread !== "none";
+  if (need) body.append(h("p", { class: "notice", style: "margin:.625rem 0" }, S.cur ? "Áp dụng cho: " + (S.cur.name || S.cur.id) + (S.cur.type === "group" ? " (nhóm)" : "") : "Cần chọn hội thoại: mở một cuộc trò chuyện trước rồi quay lại đây."));
+  const inputs = {};
+  for (const f of s.fields || []) { const input = h("input", { type: "text", id: "svc-" + f.key, autocomplete: "off" }); inputs[f.key] = input; body.append(h("div", { class: "field", style: "margin-top:.625rem" }, h("label", { for: "svc-" + f.key }, f.label + (f.required ? " *" : "")), input)); }
+  const out = h("pre", { class: "out", hidden: true });
+  const btn = h("button", { class: "btn primary", type: "button", style: "margin-top:.375rem", onclick: async () => {
+    if (need && !S.cur) return toast("Hãy mở một cuộc trò chuyện trước.");
+    if (s.danger && !confirm("“" + (s.label || s.addon) + "” không hoàn tác được. Tiếp tục?")) return;
+    const payload = need ? { thread_id: S.cur.id, type: S.cur.type } : {};
+    for (const [k, el] of Object.entries(inputs)) if (el.value.trim() !== "") payload[k] = el.value.trim();
+    btn.disabled = true; const r = await api("/api/svc/" + s.action, "POST", payload); btn.disabled = false; out.hidden = false;
+    out.textContent = r.error ? "Lỗi: " + r.error : JSON.stringify(r.data === undefined ? r : r.data, null, 2);
+  } }, "Chạy");
+  body.append(btn, out); return body;
+}
+
+// ---- cài đặt: kết nối Zalo (webhook, proxy, bảo mật) ---------------------------------------------------------------------
+const section = (id, title, ...kids) => h("div", { class: "card", id }, h("h3", {}, title), ...kids);
+async function renderSettings(focusId) {
+  const box = $("set-page"); box.replaceChildren();
+  let st = S.status; try { st = await api("/api/status"); S.status = st; } catch (e) { /* giữ */ }
+  const pill = (t, c) => h("span", { class: "pill " + (c || "") }, t), run = (v) => (v === "running" ? pill("đang chạy", "ok") : pill(v || "?", "warn"));
+  const lag = st.sync_lag_ms;
+  box.append(section("set-account", "Tài khoản và kết nối",
+    h("dl", { class: "kv" },
+      h("dt", {}, "Zalo"), h("dd", {}, st.login ? (st.phonenum || "") + " · " + st.uid : "Chưa đăng nhập"),
+      h("dt", {}, "Kênh nhận tin"), h("dd", {}, run(st.sync), st.sync_error ? " " + st.sync_error : ""),
+      h("dt", {}, "Kênh điều khiển"), h("dd", {}, run(st.ctrl), st.ctrl_error ? " " + st.ctrl_error : ""),
+      h("dt", {}, "Đẩy tức thì"), h("dd", {}, h("span", { class: "live" + (S.sse ? "" : " off") }), S.sse ? "đang nối (tin hiện ngay khi tới)" : "đang nối lại…"),
+      h("dt", {}, "Độ trễ nhận tin"), h("dd", {}, lag ? lag.last + " ms gần nhất · trung bình " + lag.avg + " ms (" + lag.n + " tin)" : "chưa có tin nào trong phiên này"),
+      h("dt", {}, "Tiếng cuộc gọi"), h("dd", {}, st.engine && st.engine.attached ? pill("đã gắn", "ok") : pill("chưa có", "warn"), " ", (st.engine && st.engine.detail) || ""),
+      h("dt", {}, "Phiên bản"), h("dd", { class: "mono" }, st.version || ""))));
+  let wh = S.webhooks; try { wh = await api("/api/webhooks"); S.webhooks = wh; } catch (e) { /* giữ */ }
+  const kinds = [["message", "Tin nhắn"], ["group_event", "Sự kiện nhóm"], ["reaction", "Cảm xúc"], ["call", "Cuộc gọi"]], ins = {}, ens = {};
+  box.append(section("set-webhook", "Webhook (Home Assistant, n8n…)",
+    h("p", { style: "color:var(--muted);margin:0 0 .75rem;font-size:.85rem" }, "App gửi sự kiện JSON tới các địa chỉ này. Tin nhắn có kèm tên người gửi (sender_name) và cờ người lạ (is_stranger). Tích hợp Home Assistant “Zalo Call” tự điền khi được thêm."),
+    ...kinds.map(([k, label]) => {
+      ins[k] = h("input", { type: "url", id: "wh-" + k, value: (wh && wh[k + "_webhook_url"]) || "", placeholder: "http://…" });
+      ens[k] = h("input", { type: "checkbox", id: "wh-en-" + k, checked: !wh || wh[k + "_enabled"] !== false, "aria-label": "Bật " + label });
+      return h("div", { class: "field" }, h("label", { for: "wh-" + k }, label), h("div", { class: "field-row" }, ins[k], ens[k], h("button", { class: "btn sm", type: "button", onclick: async () => { const r = await api("/api/webhooks/test", "POST", { kind: k }); toast(r.error ? "Gửi thử lỗi: " + r.error : r.ok ? "Gửi thử thành công" : "Gửi thử: " + JSON.stringify(r).slice(0, 120), 4500); } }, "Gửi thử")));
+    }),
+    h("button", { class: "btn primary", type: "button", onclick: async () => { const cfg = {}; for (const [k] of kinds) { cfg[k + "_webhook_url"] = ins[k].value.trim(); cfg[k + "_enabled"] = ens[k].checked; } const r = await api("/api/webhooks", "POST", cfg); toast(r.error ? "Lưu lỗi: " + r.error : "Đã lưu webhook"); } }, "Lưu webhook")));
+  // proxy
+  const px = await api("/api/proxy"), pUrl = h("input", { type: "text", id: "px-url", placeholder: "http://user:mật-khẩu@địa-chỉ:cổng", autocomplete: "off" }), pName = h("input", { type: "text", id: "px-name", placeholder: "Tên gợi nhớ (không bắt buộc)" });
+  const pAct = async (body, okMsg) => { const r = await api("/api/proxy", "POST", body); if (r.error) return toast(r.error, 5000); if (okMsg) toast(okMsg); renderSettings("set-proxy"); };
+  box.append(section("set-proxy", "Proxy ra Zalo",
+    h("p", { style: "color:var(--muted);margin:0 0 .75rem;font-size:.85rem" }, "Chỉ áp cho kết nối HTTPS tới Zalo (nhắn tin, danh bạ, báo hiệu gọi). Tiếng cuộc gọi (UDP) không đi qua proxy HTTP. Đổi proxy là đổi địa chỉ IP ra ngoài, Zalo có thể yêu cầu xác nhận lại."),
+    !px.items || !px.items.length ? h("p", { style: "margin:0 0 .75rem" }, "Chưa có proxy nào. Đang đi thẳng ra Internet.") :
+      h("div", {}, px.items.map((p) => h("div", { class: "prow" }, h("div", { class: "pmain" }, h("div", { style: "font-weight:500" }, p.name || p.display, p.id === px.active ? h("span", { class: "pill ok", style: "margin-left:.5rem" }, "đang dùng") : null), h("div", { class: "mono", style: "color:var(--muted)" }, p.display + (p.has_auth ? " · có tài khoản" : ""))),
+        h("button", { class: "btn sm", type: "button", onclick: async () => { const r = await api("/api/proxy", "POST", { action: "test", id: p.id }); toast(r.ok ? "Proxy thông: HTTP " + r.status + " · " + r.ms + " ms" : "Proxy lỗi: " + (r.error || "không rõ"), 5000); } }, "Thử"),
+        p.id === px.active ? h("button", { class: "btn sm", type: "button", onclick: () => pAct({ action: "deactivate" }, "Đã tắt proxy") }, "Tắt") : h("button", { class: "btn sm", type: "button", onclick: () => pAct({ action: "activate", id: p.id }, "Đã bật proxy") }, "Dùng"),
+        h("button", { class: "btn sm danger", type: "button", onclick: () => { if (confirm("Xoá proxy này?")) pAct({ action: "remove", id: p.id }); } }, "Xoá")))),
+    h("div", { class: "field", style: "margin-top:.75rem" }, h("label", { for: "px-url" }, "Thêm proxy"), pUrl), h("div", { class: "field" }, pName),
+    h("button", { class: "btn primary", type: "button", onclick: () => { if (!pUrl.value.trim()) return toast("Nhập địa chỉ proxy"); pAct({ action: "add", url: pUrl.value.trim(), name: pName.value.trim() }, "Đã thêm proxy"); } }, "Thêm")));
+  // bảo mật
+  const sec = await api("/api/security");
+  box.append(section("set-security", "Bảo mật",
+    h("dl", { class: "kv" }, h("dt", {}, "Tài khoản app"), h("dd", {}, sec.app_user || ""), h("dt", {}, "Thiết bị đang đăng nhập"), h("dd", {}, String(sec.sessions)), h("dt", {}, "Hạn phiên"), h("dd", {}, (sec.session_hours || "?") + " giờ"),
+      h("dt", {}, "Chặn dò mật khẩu"), h("dd", {}, "sai " + (sec.login_max_fails || 5) + " lần thì khoá địa chỉ 15 phút" + (sec.blocked_ips ? " · đang khoá " + sec.blocked_ips + " địa chỉ" : "")),
+      h("dt", {}, "Đổi mật khẩu"), h("dd", {}, "sửa ZALO_PC_APP_PASSWORD (hoặc ZALO_PC_APP_PASSWORD_HASH) trong .env rồi khởi động lại container")),
+    h("div", { class: "field-row", style: "margin-top:.75rem;flex-wrap:wrap" },
+      h("button", { class: "btn", type: "button", onclick: async () => { const r = await api("/api/security", "POST", { action: "revoke_others" }); toast("Đã đăng xuất " + (r.revoked || 0) + " thiết bị khác"); renderSettings("set-security"); } }, "Đăng xuất thiết bị khác"),
+      h("button", { class: "btn", type: "button", onclick: async () => { await api("/api/security", "POST", { action: "revoke_all" }); location.href = "/login"; } }, "Đăng xuất mọi thiết bị"),
+      h("button", { class: "btn danger", type: "button", onclick: async () => { if (confirm("Đăng xuất Zalo? Phải quét lại QR để vào lại.")) { await api("/api/logout", "POST"); location.reload(); } } }, "Đăng xuất Zalo (xoá phiên QR)"))));
+  // giao diện
+  const cur = root.dataset.theme || "auto", sc = scalePref();
+  box.append(section("set-ui", "Giao diện",
+    h("div", { class: "field" }, h("label", {}, "Chế độ màu"), h("div", { class: "seg", role: "group" }, [["auto", "Theo máy"], ["light", "Sáng"], ["dark", "Tối"]].map(([id, l]) => h("button", { type: "button", "aria-pressed": String(cur === id), onclick: () => { applyTheme(id); renderSettings("set-ui"); } }, l)))),
+    h("div", { class: "field" }, h("label", {}, "Cỡ giao diện (nhớ riêng cho thiết bị này)"), h("div", { class: "seg", role: "group" }, [["auto", "Tự động"], ["90", "90%"], ["100", "100%"], ["115", "115%"], ["130", "130%"], ["160", "160%"]].map(([id, l]) => h("button", { type: "button", "aria-pressed": String(sc === id), onclick: () => { setScale(id); renderSettings("set-ui"); } }, l))),
+      h("p", { style: "color:var(--muted);margin:.375rem 0 0;font-size:.8rem" }, "Tự động: tính từ độ rộng màn hình và kiểu cảm ứng/chuột (màn lớn và TV tự to hơn, điện thoại gọn hơn). Hiện " + root.style.fontSize + " · " + (root.dataset.bp === "phone" ? "bố cục điện thoại" : root.dataset.bp === "mid" ? "bố cục vừa" : "bố cục rộng"))),
+    h("label", { style: "display:flex;gap:.5rem;align-items:center" }, h("input", { type: "checkbox", checked: S.sound, onchange: (e) => { S.sound = e.target.checked; try { localStorage.setItem("zalo-sound", S.sound ? "1" : "0"); } catch (x) { /* bỏ qua */ } } }), "Phát tiếng báo khi có tin mới lúc tab đang ẩn")));
+  if (focusId) { const el = $(focusId); if (el) el.scrollIntoView({ block: "start" }); }
+}
+
+// ---- tin mới tức thì (SSE) -----------------------------------------------------------------------------------------------------------
+let beepCtx = null;
+function beep() {
+  if (!S.sound) return;
+  try { beepCtx = beepCtx || new (window.AudioContext || window.webkitAudioContext)(); const o = beepCtx.createOscillator(), g = beepCtx.createGain(); o.connect(g); g.connect(beepCtx.destination); o.frequency.value = 880; g.gain.value = 0.04; o.start(); o.stop(beepCtx.currentTime + 0.12); } catch (e) { /* không có âm thanh */ }
+}
+function onMessageEvent(ev) {
+  const type = ev.thread_type, id = String(ev.thread_id), msg = ev.msg || {}, key = type + "|" + id;
+  const m = normMsg(msg), isOpen = !!S.cur && rowKey(S.cur) === key && !document.hidden;
+  if (m._out && S.conv[key] && S.msgs.some((x) => x._id === m._id)) return;   // tin vừa tự gửi đã có
+  const c = touchConv(type, id, msg, { open: isOpen, stranger: ev.stranger });
+  if (S.cur && rowKey(S.cur) === key) {
+    mergeMsgs([msg]); S.stick = true; loadFiles().then(renderMsgs); renderMsgs();
+    if (isOpen && !m._out) api("/api/thread/" + encodeURIComponent(id) + "/seen", "POST", { type, msg_ids: [msg.id] }).catch(() => {});
+  } else if (!m._out) {
+    if (document.hidden) beep();
+    if (ev.stranger && type === "user") toast("Người lạ nhắn: " + (c.name || id) + " — " + (msg.text || "[tệp]").slice(0, 60), 6000);
+  }
+  renderBadges(); if (S.tab === "chats") renderList(); if (S.tab === "watch") renderWatch();
+}
+function connectSse() {
+  if (!window.EventSource) return;
+  const es = new EventSource("/api/events");
+  es.onopen = () => { S.sse = true; if (S.tab === "chats") renderList(); loadConversations(); };
+  es.onerror = () => { S.sse = false; if (S.tab === "chats") renderList(); };
+  es.addEventListener("message", (e) => { try { onMessageEvent(JSON.parse(e.data)); } catch (x) { /* bỏ sự kiện hỏng */ } });
+}
+async function loadConversations() {
+  let d; try { d = await api("/api/conversations"); } catch (e) { return; }
+  if (d.error) return;
+  const next = {}; for (const t of d.threads || []) next[t.thread_type + "|" + t.thread_id] = t;
+  for (const [k, c] of Object.entries(S.conv)) if (!next[k] && c.count) next[k] = c;   // giữ dòng vừa tạo cục bộ
+  if (S.cur && next[rowKey(S.cur)]) next[rowKey(S.cur)].unread = 0;
+  S.conv = next; S.convReady = true; renderBadges(); if (S.tab === "chats") renderList(); if (S.tab === "watch") renderWatch();
+}
+
+// ---- đăng nhập QR ----------------------------------------------------------------------------------------------------------------------------
+async function pollQr() {
+  const s = await api("/api/qr/status"), st = $("qr-status");
+  if (s.qr_image) { $("qr-slot").replaceChildren(h("img", { src: s.qr_image, alt: "Mã QR đăng nhập Zalo" })); st.textContent = "Mã có hiệu lực khoảng " + (s.countdown || 90) + " giây."; }
+  const stop = (msg) => { clearInterval(S.qrT); S.qrT = null; st.textContent = msg; $("qr-again").hidden = false; };
+  if (s.state === "scanned") st.textContent = "Đã quét. Bấm xác nhận trên điện thoại…";
+  else if (s.state === "done") { clearInterval(S.qrT); $("qr").hidden = true; boot(); }
+  else if (s.state === "expired") stop("Mã đã hết hạn."); else if (s.state === "rejected") stop("Bạn đã từ chối trên điện thoại.");
+  else if (s.state === "rate_limited") stop("Tạo mã quá nhanh, chờ " + (s.wait_seconds || 90) + " giây rồi thử lại."); else if (s.state === "error") stop("Lỗi: " + (s.error || "không rõ"));
+}
+function startQr() { $("qr").hidden = false; $("qr-again").hidden = true; $("qr-slot").replaceChildren(h("div", { class: "qrph" }, "Đang tạo mã…")); api("/api/qr/new", "POST").then(() => { clearInterval(S.qrT); S.qrT = setInterval(pollQr, 3000); pollQr(); }); }
+
+// ---- khởi động ------------------------------------------------------------------------------------------------------------------------------------
+let booted = false;
+function cogMenu() {
+  popup($("btn-cog"), [
+    { label: "Thông tin tài khoản", icon: "user", run: () => { setTab("settings"); setTimeout(() => $("set-account") && $("set-account").scrollIntoView(), 80); } },
+    { label: "Cài đặt", icon: "cog", run: () => setTab("settings") }, "-",
+    { label: "Webhook, proxy, bảo mật", icon: "db", run: () => { setTab("settings"); setTimeout(() => $("set-webhook") && $("set-webhook").scrollIntoView(), 80); } },
+    { label: "Ngôn ngữ: Tiếng Việt", icon: "globe", run: () => toast("Hiện chỉ có Tiếng Việt.") },
+    { label: "Hỗ trợ", icon: "help", run: () => window.open("https://github.com/TriTue2011/calling/issues", "_blank", "noopener") }, "-",
+    { label: "Đăng xuất", icon: "logout", red: true, run: async () => { await api("/api/app/logout", "POST"); location.href = "/login"; } }], { right: true, up: true });
+}
+async function boot() {
+  let st; try { st = await api("/api/status"); } catch (e) { return; }
+  S.status = st; S.uid = String(st.uid || "");
+  const meRow = { id: S.uid, name: st.phonenum || "Tôi", avatar: "" }; $("me-btn").replaceChildren(avatar(meRow));
+  if (!st.login) return startQr();
+  $("qr").hidden = true;
+  await Promise.all([loadContacts(false), loadCalls(), loadConversations()]);
+  const m = /^#\/(user|group)\/(.+)$/.exec(location.hash);
+  if (m) { const id = decodeURIComponent(m[2]), r = rowOf(m[1], id) || (S.conv[m[1] + "|" + id] ? convRow(S.conv[m[1] + "|" + id]) : null); if (r) openThread(r); }
+  if (booted) return; booted = true;
+  connectSse();
+  setInterval(() => { if (!document.hidden) loadConversations(); }, 20000);
+  setInterval(() => { if (!document.hidden) loadCalls(); }, 3000);
+  setInterval(() => { if (S.tab === "chats") renderList(); }, 30000);   // "x phút" tự cũ đi
+  setInterval(async () => { try { S.status = await api("/api/status"); S.uid = String(S.status.uid || ""); } catch (e) { /* bỏ qua */ } }, 30000);
+}
+async function loadContacts(force) {
+  let d; try { d = await api("/api/contacts" + (force ? "?force=1" : "")); } catch (e) { return; }
+  if (d.error) { S.contactsErr = "Lỗi tải danh bạ: " + d.error + (d.retry_after_seconds ? " (thử lại sau " + d.retry_after_seconds + " giây)" : ""); if (S.tab === "chats" || S.tab === "contacts") renderList(); return; }
+  S.contactsErr = ""; S.contactsMeta = d;
+  const rows = (x) => (x && x.rows) || [];
+  S.friends = rows(d.friends).map((r) => ({ id: String(r.id), name: r.name || "", avatar: r.avatar || "", type: "user" }));
+  S.groups = rows(d.groups).map((r) => ({ id: String(r.id), name: r.name || "", avatar: r.avatar || "", type: "group", members: r.members || [] }));
+  if (S.cur) { const again = rowOf(S.cur.type, S.cur.id); if (again) S.cur = again; }
+  renderList(); if (S.tab === "contacts") renderContactsPage();
+  if (d.stale) setTimeout(() => loadContacts(false), 3000);
+}
+
+document.querySelectorAll(".rail-btn[data-tab]").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+$("me-btn").addEventListener("click", () => { setTab("settings"); });
+$("btn-cog").addEventListener("click", cogMenu); $("btn-cog").dataset.pop = "1";
+document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", () => { $("app").dataset.pane = "list"; if (WIDE.has(S.tab)) setTab("chats"); else toList(); }));
+$("chat-back").addEventListener("click", toList);
+$("q").addEventListener("input", (e) => { S.q = e.target.value; if (S.tab === "calls") { renderCallRows($("list")); renderCallsPage(); } else if (S.tab === "contacts") renderContactsPage(); else renderList(); });
+$("btn-reload").addEventListener("click", async () => { toast("Đang tải lại…"); await Promise.all([loadContacts(true), loadConversations()]); });
+$("btn-call").addEventListener("click", () => startCall(false)); $("btn-video").addEventListener("click", () => startCall(true));
+$("btn-info").addEventListener("click", () => { S.info = !S.info; try { localStorage.setItem("zalo-info", S.info ? "1" : "0"); } catch (e) { /* bỏ qua */ } syncInfo(); });
+$("btn-thread-svc").addEventListener("click", () => setTab("services"));
+$("btn-send").addEventListener("click", sendText); $("btn-like").addEventListener("click", () => sendRaw("👍"));
+$("btn-attach").addEventListener("click", () => $("file-in").click()); $("btn-img").addEventListener("click", () => $("img-in").click());
+for (const id of ["file-in", "img-in"]) $(id).addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) sendFiles(f); });
+$("btn-rec").addEventListener("click", toggleRecord); $("btn-emoji").addEventListener("click", toggleEmoji); $("qr-again").addEventListener("click", startQr);
+$("msg-in").addEventListener("input", autosize);
+$("msg-in").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendText(); } });
+$("msg-in").addEventListener("paste", (e) => { const f = [...(e.clipboardData ? e.clipboardData.files : [])]; if (f.length) { e.preventDefault(); sendFiles(f); } });
+document.addEventListener("click", (e) => { const em = $("emoji"); if (!em.hidden && !em.contains(e.target) && !e.target.closest("#btn-emoji")) em.hidden = true; });
+const mp = $("mainpane"); let dragN = 0; const dz = h("div", { class: "dropzone", hidden: true }, "Thả tệp để gửi"); mp.append(dz);
+mp.addEventListener("dragenter", (e) => { if (S.cur && S.tab === "chats" && e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragN++; dz.hidden = false; } });
+mp.addEventListener("dragleave", () => { dragN = Math.max(0, dragN - 1); if (!dragN) dz.hidden = true; });
+mp.addEventListener("dragover", (e) => { if (S.cur) e.preventDefault(); });
+mp.addEventListener("drop", (e) => { e.preventDefault(); dragN = 0; dz.hidden = true; if (S.cur && e.dataTransfer.files.length) sendFiles(e.dataTransfer.files); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $("q").focus(); }
+  if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
+});
+try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
+applyScale(); setTab("chats"); updateSendButtons(); boot();
+})();
