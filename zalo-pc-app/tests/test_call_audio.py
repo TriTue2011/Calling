@@ -80,6 +80,59 @@ def test_call_audio_helpers():
     assert t.call_for(a) is None and t.call_for(b) == "2"
 
 
+class _Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def now(self):
+        return self.t
+
+    def sleep(self, d):
+        self.t += d
+
+
+class _QueueEngine:
+    def __init__(self, frames):
+        self.q = list(frames)
+
+    def queue_depth(self):
+        return len(self.q)
+
+    def read_frame(self, timeout=1.0):
+        return self.q.pop(0) if self.q else None
+
+
+def test_stream_out_is_paced_to_the_clock_not_to_frame_arrival():
+    # Khung den khong deu (cu 3 nhip thi co 1 khung): van phai dung 50 khung/s
+    # (32000 byte/s) — ghi nhanh hon thi thiet bi phat bi dap va do tre tang.
+    clk = _Clock()
+    eng = _QueueEngine([])
+    out = []
+    n = {"i": 0}
+
+    def write(b):
+        out.append(b)
+        n["i"] += 1
+        if n["i"] % 3 == 0:
+            eng.q.append(bytes([n["i"] % 250 + 1]) * 640)
+
+    call_audio.stream_out(eng, write, lambda: clk.t < 1.0, clk.now, clk.sleep)
+    total = sum(len(b) for b in out)
+    assert abs(total - (44 + 32000)) <= 1280, total          # 1 s = 32000 +- 2 khung
+    assert out[0][:4] == b"RIFF"
+    assert any(b != call_audio.SILENCE for b in out[1:])      # khung that co di qua
+
+
+def test_stream_out_drops_oldest_when_backlog_builds_up():
+    clk = _Clock()
+    eng = _QueueEngine([bytes([i]) * 640 for i in range(1, 31)])   # ton 30 khung
+    out = []
+    call_audio.stream_out(eng, out.append, lambda: len(out) < 3,
+                          clk.now, clk.sleep)
+    # Giu 5 khung moi nhat (26..30), bo 25 khung cu -> khung dau phat la so 26.
+    assert out[1] == bytes([26]) * 640, out[1][:1]
+
+
 class FakeEngine:
     def __init__(self, call_id):
         self.call_info = {"call_id": call_id}

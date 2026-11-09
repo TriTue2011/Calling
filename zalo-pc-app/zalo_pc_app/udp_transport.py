@@ -131,6 +131,7 @@ KEEPALIVE_MEDIA_INTERVAL = 0.02      # goi am thanh giu ket noi, 50 goi/giay.
                                     # Ben nhan can >= 14 goi/2 s (zca-js:
                                     # audio_recheck_sock checkPkgRec) — khong
                                     # co thi bao "tin hieu yeu" du mang tot.
+RX_SAMPLE_MAX = 20                   # so goi nhan dau tien lay mau (byte dau payload)
 VOICE_HOLD_SECONDS = 0.25            # co tieng that trong khoang nay thi KHONG chen
                                     # khung im lang: mic gui theo goi 100 ms, chen
                                     # im lang vao khoang trong se keo gian thoi
@@ -1155,6 +1156,7 @@ class Udp4200Transport:
         self._last_rtcp = 0.0
         self._last_media_tx = 0.0
         self._voice_until = 0.0
+        self._rx_head = []          # (do dai, byte dau) cua RX_SAMPLE_MAX payload dau
         self._highest_rx_seq = None
         self.counters = {
             "probe_tx": 0, "setup_init_tx": 0, "setup_refresh_tx": 0,
@@ -1262,27 +1264,30 @@ class Udp4200Transport:
             raise MissingTransportParam(
                 "protect_rtp: missing (SRTP hook is required to send "
                 "media; inject it via TransportConfig)")
+        # Giu khoa suot tu cap seq den luc gui: luong keepalive va luong
+        # mic cung goi ham nay; neu protect/gui nam ngoai khoa thi seq co the
+        # ra day khong theo thu tu va lam lech ROC cua SRTP.
         with self._lock:
             self._seq = (self._seq + 1) & 0xFFFF
             self._timestamp = (self._timestamp + RTP_TS_STEP) & 0xFFFFFFFF
-            seq, ts = self._seq, self._timestamp
-        rtp = build_rtp(seq, ts, self.config.local_ssrc, payload)
-        protected = self.config.protect_rtp(rtp)
-        if self.mode == "p2p" and self.peer_p2p_addr is not None:
-            pkt = build_p2p_media(self._role_byte(),
-                                  self.config.call_session, protected)
-            ok = self._send_to(pkt, self.peer_p2p_addr)
-        elif self.selected_relay is not None and self.relay_session:
-            pkt = b"\x03" + self.relay_session + protected
-            ok = self._send_to(pkt, self.selected_relay.rtp_addr())
-        else:
-            raise RuntimeError(
-                "no relay selected yet (no type-02 52B received); "
-                "media cannot be sent before the relay handshake")
-        if not ok:
-            raise RuntimeError("send failed: %s" % self._last_error)
-        self._last_media_tx = time.monotonic()
-        self.counters["keepalive_tx" if keepalive else "rtp_tx"] += 1
+            rtp = build_rtp(self._seq, self._timestamp,
+                            self.config.local_ssrc, payload)
+            protected = self.config.protect_rtp(rtp)
+            if self.mode == "p2p" and self.peer_p2p_addr is not None:
+                pkt = build_p2p_media(self._role_byte(),
+                                      self.config.call_session, protected)
+                ok = self._send_to(pkt, self.peer_p2p_addr)
+            elif self.selected_relay is not None and self.relay_session:
+                pkt = b"\x03" + self.relay_session + protected
+                ok = self._send_to(pkt, self.selected_relay.rtp_addr())
+            else:
+                raise RuntimeError(
+                    "no relay selected yet (no type-02 52B received); "
+                    "media cannot be sent before the relay handshake")
+            if not ok:
+                raise RuntimeError("send failed: %s" % self._last_error)
+            self._last_media_tx = time.monotonic()
+            self.counters["keepalive_tx" if keepalive else "rtp_tx"] += 1
 
     def begin_p2p(self, peer_ip=None, peer_port=None):
         """(Re)start the P2P hello handshake to a peer address.
@@ -1368,10 +1373,26 @@ class Udp4200Transport:
             "callee_id": self.config.callee_id,
             "codec": self.config.codec,
             "counters": dict(self.counters),
+            "rx_sample": self._rx_sample(),
             "jitter_dropped_late": self._jitter.dropped_late,
             "jitter_reordered": self._jitter.reordered,
             "last_error": self._last_error,
         }
+
+    def _rx_sample(self):
+        """Dau hieu RTP tran hay da ma hoa, tu byte dau cua cac payload nhan
+        duoc: Opus tran co TOC on dinh (cung mot luong -> byte dau gan nhu
+        khong doi), ban ma thi byte dau ngau nhien. Khong co khoa nao o day.
+        {"n", "toc_agree" (ti le byte dau pho bien nhat), "head" (<= 6 mau
+        "do dai:byte dau hex")}."""
+        head = list(self._rx_head)
+        if not head:
+            return {"n": 0, "toc_agree": 0.0, "head": []}
+        firsts = [b for _n, b in head]
+        top = max(set(firsts), key=firsts.count)
+        return {"n": len(head),
+                "toc_agree": round(firsts.count(top) / len(firsts), 2),
+                "head": ["%d:%02x" % (n, b) for n, b in head[:6]]}
 
     # -- handshake sends -------------------------------------------
 
@@ -1719,6 +1740,8 @@ class Udp4200Transport:
             self.counters["rtp_rx_dropped"] += 1
             self._last_error = "unprotect/parse failed: %s" % exc
             return
+        if len(self._rx_head) < RX_SAMPLE_MAX and rtp["payload"]:
+            self._rx_head.append((len(rtp["payload"]), rtp["payload"][0]))
         if self._peer_ssrc is None:
             self._peer_ssrc = rtp["ssrc"]  # learn peer SSRC
         elif rtp["ssrc"] != self._peer_ssrc:

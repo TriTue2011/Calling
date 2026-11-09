@@ -1059,6 +1059,53 @@ def test_keepalive_can_be_turned_off_and_needs_protect_hook():
         close()
 
 
+def _feed(tr, payloads):
+    for i, p in enumerate(payloads):
+        tr._on_media(ut.build_rtp(i + 1, i * 320, PEER_SSRC, p),
+                     ("127.0.0.1", 9), "relay")
+
+
+def test_rx_sample_tells_plain_opus_from_ciphertext():
+    plain = ut.Udp4200Transport(make_config(
+        [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)]))
+    _feed(plain, [b"\xf8" + bytes([i, 7, 9]) for i in range(30)])  # TOC on dinh
+    s = plain.status()["rx_sample"]
+    assert s["n"] == ut.RX_SAMPLE_MAX and s["toc_agree"] == 1.0, s
+    assert s["head"][0] == "4:f8" and len(s["head"]) == 6
+    enc = ut.Udp4200Transport(make_config(
+        [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)]))
+    import random
+    rnd = random.Random(5)
+    _feed(enc, [bytes(rnd.randrange(256) for _ in range(40)) for _ in range(20)])
+    assert enc.status()["rx_sample"]["toc_agree"] < 0.5, enc.status()["rx_sample"]
+    empty = ut.Udp4200Transport(make_config(
+        [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)]))
+    assert empty.status()["rx_sample"] == {"n": 0, "toc_agree": 0.0, "head": []}
+
+
+def test_send_payload_keeps_wire_order_under_concurrent_senders():
+    # Hai luong cung gui (keepalive + mic): seq tren day phai tang dan 1 don vi.
+    sent = []
+    tr = ut.Udp4200Transport(make_config(
+        [ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4201)],
+        protect_rtp=lambda b: b))
+    tr.state = "connected"
+    tr.selected_relay = tr.config.relays[0]
+    tr.relay_session = RELAY_SESSION
+    tr._send_to = lambda pkt, addr: sent.append(ut.parse_rtp(pkt[5:])["seq"]) or True
+
+    def worker(keepalive):
+        for _ in range(300):
+            tr._send_payload(b"\xf8\xff\xfe", keepalive=keepalive)
+
+    ts = [threading.Thread(target=worker, args=(k,)) for k in (True, False)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert len(sent) == 600
+    assert all((b - a) & 0xFFFF == 1 for a, b in zip(sent, sent[1:])), \
+        "seq tren day khong theo thu tu"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_")]

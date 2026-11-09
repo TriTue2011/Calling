@@ -16,6 +16,7 @@ cuoc goi ket thuc. Chi giu trong bo nho. Khong ghi token vao log.
 import secrets
 import struct
 import threading
+import time
 
 RATE = 16000
 FRAME_BYTES = 640                  # 20 ms PCM16 mono @ 16 kHz
@@ -84,12 +85,29 @@ def feed_frames(engine, data):
     return sent, errors, last
 
 
-def stream_out(engine, write, is_live, frame_timeout=0.02):
+MAX_BACKLOG_FRAMES = 5     # > 100 ms ton dong thi bo bot khung cu (giu do tre thap)
+
+
+def stream_out(engine, write, is_live, clock=time.monotonic,
+               sleep=time.sleep):
     """Ghi WAV lien tuc cho den khi `is_live()` sai hoac `write` loi.
 
-    Co khung that thi gui ngay; khong co thi gui khung im lang sau
-    `frame_timeout` de thiet bi phat khong bi can luong."""
+    DUNG MOT KHUNG MOI 20 MS theo dong ho (khung that neu co, khong thi
+    im lang): thiet bi phat theo thoi gian thuc, nen ghi nhanh hon se bi
+    TCP chan roi hang doi day, khung bi rot va do tre tang dan. Neu hang doi
+    ton hon MAX_BACKLOG_FRAMES (mang khung den dap), bo bot khung cu nhat."""
     write(wav_header())
+    depth = getattr(engine, "queue_depth", None)
+    tick = clock()
     while is_live():
-        frame = engine.read_frame(timeout=frame_timeout)
+        if depth is not None:
+            for _ in range(max(0, depth() - MAX_BACKLOG_FRAMES)):
+                engine.read_frame(timeout=0)
+        frame = engine.read_frame(timeout=0)
         write(frame if frame is not None else SILENCE)
+        tick += FRAME_BYTES / (RATE * 2)            # 0,02 s
+        wait = tick - clock()
+        if wait > 0:
+            sleep(wait)
+        elif wait < -0.2:                           # tre qua nhieu: dong bo lai
+            tick = clock()

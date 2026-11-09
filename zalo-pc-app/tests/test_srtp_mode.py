@@ -58,21 +58,23 @@ def test_history_is_bounded_and_has_no_secret_fields():
 
 
 class _FakeEndpoints:
-    def __init__(self, counters):
+    def __init__(self, counters, sample=None):
         self.counters = counters
+        self.sample = sample
 
     def active_record(self, call_id):
-        c = self.counters
+        c, smp = self.counters, self.sample
         return {"transport": types.SimpleNamespace(
-            status=lambda: {"counters": c})}
+            status=lambda: {"counters": c, "rx_sample": smp})}
 
 
-def _judge(mode, counters, answered=100.0, ended=110.0, source="auto"):
+def _judge(mode, counters, answered=100.0, ended=110.0, source="auto",
+           sample=None):
     st, _ = _store()
     sv.STATE = types.SimpleNamespace(srtp_modes=st)
     sv._CALL_SRTP["7"] = (mode, source)
     real = sv.media_endpoints.ENDPOINTS
-    sv.media_endpoints.ENDPOINTS = _FakeEndpoints(counters)
+    sv.media_endpoints.ENDPOINTS = _FakeEndpoints(counters, sample)
     try:
         sv._evaluate_srtp_outcome({"call_id": 7, "answered_at": answered,
                                    "ended_at": ended})
@@ -93,6 +95,23 @@ def test_key_mode_dropped_packets_do_not_count_as_received():
     st = _judge("key", {"rtp_rx": 40, "rtp_rx_dropped": 40, "p2p_media_rx": 0})
     assert st.pick() == "off"
     st = _judge("key", {"rtp_rx": 40, "rtp_rx_dropped": 0, "p2p_media_rx": 0})
+    assert st.pick() == "key" and st.snapshot()["history"][-1]["ok"] is True
+
+
+def test_off_mode_needs_plain_looking_payloads_to_count_as_success():
+    rx = {"rtp_rx": 40, "rtp_rx_dropped": 0}
+    # Ben kia gui ban ma: o che do "off" van "nhan duoc" 40 goi nhung byte
+    # dau ngau nhien -> that bai, lan sau auto thu "key".
+    st = _judge("off", rx, sample={"n": 20, "toc_agree": 0.1, "head": []})
+    assert st.pick() == "key" and st.snapshot()["history"][-1]["ok"] is False
+    # Opus tran (byte dau on dinh) -> thanh cong, giu "off".
+    st = _judge("off", rx, sample={"n": 20, "toc_agree": 0.95, "head": []})
+    assert st.pick() == "off" and st.snapshot()["history"][-1]["ok"] is True
+    # Qua it mau -> chua ket luan, KHONG ghi nho (khoi khoa nham vao "off").
+    st = _judge("off", rx, sample={"n": 3, "toc_agree": 1.0, "head": []})
+    assert st.snapshot()["history"] == [] and st.pick() == "off"
+    # Che do "key": xac thuc HMAC la bang chung du, khong can mau.
+    st = _judge("key", rx, sample=None)
     assert st.pick() == "key" and st.snapshot()["history"][-1]["ok"] is True
 
 

@@ -395,6 +395,8 @@ _CALL_ID_COUNTER = 0
 
 SRTP_MODES = srtp_mode_mod.MODES
 SRTP_JUDGE_MIN_SECONDS = 6.0     # nghe may it nhat chung nay giay moi xet dung/sai
+SRTP_JUDGE_MIN_SAMPLES = 8       # so goi nhan toi thieu de phan biet RTP tran / ban ma
+SRTP_PLAIN_MIN_AGREE = 0.7       # ti le byte dau payload trung nhau coi la RTP tran
 _CALL_SRTP = {}                  # call_id -> che do da dung cho cuoc goi di
 _INCOMING_SRTP = {}              # call_id -> khoa SRTP ben goi (chi bo nho, khong API)
 
@@ -432,16 +434,27 @@ def _evaluate_srtp_outcome(ended):
                 or float(finished) - float(answered) < SRTP_JUDGE_MIN_SECONDS:
             return
         rec = media_endpoints.ENDPOINTS.active_record(int(ended["call_id"]))
-        counters = (rec["transport"].status().get("counters") or {}) \
-            if rec else {}
+        snap = rec["transport"].status() if rec else {}
+        counters = snap.get("counters") or {}
         got = int(counters.get("rtp_rx", 0)) \
-            - int(counters.get("rtp_rx_dropped", 0)) \
-            + int(counters.get("p2p_media_rx", 0))
+            - int(counters.get("rtp_rx_dropped", 0))
         ok = got > 0
+        sample = snap.get("rx_sample") or {}
+        if ok and mode == "off":
+            # RTP tran khong co xac thuc: ban ma ben kia gui van "nhan duoc".
+            # Phan biet bang byte dau payload: Opus tran on dinh, ban ma
+            # ngau nhien. Chua du mau (< SRTP_JUDGE_MIN_SAMPLES) thi chua ket
+            # luan — khong ghi nho de khoi khoa nham vao "off".
+            if int(sample.get("n", 0)) < SRTP_JUDGE_MIN_SAMPLES:
+                _log_call("srtp outcome call_id=%s mode=off inconclusive "
+                          "n=%s" % (ended.get("call_id"), sample.get("n", 0)))
+                return
+            ok = float(sample.get("toc_agree", 0)) >= SRTP_PLAIN_MIN_AGREE
         pref = STATE.srtp_modes.record(mode, ok)
         _log_call("srtp outcome call_id=%s mode=%s source=%s ok=%s "
-                  "rx_ok=%s -> next_auto=%s"
-                  % (ended.get("call_id"), mode, source, ok, got, pref))
+                  "rx_ok=%s toc_agree=%s head=%s -> next_auto=%s"
+                  % (ended.get("call_id"), mode, source, ok, got,
+                     sample.get("toc_agree"), sample.get("head"), pref))
     except Exception as exc:  # noqa: BLE001 - chi la ghi nho, khong chen ngang
         _log_call("srtp outcome error: %s" % str(exc)[:120])
 
@@ -792,6 +805,8 @@ def _calls_snapshot_with_media():
                 media["counters"] = {k: counters.get(k, 0) for k in (
                     "rtp_tx", "keepalive_tx", "rtcp_tx", "rtp_rx",
                     "rtp_rx_dropped", "p2p_media_rx")}
+                media["rx_sample"] = record["transport"].status().get(
+                    "rx_sample")
             except Exception:  # noqa: BLE001 - chan doan, khong chen ngang
                 pass
             # Token phat am thanh theo cuoc goi — chi cap cho phien da dang

@@ -365,6 +365,9 @@ class PcMediaEngine:
             except queue.Empty:
                 continue
 
+    def queue_depth(self):
+        return self._queue.qsize()
+
     def read_frame(self, timeout=1.0):
         """One received PCM frame, or None on timeout/stop."""
         try:
