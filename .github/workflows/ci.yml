@@ -45,7 +45,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install pyyaml
+      - run: pip install pyyaml aiohttp
       - name: Test tích hợp Home Assistant (cầu nối thiết bị, services.yaml)
         run: |
           python3 tests/test_zalo_call_bridge.py
