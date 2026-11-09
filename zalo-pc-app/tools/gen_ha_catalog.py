@@ -50,6 +50,54 @@ ACCT = {
 }
 
 
+ENTRY_ID_FIELD = {
+    "name": "Tài khoản Zalo Call",
+    "description": "Chọn tài khoản khi có nhiều tích hợp Zalo Call "
+                   "(bỏ trống = tài khoản đầu tiên).",
+    "required": False,
+    "selector": {"config_entry": {"integration": "zalo_call"}},
+}
+# Ten truong cu cua zalobot -> ten truong cua tich hop nay.
+FIELD_ALIASES = {
+    "file": ["file_path_or_url", "image_path", "video_path_or_url",
+             "voice_path"],
+    "files": ["image_paths"],
+}
+
+
+def _load_meta():
+    """Thong tin truong (mo ta, kieu nhap, vi du) lay tu dich vu zalobot cu —
+    tests: tools/zalo_bot_field_meta.json."""
+    path = os.path.join(HERE, "zalo_bot_field_meta.json")
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _lookup(svc, key, meta):
+    own = (meta.get(svc) or {}).get("fields") or {}
+    for k in [key] + FIELD_ALIASES.get(key, []):
+        if k in own:
+            return own[k]
+    for other in meta.values():                    # cung ten o dich vu khac
+        f = (other.get("fields") or {}).get(key)
+        if f and f.get("description"):
+            return f
+    return {}
+
+
+def _field_entry(svc, f, meta):
+    m = _lookup(svc, f["key"], meta)
+    entry = {"name": f["label"],
+             "description": m.get("description") or f["label"],
+             "required": bool(f["required"]),
+             "selector": m.get("selector") or {"text": None}}
+    for k in ("example", "default"):
+        if k in m:
+            entry[k] = m[k]
+    return entry
+
+
+
 def main():
     cat = S.build_catalog()["services"]
     seen, out = set(), []
@@ -82,32 +130,41 @@ def main():
     with open(os.path.join(OUT, "catalog.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
         f.write("\n")
-    lines = ["# SINH TU DONG bang zalo-pc-app/tools/gen_ha_catalog.py — dung sua tay.\n"]
+    # services.yaml dung yaml.safe_dump tu mot dict: KHONG BAO GIO sinh ra
+    # `fields:` rong (null) — HA bo CA tep neu mot service co `fields: null`
+    # ("expected a mapping at 'x.fields'"), khien moi service mat truong nhap.
+    import yaml
+    meta = _load_meta()
+    doc = {}
     for e in out:
-        lines.append("%s:\n" % e["name"])
-        lines.append("  name: %s\n" % json.dumps(e["label"], ensure_ascii=False))
-        desc = e["label"] + (" (không hoàn tác được)" if e["danger"] else "")
-        lines.append("  description: %s\n" % json.dumps(desc, ensure_ascii=False))
-        lines.append("  fields:\n")
+        sm = meta.get(e["name"]) or {}
+        desc = sm.get("description") or e["label"]
+        if e["danger"]:
+            desc += " (không hoàn tác được)"
+        fields = {"entry_id": ENTRY_ID_FIELD}
         if e["thread"] != "none" and e["kind"] in ("svc", "chat"):
-            lines.append("    thread_id:\n      name: Mã hội thoại (threadId)\n"
-                         "      description: UserId (1-1) hoặc GroupId (nhóm).\n"
-                         "      required: true\n      selector:\n        text:\n")
-            lines.append("    type:\n      name: Loại hội thoại\n"
-                         "      description: user = 1-1, group = nhóm.\n"
-                         "      default: user\n      selector:\n        select:\n"
-                         "          options: [user, group]\n")
+            fields["thread_id"] = {
+                "name": "Mã hội thoại (threadId)",
+                "description": "UserId (1-1) hoặc GroupId (nhóm).",
+                "required": True, "example": "5841349563795164131",
+                "selector": {"text": None}}
+            fields["type"] = {
+                "name": "Loại hội thoại",
+                "description": "user = 1-1, group = nhóm.",
+                "default": "user",
+                "selector": {"select": {"options": ["user", "group"]}}}
         for f in e["fields"]:
-            lines.append("    %s:\n      name: %s\n      required: %s\n"
-                         "      selector:\n        text:\n"
-                         % (f["key"], json.dumps(f["label"], ensure_ascii=False),
-                            "true" if f["required"] else "false"))
-        if not e["fields"] and (e["thread"] == "none" or e["kind"] not in ("svc", "chat")):
-            lines[-1] = lines[-1]  # service khong tham so
-    # service rieng cua tich hop (cuoc goi)
-    lines.append(EXTRA_YAML)
+            fields[f["key"]] = _field_entry(e["name"], f, meta)
+        doc[e["name"]] = {"name": e["label"], "description": desc,
+                          "fields": fields}
+    extra = yaml.safe_load(EXTRA_YAML)
+    for name, svc in extra.items():
+        flds = svc.get("fields") or {}
+        svc["fields"] = {"entry_id": ENTRY_ID_FIELD, **flds}
+        doc[name] = svc
     with open(os.path.join(OUT, "services.yaml"), "w", encoding="utf-8") as f:
-        f.write("".join(lines))
+        f.write("# SINH TU DONG bang zalo-pc-app/tools/gen_ha_catalog.py — dung sua tay.\n")
+        yaml.safe_dump(doc, f, allow_unicode=True, sort_keys=False, width=100)
     print("ok: %d service" % len(out))
 
 
@@ -117,20 +174,102 @@ EXTRA_YAML = '''make_call:
   fields:
     thread_id:
       name: Mã hội thoại (threadId)
+      description: UserId (gọi 1-1) hoặc GroupId (gọi nhóm).
       required: true
+      example: "6643404425553198601"
       selector:
-        text:
+        text: null
     type:
       name: Loại cuộc gọi
       description: user = thoại 1-1, video = video 1-1, group = nhóm.
       default: user
       selector:
         select:
-          options: [user, video, group]
+          options:
+          - user
+          - video
+          - group
     peer_name:
       name: Tên hiển thị
+      description: Tên người nhận hiện trong nhật ký cuộc gọi (bỏ trống = dùng mã).
       selector:
-        text:
+        text: null
+    srtp:
+      name: Chế độ mã hoá tiếng
+      description: auto = tự chọn theo kết quả thật (mặc định); off = RTP trần; key = khoá tự sinh (thử).
+      default: auto
+      selector:
+        select:
+          options:
+          - auto
+          - 'off'
+          - key
+    speaker:
+      name: Loa (ghi đè mặc định)
+      description: media_player phát tiếng bên kia. Bỏ trống = dùng loa mặc định, nhập rỗng/không chọn
+        = không phát cho cuộc này.
+      selector:
+        entity:
+          domain: media_player
+    mic:
+      name: Mic từ camera (ghi đè mặc định)
+      description: Camera có mic (lấy tiếng từ stream của nó).
+      selector:
+        entity:
+          domain: camera
+    mic_url:
+      name: Mic từ URL bất kỳ (ghi đè mặc định)
+      description: rtsp/rtsps/http/https/rtmp. Thắng ô "Mic từ camera".
+      selector:
+        text: null
+    camera:
+      name: Camera video (ghi đè mặc định)
+      description: Chỉ ghi nhận; app chưa truyền hình trong cuộc gọi.
+      selector:
+        entity:
+          domain: camera
+answer_call:
+  name: Nghe máy
+  description: Nghe cuộc gọi đến (nối loa/mic đã chọn).
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống để nghe cuộc gọi đến hiện tại.
+      selector:
+        text: null
+    speaker:
+      name: Loa (ghi đè mặc định)
+      description: media_player phát tiếng bên kia. Bỏ trống = dùng loa mặc định, nhập rỗng/không chọn
+        = không phát cho cuộc này.
+      selector:
+        entity:
+          domain: media_player
+    mic:
+      name: Mic từ camera (ghi đè mặc định)
+      description: Camera có mic (lấy tiếng từ stream của nó).
+      selector:
+        entity:
+          domain: camera
+    mic_url:
+      name: Mic từ URL bất kỳ (ghi đè mặc định)
+      description: rtsp/rtsps/http/https/rtmp. Thắng ô "Mic từ camera".
+      selector:
+        text: null
+    camera:
+      name: Camera video (ghi đè mặc định)
+      description: Chỉ ghi nhận; app chưa truyền hình trong cuộc gọi.
+      selector:
+        entity:
+          domain: camera
+reject_call:
+  name: Từ chối cuộc gọi đến
+  description: Từ chối cuộc gọi đang đổ chuông.
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống để từ chối cuộc gọi đến hiện tại.
+      selector:
+        text: null
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.
@@ -139,7 +278,7 @@ end_call:
       name: Mã cuộc gọi
       description: Bỏ trống để kết thúc cuộc gọi gần nhất.
       selector:
-        text:
+        text: null
 '''
 
 if __name__ == "__main__":

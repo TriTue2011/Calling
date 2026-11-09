@@ -398,6 +398,11 @@ SRTP_JUDGE_MIN_SECONDS = 6.0     # nghe may it nhat chung nay giay moi xet dung/
 SRTP_JUDGE_MIN_SAMPLES = 8       # so goi nhan toi thieu de phan biet RTP tran / ban ma
 SRTP_PLAIN_MIN_AGREE = 0.7       # ti le byte dau payload trung nhau coi la RTP tran
 _CALL_SRTP = {}                  # call_id -> che do da dung cho cuoc goi di
+# call_id -> (rtp "IP:port", rtcp "IP:port") ben goi viet trong su kien cuoc
+# goi den. Ben nghe PHAI noi vao DUNG relay do (zca-js acceptIncomingCall chi xin
+# cap phat 11300 khi su kien thieu cong); xin relay moi thi hai ben o hai relay
+# khac nhau va dien thoai khong gui goi nao ve (do 09/11: rtp_rx = 0).
+_INCOMING_RELAY = {}
 _INCOMING_SRTP = {}              # call_id -> khoa SRTP ben goi (chi bo nho, khong API)
 
 
@@ -1830,13 +1835,17 @@ class AppState:
         11304 o phia caller; tu choi bang cancel 11305 + endcall
         11306). Chi log dang event + id, khong log noi dung."""
         try:
-            act = (event or {}).get("act", "")
+            act_raw = (event or {}).get("act", "")
+            # Zalo gui ten co dau gach duoi ("end_call", "ring_ring",
+            # "answer_ack", "cancel_call"...): chuan hoa roi moi so khop,
+            # neu khong cuoc goi den bi bo qua khi ben goi cup may.
+            act = str(act_raw).replace("_", "").replace("-", "").lower()
             call_id = (event or {}).get("call_id")
             if call_id is None:
                 return
             if act == "request":
                 self._on_incoming_call_request(event)
-            elif act in ("cancel", "end", "endcall"):
+            elif act in ("cancel", "end", "endcall", "cancelcall"):
                 self._on_incoming_call_ended(event, act)
             elif act == "answer":
                 # Peer answered OUR outgoing call (sync path):
@@ -1846,16 +1855,15 @@ class AppState:
                 if entry is not None:
                     _log_call("call_event answer call_id=%s "
                               "answered" % call_id)
-            elif act in ("ringring", "answer_ack"):
+            elif act in ("ringring", "answerack"):
                 _log_call("call_event %s call_id=%s" % (act, call_id))
-            elif act in ("group_request", "group_cancel",
-                         "group_end"):
+            elif act in ("grouprequest", "groupcancel", "groupend"):
                 # Group incoming: chua ho tro (chi 1-1 o vong nay).
                 _log_call("call_event %s call_id=%s "
                           "unsupported=group" % (act, call_id))
             else:
                 _log_call("call_event act=%s call_id=%s ignored"
-                          % (act, call_id))
+                          % (act_raw, call_id))
         except Exception:
             pass
 
@@ -1865,6 +1873,15 @@ class AppState:
         best-effort tren daemon thread, day webhook call.incoming.
         Khong arm ring timer — phia goi quyet dinh khi nao dung
         do chuong."""
+        try:
+            _rtp, _rtcp = event.get("rtp_address"), event.get("rtcp_address")
+            if _rtp and _rtcp:
+                if len(_INCOMING_RELAY) > 50:
+                    _INCOMING_RELAY.clear()
+                _INCOMING_RELAY[str(event.get("call_id"))] = (
+                    str(_rtp), str(_rtcp))
+        except Exception:  # noqa: BLE001
+            pass
         call_id = int(event["call_id"])
         caller_id = str(event.get("caller_id") or "")
         peer = event.get("caller_name") or caller_id
@@ -1912,7 +1929,7 @@ class AppState:
             return
         if target["status"] == "incoming":
             detail = "missed"
-        elif act == "cancel":
+        elif act in ("cancel", "cancelcall"):
             detail = "peer_declined"
         else:
             detail = "peer_ended"
@@ -4143,6 +4160,15 @@ class Handler(BaseHTTPRequestHandler):
                     _type_request_for("user"))
                 _alloc = media_endpoints. \
                     allocation_from_requestcall_data(data)
+                # Relay: uu tien relay ben goi viet trong su kien; hong thi
+                # quay ve relay cua 11300 moi (hanh vi cu).
+                _data_variants = [("11300", data)]
+                _ev_relay = _INCOMING_RELAY.pop(str(call_id), None)
+                if _ev_relay:
+                    _d_ev = dict(data)
+                    _d_ev["servers"] = [_ev_relay[0], _ev_relay[1]]
+                    _d_ev["rtpIP"], _d_ev["rtcpIP"] = _ev_relay
+                    _data_variants.insert(0, ("event", _d_ev))
                 # Hook ma hoa LUON duoc dung (xem cuoc goi di): khoa SRTP lay
                 # tu 11300 neu co, neu khong thi khoa ben goi gui kem trong
                 # su kien cuoc goi den, neu khong thi RTP tran.
@@ -4164,13 +4190,26 @@ class Handler(BaseHTTPRequestHandler):
                 def _on_first_media():
                     _mark_answered(call_id, "media", send_ack=False)
 
-                endpoints = media_endpoints.ENDPOINTS.for_call(
-                    call_id=call_id, callee_id=caller_id,
-                    call_type="user", codec=body.get("codec") or codec,
-                    local_session=_alloc.get("local_session"),
-                    peer_session=_alloc.get("peer_session"),
-                    requestcall_data=data,
-                    on_first_media=_on_first_media, **hooks)
+                endpoints = None
+                for _vi, (_vname, _vdata) in enumerate(_data_variants):
+                    try:
+                        endpoints = media_endpoints.ENDPOINTS.for_call(
+                            call_id=call_id, callee_id=caller_id,
+                            call_type="user",
+                            codec=body.get("codec") or codec,
+                            local_session=_alloc.get("local_session"),
+                            peer_session=_alloc.get("peer_session"),
+                            requestcall_data=_vdata,
+                            on_first_media=_on_first_media, **hooks)
+                        _log_call("answer relay call_id=%s source=%s"
+                                  % (call_id, _vname))
+                        break
+                    except Exception as _exc:  # noqa: BLE001
+                        if _vi == len(_data_variants) - 1:
+                            raise
+                        _log_call("answer relay call_id=%s source=%s "
+                                  "failed: %s -> thu nguon ke"
+                                  % (call_id, _vname, str(_exc)[:120]))
                 sig.answer(caller_id, call_id, 0, endpoints["codec"],
                            endpoints["rtcp_address"],
                            endpoints["rtp_address"],

@@ -331,6 +331,47 @@ def test_server_ctrl_call_event_cancel_marks_missed():
     _run(mock, check)
 
 
+def test_server_ctrl_call_event_underscore_names_are_recognised():
+    """Zalo gui ten su kien co dau gach duoi ("end_call", "cancel_call",
+    "ring_ring", "answer_ack"). Truoc 09/11 app chi biet "end"/"endcall"/
+    "cancel" nen bo qua ("ignored") khi ben goi cup may: cuoc goi den ket
+    thuc ma app van coi la dang do, va khong bat duoc tu choi/khong nghe."""
+    for act in ("end_call", "cancel_call", "endCall"):
+        mock = MockZalo().start()
+
+        def check(base, mock, endpoints, act=act):
+            state = app_server.STATE
+            state._on_ctrl_call_event(_parsed_event(dict(INCOMING_EVENT)))
+            assert _wait_active(base, CALL_ID_IN, "incoming") is not None
+            state._on_ctrl_call_event(_parsed_event(
+                {"act": act, "callId": CALL_ID_IN, "uidN": CALLER_ID}))
+            _s, calls = _api(base, "GET", "/api/calls")
+            assert calls.get("active") is None, (act, calls)
+            ended = [c for c in calls["calls"]
+                     if str(c["call_id"]) == str(CALL_ID_IN)][0]
+            assert ended["status"] == "ended", (act, ended)
+            assert ended["detail"] == "missed", (act, ended)
+
+        _run(mock, check)
+
+
+def test_server_incoming_event_remembers_callers_relay():
+    """Su kien cuoc goi den mang relay cua BEN GOI; app giu lai de luc nghe
+    may noi vao dung relay do (zca-js acceptIncomingCall), thay vi relay cua
+    11300 moi."""
+    mock = MockZalo().start()
+
+    def check(base, mock, endpoints):
+        state = app_server.STATE
+        app_server._INCOMING_RELAY.clear()
+        state._on_ctrl_call_event(_parsed_event(dict(INCOMING_EVENT)))
+        assert _wait_active(base, CALL_ID_IN, "incoming") is not None
+        got = app_server._INCOMING_RELAY.get(str(CALL_ID_IN))
+        assert got == ("10.0.0.1:4200", "10.0.0.1:4201"), got
+
+    _run(mock, check)
+
+
 def test_server_ctrl_call_event_answer_marks_outgoing_answered():
     """Event answer cho cuoc goi DI "sent" -> _mark_answered nguon
     "sync" (gui answerack 11304 — day la phia caller, dung cho
@@ -437,3 +478,11 @@ def test_answer_and_reject_without_incoming_error():
             mock.voice_call_state(CALL_ID_NONE)
 
     _run(mock, check)
+
+
+if __name__ == "__main__":
+    for _name, _fn in list(globals().items()):
+        if _name.startswith("test_") and callable(_fn):
+            _fn()
+            print("PASS", _name)
+    print("ALL INCOMING-CALL TESTS PASSED")

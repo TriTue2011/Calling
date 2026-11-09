@@ -1,0 +1,2871 @@
+{
+ "send_message": {
+  "name": null,
+  "description": "Gửi tin nhắn Zalo",
+  "fields": {
+   "message": {
+    "description": "Nội dung tin nhắn",
+    "selector": {
+     "text": null
+    },
+    "example": "Hello từ Home Assistant"
+   },
+   "thread_id": {
+    "description": "ThreadId nhận tin nhắn (user hoặc group)",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại tài khoản gửi",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại gửi: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   },
+   "ttl": {
+    "description": "Thời gian tự hủy (milliseconds)",
+    "selector": {
+     "number": {
+      "min": 0,
+      "max": 86400000
+     }
+    },
+    "example": 0,
+    "default": 0
+   },
+   "quote": {
+    "description": "Trích dẫn trả lời tin nhắn (cần có 2 trường bắt buộc: content và uidFrom)",
+    "selector": {
+     "object": null
+    }
+   }
+  }
+ },
+ "send_file": {
+  "name": null,
+  "description": "Gửi một file bất kỳ qua URL hoặc từ đường dẫn cục bộ.",
+  "fields": {
+   "file_path_or_url": {
+    "description": "Đường dẫn file trên Home Assistant hoặc URL của file cần gửi.",
+    "selector": {
+     "text": null
+    },
+    "example": "/config/www/document.pdf"
+   },
+   "message": {
+    "description": "Nội dung tin nhắn gửi kèm (tùy chọn)",
+    "selector": {
+     "text": null
+    },
+    "example": "Check out this file!"
+   },
+   "thread_id": {
+    "description": "ThreadId nhận tin nhắn (user hoặc group)",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản gửi",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại gửi: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   },
+   "ttl": {
+    "description": "Thời gian tự hủy (milliseconds)",
+    "selector": {
+     "number": {
+      "min": 0,
+      "max": 86400000
+     }
+    },
+    "example": 0,
+    "default": 0
+   }
+  }
+ },
+ "send_image": {
+  "name": null,
+  "description": "Gửi ảnh Zalo",
+  "fields": {
+   "image_path": {
+    "description": "Đường dẫn file ảnh trên Home Assistant",
+    "selector": {
+     "text": null
+    },
+    "example": "/config/www/img.png"
+   },
+   "message": {
+    "description": "Nội dung tin nhắn gửi kèm ảnh (tùy chọn)",
+    "selector": {
+     "text": null
+    },
+    "example": "Check out this image!"
+   },
+   "thread_id": {
+    "description": "ThreadId nhận ảnh (user hoặc group)",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại tài khoản gửi",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại gửi: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   },
+   "ttl": {
+    "description": "Thời gian tự hủy (milliseconds)",
+    "selector": {
+     "number": {
+      "min": 0,
+      "max": 86400000
+     }
+    },
+    "example": 0,
+    "default": 0
+   }
+  }
+ },
+ "get_logged_accounts": {
+  "name": null,
+  "description": "Lấy danh sách tài khoản Zalo đã login",
+  "fields": {}
+ },
+ "get_account_details": {
+  "name": null,
+  "description": "Lấy chi tiết một tài khoản Zalo",
+  "fields": {
+   "own_id": {
+    "description": "Own ID của tài khoản",
+    "selector": {
+     "text": {}
+    },
+    "example": "123456789",
+    "default": ""
+   }
+  }
+ },
+ "find_user": {
+  "name": null,
+  "description": "Tìm user bằng số điện thoại",
+  "fields": {
+   "phone": {
+    "description": "Số điện thoại",
+    "selector": {
+     "text": {}
+    },
+    "example": "0123456789",
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "get_user_info": {
+  "name": null,
+  "description": "Lấy thông tin user",
+  "fields": {
+   "user_id": {
+    "description": "User ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "987654321",
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "send_friend_request": {
+  "name": null,
+  "description": "Gửi lời mời kết bạn",
+  "fields": {
+   "user_id": {
+    "description": "User ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "987654321",
+    "default": ""
+   },
+   "message": {
+    "description": "Tin nhắn mời",
+    "selector": {
+     "text": {}
+    },
+    "example": "Xin chào!",
+    "default": "Xin chào, hãy kết bạn với tôi!"
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "create_group": {
+  "name": null,
+  "description": "Tạo group mới",
+  "fields": {
+   "members": {
+    "description": "Danh sách members (comma-separated)",
+    "selector": {
+     "text": {}
+    },
+    "example": "user1,user2",
+    "default": ""
+   },
+   "name": {
+    "description": "Tên group",
+    "selector": {
+     "text": {}
+    },
+    "example": "My Group",
+    "default": ""
+   },
+   "avatar_path": {
+    "description": "Đường dẫn avatar",
+    "selector": {
+     "text": {}
+    },
+    "example": "http://example.com/avatar.png",
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "get_group_info": {
+  "name": null,
+  "description": "Lấy info group",
+  "fields": {
+   "group_id": {
+    "description": "Group ID (comma-separated for multiple)",
+    "selector": {
+     "text": {}
+    },
+    "example": "group123",
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "add_user_to_group": {
+  "name": null,
+  "description": "Thêm thành viên vào group",
+  "fields": {
+   "group_id": {
+    "description": "Group ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "group123",
+    "default": ""
+   },
+   "member_id": {
+    "description": "Member ID (comma-separated for multiple)",
+    "selector": {
+     "text": {}
+    },
+    "example": "user1,user2",
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "remove_user_from_group": {
+  "name": null,
+  "description": "Xóa thành viên khỏi group",
+  "fields": {
+   "group_id": {
+    "description": "Group ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "group123",
+    "default": ""
+   },
+   "member_id": {
+    "description": "Member ID (comma-separated for multiple)",
+    "selector": {
+     "text": {}
+    },
+    "example": "user1,user2",
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "send_image_to_user": {
+  "name": null,
+  "description": "Gửi 1 ảnh đến user",
+  "fields": {
+   "image_path": {
+    "description": "Đường dẫn ảnh",
+    "selector": {
+     "text": {}
+    },
+    "example": "/config/www/img.png",
+    "default": ""
+   },
+   "thread_id": {
+    "description": "Thread ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "thread123",
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "send_images_to_user": {
+  "name": null,
+  "description": "Gửi nhiều ảnh đến user",
+  "fields": {
+   "image_paths": {
+    "description": "Danh sách paths (comma-separated)",
+    "selector": {
+     "text": {}
+    },
+    "example": "path1,path2",
+    "default": ""
+   },
+   "thread_id": {
+    "description": "Thread ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "thread123",
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "send_image_to_group": {
+  "name": null,
+  "description": "Gửi 1 ảnh đến group",
+  "fields": {
+   "image_path": {
+    "description": "Đường dẫn ảnh",
+    "selector": {
+     "text": {}
+    },
+    "example": "/config/www/img.png",
+    "default": ""
+   },
+   "thread_id": {
+    "description": "Thread ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "thread123",
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "send_images_to_group": {
+  "name": null,
+  "description": "Gửi nhiều ảnh đến group",
+  "fields": {
+   "image_paths": {
+    "description": "Danh sách paths (comma-separated)",
+    "selector": {
+     "text": {}
+    },
+    "example": "path1,path2",
+    "default": ""
+   },
+   "thread_id": {
+    "description": "Thread ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "thread123",
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số ĐT hoặc OwnID của bot",
+    "selector": {
+     "text": {}
+    },
+    "example": "+84123456789",
+    "default": ""
+   }
+  }
+ },
+ "get_account_webhooks": {
+  "name": null,
+  "description": "Lấy tất cả config webhook",
+  "fields": {}
+ },
+ "get_account_webhook": {
+  "name": null,
+  "description": "Lấy config webhook cho account",
+  "fields": {
+   "own_id": {
+    "description": "Own ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "123456789",
+    "default": ""
+   }
+  }
+ },
+ "set_account_webhook": {
+  "name": null,
+  "description": "Cập nhật config webhook",
+  "fields": {
+   "own_id": {
+    "description": "Own ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "123456789",
+    "default": ""
+   },
+   "message_webhook_url": {
+    "description": "URL cho message",
+    "selector": {
+     "text": {}
+    },
+    "example": "http://example.com/webhook",
+    "default": ""
+   },
+   "group_event_webhook_url": {
+    "description": "URL cho group event",
+    "selector": {
+     "text": {}
+    },
+    "example": "http://example.com/group",
+    "default": ""
+   },
+   "reaction_webhook_url": {
+    "description": "URL cho reaction",
+    "selector": {
+     "text": {}
+    },
+    "example": "http://example.com/reaction",
+    "default": ""
+   }
+  }
+ },
+ "delete_account_webhook": {
+  "name": null,
+  "description": "Xóa config webhook",
+  "fields": {
+   "own_id": {
+    "description": "Own ID",
+    "selector": {
+     "text": {}
+    },
+    "example": "123456789",
+    "default": ""
+   }
+  }
+ },
+ "get_proxies": {
+  "name": null,
+  "description": "Lấy danh sách proxy",
+  "fields": {}
+ },
+ "add_proxy": {
+  "name": null,
+  "description": "Thêm proxy mới",
+  "fields": {
+   "proxy_url": {
+    "description": "URL proxy",
+    "selector": {
+     "text": {}
+    },
+    "example": "http://proxy.example.com:8080",
+    "default": ""
+   }
+  }
+ },
+ "remove_proxy": {
+  "name": null,
+  "description": "Xóa proxy",
+  "fields": {
+   "proxy_url": {
+    "description": "URL proxy",
+    "selector": {
+     "text": {}
+    },
+    "example": "http://proxy.example.com:8080",
+    "default": ""
+   }
+  }
+ },
+ "accept_friend_request": {
+  "name": null,
+  "description": "Chấp nhận lời mời kết bạn từ một người dùng",
+  "fields": {
+   "user_id": {
+    "description": "ID người dùng đã gửi lời mời kết bạn",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "block_user": {
+  "name": null,
+  "description": "Chặn một người dùng",
+  "fields": {
+   "user_id": {
+    "description": "ID người dùng cần chặn",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "unblock_user": {
+  "name": null,
+  "description": "Bỏ chặn một người dùng",
+  "fields": {
+   "user_id": {
+    "description": "ID người dùng cần bỏ chặn",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "send_sticker": {
+  "name": null,
+  "description": "Gửi sticker",
+  "fields": {
+   "sticker_id": {
+    "description": "ID số của sticker (zca-js)",
+    "selector": {
+     "text": null
+    },
+    "example": 1234
+   },
+   "thread_id": {
+    "description": "ThreadId nhận sticker (user hoặc group)",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại gửi: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   }
+  }
+ },
+ "undo_message": {
+  "name": null,
+  "description": "Thu hồi tin nhắn đã gửi",
+  "fields": {
+   "msg_id": {
+    "description": "ID của tin nhắn cần thu hồi",
+    "selector": {
+     "text": null
+    },
+    "example": "msg123456"
+   },
+   "cli_msg_id": {
+    "description": "cliMsgId của chính tin nhắn đó (Zalo cần cả hai mã mới thu hồi được). Sự kiện tin nhắn gửi về automation có sẵn trường này. Bỏ trống thì dùng lại msg_id, có trường hợp Zalo từ chối.",
+    "selector": {
+     "text": null
+    },
+    "example": "1712345678901"
+   },
+   "thread_id": {
+    "description": "ThreadId của cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại tin nhắn: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   }
+  }
+ },
+ "create_reminder": {
+  "name": null,
+  "description": "Tạo nhắc nhở mới",
+  "fields": {
+   "title": {
+    "description": "Tiêu đề nhắc nhở",
+    "selector": {
+     "text": null
+    },
+    "example": "Họp nhóm"
+   },
+   "content": {
+    "description": "Nội dung nhắc nhở",
+    "selector": {
+     "text": null
+    },
+    "example": "Họp nhóm lúc 10h sáng"
+   },
+   "remind_time": {
+    "description": "Thời gian nhắc nhở (timestamp)",
+    "selector": {
+     "text": null
+    },
+    "example": "1632739200000"
+   },
+   "thread_id": {
+    "description": "ThreadId của cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại nhắc nhở: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   }
+  }
+ },
+ "remove_reminder": {
+  "name": null,
+  "description": "Xóa nhắc nhở",
+  "fields": {
+   "reminder_id": {
+    "description": "ID của nhắc nhở cần xóa",
+    "selector": {
+     "text": null
+    },
+    "example": "reminder123"
+   },
+   "thread_id": {
+    "description": "ThreadId của cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại nhắc nhở: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   }
+  }
+ },
+ "change_group_name": {
+  "name": null,
+  "description": "Đổi tên nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123"
+   },
+   "name": {
+    "description": "Tên mới của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "Nhóm mới"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "change_group_avatar": {
+  "name": null,
+  "description": "Đổi ảnh đại diện nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123"
+   },
+   "image_path": {
+    "description": "Đường dẫn đến ảnh mới",
+    "selector": {
+     "text": null
+    },
+    "example": "/config/www/avatar.png"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "send_voice": {
+  "name": null,
+  "description": "Gửi tin nhắn thoại: từ tệp âm thanh, hoặc để TTS của Home Assistant đọc chữ",
+  "fields": {
+   "voice_path": {
+    "description": "Tệp âm thanh: đường dẫn trong HA, URL http(s):// hoặc media-source://. Bỏ trống nếu dùng message",
+    "selector": {
+     "text": null
+    },
+    "example": "/config/www/voice.mp3"
+   },
+   "message": {
+    "description": "Chữ để TTS của Home Assistant đọc thành tin thoại (thay cho voice_path)",
+    "selector": {
+     "text": {
+      "multiline": true
+     }
+    },
+    "example": "Cửa chính đang mở quá mười phút"
+   },
+   "tts_entity": {
+    "description": "Thực thể TTS dùng để đọc (bỏ trống = TTS mặc định)",
+    "selector": {
+     "entity": {
+      "domain": "tts"
+     }
+    },
+    "example": "tts.google_translate_vi_com"
+   },
+   "language": {
+    "description": "Ngôn ngữ đọc, ví dụ vi (bỏ trống = mặc định của TTS)",
+    "selector": {
+     "text": null
+    },
+    "example": "vi"
+   },
+   "options": {
+    "description": "Tuỳ chọn riêng của TTS, giống mục Options của tts.speak — ví dụ giọng đọc: {voice: ...}",
+    "selector": {
+     "object": null
+    },
+    "example": "{\"voice\": \"nova\"}"
+   },
+   "thread_id": {
+    "description": "ThreadId nhận tin nhắn thoại",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại gửi: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   }
+  }
+ },
+ "get_all_friends": {
+  "name": null,
+  "description": "Lấy danh sách tất cả bạn bè",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_sent_friend_requests": {
+  "name": null,
+  "description": "Lấy danh sách lời mời kết bạn đã gửi",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "undo_friend_request": {
+  "name": null,
+  "description": "Thu hồi lời mời kết bạn đã gửi",
+  "fields": {
+   "friend_id": {
+    "description": "ID người dùng đã gửi lời mời",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "remove_friend": {
+  "name": null,
+  "description": "Hủy kết bạn với một người dùng",
+  "fields": {
+   "friend_id": {
+    "description": "ID người bạn cần hủy kết bạn",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "change_friend_alias": {
+  "name": null,
+  "description": "Thay đổi biệt danh của một người bạn",
+  "fields": {
+   "friend_id": {
+    "description": "ID người bạn cần đổi biệt danh",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "alias": {
+    "description": "Biệt danh mới",
+    "selector": {
+     "text": null
+    },
+    "example": "Bạn thân"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "remove_friend_alias": {
+  "name": null,
+  "description": "Xóa biệt danh của một người bạn",
+  "fields": {
+   "friend_id": {
+    "description": "ID người bạn cần xóa biệt danh",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_all_groups": {
+  "name": null,
+  "description": "Lấy danh sách tất cả nhóm đã tham gia",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_group_chat_history": {
+  "name": null,
+  "description": "Lấy lịch sử tin nhắn của một nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm cần lấy lịch sử",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "count": {
+    "description": "Số lượng tin nhắn muốn lấy (mặc định 50, tối đa 1000)",
+    "selector": {
+     "number": {
+      "min": 1,
+      "max": 1000
+     }
+    },
+    "example": 50,
+    "default": 50
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "add_group_deputy": {
+  "name": null,
+  "description": "Thêm phó nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "member_id": {
+    "description": "ID thành viên cần thêm làm phó nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "remove_group_deputy": {
+  "name": null,
+  "description": "Xóa phó nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "member_id": {
+    "description": "ID thành viên cần xóa quyền phó nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "change_group_owner": {
+  "name": null,
+  "description": "Chuyển quyền sở hữu nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "member_id": {
+    "description": "ID thành viên được chuyển quyền sở hữu",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "disperse_group": {
+  "name": null,
+  "description": "Giải tán nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "enable_group_link": {
+  "name": null,
+  "description": "Kích hoạt và lấy link tham gia nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "disable_group_link": {
+  "name": null,
+  "description": "Vô hiệu hóa link tham gia nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "join_group": {
+  "name": null,
+  "description": "Tham gia nhóm bằng link mời",
+  "fields": {
+   "link": {
+    "description": "Link mời tham gia nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "https://zalo.me/g/abcxyz"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "leave_group": {
+  "name": null,
+  "description": "Rời khỏi nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "silent": {
+    "description": "Rời nhóm trong im lặng",
+    "selector": {
+     "boolean": null
+    },
+    "example": true,
+    "default": false
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "update_profile": {
+  "name": null,
+  "description": "Cập nhật thông tin cá nhân",
+  "fields": {
+   "name": {
+    "description": "Tên mới",
+    "selector": {
+     "text": null
+    },
+    "example": "Nguyễn Văn A"
+   },
+   "dob": {
+    "description": "Ngày sinh (yyyy-mm-dd)",
+    "selector": {
+     "text": null
+    },
+    "example": "1990-01-01"
+   },
+   "gender": {
+    "description": "Giới tính",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Nam",
+        "value": "0"
+       },
+       {
+        "label": "Nữ",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "update_settings": {
+  "name": null,
+  "description": "Cập nhật cài đặt riêng tư",
+  "fields": {
+   "setting_type": {
+    "description": "Loại cài đặt",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Trạng thái online",
+        "value": "online_status"
+       },
+       {
+        "label": "Trạng thái đã xem",
+        "value": "seen_status"
+       },
+       {
+        "label": "Nhận tin nhắn",
+        "value": "receive_message"
+       },
+       {
+        "label": "Tìm kiếm bằng SĐT",
+        "value": "phone_search"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "description": "Trạng thái",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Bật",
+        "value": "1"
+       },
+       {
+        "label": "Tắt",
+        "value": "0"
+       }
+      ]
+     }
+    }
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "set_mute": {
+  "name": null,
+  "description": "Tắt thông báo cho cuộc trò chuyện",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "duration": {
+    "description": "Thời gian tắt thông báo",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "1 giờ",
+        "value": "3600"
+       },
+       {
+        "label": "4 giờ",
+        "value": "14400"
+       },
+       {
+        "label": "Vĩnh viễn",
+        "value": "-1"
+       },
+       {
+        "label": "Bật lại",
+        "value": "0"
+       }
+      ]
+     }
+    }
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại cuộc trò chuyện",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Cá nhân",
+        "value": "user"
+       },
+       {
+        "label": "Nhóm",
+        "value": "group"
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ "set_pinned_conversation": {
+  "name": null,
+  "description": "Ghim hoặc bỏ ghim cuộc trò chuyện",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "pinned": {
+    "description": "Ghim hay bỏ ghim",
+    "selector": {
+     "boolean": null
+    }
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại cuộc trò chuyện",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Cá nhân",
+        "value": "user"
+       },
+       {
+        "label": "Nhóm",
+        "value": "group"
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ "get_unread_mark": {
+  "name": null,
+  "description": "Lấy danh sách các cuộc trò chuyện được đánh dấu là chưa đọc",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "add_unread_mark": {
+  "name": null,
+  "description": "Đánh dấu một cuộc trò chuyện là chưa đọc",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "remove_unread_mark": {
+  "name": null,
+  "description": "Bỏ đánh dấu chưa đọc cho một cuộc trò chuyện",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "delete_chat": {
+  "name": null,
+  "description": "Xóa một cuộc trò chuyện khỏi danh sách",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_archived_chat_list": {
+  "name": null,
+  "description": "Lấy danh sách các cuộc trò chuyện đã được lưu trữ",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_auto_delete_chat": {
+  "name": null,
+  "description": "Lấy danh sách các cuộc trò chuyện đang bật tự động xóa tin nhắn",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "update_auto_delete_chat": {
+  "name": null,
+  "description": "Bật/tắt chế độ tự động xóa tin nhắn",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "ttl": {
+    "description": "Thời gian tự xóa",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Tắt",
+        "value": "0"
+       },
+       {
+        "label": "1 ngày",
+        "value": "86400000"
+       },
+       {
+        "label": "7 ngày",
+        "value": "604800000"
+       }
+      ]
+     }
+    }
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_hidden_conversations": {
+  "name": null,
+  "description": "Lấy danh sách các cuộc trò chuyện đang bị ẩn bằng mã PIN",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "set_hidden_conversations": {
+  "name": null,
+  "description": "Ẩn hoặc bỏ ẩn một cuộc trò chuyện",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "hidden": {
+    "description": "Ẩn hoặc hiện cuộc trò chuyện",
+    "selector": {
+     "boolean": null
+    }
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "update_hidden_convers_pin": {
+  "name": null,
+  "description": "Đặt hoặc thay đổi mã PIN cho các cuộc trò chuyện ẩn",
+  "fields": {
+   "pin": {
+    "description": "Mã PIN mới",
+    "selector": {
+     "text": null
+    },
+    "example": "1234"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "reset_hidden_convers_pin": {
+  "name": null,
+  "description": "Gỡ bỏ mã PIN cho các cuộc trò chuyện ẩn",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_mute": {
+  "name": null,
+  "description": "Lấy danh sách các cuộc trò chuyện đang bị tắt thông báo",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_pin_conversations": {
+  "name": null,
+  "description": "Lấy danh sách các cuộc trò chuyện đã được ghim",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "add_reaction": {
+  "name": null,
+  "description": "Thả cảm xúc vào một tin nhắn",
+  "fields": {
+   "icon": {
+    "description": "Tên cảm xúc",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Like",
+        "value": "like"
+       },
+       {
+        "label": "Heart",
+        "value": "heart"
+       },
+       {
+        "label": "Haha",
+        "value": "haha"
+       },
+       {
+        "label": "Wow",
+        "value": "wow"
+       },
+       {
+        "label": "Cry",
+        "value": "cry"
+       },
+       {
+        "label": "Angry",
+        "value": "angry"
+       },
+       {
+        "label": "Kiss",
+        "value": "kiss"
+       },
+       {
+        "label": "Tears of Joy",
+        "value": "tears_of_joy"
+       },
+       {
+        "label": "Shit",
+        "value": "shit"
+       },
+       {
+        "label": "Rose",
+        "value": "rose"
+       },
+       {
+        "label": "Broken Heart",
+        "value": "broken_heart"
+       },
+       {
+        "label": "Dislike",
+        "value": "dislike"
+       },
+       {
+        "label": "Love",
+        "value": "love"
+       },
+       {
+        "label": "Confused",
+        "value": "confused"
+       },
+       {
+        "label": "Wink",
+        "value": "wink"
+       },
+       {
+        "label": "Fade",
+        "value": "fade"
+       },
+       {
+        "label": "Sun",
+        "value": "sun"
+       },
+       {
+        "label": "Birthday",
+        "value": "birthday"
+       },
+       {
+        "label": "Bomb",
+        "value": "bomb"
+       },
+       {
+        "label": "OK",
+        "value": "ok"
+       },
+       {
+        "label": "Peace",
+        "value": "peace"
+       },
+       {
+        "label": "Thanks",
+        "value": "thanks"
+       },
+       {
+        "label": "Punch",
+        "value": "punch"
+       },
+       {
+        "label": "Share",
+        "value": "share"
+       },
+       {
+        "label": "Pray",
+        "value": "pray"
+       },
+       {
+        "label": "No",
+        "value": "no"
+       },
+       {
+        "label": "Bad",
+        "value": "bad"
+       },
+       {
+        "label": "Love You",
+        "value": "love_you"
+       },
+       {
+        "label": "Sad",
+        "value": "sad"
+       }
+      ]
+     }
+    }
+   },
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "msg_id": {
+    "description": "ID tin nhắn cần thả cảm xúc",
+    "selector": {
+     "text": null
+    },
+    "example": "msg123456"
+   },
+   "cli_msg_id": {
+    "description": "ID client của tin nhắn",
+    "selector": {
+     "text": null
+    },
+    "example": "cli123456"
+   },
+   "type": {
+    "description": "Loại cuộc trò chuyện",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Cá nhân",
+        "value": "user"
+       },
+       {
+        "label": "Nhóm",
+        "value": "group"
+       }
+      ]
+     }
+    }
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "delete_message": {
+  "name": null,
+  "description": "Xóa một tin nhắn (chỉ ở phía mình)",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "msg_id": {
+    "description": "ID tin nhắn cần xóa",
+    "selector": {
+     "text": null
+    },
+    "example": "msg123456"
+   },
+   "cli_msg_id": {
+    "description": "ID client của tin nhắn",
+    "selector": {
+     "text": null
+    },
+    "example": "cli123456"
+   },
+   "uid_from": {
+    "description": "ID người gửi tin nhắn",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "type": {
+    "description": "Loại cuộc trò chuyện",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Cá nhân",
+        "value": "user"
+       },
+       {
+        "label": "Nhóm",
+        "value": "group"
+       }
+      ]
+     }
+    }
+   },
+   "only_me": {
+    "description": "Chỉ xóa ở phía mình",
+    "selector": {
+     "boolean": null
+    },
+    "default": true
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "forward_message": {
+  "name": null,
+  "description": "Chuyển tiếp một tin nhắn",
+  "fields": {
+   "message": {
+    "description": "Nội dung tin nhắn gốc (mã hóa)",
+    "selector": {
+     "text": null
+    }
+   },
+   "thread_ids": {
+    "description": "Danh sách ID cuộc trò chuyện nhận tin nhắn, phân cách bởi dấu phẩy",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131,5841349563795164132"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại cuộc trò chuyện nhận tin nhắn",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Cá nhân",
+        "value": "user"
+       },
+       {
+        "label": "Nhóm",
+        "value": "group"
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ "parse_link": {
+  "name": null,
+  "description": "Phân tích link để lấy thông tin preview",
+  "fields": {
+   "link": {
+    "description": "URL cần phân tích",
+    "selector": {
+     "text": null
+    },
+    "example": "https://example.com"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "send_card": {
+  "name": null,
+  "description": "Gửi danh thiếp của một người dùng",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "user_id": {
+    "description": "ID người dùng của danh thiếp",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại gửi: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   }
+  }
+ },
+ "send_link": {
+  "name": null,
+  "description": "Gửi một tin nhắn chứa liên kết có preview",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "link": {
+    "description": "URL cần gửi",
+    "selector": {
+     "text": null
+    },
+    "example": "https://example.com"
+   },
+   "message": {
+    "description": "Nội dung tin nhắn đi kèm",
+    "selector": {
+     "text": null
+    },
+    "example": "Xem link này nhé",
+    "default": ""
+   },
+   "thumbnail": {
+    "description": "URL thumbnail tùy chỉnh",
+    "selector": {
+     "text": null
+    },
+    "default": ""
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại gửi: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   }
+  }
+ },
+ "get_stickers": {
+  "name": null,
+  "description": "Tìm kiếm sticker theo từ khóa",
+  "fields": {
+   "query": {
+    "description": "Từ khóa tìm kiếm",
+    "selector": {
+     "text": null
+    },
+    "example": "vui"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_stickers_detail": {
+  "name": null,
+  "description": "Lấy thông tin chi tiết của một bộ sticker",
+  "fields": {
+   "sticker_album": {
+    "description": "ID album sticker",
+    "selector": {
+     "text": null
+    },
+    "example": "22148"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "send_video": {
+  "name": null,
+  "description": "Gửi video qua URL hoặc từ đường dẫn cục bộ",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "video_path_or_url": {
+    "description": "Đường dẫn file video trên Home Assistant hoặc URL của video cần gửi",
+    "selector": {
+     "text": null
+    },
+    "example": "/config/www/video.mp4"
+   },
+   "thumbnail_url": {
+    "description": "URL thumbnail của video hoặc đường dẫn file local (nếu không có sẽ dùng video làm thumbnail)",
+    "selector": {
+     "text": null
+    },
+    "example": "https://example.com/thumbnail.jpg hoặc /config/www/thumb.jpg"
+   },
+   "message": {
+    "description": "Tin nhắn kèm theo",
+    "selector": {
+     "text": null
+    },
+    "default": ""
+   },
+   "width": {
+    "description": "Chiều rộng video (pixels)",
+    "selector": {
+     "number": {
+      "min": 100,
+      "max": 4096
+     }
+    },
+    "example": 1280,
+    "default": 1280
+   },
+   "height": {
+    "description": "Chiều cao video (pixels)",
+    "selector": {
+     "number": {
+      "min": 100,
+      "max": 4096
+     }
+    },
+    "example": 720,
+    "default": 720
+   },
+   "ttl": {
+    "description": "Thời gian tự hủy (milliseconds)",
+    "selector": {
+     "number": {
+      "min": 0,
+      "max": 86400000
+     }
+    },
+    "example": 0,
+    "default": 0
+   },
+   "type": {
+    "description": "Loại gửi: 0=user, 1=group (mặc định 0)",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "User",
+        "value": "0"
+       },
+       {
+        "label": "Group",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "example": 0,
+    "default": 0
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "create_note_group": {
+  "name": null,
+  "description": "Tạo ghi chú mới trong nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "title": {
+    "description": "Tiêu đề ghi chú",
+    "selector": {
+     "text": null
+    }
+   },
+   "pin_act": {
+    "description": "Ghim ghi chú",
+    "selector": {
+     "boolean": null
+    },
+    "default": true
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "edit_note_group": {
+  "name": null,
+  "description": "Chỉnh sửa ghi chú trong nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "topic_id": {
+    "description": "ID của ghi chú",
+    "selector": {
+     "text": null
+    },
+    "example": "topic123456"
+   },
+   "title": {
+    "description": "Nội dung ghi chú mới",
+    "selector": {
+     "text": null
+    }
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_list_board": {
+  "name": null,
+  "description": "Lấy danh sách các mục trên bảng tin của nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "create_poll": {
+  "name": null,
+  "description": "Tạo một cuộc bình chọn trong nhóm",
+  "fields": {
+   "group_id": {
+    "description": "ID của nhóm",
+    "selector": {
+     "text": null
+    },
+    "example": "group123456"
+   },
+   "question": {
+    "description": "Câu hỏi bình chọn",
+    "selector": {
+     "text": null
+    },
+    "example": "Chọn thời gian họp?"
+   },
+   "options": {
+    "description": "Các lựa chọn (phân cách bởi dấu phẩy)",
+    "selector": {
+     "text": null
+    },
+    "example": "Thứ 2,Thứ 3,Thứ 4"
+   },
+   "allow_multi_choices": {
+    "description": "Cho phép chọn nhiều lựa chọn",
+    "selector": {
+     "boolean": null
+    },
+    "default": false
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_poll_detail": {
+  "name": null,
+  "description": "Lấy thông tin chi tiết của một cuộc bình chọn",
+  "fields": {
+   "poll_id": {
+    "description": "ID số của cuộc bình chọn (zca-js)",
+    "selector": {
+     "text": null
+    },
+    "example": 123456789
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "lock_poll": {
+  "name": null,
+  "description": "Khóa một cuộc bình chọn",
+  "fields": {
+   "poll_id": {
+    "description": "ID của cuộc bình chọn",
+    "selector": {
+     "text": null
+    },
+    "example": "123456789"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "edit_reminder": {
+  "name": null,
+  "description": "Chỉnh sửa một nhắc hẹn",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "topic_id": {
+    "description": "ID của nhắc hẹn",
+    "selector": {
+     "text": null
+    },
+    "example": "reminder123456"
+   },
+   "title": {
+    "description": "Tiêu đề mới",
+    "selector": {
+     "text": null
+    },
+    "example": "Họp online"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_reminder": {
+  "name": null,
+  "description": "Lấy thông tin chi tiết của một nhắc hẹn",
+  "fields": {
+   "reminder_id": {
+    "description": "ID của nhắc hẹn",
+    "selector": {
+     "text": null
+    },
+    "example": "reminder123456"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_list_reminder": {
+  "name": null,
+  "description": "Lấy danh sách các nhắc hẹn trong một cuộc trò chuyện",
+  "fields": {
+   "thread_id": {
+    "description": "ID cuộc trò chuyện",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "type": {
+    "description": "Loại cuộc trò chuyện",
+    "selector": {
+     "select": {
+      "options": [
+       {
+        "label": "Cá nhân",
+        "value": "user"
+       },
+       {
+        "label": "Nhóm",
+        "value": "group"
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ "get_reminder_responses": {
+  "name": null,
+  "description": "Lấy danh sách phản hồi cho một nhắc hẹn",
+  "fields": {
+   "reminder_id": {
+    "description": "ID của nhắc hẹn",
+    "selector": {
+     "text": null
+    },
+    "example": "reminder123456"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "add_quick_message": {
+  "name": null,
+  "description": "Thêm một tin nhắn nhanh mới",
+  "fields": {
+   "keyword": {
+    "description": "Từ khóa để gọi tin nhắn nhanh",
+    "selector": {
+     "text": null
+    },
+    "example": "/qm1"
+   },
+   "title": {
+    "description": "Nội dung tin nhắn nhanh",
+    "selector": {
+     "text": null
+    },
+    "example": "Xin chào mọi người"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_quick_message": {
+  "name": null,
+  "description": "Lấy danh sách tin nhắn nhanh",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "remove_quick_message": {
+  "name": null,
+  "description": "Xóa tin nhắn nhanh",
+  "fields": {
+   "item_ids": {
+    "description": "ID hoặc danh sách ID tin nhắn nhanh cần xóa",
+    "selector": {
+     "text": null
+    },
+    "example": "12345678"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "update_quick_message": {
+  "name": null,
+  "description": "Cập nhật tin nhắn nhanh",
+  "fields": {
+   "item_id": {
+    "description": "ID tin nhắn nhanh",
+    "selector": {
+     "text": null
+    },
+    "example": "12345678"
+   },
+   "keyword": {
+    "description": "Từ khóa mới",
+    "selector": {
+     "text": null
+    },
+    "example": "/qm1_updated"
+   },
+   "title": {
+    "description": "Nội dung mới",
+    "selector": {
+     "text": null
+    },
+    "example": "Xin chào mọi người (đã cập nhật)"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_labels": {
+  "name": null,
+  "description": "Lấy danh sách các nhãn",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "block_view_feed": {
+  "name": null,
+  "description": "Chặn/bỏ chặn một người bạn xem nhật ký",
+  "fields": {
+   "user_id": {
+    "description": "ID người bạn",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "is_block_feed": {
+    "description": "Chặn hoặc bỏ chặn",
+    "selector": {
+     "boolean": null
+    }
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "change_account_avatar": {
+  "name": null,
+  "description": "Thay đổi ảnh đại diện",
+  "fields": {
+   "avatar_source": {
+    "description": "Đường dẫn đến file ảnh",
+    "selector": {
+     "text": null
+    },
+    "example": "/path/to/image.jpg"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_avatar_list": {
+  "name": null,
+  "description": "Lấy danh sách các ảnh đại diện đã sử dụng",
+  "fields": {
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   },
+   "count": {
+    "description": "Số lượng ảnh tối đa cần lấy",
+    "selector": {
+     "number": {
+      "min": 1,
+      "max": 50
+     }
+    },
+    "example": "10",
+    "default": "10"
+   },
+   "page": {
+    "description": "Trang dữ liệu cần lấy",
+    "selector": {
+     "number": {
+      "min": 1
+     }
+    },
+    "example": "1",
+    "default": "1"
+   }
+  }
+ },
+ "last_online": {
+  "name": null,
+  "description": "Xem thời gian hoạt động cuối cùng của một người dùng",
+  "fields": {
+   "user_id": {
+    "description": "ID người dùng cần xem",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795164131"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "send_typing_event": {
+  "name": null,
+  "description": "Gửi thông báo đang soạn tin nhắn",
+  "fields": {
+   "thread_id": {
+    "description": "ThreadId nhận thông báo (group sẽ không hiện)",
+    "selector": {
+     "text": null
+    },
+    "example": "5841349563795111111"
+   },
+   "account_selection": {
+    "description": "Số điện thoại hoặc ID tài khoản gửi",
+    "selector": {
+     "text": null
+    },
+    "example": "+84123456789"
+   }
+  }
+ },
+ "get_login_qr": {
+  "name": "Lấy mã QR đăng nhập Zalo",
+  "description": "Lấy mã QR đăng nhập Zalo từ server và hiển thị lên thông báo.",
+  "fields": {}
+ }
+}

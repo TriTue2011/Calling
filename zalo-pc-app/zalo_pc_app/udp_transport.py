@@ -1739,6 +1739,11 @@ class Udp4200Transport:
         except Exception as exc:  # noqa: BLE001 - bad packet, count it
             self.counters["rtp_rx_dropped"] += 1
             self._last_error = "unprotect/parse failed: %s" % exc
+            if self.counters["rtp_rx_dropped"] <= 3:
+                # Chan doan: chi 24 byte DAU (header), khong ghi payload.
+                print("[media] rx drop #%d len=%d via=%s head=%s err=%s" % (
+                    self.counters["rtp_rx_dropped"], len(rtp_data), via,
+                    bytes(rtp_data[:24]).hex(), exc), flush=True)
             return
         if len(self._rx_head) < RX_SAMPLE_MAX and rtp["payload"]:
             self._rx_head.append((len(rtp["payload"]), rtp["payload"][0]))
