@@ -111,6 +111,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         kind = str(payload.get("event") or "")
         if kind in WEBHOOK_KINDS:
             hass_.bus.async_fire(EVENT_PREFIX + kind, payload)
+        if kind == "voice2text":
+            # Ket qua Zalo AI chuyen giong noi: zalo_call_voice_to_text {req_id, text, error}
+            hass_.bus.async_fire(EVENT_PREFIX + "voice_to_text", payload)
+            return web.Response(status=200)
         if kind == "call":
             await coordinator.async_request_refresh()
             await _async_call_state(hass_, bridge, payload)

@@ -114,7 +114,8 @@ def _zca_extras(core):
     for a in apis:
         name = re.sub(r"(?<!^)(?=[A-Z])", "_", a["name"]).lower()
         if name in have or name in S.OPS or name in (
-                "make_call", "answer_call", "reject_call", "end_call"):
+                "make_call", "answer_call", "reject_call", "end_call",
+                "voice_to_text"):
             continue
         fields = [{"key": f["name"], "label": f["name"], "required": bool(f["required"]),
                    "description": ((f.get("description") or f["name"]) + " (" + f["type"] + ")")[:200]}
@@ -323,6 +324,25 @@ reject_call:
       description: Bỏ trống để từ chối cuộc gọi đến hiện tại.
       selector:
         text: null
+voice_to_text:
+  name: Chuyển giọng nói thành văn bản (Zalo AI)
+  description: Gửi một tin nhắn thoại (URL tệp .aac/.mp3/.m4a trên máy chủ Zalo) cho Zalo AI và trả về văn bản. Chỉ dùng cho tin nhắn thoại, không phải mic trực tiếp. Kết quả cũng bắn sự kiện zalo_call_voice_to_text.
+  fields:
+    url:
+      name: URL tệp ghi âm
+      description: Đường dẫn tin nhắn thoại trên máy chủ Zalo (lấy từ sự kiện tin nhắn thoại).
+      required: true
+      selector:
+        text: null
+    wait:
+      name: Chờ tối đa (giây)
+      description: Zalo AI trả kết quả bất đồng bộ; chờ tối đa ngần này giây (0 = không chờ, lấy bằng sự kiện).
+      default: 25
+      selector:
+        number:
+          min: 0
+          max: 60
+          mode: box
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.

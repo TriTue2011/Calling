@@ -5016,19 +5016,6 @@ upload_attachment:
     biet))'
   fields:
     entry_id: *id001
-voice_to_text:
-  name: voiceToText
-  description: voiceToText — Gửi yêu cầu chuyển đổi tin nhắn thoại sang văn bản bằng Zalo AI (command
-    13394). Kết quả văn bản sau khi xử lý xong sẽ được đẩy về qua sự kiện api.listener.on("voice2text_event",
-    ...) khớp với req_id.
-  fields:
-    entry_id: *id001
-    voiceUrl:
-      name: voiceUrl
-      description: Đường dẫn URL của tệp ghi âm tin nhắn thoại (`.aac` / `.mp3` / `.m4a`) (string)
-      required: true
-      selector:
-        text: null
 get_a_i_sticker_list:
   name: getAIStickerList
   description: getAIStickerList — Lấy danh sách Sticker AI của người dùng (command 12190)
@@ -7040,6 +7027,28 @@ reject_call:
       description: Bỏ trống để từ chối cuộc gọi đến hiện tại.
       selector:
         text: null
+voice_to_text:
+  name: Chuyển giọng nói thành văn bản (Zalo AI)
+  description: Gửi một tin nhắn thoại (URL tệp .aac/.mp3/.m4a trên máy chủ Zalo) cho Zalo AI và trả về
+    văn bản. Chỉ dùng cho tin nhắn thoại, không phải mic trực tiếp. Kết quả cũng bắn sự kiện zalo_call_voice_to_text.
+  fields:
+    entry_id: *id001
+    url:
+      name: URL tệp ghi âm
+      description: Đường dẫn tin nhắn thoại trên máy chủ Zalo (lấy từ sự kiện tin nhắn thoại).
+      required: true
+      selector:
+        text: null
+    wait:
+      name: Chờ tối đa (giây)
+      description: Zalo AI trả kết quả bất đồng bộ; chờ tối đa ngần này giây (0 = không chờ, lấy bằng
+        sự kiện).
+      default: 25
+      selector:
+        number:
+          min: 0
+          max: 60
+          mode: box
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.

@@ -469,6 +469,22 @@ class WebhookDispatcher:
 # _on_ctrl_reaction() call dispatch_group_event() /
 # dispatch_reaction() (long-poll 99101).
 
+def build_voice2text_event(ev, account_id):
+    """Ket qua chuyen giong noi (Zalo AI). `content` = van ban: la du lieu cua nguoi
+    dung gui toi webhook cua chinh ho (nhu tin nhan), KHONG ghi vao log."""
+    out = _base("voice2text", "voice2text.result", account_id)
+    out.update({"req_id": str(ev.get("req_id", "")),
+                "text": ev.get("text", ""), "error": ev.get("error")})
+    return out
+
+
+def dispatch_voice2text(dispatcher, ev, account_id):
+    """Di chung URL webhook tin nhan (message_webhook_url); `event` = "voice2text"."""
+    if dispatcher is None:
+        return False
+    return dispatcher.dispatch("message", build_voice2text_event(ev, account_id))
+
+
 def dispatch_call_event(dispatcher, call_entry, account_id):
     """Call event from a call_log record (sent/answered/error/ended).
     Fires NOW — the app itself is the source, no sync channel needed."""

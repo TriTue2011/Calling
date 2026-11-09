@@ -490,6 +490,22 @@ def find_srtp_key(obj, _depth=0):
     return None
 
 
+def extract_voice2text_events(data):
+    """Control act_type "voice2text" (zca-js control.handler.ts) ->
+    [{req_id, text, error}]. Khong ghi noi dung van ban vao log."""
+    from . import voice2text
+    out = []
+    controls = (data or {}).get("controls") if isinstance(data, dict) else None
+    for ctl in controls or []:
+        content = (ctl or {}).get("content") if isinstance(ctl, dict) else None
+        if not isinstance(content, dict) or content.get("act_type") != "voice2text":
+            continue
+        ev = voice2text.parse_event_data(content.get("data"))
+        if ev is not None:
+            out.append(ev)
+    return out
+
+
 def extract_call_events(data):
     """Tach cac event goi thoai (call_event) tu payload ctrl da
     giai ma -> [{act, call_id, caller_id, caller_name, session,
@@ -751,7 +767,7 @@ class CtrlPoller:
                  registry, ctl_timeout=30, cursor=None,
                  on_cursor=None, on_group_event=None,
                  on_reaction=None, on_call_event=None,
-                 file_registry=None):
+                 file_registry=None, on_voice2text=None):
         urls = [u for u in (poll_urls or []) if u]
         if not urls:
             raise ValueError("ctrl_poll: can it nhat 1 poll URL "
@@ -788,6 +804,7 @@ class CtrlPoller:
         self.on_group_event = on_group_event
         self.on_reaction = on_reaction
         self.on_call_event = on_call_event
+        self.on_voice2text = on_voice2text
         # Chan doan batch vua xu ly (khong log noi dung).
         self.last_batch = {"group_events": 0, "reactions": 0,
                            "call_events": 0, "at": 0}
@@ -893,6 +910,7 @@ class CtrlPoller:
         group_events = extract_group_events(data)
         reactions = extract_reactions(data)
         call_events = extract_call_events(data)
+        v2t_events = extract_voice2text_events(data)
         before = self.cursor.to_dict()
         self.cursor.update_from(data)
         for event in group_events:
@@ -911,6 +929,12 @@ class CtrlPoller:
             if self.on_call_event is not None:
                 try:
                     self.on_call_event(event)
+                except Exception:  # noqa: BLE001 - callback loi
+                    pass
+        for event in v2t_events:
+            if self.on_voice2text is not None:
+                try:
+                    self.on_voice2text(event)
                 except Exception:  # noqa: BLE001 - callback loi
                     pass
         self.last_batch = {"group_events": len(group_events),

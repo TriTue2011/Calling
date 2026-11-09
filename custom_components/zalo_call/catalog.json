@@ -5699,24 +5699,6 @@
   "fields": []
  },
  {
-  "name": "voice_to_text",
-  "no": null,
-  "kind": "zca",
-  "action": "voice_to_text",
-  "group": "zca_media",
-  "label": "voiceToText — Gửi yêu cầu chuyển đổi tin nhắn thoại sang văn bản bằng Zalo AI (command 13394). Kết quả văn bản sau khi xử lý xong sẽ được đẩy về qua sự kiện api.listener.on(\"voice2text_event\", ...) khớp với req_id.",
-  "thread": "none",
-  "danger": false,
-  "fields": [
-   {
-    "key": "voiceUrl",
-    "label": "voiceUrl",
-    "required": true,
-    "description": "Đường dẫn URL của tệp ghi âm tin nhắn thoại (`.aac` / `.mp3` / `.m4a`) (string)"
-   }
-  ]
- },
- {
   "name": "get_a_i_sticker_list",
   "no": null,
   "kind": "zca",

@@ -159,6 +159,12 @@ class ZaloCallApi:
             "POST", "/api/call/end",
             json={"call_id": call_id if call_id is not None else ""})
 
+    async def voice_to_text(self, url: str, wait: float = 25) -> dict:
+        """Zalo AI chuyen TIN NHAN THOAI (URL tep tren may chu Zalo) thanh van ban.
+        wait > 0: app cho toi ngan ay giay roi tra {done, text}."""
+        return await self._request(
+            "POST", "/api/voice2text", json={"url": url, "wait": wait})
+
     # -- webhook va dang nhap Zalo -----------------------------------------
     async def get_webhooks(self) -> dict:
         return await self._request("GET", "/api/webhooks")

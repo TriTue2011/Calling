@@ -213,6 +213,19 @@ async def async_register_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(str(err)) from err
         return {"result": res}
 
+    async def voice_to_text(call: ServiceCall) -> dict:
+        _, api = _api(hass, call)
+        try:
+            res = await api.voice_to_text(str(call.data["url"]),
+                                          float(call.data.get("wait", 25)))
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        if res.get("done") and res.get("error"):
+            raise HomeAssistantError("Zalo AI không chuyển được giọng nói (mã %s)"
+                                     % res["error"])
+        return {"req_id": res.get("req_id"), "done": bool(res.get("done")),
+                "text": res.get("text", "")}
+
     async def end_call(call: ServiceCall) -> dict:
         _, api = _api(hass, call)
         try:
@@ -246,6 +259,13 @@ async def async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema({vol.Optional("entry_id"): cv.string,
                            vol.Optional("call_id"): vol.Any(int, cv.string)}),
         supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "voice_to_text", voice_to_text,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string,
+                           vol.Required("url"): cv.string,
+                           vol.Optional("wait", default=25):
+                               vol.All(vol.Coerce(float), vol.Range(min=0, max=60))}),
+        supports_response=SupportsResponse.ONLY)
     hass.services.async_register(
         DOMAIN, "end_call", end_call,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string,

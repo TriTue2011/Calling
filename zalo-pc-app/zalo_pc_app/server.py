@@ -403,6 +403,8 @@ _CALL_SRTP = {}                  # call_id -> che do da dung cho cuoc goi di
 # cap phat 11300 khi su kien thieu cong); xin relay moi thi hai ben o hai relay
 # khac nhau va dien thoai khong gui goi nao ve (do 09/11: rtp_rx = 0).
 _INCOMING_RELAY = {}
+from . import voice2text as voice2text_mod  # noqa: E402
+V2T = voice2text_mod.V2TStore()
 _INCOMING_SRTP = {}              # call_id -> khoa SRTP ben goi (chi bo nho, khong API)
 
 
@@ -783,6 +785,20 @@ def _send_answerack_async(call_id, thread_id):
     except Exception as e:  # noqa: BLE001 - best-effort
         _log_call("answerack call_id=%s ok=False error=%s"
                   % (call_id, e))
+
+
+def _find_req_id(obj, depth=0):
+    """req_id trong phan hoi voiceToText (co the long trong data)."""
+    if depth > 4:
+        return ""
+    if isinstance(obj, dict):
+        if obj.get("req_id"):
+            return str(obj["req_id"])
+        for v in obj.values():
+            r = _find_req_id(v, depth + 1)
+            if r:
+                return r
+    return ""
 
 
 def _calls_snapshot_with_media():
@@ -1828,6 +1844,18 @@ class AppState:
         except Exception:
             pass
 
+    def _on_ctrl_voice2text(self, event):
+        """Ket qua Zalo AI chuyen giong noi: luu theo req_id + webhook. Chi log do dai."""
+        V2T.put(event["req_id"], event.get("text", ""), event.get("error"))
+        _log_call("voice2text req=%s chars=%d error=%s" % (
+            event["req_id"], len(event.get("text") or ""), event.get("error")))
+        try:
+            webhooks_mod.dispatch_voice2text(
+                self.webhook_dispatcher, event,
+                (STATE.session or {}).get("uid", ""))
+        except Exception:  # noqa: BLE001
+            pass
+
     def _on_ctrl_call_event(self, event):
         """Callback call_event tu CtrlPoller (99101): su kien goi
         thoai theo flow zca-js (ZaloRtcSession: call_event act
@@ -2175,6 +2203,7 @@ class AppState:
                 on_group_event=self._on_ctrl_group_event,
                 on_reaction=self._on_ctrl_reaction,
                 on_call_event=self._on_ctrl_call_event,
+                on_voice2text=self._on_ctrl_voice2text,
                 file_registry=self.file_async)
         except ValueError as e:
             print("[sync-poll] kenh ctrl khong mo duoc: %s"
@@ -2825,6 +2854,13 @@ class Handler(BaseHTTPRequestHandler):
             # tĩnh, không chứa dữ liệu tài khoản — nhưng vẫn nằm sau
             # cổng đăng nhập app như mọi /api/* khác (xem do_GET).
             return self._send_json(services_mod.catalog_public())
+        if path.startswith("/api/voice2text/"):
+            if self._require_login() is None:
+                return self._send_json({"error": "chua_dang_nhap"}, status=401)
+            got = V2T.get(path[len("/api/voice2text/"):])
+            if got is None:
+                return self._send_json({"ok": True, "done": False})
+            return self._send_json({"ok": True, "done": True, **got})
         if path == "/api/calls":
             sess = self._require_login()
             if sess is None:
@@ -4097,6 +4133,32 @@ class Handler(BaseHTTPRequestHandler):
                  "status": entry["status"],
                  "answered_at": entry.get("answered_at"),
                  "answer_source": entry.get("answer_source", "")})
+        if path == "/api/voice2text":
+            sess = self._require_login()
+            if sess is None:
+                return self._send_json({"error": "chua_dang_nhap"}, status=401)
+            url = str((body or {}).get("url") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                return self._send_json(
+                    {"ok": False, "error": "can url tep ghi am (http/https)"},
+                    status=400)
+            try:
+                wait = max(0.0, min(60.0, float((body or {}).get("wait") or 0)))
+            except (TypeError, ValueError):
+                wait = 0.0
+            code, res = services_mod.handle_svc(
+                STATE, "voice_to_text", {"voiceUrl": url})
+            if code != 200:
+                return self._send_json(res, status=code)
+            req_id = _find_req_id(res.get("data"))
+            if not req_id:
+                return self._send_json(
+                    {"ok": False, "error": "Zalo khong tra req_id"}, status=502)
+            got = V2T.wait(req_id, wait) if wait else V2T.get(req_id)
+            out = {"ok": True, "req_id": req_id, "done": got is not None}
+            if got is not None:
+                out.update(got)
+            return self._send_json(out)
         if path == "/api/call/answer":
             sess = self._require_login()
             if sess is None:
