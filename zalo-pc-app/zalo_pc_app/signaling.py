@@ -144,6 +144,11 @@ class Signaling:
         """Bao trang thai camera/mic cua ta (12006, /api/voicecall/conf)."""
         return self._call("conf", protocol.vc_conf(callee_id, call_id, cam, mic))
 
+    def audio_to_video(self, uid_to, call_id, status=1):
+        """Xin chuyen thoai -> video (status 1) hoac dong y (status 2); 12056."""
+        return self._call("requestaudio2video",
+                          protocol.vc_a2v(uid_to, call_id, status))
+
     def hold_request(self, to_id):
         return self._call("holdreq", protocol.vc_hold(to_id))
 

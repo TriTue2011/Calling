@@ -21,11 +21,7 @@
           "ha_url": "Địa chỉ HA mà app gọi được (webhook)",
           "ai_enabled": "AI tự trả lời tin nhắn 1-1",
           "ai_agent": "Trợ lý hội thoại cho AI",
-          "ai_threads": "Chỉ trả lời các threadId này (cách nhau dấu phẩy, bỏ trống = tất cả)",
-          "speaker": "Loa phát tiếng cuộc gọi",
-          "mic": "Mic từ camera",
-          "mic_url": "Mic từ URL bất kỳ (rtsp/http…, thắng ô camera)",
-          "camera": "Camera cho cuộc gọi video"
+          "ai_threads": "Chỉ trả lời các threadId này (cách nhau dấu phẩy, bỏ trống = tất cả)"
         }
       }
     }

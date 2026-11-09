@@ -115,7 +115,9 @@ def _zca_extras(core):
         name = re.sub(r"(?<!^)(?=[A-Z])", "_", a["name"]).lower()
         if a.get("covered_by") or name in have or name in S.OPS or name in (
                 "make_call", "answer_call", "reject_call", "end_call",
-                "voice_to_text"):
+                "voice_to_text", "upgrade_to_video", "start_call_video",
+                "stop_call_video", "start_call_mic", "stop_call_mic",
+                "set_default_devices"):
             continue
         fields = [{"key": f["name"], "label": f["name"], "required": bool(f["required"]),
                    "description": ((f.get("description") or f["name"]) + " (" + f["type"] + ")")[:200]}
@@ -250,44 +252,45 @@ EXTRA_YAML = '''make_call:
         text: null
     srtp:
       name: Chế độ mã hoá tiếng
-      description: auto = tự chọn theo kết quả thật (mặc định); off = RTP trần; key = khoá tự sinh (thử).
-      default: auto
+      description: sess = khoá lấy từ sessId của cuộc gọi (mặc định, đã chạy thật); off = RTP trần; key = khoá tự sinh (thử). Bỏ trống = app tự chọn theo kết quả thật.
       selector:
         select:
           options:
-          - auto
+          - sess
           - 'off'
           - key
     extend_profile:
       name: Hồ sơ tín hiệu cuộc gọi
-      description: pc = bộ giá trị cũ của app (mặc định); zca = bộ giá trị của zca-js (newZrtc=1, maxFT=120, platform=2, packetMode=1) — thử khi tiếng không thông.
-      default: pc
+      description: native = giống engine Zalo-Linux (mặc định, đã chạy thật với điện thoại); pc = bộ cũ của app (newZrtc=0); zca = bộ của zca-js.
+      default: native
       selector:
         select:
           options:
+          - native
           - pc
           - zca
     speaker:
       name: Loa (ghi đè mặc định)
-      description: media_player phát tiếng bên kia. Bỏ trống = dùng loa mặc định, nhập rỗng/không chọn
-        = không phát cho cuộc này.
+      description: media_player phát tiếng bên kia. Bỏ trống = loa mặc định (thực thể "Loa mặc định"); để rỗng = không phát loa cho cuộc này.
       selector:
         entity:
           domain: media_player
     mic:
-      name: Mic từ camera (ghi đè mặc định)
-      description: Camera có mic (lấy tiếng từ stream của nó).
+      name: Mic (ghi đè mặc định)
+      description: Camera (lấy tiếng từ stream của nó) hoặc vệ tinh Assist của camera Imou/Dahua hay loa R1. Bỏ trống = mic mặc định; để rỗng = không phát mic cho cuộc này.
       selector:
         entity:
-          domain: camera
+          domain:
+          - camera
+          - assist_satellite
     mic_url:
       name: Mic từ URL bất kỳ (ghi đè mặc định)
-      description: rtsp/rtsps/http/https/rtmp. Thắng ô "Mic từ camera".
+      description: rtsp/rtsps/http/https/rtmp, hoặc luồng PCM của loa R1. Thắng ô Mic.
       selector:
         text: null
     camera:
       name: Camera video (ghi đè mặc định)
-      description: Chỉ ghi nhận; app chưa truyền hình trong cuộc gọi.
+      description: Camera HA phát hình lên cuộc gọi video (hoặc khi chuyển thoại sang video). Bỏ trống = camera mặc định; để rỗng = không phát hình cho cuộc này.
       selector:
         entity:
           domain: camera
@@ -302,25 +305,26 @@ answer_call:
         text: null
     speaker:
       name: Loa (ghi đè mặc định)
-      description: media_player phát tiếng bên kia. Bỏ trống = dùng loa mặc định, nhập rỗng/không chọn
-        = không phát cho cuộc này.
+      description: media_player phát tiếng bên kia. Bỏ trống = loa mặc định (thực thể "Loa mặc định"); để rỗng = không phát loa cho cuộc này.
       selector:
         entity:
           domain: media_player
     mic:
-      name: Mic từ camera (ghi đè mặc định)
-      description: Camera có mic (lấy tiếng từ stream của nó).
+      name: Mic (ghi đè mặc định)
+      description: Camera (lấy tiếng từ stream của nó) hoặc vệ tinh Assist của camera Imou/Dahua hay loa R1. Bỏ trống = mic mặc định; để rỗng = không phát mic cho cuộc này.
       selector:
         entity:
-          domain: camera
+          domain:
+          - camera
+          - assist_satellite
     mic_url:
       name: Mic từ URL bất kỳ (ghi đè mặc định)
-      description: rtsp/rtsps/http/https/rtmp. Thắng ô "Mic từ camera".
+      description: rtsp/rtsps/http/https/rtmp, hoặc luồng PCM của loa R1. Thắng ô Mic.
       selector:
         text: null
     camera:
       name: Camera video (ghi đè mặc định)
-      description: Chỉ ghi nhận; app chưa truyền hình trong cuộc gọi.
+      description: Camera HA phát hình lên cuộc gọi video (hoặc khi chuyển thoại sang video). Bỏ trống = camera mặc định; để rỗng = không phát hình cho cuộc này.
       selector:
         entity:
           domain: camera
@@ -352,6 +356,125 @@ voice_to_text:
           min: 0
           max: 60
           mode: box
+upgrade_to_video:
+  name: Chuyển cuộc gọi thoại sang video
+  description: Khi đang gọi thoại, xin bên kia chuyển sang video rồi phát camera đã chọn (hoặc camera mặc định).
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống để dùng cuộc gọi đang diễn ra.
+      selector:
+        text: null
+    camera:
+      name: Camera
+      description: Camera HA phát hình. Bỏ trống = camera mặc định.
+      selector:
+        entity:
+          domain: camera
+    camera_url:
+      name: Camera từ URL
+      description: rtsp/rtsps/http/https/rtmp (thắng ô Camera).
+      selector:
+        text: null
+start_call_video:
+  name: Bật hình trong cuộc gọi
+  description: Phát hình camera lên cuộc gọi đang diễn ra (không xin chuyển loại cuộc gọi).
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống để dùng cuộc gọi đang diễn ra.
+      selector:
+        text: null
+    camera:
+      name: Camera
+      description: Camera HA phát hình. Bỏ trống = camera mặc định.
+      selector:
+        entity:
+          domain: camera
+    camera_url:
+      name: Camera từ URL
+      description: rtsp/rtsps/http/https/rtmp (thắng ô Camera).
+      selector:
+        text: null
+stop_call_video:
+  name: Tắt hình trong cuộc gọi
+  description: Dừng phát hình camera lên cuộc gọi đang diễn ra.
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống để dùng cuộc gọi đang diễn ra.
+      selector:
+        text: null
+start_call_mic:
+  name: Bật mic trong cuộc gọi
+  description: Phát tiếng từ camera, vệ tinh Assist (camera Imou/Dahua, loa R1) hoặc URL lên cuộc gọi đang diễn ra.
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống để dùng cuộc gọi đang diễn ra.
+      selector:
+        text: null
+    mic:
+      name: Mic
+      description: Camera hoặc vệ tinh Assist. Bỏ trống = mic mặc định.
+      selector:
+        entity:
+          domain:
+          - camera
+          - assist_satellite
+    mic_url:
+      name: Mic từ URL
+      description: rtsp/rtsps/http/https/rtmp, hoặc luồng PCM của loa R1 (thắng ô Mic).
+      selector:
+        text: null
+stop_call_mic:
+  name: Tắt mic trong cuộc gọi
+  description: Dừng phát tiếng lên cuộc gọi đang diễn ra.
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống để dùng cuộc gọi đang diễn ra.
+      selector:
+        text: null
+set_default_devices:
+  name: Đặt thiết bị mặc định
+  description: Đặt loa, mic, camera và chế độ tự động mặc định (giống các thực thể trên thiết bị Zalo Call). Trường nào bỏ trống thì giữ nguyên; để rỗng thì bỏ thiết bị đó.
+  fields:
+    speaker:
+      name: Loa mặc định
+      description: Loa (media_player) phát tiếng bên kia.
+      selector:
+        entity:
+          domain: media_player
+    mic:
+      name: Mic mặc định
+      description: Camera hoặc vệ tinh Assist (camera Imou/Dahua, loa R1) lấy tiếng.
+      selector:
+        entity:
+          domain:
+          - camera
+          - assist_satellite
+    mic_url:
+      name: Mic mặc định từ URL
+      description: rtsp/rtsps/http/https/rtmp, hoặc luồng PCM của loa R1 (thắng ô Mic).
+      selector:
+        text: null
+    camera:
+      name: Camera mặc định
+      description: Camera HA phát hình lên cuộc gọi video.
+      selector:
+        entity:
+          domain: camera
+    auto_mic:
+      name: Tự phát mic khi nghe máy
+      description: Bật thì tự phát mic mặc định ngay khi cuộc gọi được nghe máy.
+      selector:
+        boolean: null
+    auto_video:
+      name: Tự đồng ý khi bên kia xin gọi video
+      description: Bật thì khi bên kia xin chuyển sang video sẽ tự đồng ý và phát camera mặc định.
+      selector:
+        boolean: null
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.

@@ -271,6 +271,12 @@ def test_ring_timeout_cancels_call():
                     break
                 time.sleep(0.25)
             assert steps == ["requestcall", "request", "cancel"], steps
+            # Cuoc goi duoc danh dau ket thuc TRUOC khi transport dung xong (dong
+            # luong + giai phong socket): cho toi 3 s cho tinh nhat quan cuoi cung.
+            for _ in range(30):
+                if endpoints.active_record(eff_id) is None:
+                    break
+                time.sleep(0.1)
             assert endpoints.active_record(eff_id) is None, \
                 "transport still running after ring timeout"
         _run(MockZalo().start(), check)

@@ -1,16 +1,14 @@
-"""Cau noi am thanh cua custom zalo_call — chay NGOAI Home Assistant.
+"""Cau noi thiet bi cua custom zalo_call — chay NGOAI Home Assistant.
 
-HA khong co san o moi truong test nen cac module `homeassistant.*` duoc thay
-bang ban gia toi thieu; test chay THAT bridge_core.py va bridge.py (loa,
-mic qua tien trinh ffmpeg gia, dung cuoc goi). Khong chung minh chay duoc
+HA khong co san o moi truong test nen cac module `homeassistant.*` duoc thay bang
+ban gia toi thieu; test chay THAT bridge_core.py, devices.py va bridge.py (phan giai
+nguon mic/camera, mac dinh, ghi de moi cuoc goi, loa). Khong chung minh chay duoc
 trong HA that — chi chung minh logic dieu phoi dung.
 """
 import asyncio
 import importlib.util
 import os
-import stat
 import sys
-import tempfile
 import types
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "custom_components",
@@ -27,39 +25,62 @@ def _load():
     class HomeAssistantError(Exception):
         pass
 
-    holder = {"binary": None}
+    class NoURLAvailableError(Exception):
+        pass
+
+    holder = {"urls": {}, "saved": {}, "registry": {}, "entries": {}, "base": "http://ha:8123"}
+
+    class Store:
+        def __init__(self, hass, version, key):
+            self.key = key
+
+        async def async_load(self):
+            return holder["saved"].get(self.key)
+
+        async def async_save(self, data):
+            holder["saved"][self.key] = dict(data)
+
     mod("homeassistant")
     mod("homeassistant.components")
     cam = mod("homeassistant.components.camera")
-    # bridge.py gan ten ham luc import, nen ban gia phai co san va tra ve gia
-    # tri doi duoc qua holder["binary"].
-    ff = mod("homeassistant.components.ffmpeg",
-             get_ffmpeg_manager=lambda hass: types.SimpleNamespace(
-                 binary=holder["binary"]))
     mod("homeassistant.config_entries", ConfigEntry=object)
     mod("homeassistant.core", HomeAssistant=object)
     mod("homeassistant.exceptions", HomeAssistantError=HomeAssistantError)
+    helpers = mod("homeassistant.helpers")
+    reg_mod = mod("homeassistant.helpers.entity_registry")
+    mod("homeassistant.helpers.storage", Store=Store)
+
+    def get_url(hass, **kw):
+        if not holder["base"]:
+            raise NoURLAvailableError()
+        return holder["base"]
+    mod("homeassistant.helpers.network", NoURLAvailableError=NoURLAvailableError,
+        get_url=get_url)
     sys.modules["homeassistant.components"].camera = cam
-    holder["cam"], holder["ff"] = cam, ff
+    helpers.entity_registry = reg_mod
+    reg_mod.async_get = lambda hass: types.SimpleNamespace(
+        async_get=lambda eid: holder["registry"].get(eid))
+
+    async def stream_source(hass, entity_id):
+        return holder["urls"].get(entity_id)
+    cam.async_get_stream_source = stream_source
 
     pkg = types.ModuleType("zalo_call")
     pkg.__path__ = [ROOT]
     sys.modules["zalo_call"] = pkg
-    for name in ("const", "api", "bridge_core", "bridge"):
+    for name in ("const", "api", "bridge_core", "devices", "bridge"):
         spec = importlib.util.spec_from_file_location(
             "zalo_call." + name, os.path.join(ROOT, name + ".py"))
         m = importlib.util.module_from_spec(spec)
         sys.modules["zalo_call." + name] = m
         spec.loader.exec_module(m)
-    holder["bridge"] = sys.modules["zalo_call.bridge"]
-    holder["core"] = sys.modules["zalo_call.bridge_core"]
-    holder["const"] = sys.modules["zalo_call.const"]
-    holder["api"] = sys.modules["zalo_call.api"]
+    for n in ("bridge", "bridge_core", "const", "api", "devices"):
+        holder[n] = sys.modules["zalo_call." + n]
     return holder
 
 
 H = _load()
-core, bridge_mod = H["core"], H["bridge"]
+core, bridge_mod, devices_mod = H["bridge_core"], H["bridge"], H["devices"]
 
 
 def test_derive_state_distinguishes_decline_no_answer_and_missed():
@@ -78,51 +99,50 @@ def test_derive_state_distinguishes_decline_no_answer_and_missed():
 
 
 def test_pick_devices_default_override_and_explicit_off():
-    defaults = {"speaker": "media_player.loa_phong_khach", "mic": "camera.cam1",
+    defaults = {"speaker": "media_player.loa", "mic": "camera.cam1",
                 "mic_url": "", "camera": "camera.cam1"}
-    assert core.pick_devices(defaults) == {
-        "speaker": "media_player.loa_phong_khach", "mic": "camera.cam1",
-        "mic_url": "", "camera": "camera.cam1"}
     got = core.pick_devices(defaults, {"speaker": "media_player.bat_ky",
                                        "mic": "", "mic_url": "rtsp://h/s"})
-    assert got["speaker"] == "media_player.bat_ky"      # ghi de
-    assert got["mic"] == "" and got["mic_url"] == "rtsp://h/s"   # "" = tat
-    assert got["camera"] == "camera.cam1"                # khong nhac -> mac dinh
-    assert core.mic_source_kind(got) == ("url", "rtsp://h/s")
-    assert core.mic_source_kind({"mic": "camera.c", "mic_url": ""}) == \
-        ("camera", "camera.c")
-    assert core.mic_source_kind({"mic": "", "mic_url": ""}) is None
+    assert got["speaker"] == "media_player.bat_ky"
+    assert got["mic"] == "" and got["mic_url"] == "rtsp://h/s"
+    assert got["camera"] == "camera.cam1"
+    # explicit_off: ghi de rong cho CA nhom va khong con nguon -> tat cho cuoc nay.
+    off = core.pick_devices(defaults, {"mic": "", "mic_url": ""})
+    assert core.explicit_off({"mic": "", "mic_url": ""}, ("mic", "mic_url"), off) is True
+    assert core.explicit_off({"speaker": "x"}, ("mic", "mic_url"), off) is False   # khong nhac toi
+    assert core.explicit_off(None, ("mic", "mic_url"), off) is False
+    assert core.explicit_off({"mic": ""}, ("mic", "mic_url"), core.pick_devices(
+        defaults, {"mic": "", "mic_url": "rtsp://x/y"})) is False       # con mic_url
 
 
-def test_ffmpeg_args_only_network_sources():
-    a = core.ffmpeg_args("rtsp://u:p@10.0.0.5:554/s")
-    assert a[a.index("-i") + 1] == "rtsp://u:p@10.0.0.5:554/s"
-    assert "-rtsp_transport" in a and a[-1] == "pipe:1"
-    assert "-ar" in a and a[a.index("-ar") + 1] == "16000"
-    assert "-rtsp_transport" not in core.ffmpeg_args("http://h/a.mp3")
-    for bad in ("/etc/passwd", "file:///etc/passwd", "concat:a|b", "",
-                "rtsp://", "-i x", "udp://1.2.3.4:5"):
-        try:
-            core.ffmpeg_args(bad)
-        except ValueError:
-            continue
-        raise AssertionError("phai tu choi nguon: %r" % bad)
-    assert core.audio_out_url("http://h:8080/", "tok") == \
-        "http://h:8080/api/call/audio/out/tok"
+def test_labels_urls_and_formats():
+    assert core.label("camera.a", "Camera phòng khách") == "Camera phòng khách · camera.a"
+    assert core.label("camera.a", None) == "camera.a" == core.label("camera.a", "camera.a")
+    assert core.entity_of_label("Camera phòng khách · camera.a") == "camera.a"
+    assert core.entity_of_label("camera.a") == "camera.a" and core.entity_of_label("") == ""
+    assert core.valid_url("rtsp://u:p@10.0.0.5:8554/x") and core.valid_url("http://h/a")
+    for bad in ("", "/etc/passwd", "file:///x", "ftp://h/x", "rtsp://", "http://h/a b"):
+        assert not core.valid_url(bad), bad
+    assert core.r1_mic_url("http://ha:8123/", "abc", "k e/y") == \
+        "http://ha:8123/api/r1_speaker/mic/abc?k=k%20e%2Fy"
+    assert core.mic_format_for_url("http://ha/api/r1_speaker/mic/x?k=1") == "s16le16k"
+    assert core.mic_format_for_url("rtsp://h/x") == "auto"
+    assert core.dahua_mic_url({"mic_url": "rtsp://o"}, {"mic_url": "rtsp://d"}) == "rtsp://o"
+    assert core.dahua_mic_url({}, {"mic_url": " rtsp://d "}) == "rtsp://d"
+    assert core.audio_out_url("http://h:8080/", "tok") == "http://h:8080/api/call/audio/out/tok"
 
 
 class FakeApi:
     url = "http://app:8080"
 
     def __init__(self, token="TOKEN"):
-        self.token = token
-        self.audio = []
+        self.token, self.pushed = token, []
 
-    async def call_media(self, call_id):
+    async def call_media_status(self, call_id):
         return {"audio_token": self.token} if self.token else {}
 
-    async def audio_in(self, call_id, chunk):
-        self.audio.append((str(call_id), len(chunk)))
+    async def devices_set(self, patch):
+        self.pushed.append(patch)
         return {"ok": True}
 
 
@@ -134,93 +154,156 @@ class FakeServices:
         self.calls.append((domain, service, data))
 
 
+class FakeConfigEntries:
+    def async_get_entry(self, entry_id):
+        return H["entries"].get(entry_id)
+
+
 class FakeHass:
     def __init__(self):
         self.services = FakeServices()
-
-    def async_create_background_task(self, coro, name):
-        return asyncio.ensure_future(coro)
+        self.config_entries = FakeConfigEntries()
 
 
 class FakeEntry:
-    def __init__(self, options):
-        self.options = options
+    entry_id = "e1"
+
+    def __init__(self, options=None):
+        self.options = options or {}
 
 
-def _fake_ffmpeg(chunks):
-    """Tien trinh ffmpeg gia: in `chunks` goi 3200 byte roi thoat."""
-    path = os.path.join(tempfile.mkdtemp(), "ffmpeg")
-    with open(path, "w") as fh:
-        fh.write("#!%s\nimport sys\nsys.stdout.buffer.write(bytes(3200 * %d))\n"
-                 % (sys.executable, chunks))
-    os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
-    return path
-
-
-def _make(options, token="TOKEN", chunks=3):
-    H["binary"] = _fake_ffmpeg(chunks)
-
-    async def stream_source(hass, entity_id):
-        return "rtsp://cam.local/stream" if entity_id == "camera.cam1" else None
-
-    H["cam"].async_get_stream_source = stream_source
+def _make(defaults, token="TOKEN", options=None):
+    H["urls"] = {"camera.cam1": "rtsp://u:p@cam.local/stream",
+                 "camera.cam2": "rtsp://cam2.local/s"}
+    H["registry"], H["entries"], H["saved"] = {}, {}, {}
     hass, api = FakeHass(), FakeApi(token)
-    return hass, api, bridge_mod.CallAudioBridge(hass, FakeEntry(options), api)
+    dd = devices_mod.DeviceDefaults(hass, "e1")
+    dd._merge(defaults)
+    return hass, api, dd, bridge_mod.CallAudioBridge(hass, FakeEntry(options), api, dd)
 
 
-def test_bridge_uses_default_devices_then_stops_them():
+def _ent(domain, entry_id, config_entry_id):
+    H["registry"][entry_id] = types.SimpleNamespace(config_entry_id=config_entry_id)
+    H["entries"][config_entry_id] = types.SimpleNamespace(
+        domain=domain, entry_id=config_entry_id, options={}, data={})
+    return H["entries"][config_entry_id]
+
+
+def test_defaults_store_roundtrip_legacy_import_and_listeners():
     async def run():
-        hass, api, br = _make({"speaker": "media_player.loa1",
-                               "mic": "camera.cam1"})
+        hass = FakeHass()
+        H["saved"] = {}
+        dd = devices_mod.DeviceDefaults(hass, "e1")
+        seen = []
+        dd.add_listener(lambda: seen.append(1))
+        await dd.async_load({"speaker": "media_player.cu", "mic": "camera.cu",
+                             "mic_url": "", "camera": "camera.cu"})   # tuy chon cu (banh rang)
+        assert dd.get("speaker") == "media_player.cu" and dd.get("auto_mic") is True
+        assert H["saved"]["zalo_call.devices.e1"]["camera"] == "camera.cu"   # da nhap + luu
+        await dd.async_set(speaker="media_player.moi", auto_video=False, mic_url=" rtsp://x/y ")
+        assert dd.get("speaker") == "media_player.moi" and dd.get("auto_video") is False
+        assert dd.get("mic_url") == "rtsp://x/y" and seen == [1]
+        dd2 = devices_mod.DeviceDefaults(hass, "e1")                   # nap lai tu Store
+        await dd2.async_load({"speaker": "media_player.cu"})           # Store thang tuy chon cu
+        assert dd2.get("speaker") == "media_player.moi" and dd2.get("auto_video") is False
+        await dd2.async_set(bogus="x")                                  # khoa la bi bo qua
+        assert "bogus" not in dd2.data
+    asyncio.run(run())
+
+
+def test_resolve_mic_from_camera_url_r1_and_dahua():
+    async def run():
+        hass, api, dd, br = _make({}, options={"ha_url": "http://ha.lan:8123"})
+        # camera.* -> stream cua camera
+        d = br.devices_for({"mic": "Cam · camera.cam1"})
+        assert await br.async_mic_source(d) == ("rtsp://u:p@cam.local/stream", "auto")
+        # mic_url thang mic; luong R1 -> PCM tho
+        d = br.devices_for({"mic": "camera.cam1", "mic_url": "http://ha/api/r1_speaker/mic/x?k=1"})
+        assert await br.async_mic_source(d) == ("http://ha/api/r1_speaker/mic/x?k=1", "s16le16k")
+        # URL xau bi tu choi
+        assert await br.async_mic_source(br.devices_for({"mic_url": "ftp://x"})) == ("", "auto")
+        # assist_satellite cua r1_speaker -> luong mic tu khoa intercom
+        r1 = _ent("r1_speaker", "assist_satellite.r1", "r1entry")
+        r1.data = {"intercom_key": "KHOA"}
+        url, fmt = await br.async_mic_source(br.devices_for({"mic": "assist_satellite.r1"}))
+        assert (url, fmt) == ("http://ha.lan:8123/api/r1_speaker/mic/r1entry?k=KHOA", "s16le16k")
+        r1.data = {}                                                   # chua co khoa -> khong doan
+        assert await br.async_mic_source(br.devices_for({"mic": "assist_satellite.r1"})) == ("", "auto")
+        # assist_satellite cua camera Imou/Dahua -> mic_url cua dahua_talk
+        dh = _ent("dahua_talk", "assist_satellite.cam_bep", "dhentry")
+        dh.options = {"mic_url": "rtsp://bep.lan/mic"}
+        assert await br.async_mic_source(br.devices_for({"mic": "assist_satellite.cam_bep"})) == (
+            "rtsp://bep.lan/mic", "auto")
+        # thuc the la / khong ho tro
+        assert await br.async_mic_source(br.devices_for({"mic": "media_player.x"})) == ("", "auto")
+        assert await br.async_mic_source(br.devices_for({"mic": "assist_satellite.khong_co"})) == ("", "auto")
+        assert await br.async_mic_source(br.devices_for({})) == ("", "auto")
+    asyncio.run(run())
+
+
+def test_call_fields_default_override_and_off():
+    async def run():
+        hass, api, dd, br = _make({"mic": "camera.cam1", "camera": "camera.cam2"})
+        f = await br.async_call_fields(None)
+        assert f == {"mic_url": "rtsp://u:p@cam.local/stream", "mic_format": "auto",
+                     "camera_url": "rtsp://cam2.local/s"}
+        # ghi de: camera khac, mic URL
+        f = await br.async_call_fields({"camera": "camera.cam1", "mic_url": "rtsp://z/z"})
+        assert f["camera_url"] == "rtsp://u:p@cam.local/stream" and f["mic_url"] == "rtsp://z/z"
+        # ghi de rong -> "off" cho rieng cuoc nay (app tat thiet bi)
+        f = await br.async_call_fields({"mic": "", "camera": ""})
+        assert f == {"mic_url": "off", "camera_url": "off"}
+        # khong co mac dinh nao thi khong gui gi
+        hass, api, dd, br = _make({})
+        assert await br.async_call_fields(None) == {}
+        assert await br.async_call_fields({"speaker": "media_player.x"}) == {}
+    asyncio.run(run())
+
+
+def test_push_defaults_to_app_with_resolved_urls():
+    async def run():
+        hass, api, dd, br = _make({"mic": "camera.cam1", "camera": "camera.cam2",
+                                   "auto_mic": False, "auto_video": True})
+        await br.async_push_defaults()
+        assert api.pushed == [{"mic_url": "rtsp://u:p@cam.local/stream", "mic_format": "auto",
+                               "camera_url": "rtsp://cam2.local/s", "auto_mic": False,
+                               "auto_video_on_request": True}]
+        # camera khong co stream -> day rong (app khong tu phat hinh)
+        H["urls"].pop("camera.cam2")
+        api.pushed.clear()
+        await br.async_push_defaults()
+        assert api.pushed[0]["camera_url"] == ""
+    asyncio.run(run())
+
+
+def test_speaker_start_stop_and_harmless_cases():
+    async def run():
+        hass, api, dd, br = _make({"speaker": "Loa phòng · media_player.loa1"})
+        br.remember(None, {})
         devices = await br.start(7)
-        assert devices["speaker"] == "media_player.loa1"
+        assert devices["speaker"].endswith("media_player.loa1")
         dom, svc, data = hass.services.calls[0]
         assert (dom, svc) == ("media_player", "play_media")
-        assert data["entity_id"] == "media_player.loa1"
-        assert data["media_content_id"] == \
-            "http://app:8080/api/call/audio/out/TOKEN"
+        assert data["entity_id"] == "media_player.loa1"                 # tach tu nhan
+        assert data["media_content_id"] == "http://app:8080/api/call/audio/out/TOKEN"
         assert data["media_content_type"] == "audio/wav"
-        await asyncio.sleep(1.0)                 # ffmpeg gia ra 3 goi roi thoat
-        assert api.audio == [("7", 3200)] * 3, api.audio
-        await br.start(7)                         # khong chay hai lan
+        await br.start(7)                                               # khong chay hai lan
         assert len(hass.services.calls) == 1
         await br.stop(7)
         assert hass.services.calls[-1][:2] == ("media_player", "media_stop")
-        await br.stop(7)                          # stop lap lai vo hai
-    asyncio.run(run())
-
-
-def test_bridge_any_device_override_per_call_and_mic_url():
-    async def run():
-        hass, api, br = _make({"speaker": "media_player.loa1",
-                               "mic": "camera.cam1"})
-        br.remember(None, {"speaker": "media_player.may_khac",
-                           "mic": "", "mic_url": "rtsp://x/y"})
-        d = await br.start(8)
-        assert d["speaker"] == "media_player.may_khac"
-        assert hass.services.calls[0][2]["entity_id"] == "media_player.may_khac"
-        await asyncio.sleep(1.0)
-        assert len(api.audio) == 3
-        await br.stop(8)
-        # Cuoc goi ke tiep quay lai mac dinh (ghi de chi dung mot lan).
-        assert br.devices_for(9)["speaker"] == "media_player.loa1"
-    asyncio.run(run())
-
-
-def test_bridge_no_devices_or_no_token_is_harmless():
-    async def run():
-        hass, api, br = _make({})                 # khong thiet bi nao
+        await br.stop(7)                                                # stop lap lai vo hai
+        # Ghi de moi cuoc goi chi dung mot lan.
+        br.remember(None, {"speaker": "media_player.may_khac"})
+        await br.start(8)
+        assert hass.services.calls[-1][2]["entity_id"] == "media_player.may_khac"
+        assert br.devices_for(None)["speaker"].endswith("media_player.loa1")
+        # Khong co loa / chua co media -> khong lam gi.
+        hass, api, dd, br = _make({})
         await br.start(1)
-        assert hass.services.calls == [] and api.audio == []
-        await br.stop(1)
-        hass, api, br = _make({"speaker": "media_player.a"}, token=None)
-        await br.start(2)                         # chua co media -> khong phat
         assert hass.services.calls == []
-        # Camera khong co stream -> khong sap.
-        hass, api, br = _make({"mic": "camera.khong_co"})
-        await br.start(3)
-        await asyncio.sleep(0.2)
-        assert api.audio == []
+        hass, api, dd, br = _make({"speaker": "media_player.a"}, token=None)
+        await br.start(2)
+        assert hass.services.calls == []
         await br.async_shutdown()
     asyncio.run(run())
 

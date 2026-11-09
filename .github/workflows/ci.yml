@@ -1,0 +1,57 @@
+# Kiểm thử tự động: app Zalo PC (Python + giao diện), tích hợp HA và services.yaml.
+# Chạy mỗi lần push / pull request. Ảnh Docker phát hành ở release.yml.
+name: CI
+
+on:
+  push:
+    branches: [main, 'muse/*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Cài ffmpeg, libopus (giống image Docker)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg libopus0
+      - name: Kiểm tra thư viện hệ thống
+        working-directory: zalo-pc-app
+        run: python3 -m zalo_pc_app.deps
+      - name: Test Python của app
+        working-directory: zalo-pc-app
+        run: python3 tests/ci_runner.py
+      - name: Test giao diện (Node)
+        working-directory: zalo-pc-app
+        run: |
+          node --check zalo_pc_app/static/app.js
+          for f in tests/test_app_js_*.js; do node "$f"; done
+
+  custom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pyyaml
+      - name: Test tích hợp Home Assistant (cầu nối thiết bị, services.yaml)
+        run: |
+          python3 tests/test_zalo_call_bridge.py
+          python3 tests/test_zalo_call_services_yaml.py
+      - name: services.yaml/catalog.json khớp bộ sinh
+        working-directory: zalo-pc-app
+        run: |
+          python3 tools/gen_ha_catalog.py
+          git diff --exit-code -- ../custom_components/zalo_call/services.yaml ../custom_components/zalo_call/catalog.json

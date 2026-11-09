@@ -2130,8 +2130,11 @@ class Udp4200Transport:
 
     def _recv_loop(self):
         while not self._stop.is_set():
+            sock = self._sock
+            if sock is None:                    # stop() vua dong socket
+                break
             try:
-                data, addr = self._sock.recvfrom(65535)
+                data, addr = sock.recvfrom(65535)
             except socket.timeout:
                 continue
             except OSError as exc:

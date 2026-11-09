@@ -1,20 +1,22 @@
 """Phan thuan cua cau noi am thanh cuoc goi — KHONG import Home Assistant,
-nen test duoc ngoai HA (tests/test_custom_bridge_core.py).
+nen test duoc ngoai HA (tests/test_zalo_call_bridge.py).
 
 - derive_state: trang thai cuoc goi cho automation (ringing / answered /
   declined / no_answer / missed / ended / incoming / error) tu su kien app.
-- pick_devices: thiet bi mac dinh (tuy chon tich hop) + ghi de theo tung
-  cuoc goi ("bat ky thiet bi nao").
-- ffmpeg_args: doc mic tu nguon bat ky (stream camera, URL) -> PCM16 16 kHz.
+- pick_devices: thiet bi mac dinh + ghi de theo tung cuoc goi.
+- label / entity_of_label: nhan tuy chon cua cac o chon thiet bi.
+- r1_mic_url / dahua_mic_url / mic_format_for_url: nguon mic tu loa R1, camera
+  Imou/Dahua, URL bat ky (app tu ffmpeg doc, HA khong con bom tieng).
 """
 from __future__ import annotations
 
 from typing import Any, Mapping
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
-CHUNK_BYTES = 3200                 # 100 ms PCM16 mono @ 16 kHz (5 khung 20 ms)
-ALLOWED_SCHEMES = ("rtsp", "rtsps", "http", "https", "rtmp")
+ALLOWED_SCHEMES = ("rtsp", "rtsps", "http", "https", "rtmp", "rtmps")
 DEVICE_KEYS = ("speaker", "mic", "mic_url", "camera")
+LABEL_SEP = " · "
+R1_MIC_PATH = "/api/r1_speaker/mic/"
 
 # Ly do ket thuc (app: webhooks.build_call_event "end_reason") -> trang thai.
 END_REASON_STATE = {
@@ -56,31 +58,46 @@ def pick_devices(defaults: Mapping[str, Any],
     return out
 
 
-def mic_source_kind(devices: Mapping[str, str]) -> tuple[str, str] | None:
-    """("url", url) neu co mic_url, ("camera", entity_id) neu co mic, else None.
-    mic_url thang mic (mic_url la cach 'bat ky thiet bi' qua URL)."""
-    if devices.get("mic_url"):
-        return "url", devices["mic_url"]
-    if devices.get("mic"):
-        return "camera", devices["mic"]
-    return None
+def explicit_off(override: Mapping[str, Any] | None, keys: tuple[str, ...],
+                 devices: Mapping[str, str]) -> bool:
+    """Cuoc goi nay chu dong tat nhom thiet bi `keys`: co ghi de cho nhom do
+    nhung khong con thiet bi nao (ghi de rong)."""
+    return bool(override) and any(k in override for k in keys) \
+        and not any(devices.get(k) for k in keys)
 
 
-def ffmpeg_args(source: str) -> list[str]:
-    """Lenh ffmpeg doc am thanh tu `source` -> PCM16 mono 16 kHz tren stdout.
+def label(entity_id: str, friendly: str | None) -> str:
+    """Nhan hien tren o chon: "Ten · entity_id" (hoac entity_id neu khong co ten)."""
+    name = (friendly or "").strip()
+    return "%s%s%s" % (name, LABEL_SEP, entity_id) if name and name != entity_id \
+        else entity_id
 
-    Chi nhan URL mang (rtsp/rtsps/http/https/rtmp): khong cho duong dan tep
-    hay giao thuc cuc bo, de dich vu khong bi dung doc tep tuy y."""
-    parts = urlsplit(source or "")
-    if parts.scheme.lower() not in ALLOWED_SCHEMES or not parts.netloc:
-        raise ValueError("nguon mic phai la URL %s, nhan: %r"
-                         % ("/".join(ALLOWED_SCHEMES), parts.scheme))
-    args = ["-nostdin", "-loglevel", "error"]
-    if parts.scheme.lower() in ("rtsp", "rtsps"):
-        args += ["-rtsp_transport", "tcp"]
-    args += ["-i", source, "-vn", "-ac", "1", "-ar", "16000",
-             "-f", "s16le", "pipe:1"]
-    return args
+
+def entity_of_label(text: str) -> str:
+    """entity_id tu nhan (phan sau dau ' · ' cuoi cung)."""
+    return (text or "").rsplit(LABEL_SEP, 1)[-1].strip()
+
+
+def valid_url(url: str) -> bool:
+    parts = urlsplit(url or "")
+    return parts.scheme.lower() in ALLOWED_SCHEMES and bool(parts.netloc) \
+        and " " not in url and "\n" not in url
+
+
+def mic_format_for_url(url: str) -> str:
+    """s16le16k cho luong PCM tho (mic loa R1), con lai auto."""
+    return "s16le16k" if R1_MIC_PATH in (url or "") else "auto"
+
+
+def r1_mic_url(base: str, entry_id: str, key: str) -> str:
+    """Luong mic loa R1 (PCM16 mono 16 kHz tho) cua tich hop r1_speaker."""
+    return "%s%s%s?k=%s" % (base.rstrip("/"), R1_MIC_PATH,
+                            quote(entry_id, safe=""), quote(key, safe=""))
+
+
+def dahua_mic_url(options: Mapping[str, Any], data: Mapping[str, Any]) -> str:
+    """mic_url cua mot entry dahua_talk (options thang data)."""
+    return str(options.get("mic_url") or data.get("mic_url") or "").strip()
 
 
 def audio_out_url(base: str, token: str) -> str:

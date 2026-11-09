@@ -27,11 +27,7 @@
           "ha_url": "HA address reachable by the app (webhook)",
           "ai_enabled": "AI auto-reply to 1-1 messages",
           "ai_agent": "Conversation agent for AI",
-          "ai_threads": "Only reply to these threadIds (comma separated, empty = all)",
-          "speaker": "Call speaker",
-          "mic": "Mic from camera",
-          "mic_url": "Mic from any URL (rtsp/http…, wins over camera)",
-          "camera": "Camera for video calls"
+          "ai_threads": "Only reply to these threadIds (comma separated, empty = all)"
         }
       }
     }

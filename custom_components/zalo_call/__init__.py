@@ -30,6 +30,7 @@ from .ai import async_ai_reply
 from .api import ZaloCallApi, ZaloCallAuthError, ZaloCallError
 from .bridge import CallAudioBridge
 from .bridge_core import derive_state
+from .devices import DeviceDefaults
 from .const import (
     CONF_HA_URL,
     CONF_PASSWORD,
@@ -44,7 +45,7 @@ from .const import (
 from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor", "binary_sensor"]
+PLATFORMS = ["sensor", "binary_sensor", "select", "text", "switch", "button"]
 WEBHOOK_KINDS = ("message", "group_event", "reaction", "call")
 # Trang thai ket thuc: dung cau noi am thanh (loa/mic) cua cuoc goi do.
 TERMINAL_STATES = ("ended", "no_answer", "declined", "missed", "rejected",
@@ -56,6 +57,7 @@ class ZaloCallData:
     api: ZaloCallApi
     coordinator: "ZaloCallCoordinator"
     bridge: CallAudioBridge
+    defaults: DeviceDefaults
 
 
 class ZaloCallCoordinator(DataUpdateCoordinator[dict]):
@@ -96,8 +98,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = ZaloCallCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
-    bridge = CallAudioBridge(hass, entry, api)
-    hass.data[DOMAIN][entry.entry_id] = ZaloCallData(api, coordinator, bridge)
+    defaults = DeviceDefaults(hass, entry.entry_id)
+    await defaults.async_load(entry.options)
+    bridge = CallAudioBridge(hass, entry, api, defaults)
+    hass.data[DOMAIN][entry.entry_id] = ZaloCallData(api, coordinator, bridge,
+                                                     defaults)
 
     webhook_id = entry.data[CONF_WEBHOOK_ID]
 
@@ -129,6 +134,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
+    # Dua thiet bi mac dinh (da phan giai ra URL luong) cho app: WebUI hien thong nhat
+    # va cuoc goi nghe may ngoai HA / ben kia xin len video cung dung dung nguon.
+    hass.async_create_task(bridge.async_push_defaults())
     return True
 
 

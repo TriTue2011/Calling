@@ -623,3 +623,18 @@ button { font-family: var(--font); }
   .login-wrap { margin: 24px auto; }
   .thread-list li { min-height: 56px; }
 }
+
+
+/* Thiết bị + khung tiếng/hình trong cuộc gọi */
+.media-panel { margin: 16px 0; padding: 12px 14px; border: 1px solid var(--line, #d9dde3); border-radius: 10px; }
+.media-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.media-label { min-width: 120px; font-weight: 600; }
+.media-row audio { max-width: 260px; height: 34px; }
+.devices-form fieldset { border: 1px solid var(--line, #d9dde3); border-radius: 10px; margin: 0 0 16px; padding: 12px 14px; }
+.devices-form legend { font-weight: 600; padding: 0 6px; }
+.devices-form label { display: block; margin: 8px 0 4px; }
+.devices-form input[type=text], .devices-form select { width: 100%; max-width: 720px; box-sizing: border-box; }
+.devices-form .check { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.dev-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.dev-grid label { display: flex; gap: 6px; align-items: center; margin: 0; }
+.dev-grid input { width: 90px; }

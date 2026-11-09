@@ -105,6 +105,9 @@ from . import session as session_mod
 from . import signaling as signaling_mod
 from . import srtp_mode as srtp_mode_mod
 from . import video_tx as video_tx_mod
+from . import audio_tx as audio_tx_mod
+from . import deps as deps_mod
+from . import devices as devices_mod
 from . import sync_poll as sync_poll_mod
 from . import voice_transcode as voice_mod
 from . import webhooks as webhooks_mod
@@ -883,6 +886,10 @@ def _calls_snapshot_with_media():
             # nhap app (route nay yeu cau cookie), het han khi goi ket thuc.
             media["audio_token"] = STATE.audio_tokens.token_for(
                 entry["call_id"])
+            _v = VIDEO_SENDERS.get(str(entry["call_id"]))
+            _m = AUDIO_SENDERS.get(str(entry["call_id"]))
+            media["video"] = _v.status() if _v else None
+            media["mic"] = _m.status() if _m else None
             entry["media"] = media
     return snap
 
@@ -897,6 +904,9 @@ def _engine_for_call(call_id):
 
 
 VIDEO_SENDERS = {}               # call_id -> video_tx.VideoSender
+AUDIO_SENDERS = {}               # call_id -> audio_tx.AudioSender (mic len cuoc goi)
+_CALL_DEVICES = {}               # call_id -> ghi de rieng cua cuoc goi (mic/camera)
+_CALL_DEVICE_KEYS = ("mic_url", "mic_format", "camera_url")
 
 
 def _stop_video(call_id):
@@ -906,12 +916,133 @@ def _stop_video(call_id):
     return sender
 
 
+def _stop_mic(call_id):
+    sender = AUDIO_SENDERS.pop(str(call_id), None)
+    if sender is not None:
+        sender.stop()
+    return sender
+
+
+def _remember_call_devices(call_id, body):
+    """Ghi de thiet bi rieng cua cuoc goi (tu body request/answer). Gia tri "off"
+    = tat thiet bi do cho cuoc nay (du co mac dinh)."""
+    over = {}
+    if isinstance(body, dict):
+        for key in _CALL_DEVICE_KEYS:
+            val = body.get(key)
+            if val in (None, ""):
+                continue
+            val = str(val).strip()
+            if key == "mic_format":
+                if val in devices_mod.MIC_FORMATS:
+                    over[key] = val
+            elif val.lower() == "off":
+                over[key] = ""
+            elif devices_mod.valid_source(val):
+                over[key] = val
+    if over:
+        if len(_CALL_DEVICES) > 50:
+            _CALL_DEVICES.clear()
+        _CALL_DEVICES[str(call_id)] = over
+    return over
+
+
+def _devices_for_call(call_id):
+    """Cai dat mac dinh + ghi de cua cuoc goi (ban co mat khau, noi bo)."""
+    cfg = STATE.devices.get()
+    cfg.update(_CALL_DEVICES.get(str(call_id), {}))
+    return cfg
+
+
+def _transport_for_call(call_id):
+    rec = media_endpoints.ENDPOINTS.active_record(int(call_id))
+    return (rec or {}).get("transport")
+
+
+def _start_mic(call_id, source, fmt="auto"):
+    """Phat `source` len cuoc goi; thay bo gui cu. Nem ValueError/RuntimeError."""
+    transport = _transport_for_call(call_id)
+    if transport is None:
+        raise RuntimeError("no_live_transport")
+    _stop_mic(call_id)
+    sender = audio_tx_mod.AudioSender(transport.send_pcm, source=source, fmt=fmt)
+    sender.start()
+    AUDIO_SENDERS[str(call_id)] = sender
+    _log_call("mic start call_id=%s source=%s" % (
+        call_id, "test" if source == "test" else "stream"))
+    return sender
+
+
+def _start_video(call_id, source, params=None):
+    """Phat hinh `source` len cuoc goi (+ bao camera bat). Nem ValueError/RuntimeError."""
+    transport = _transport_for_call(call_id)
+    if transport is None:
+        raise RuntimeError("no_live_transport")
+    cfg = dict(STATE.devices.get()["video"])
+    cfg.update({k: v for k, v in (params or {}).items() if k in cfg})
+    _stop_video(call_id)
+    sender = video_tx_mod.VideoSender(
+        transport.send_video_frame, source=source or "test",
+        width=int(cfg["width"]), height=int(cfg["height"]),
+        fps=int(cfg["fps"]), bitrate_kbps=int(cfg["bitrate_kbps"]))
+    sender.start()
+    VIDEO_SENDERS[str(call_id)] = sender
+    _send_camera_state_async(call_id, _thread_of_call(call_id), True)
+    _log_call("video start call_id=%s source=%s" % (
+        call_id, "test" if (source or "test") == "test" else "stream"))
+    return sender
+
+
+def _send_a2v_async(call_id, thread_id, status):
+    """Xin (status 1) hoac dong y (status 2) chuyen thoai -> video; 12056."""
+    def run():
+        sess = STATE.session
+        if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
+            _log_call("audio2video call_id=%s ok=False error=no_session"
+                      % call_id)
+            return
+        try:
+            transport = make_transport(sess["zpw_sek"])
+            sig = signaling_mod.Signaling(transport, sess["device_id"],
+                                          sess["zpw_enk"])
+            sig.audio_to_video(thread_id, call_id, status)
+            _log_call("audio2video call_id=%s status=%s ok=True"
+                      % (call_id, status))
+        except Exception as e:  # noqa: BLE001 - best-effort
+            _log_call("audio2video call_id=%s status=%s ok=False error=%s"
+                      % (call_id, status, str(e)[:120]))
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _auto_media_async(call_id):
+    """Cuoc goi vua duoc nghe may: tu phat mic (va hinh neu la cuoc goi video)
+    theo thiet bi mac dinh / ghi de cua cuoc goi. Khong nem loi."""
+    def run():
+        try:
+            for _ in range(50):                      # doi transport toi 5 s
+                if _transport_for_call(call_id) is not None:
+                    break
+                time.sleep(0.1)
+            cfg = _devices_for_call(call_id)
+            entry = next((c for c in STATE.calls.snapshot()["calls"]
+                          if str(c["call_id"]) == str(call_id)), {})
+            if cfg["auto_mic"] and cfg["mic_url"]:
+                _start_mic(call_id, cfg["mic_url"], cfg["mic_format"])
+            if (entry.get("type") or "user") == "video" and cfg["camera_url"]:
+                _start_video(call_id, cfg["camera_url"])
+        except Exception as exc:  # noqa: BLE001
+            _log_call("auto media call_id=%s error=%s" % (call_id, str(exc)[:100]))
+    threading.Thread(target=run, daemon=True).start()
+
+
 def _cleanup_call_media(entry):
     """Cuoc goi da ket thuc: danh gia ket qua SRTP, dung engine + transport,
     huy token am thanh. Best-effort, khong nem loi."""
     try:
         _evaluate_srtp_outcome(entry)
         _stop_video(entry["call_id"])
+        _stop_mic(entry["call_id"])
+        _CALL_DEVICES.pop(str(entry["call_id"]), None)
         engine_seam.SEAM.stop_media()
         media_endpoints.ENDPOINTS.stop_call(int(entry["call_id"]))
         STATE.audio_tokens.drop(entry["call_id"])
@@ -978,6 +1109,8 @@ def _mark_answered(call_id, source, send_ack=True):
     webhooks_mod.dispatch_call_event(
         STATE.webhook_dispatcher, entry,
         (STATE.session or {}).get("uid", ""))
+    if (entry.get("type") or "user") != "group":
+        _auto_media_async(entry["call_id"])
     if send_ack and (entry.get("type") or "user") != "group":
         thread = threading.Thread(
             target=_send_answerack_async,
@@ -1041,6 +1174,8 @@ class AppState:
         self.srtp_modes = srtp_mode_mod.SrtpModeStore(
             os.path.join(data_dir, "srtp_mode.json"))
         self.audio_tokens = call_audio_mod.CallAudioTokens()
+        self.devices = devices_mod.DeviceStore(
+            os.path.join(data_dir, "devices.json"))
         # App login (cong ngoai): load from env unless the caller
         # injects one (tests). Missing credentials -> auth is None and
         # auth_error names the missing env vars; main() refuses to
@@ -1266,6 +1401,8 @@ class AppState:
                 target=self._keepalive_probe_background,
                 daemon=True).start()
         base = {"version": VERSION,
+                "deps": {k: v["ok"] for k, v in deps_mod.check().items()
+                         if isinstance(v, dict)},
                 "engine": engine_seam.SEAM.status(),
                 "sync": self.sync_status(),
                 "sync_error": self.sync_error,
@@ -1943,6 +2080,8 @@ class AppState:
                 if entry is not None:
                     _log_call("call_event answer call_id=%s "
                               "answered" % call_id)
+            elif act in ("audiotovideo", "requestaudio2video"):
+                self._on_video_request(event)
             elif act in ("ringring", "answerack"):
                 _log_call("call_event %s call_id=%s" % (act, call_id))
             elif act in ("grouprequest", "groupcancel", "groupend"):
@@ -1954,6 +2093,32 @@ class AppState:
                           % (act_raw, call_id))
         except Exception:
             pass
+
+    def _on_video_request(self, event):
+        """Dien thoai xin chuyen cuoc goi THOAI dang dien ra sang VIDEO (12056).
+        status 1 = loi xin: dong y (status 2) va, neu bat `auto_video_on_request`
+        va co camera mac dinh, phat hinh. status 2 = dong y loi xin cua ta."""
+        call_id = int(event["call_id"])
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        params = data.get("params") if isinstance(data.get("params"), dict) else data
+        try:
+            status = int(params.get("status", data.get("status", 1)))
+        except (TypeError, ValueError):
+            status = 1
+        _log_call("video request call_id=%s status=%s" % (call_id, status))
+        cfg = _devices_for_call(call_id)
+        entry = next((c for c in STATE.calls.snapshot()["calls"]
+                      if str(c["call_id"]) == str(call_id)), None)
+        if entry is None or entry["status"] != "answered":
+            return
+        if status == 1 and cfg["auto_video_on_request"]:
+            _send_a2v_async(call_id, entry["thread_id"], 2)
+            if cfg["camera_url"]:
+                try:
+                    _start_video(call_id, cfg["camera_url"])
+                except (ValueError, RuntimeError) as exc:
+                    _log_call("video auto call_id=%s error=%s"
+                              % (call_id, str(exc)[:80]))
 
     def _on_incoming_call_request(self, event):
         """Cuoc goi den (call_event act "request"): ghi entry
@@ -2813,6 +2978,85 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             pass            # thiet bi ngat ket noi: binh thuong
 
+    def _handle_call_media(self, path, body):
+        """Dieu khien mic / hinh cua cuoc goi dang song.
+
+        /api/call/video          {action: start|stop|status, source, width, height,
+                                  fps, bitrate_kbps}
+        /api/call/media          {action: start|stop|status, target: mic|video|both,
+                                  mic_url, mic_format, camera_url}  (thieu thi dung mac dinh)
+        /api/call/upgrade_video  {camera_url?}  chuyen cuoc goi THOAI sang VIDEO
+        """
+        snap = STATE.calls.snapshot()
+        live = snap["active"]
+        call_id = _coerce_call_id(body.get("call_id", ""))
+        if call_id is None and live is not None:
+            call_id = int(live["call_id"])
+        if call_id is None:
+            return self._send_json({"ok": False, "error": "no_live_call"})
+        action = str(body.get("action") or "start").lower()
+
+        def vstat():
+            sd = VIDEO_SENDERS.get(str(call_id))
+            return sd.status() if sd else None
+
+        def mstat():
+            sd = AUDIO_SENDERS.get(str(call_id))
+            return sd.status() if sd else None
+
+        if action not in ("start", "stop", "status"):
+            return self._send_json({"error": "action_khong_hop_le"}, status=400)
+        if path == "/api/call/video":
+            target = "video"
+        elif path == "/api/call/media":
+            target = str(body.get("target") or "both").lower()
+        else:
+            target = "upgrade"
+        if action == "status":
+            return self._send_json({"ok": True, "call_id": call_id,
+                                    "video": vstat(), "mic": mstat()})
+        if action == "stop":
+            if target in ("video", "both"):
+                if _stop_video(call_id) is not None:
+                    _send_camera_state_async(
+                        call_id, _thread_of_call(call_id), False)
+            if target in ("mic", "both"):
+                _stop_mic(call_id)
+            return self._send_json({"ok": True, "call_id": call_id,
+                                    "video": vstat(), "mic": mstat()})
+        cfg = _devices_for_call(call_id)
+        try:
+            if target == "upgrade":
+                entry = next((c for c in snap["calls"]
+                              if str(c["call_id"]) == str(call_id)), None)
+                if entry is None or entry["status"] != "answered":
+                    return self._send_json({"ok": False,
+                                            "error": "chua_nghe_may"})
+                _send_a2v_async(call_id, _thread_of_call(call_id), 1)
+                src = str(body.get("camera_url") or body.get("source")
+                          or cfg["camera_url"] or "test")
+                _start_video(call_id, src)
+            else:
+                if target in ("mic", "both"):
+                    src = str(body.get("mic_url")
+                              or (body.get("source") if target == "mic" else "")
+                              or cfg["mic_url"] or "")
+                    if src:
+                        _start_mic(call_id, src,
+                                   str(body.get("mic_format") or cfg["mic_format"]))
+                if target in ("video", "both"):
+                    src = str(body.get("camera_url") or body.get("source")
+                              or cfg["camera_url"] or "")
+                    if src or target == "video":
+                        params = {k: body[k] for k in
+                                  ("width", "height", "fps", "bitrate_kbps")
+                                  if k in body}
+                        _start_video(call_id, src or "test", params)
+        except (ValueError, RuntimeError) as exc:
+            return self._send_json({"ok": False, "error": str(exc)[:120]})
+        return self._send_json({"ok": True, "call_id": call_id,
+                                "video": vstat(), "mic": mstat()})
+
     def _handle_call_audio_in(self, call_id):
         """Nhan PCM16 16 kHz mono (boi so 640 byte) tu mic cua thiet bi bat
         ky va dua vao cuoc goi. Can dang nhap app."""
@@ -2961,6 +3205,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"error": "chua_dang_nhap"},
                                        status=401)
             return self._send_json(_calls_snapshot_with_media())
+        if path == "/api/settings/devices":
+            if self._require_login() is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            return self._send_json({"ok": True,
+                                    "devices": STATE.devices.public()})
         # WEBHOOK HOOK (webhooks.py): read the webhook config. Auth is
         # the same _require_login() as /api/calls — the login-app agent
         # owns that check; do NOT open this route without it.
@@ -3740,6 +3990,7 @@ class Handler(BaseHTTPRequestHandler):
             # same id for /api/call/end (endcall must carry the same
             # callId the requestcall used).
             call_id = _normalize_call_id(body.get("call_id"))
+            _remember_call_devices(call_id, body)
             thread_id = body.get("callee_id", "")
             call_type = body.get("type") or "user"
             type_request = _type_request_for(call_type)
@@ -4197,63 +4448,23 @@ class Handler(BaseHTTPRequestHandler):
                  "zalo_signal": signal,
                  "zalo_endcall_ok": zalo_ok, "zalo_error": zalo_error,
                  "data": data})
-        if path == "/api/call/video":
-            sess = self._require_login()
-            if sess is None:
+        if path == "/api/settings/devices":
+            if self._require_login() is None:
                 return self._send_json({"error": "chua_dang_nhap"},
                                        status=401)
-            # Phat hinh len cuoc goi dang song: {"action": "start"|"stop"|
-            # "status", "call_id"?, "source": "test"|rtsp://...|tep,
-            # "width","height","fps","bitrate_kbps"}. Cuoc goi phai da nghe may.
-            snap = STATE.calls.snapshot()
-            live = snap["active"]
-            call_id = _coerce_call_id(body.get("call_id", ""))
-            if call_id is None and live is not None:
-                call_id = int(live["call_id"])
-            if call_id is None:
-                return self._send_json({"ok": False, "error": "no_live_call"})
-            action = str(body.get("action") or "start").lower()
-            if action == "status":
-                sender = VIDEO_SENDERS.get(str(call_id))
-                return self._send_json({"ok": True, "call_id": call_id,
-                                        "video": sender.status() if sender
-                                        else None})
-            if action == "stop":
-                sender = _stop_video(call_id)
-                if sender is not None:
-                    _send_camera_state_async(call_id, _thread_of_call(call_id),
-                                             False)
-                return self._send_json({"ok": True, "call_id": call_id,
-                                        "video": sender.status() if sender
-                                        else None})
-            if action != "start":
-                return self._send_json({"error": "action_khong_hop_le"},
-                                       status=400)
-            rec = media_endpoints.ENDPOINTS.active_record(call_id)
-            if rec is None:
-                return self._send_json({"ok": False,
-                                        "error": "no_live_transport"})
             try:
-                def _int(key, default, lo, hi):
-                    return max(lo, min(hi, int(body.get(key) or default)))
-                _stop_video(call_id)
-                sender = video_tx_mod.VideoSender(
-                    rec["transport"].send_video_frame,
-                    source=str(body.get("source") or "test"),
-                    width=_int("width", 640, 160, 1280),
-                    height=_int("height", 360, 120, 720),
-                    fps=_int("fps", 15, 5, 30),
-                    bitrate_kbps=_int("bitrate_kbps", 300, 50, 1500))
-                sender.start()
-            except (ValueError, RuntimeError) as exc:
-                return self._send_json({"ok": False, "error": str(exc)[:120]})
-            VIDEO_SENDERS[str(call_id)] = sender
-            _send_camera_state_async(call_id, _thread_of_call(call_id), True)
-            _log_call("video start call_id=%s source=%s" % (
-                call_id, "test" if str(body.get("source") or "test") == "test"
-                else "stream"))
-            return self._send_json({"ok": True, "call_id": call_id,
-                                    "video": sender.status()})
+                STATE.devices.update(body)
+            except ValueError as exc:
+                return self._send_json({"ok": False, "error": str(exc)[:80]},
+                                       status=400)
+            return self._send_json({"ok": True,
+                                    "devices": STATE.devices.public()})
+        if path in ("/api/call/video", "/api/call/media",
+                    "/api/call/upgrade_video"):
+            if self._require_login() is None:
+                return self._send_json({"error": "chua_dang_nhap"},
+                                       status=401)
+            return self._handle_call_media(path, body)
         if path == "/api/call/answered":
             sess = self._require_login()
             if sess is None:
@@ -4355,6 +4566,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(
                     {"ok": False, "error": "no_incoming_call"})
             call_id = int(target["call_id"])
+            _remember_call_devices(call_id, body)
             caller_id = target["thread_id"]
             codec = ((target.get("diag") or {}).get("incoming_codec")
                      or media_endpoints.DEFAULT_ZALO_AUDIO_CODEC)
@@ -4640,6 +4852,11 @@ def main():
               file=sys.stderr)
         raise SystemExit(2)
     _seed_call_id_counter()
+    _deps = deps_mod.check()
+    for _name, _info in _deps.items():
+        if isinstance(_info, dict) and not _info["ok"]:
+            print("[deps] CANH BAO thieu %s: %s (cuoc goi/video se loi hoac cham)"
+                  % (_name, _info["detail"]), file=sys.stderr, flush=True)
     threading.Thread(target=_warm_contacts_loop, daemon=True).start()
     server = QuietServer((HOST, PORT), Handler)
     print("zalo-pc-qr app %s on http://%s:%d (data: %s)"

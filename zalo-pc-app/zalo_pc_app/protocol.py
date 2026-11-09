@@ -441,6 +441,13 @@ def vc_conf(callee_id, call_id, cam=-1, mic=-1):
             "isOnCam": cam, "isOnMic": mic, "data": ""}
 
 
+def vc_a2v(uid_to, call_id, status=1):
+    """Body of voicecall/requestaudio2video (code 12056): chuyen cuoc goi THOAI dang
+    dien ra sang VIDEO. status 1 = xin bat video, 2 = dong y loi xin cua ben kia
+    (fork zca-js `requestAudioToVideoCall`)."""
+    return {"uidTo": str(uid_to), "callId": call_id, "status": status}
+
+
 def vc_hold(to_id):
     return {"toId": to_id}
 

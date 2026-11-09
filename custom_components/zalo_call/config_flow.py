@@ -22,12 +22,8 @@ from .const import (
     CONF_AI_AGENT,
     CONF_AI_ENABLED,
     CONF_AI_THREADS,
-    CONF_CAMERA,
     CONF_HA_URL,
-    CONF_MIC,
-    CONF_MIC_URL,
     CONF_PASSWORD,
-    CONF_SPEAKER,
     CONF_URL,
     CONF_USERNAME,
     CONF_WEBHOOK_ID,
@@ -103,12 +99,5 @@ class ZaloCallOptionsFlow(OptionsFlow):
             opt(CONF_AI_AGENT, selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="conversation"))),
             opt(CONF_AI_THREADS, selector.TextSelector()),
-            opt(CONF_SPEAKER, selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="media_player"))),
-            opt(CONF_MIC, selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="camera"))),
-            opt(CONF_MIC_URL, selector.TextSelector()),
-            opt(CONF_CAMERA, selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="camera"))),
         ])
         return self.async_show_form(step_id="init", data_schema=vol.Schema(fields))

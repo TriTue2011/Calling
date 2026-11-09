@@ -66,7 +66,7 @@ function scheduleStaleRefresh() {
 // khi await /api/status — nên mỗi lần làm mới trang đều nháy
 // trang QR dù phiên vẫn còn (lỗi 2026-11-05).
 const VIEWS = ["view-loading", "view-login", "view-main", "view-calls", "view-call",
-               "view-chat", "view-webhooks", "view-services"];
+               "view-chat", "view-webhooks", "view-services", "view-devices"];
 function show(view) {
   VIEWS.forEach((v) => { $(v).style.display = (v === view ? "" : "none"); });
   // No contacts to search before login — hide the search box there.
@@ -80,6 +80,8 @@ function show(view) {
     "nav-item" + (view === "view-webhooks" ? " on" : "");
   $("nav-services").className =
     "nav-item" + (view === "view-services" ? " on" : "");
+  $("nav-devices").className =
+    "nav-item" + (view === "view-devices" ? " on" : "");
   closeMenu();
 }
 
@@ -285,6 +287,15 @@ function renderList() {
     call.className = "btn btn-secondary row-call";
     call.textContent = "Gọi";
     call.onclick = (e) => { e.stopPropagation(); startCall(r); };
+    let vcall = null;
+    if (r.type !== "group") {
+      vcall = document.createElement("button");
+      vcall.type = "button";
+      vcall.className = "btn btn-secondary row-call";
+      vcall.textContent = "Video";
+      vcall.title = "Gọi video";
+      vcall.onclick = (e) => { e.stopPropagation(); startCall(r, "video"); };
+    }
     const svc = document.createElement("button");
     svc.type = "button";
     svc.className = "btn btn-text row-svc";
@@ -296,6 +307,7 @@ function renderList() {
     if (badgeEl) li.appendChild(badgeEl);
     li.appendChild(pill);
     li.appendChild(svc);
+    if (vcall) li.appendChild(vcall);
     li.appendChild(call);
     // Row tap opens the thread's chat (Zalo PC style); the "Goi"
     // button beside it still starts a call by threadID.
@@ -1817,9 +1829,10 @@ function renderCallDetail() {
     const st = rec ? rec.status : "sent";
     answeredBtn.style.display = (st === "sent") ? "" : "none";
   }
+  renderCallMedia(rec);
 }
 
-async function startCall(peer) {
+async function startCall(peer, kind) {
   if (calling) return; // double tap while a request is in flight.
   calling = true;
   try {
@@ -1851,7 +1864,7 @@ async function startCall(peer) {
   const r = await api("/api/call/request", "POST",
     { callee_id: peer.id, call_id: callId,
       type_request: peer.type === "group" ? 5 : 1,
-      type: peer.type === "group" ? "group" : "user",
+      type: peer.type === "group" ? "group" : (kind === "video" ? "video" : "user"),
       peer_name: peer.name || peer.id,
       partners: peer.members || [] });
   if (r.call_id != null) {
@@ -2122,6 +2135,154 @@ function setFilter(f) {
 $("filter-all").onclick = () => setFilter("all");
 $("filter-friends").onclick = () => setFilter("friends");
 $("filter-groups").onclick = () => setFilter("groups");
+
+
+// -- tieng / hinh trong cuoc goi + cai dat thiet bi ------------------------
+let mediaBusy = false;
+
+function liveCallId() {
+  const cc = currentCall || detailCall;
+  const id = cc ? String(cc.callId || cc.call_id || "") : "";
+  if (id) return id;
+  return callsData.active ? String(callsData.active.call_id) : "";
+}
+
+function renderCallMedia(rec) {
+  const box = $("call-media");
+  if (!box) return;
+  const answered = rec && rec.status === "answered";
+  box.hidden = !answered;
+  if (!answered) return;
+  const m = rec.media || {};
+  const mic = m.mic, vid = m.video;
+  const parts = [];
+  parts.push("Mic: " + (mic ? (mic.alive ? "đang phát (" + mic.frames + " khung)" : "đã dừng") : "tắt"));
+  parts.push("Hình: " + (vid ? (vid.alive ? "đang phát (" + vid.frames + " khung, " + vid.keys + " khung khoá)" : "đã dừng") : "tắt"));
+  if (m.srtp) parts.push("SRTP: " + m.srtp);
+  $("call-media-state").textContent = parts.join(" · ");
+  const audio = $("call-audio");
+  if (m.audio_token && audio) audio.dataset.src = "/api/call/audio/out/" + m.audio_token;
+  $("btn-upgrade-video").hidden = (rec.type === "video");
+}
+
+async function mediaCall(path, body, okNote) {
+  if (mediaBusy) return;
+  mediaBusy = true;
+  try {
+    const r = await api(path, "POST", Object.assign({ call_id: liveCallId() }, body));
+    $("call-media-state").textContent = r.ok === false
+      ? ("Lỗi: " + (r.error || "không rõ"))
+      : (okNote || "Đã gửi lệnh.");
+    await loadCalls();
+  } catch (e) {
+    $("call-media-state").textContent = "Lỗi: " + (e.message || e);
+  } finally { mediaBusy = false; }
+}
+
+$("btn-upgrade-video").onclick = () => mediaCall("/api/call/upgrade_video", {}, "Đã xin chuyển sang video…");
+$("btn-video-default").onclick = () => mediaCall("/api/call/media", { target: "video" }, "Đang phát camera mặc định…");
+$("btn-video-test").onclick = () => mediaCall("/api/call/video", { source: "test" }, "Đang phát hình thử…");
+$("btn-video-stop").onclick = () => mediaCall("/api/call/media", { action: "stop", target: "video" }, "Đã tắt hình.");
+$("btn-mic-default").onclick = () => mediaCall("/api/call/media", { target: "mic" }, "Đang phát mic mặc định…");
+$("btn-mic-test").onclick = () => mediaCall("/api/call/media", { target: "mic", source: "test" }, "Đang phát âm 440 Hz…");
+$("btn-mic-stop").onclick = () => { stopBrowserMic(); mediaCall("/api/call/media", { action: "stop", target: "mic" }, "Đã tắt mic."); };
+$("btn-listen").onclick = () => {
+  const a = $("call-audio");
+  if (!a.dataset.src) { $("call-media-state").textContent = "Chưa có luồng tiếng (cuộc gọi chưa nối media)."; return; }
+  a.src = a.dataset.src;
+  a.play().catch(() => {});
+};
+
+// Mic trinh duyet: getUserMedia -> PCM16 16 kHz -> POST moi 100 ms.
+let browserMic = null;
+async function startBrowserMic() {
+  const id = liveCallId();
+  if (!id) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    $("call-media-state").textContent = "Trình duyệt không cho dùng mic (cần HTTPS hoặc localhost).";
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    const ctx = new AudioContext();
+    const src = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    let pending = new Int16Array(0);
+    proc.onaudioprocess = (ev) => {
+      const input = ev.inputBuffer.getChannelData(0);
+      const ratio = ctx.sampleRate / 16000;
+      const n = Math.floor(input.length / ratio);
+      const out = new Int16Array(n);
+      for (let i = 0; i < n; i++) {
+        const s = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)]));
+        out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      const merged = new Int16Array(pending.length + out.length);
+      merged.set(pending); merged.set(out, pending.length);
+      let off = 0;
+      while (merged.length - off >= 1600) {          // 100 ms = 1600 mau
+        const chunk = merged.slice(off, off + 1600);
+        off += 1600;
+        fetch("/api/call/audio/in/" + id, { method: "POST", body: chunk.buffer }).catch(() => {});
+      }
+      pending = merged.slice(off);
+    };
+    src.connect(proc); proc.connect(ctx.destination);
+    browserMic = { stream, ctx, proc, src };
+    $("call-media-state").textContent = "Đang phát mic trình duyệt…";
+  } catch (e) {
+    $("call-media-state").textContent = "Không mở được mic: " + (e.message || e);
+  }
+}
+function stopBrowserMic() {
+  if (!browserMic) return;
+  try { browserMic.proc.disconnect(); browserMic.src.disconnect(); } catch (e) { /* da dong */ }
+  browserMic.stream.getTracks().forEach((t) => t.stop());
+  browserMic.ctx.close().catch(() => {});
+  browserMic = null;
+}
+$("btn-mic-browser").onclick = startBrowserMic;
+
+// Cai dat thiet bi mac dinh
+async function loadDevices() {
+  try {
+    const r = await api("/api/settings/devices");
+    const d = r.devices || {};
+    $("dev-mic-url").value = d.mic_url || "";
+    $("dev-mic-format").value = d.mic_format || "auto";
+    $("dev-auto-mic").checked = !!d.auto_mic;
+    $("dev-camera-url").value = d.camera_url || "";
+    const v = d.video || {};
+    $("dev-width").value = v.width || 640;
+    $("dev-height").value = v.height || 360;
+    $("dev-fps").value = v.fps || 15;
+    $("dev-bitrate").value = v.bitrate_kbps || 300;
+    $("dev-auto-video").checked = !!d.auto_video_on_request;
+    $("devices-note").textContent = "";
+  } catch (e) {
+    $("devices-note").textContent = "Không tải được cài đặt: " + (e.message || e);
+  }
+}
+async function saveDevices(ev) {
+  ev.preventDefault();
+  try {
+    const r = await api("/api/settings/devices", "POST", {
+      mic_url: $("dev-mic-url").value.trim(),
+      mic_format: $("dev-mic-format").value,
+      auto_mic: $("dev-auto-mic").checked,
+      camera_url: $("dev-camera-url").value.trim(),
+      auto_video_on_request: $("dev-auto-video").checked,
+      video: { width: +$("dev-width").value, height: +$("dev-height").value,
+               fps: +$("dev-fps").value, bitrate_kbps: +$("dev-bitrate").value },
+    });
+    $("devices-note").textContent = r.ok ? "Đã lưu." : ("Không lưu được: " + (r.error || ""));
+    if (r.ok) await loadDevices();
+  } catch (e) {
+    $("devices-note").textContent = "Không lưu được: " + (e.message || e);
+  }
+}
+$("devices-form").onsubmit = saveDevices;
+$("nav-devices").onclick = async () => { show("view-devices"); await loadDevices(); };
 
 // Khởi động: hiện màn hình chờ trung tính TRƯỚC khi biết phiên,
 // rồi loadMain() mới quyết định view theo /api/status — trang QR

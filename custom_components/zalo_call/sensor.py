@@ -8,6 +8,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .entity import device_info
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
@@ -23,6 +24,7 @@ class ZaloCallStateSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = entry.entry_id + "_call_state"
+        self._attr_device_info = device_info(entry)
 
     @property
     def _calls(self) -> dict:

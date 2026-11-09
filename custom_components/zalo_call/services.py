@@ -20,6 +20,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
+from .bridge_core import entity_of_label
 from .const import DOMAIN
 
 MAX_FILE = 100 * 1024 * 1024
@@ -186,22 +187,27 @@ async def async_register_services(hass: HomeAssistant) -> None:
 
     async def make_call(call: ServiceCall) -> dict:
         rt, api = _api(hass, call)
-        rt.bridge.remember(None, _device_override(call))
+        override = _device_override(call)
+        rt.bridge.remember(None, override)
         try:
+            fields = await rt.bridge.async_call_fields(override)
             res = await api.call_request(str(call.data["thread_id"]),
                                          call.data.get("type", "user"),
                                          call.data.get("peer_name", ""),
                                          call.data.get("srtp"),
-                                         call.data.get("extend_profile"))
+                                         call.data.get("extend_profile"),
+                                         fields)
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
         return {"result": res}
 
     async def answer_call(call: ServiceCall) -> dict:
         rt, api = _api(hass, call)
-        rt.bridge.remember(call.data.get("call_id"), _device_override(call))
+        override = _device_override(call)
+        rt.bridge.remember(call.data.get("call_id"), override)
         try:
-            res = await api.call_answer(call.data.get("call_id"))
+            fields = await rt.bridge.async_call_fields(override)
+            res = await api.call_answer(call.data.get("call_id"), fields)
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
         return {"result": res}
@@ -235,6 +241,105 @@ async def async_register_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(str(err)) from err
         return {"result": res}
 
+    async def _camera_url(rt, call: ServiceCall) -> str:
+        """URL camera cua service: camera_url thang camera (thuc the) thang mac dinh."""
+        if call.data.get("camera_url"):
+            return str(call.data["camera_url"]).strip()
+        devices = rt.bridge.devices_for(
+            {"camera": call.data["camera"]} if "camera" in call.data else None)
+        cam = entity_of_label(devices.get("camera", ""))
+        return await rt.bridge.async_camera_url(cam) if cam else ""
+
+    def _call_body(call: ServiceCall, **extra: Any) -> dict:
+        body = dict(extra)
+        if call.data.get("call_id") not in (None, ""):
+            body["call_id"] = call.data["call_id"]
+        return body
+
+    async def upgrade_to_video(call: ServiceCall) -> dict:
+        rt, api = _api(hass, call)
+        url = await _camera_url(rt, call)
+        try:
+            res = await api.upgrade_video(_call_body(call, **({"camera_url": url} if url else {})))
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"result": res}
+
+    async def start_call_video(call: ServiceCall) -> dict:
+        rt, api = _api(hass, call)
+        url = await _camera_url(rt, call)
+        try:
+            res = await api.media_control(_call_body(
+                call, action="start", target="video",
+                **({"camera_url": url} if url else {})))
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"result": res}
+
+    async def stop_call_video(call: ServiceCall) -> dict:
+        _, api = _api(hass, call)
+        try:
+            res = await api.media_control(_call_body(call, action="stop", target="video"))
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"result": res}
+
+    async def start_call_mic(call: ServiceCall) -> dict:
+        rt, api = _api(hass, call)
+        override = {k: call.data[k] for k in ("mic", "mic_url") if k in call.data}
+        url, fmt = await rt.bridge.async_mic_source(rt.bridge.devices_for(override))
+        if not url:
+            raise ServiceValidationError(
+                "Chưa có nguồn mic: chọn Mic mặc định hoặc truyền mic/mic_url hợp lệ")
+        try:
+            res = await api.media_control(_call_body(
+                call, action="start", target="mic", mic_url=url, mic_format=fmt))
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"result": res}
+
+    async def stop_call_mic(call: ServiceCall) -> dict:
+        _, api = _api(hass, call)
+        try:
+            res = await api.media_control(_call_body(call, action="stop", target="mic"))
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"result": res}
+
+    async def set_default_devices(call: ServiceCall) -> None:
+        rt, _ = _api(hass, call)
+        patch = {k: call.data[k] for k in
+                 ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video")
+                 if k in call.data}
+        if patch.get("mic_url") or patch.get("mic"):
+            patch.setdefault("mic_url" if patch.get("mic") else "mic", "")
+        await rt.defaults.async_set(**patch)
+        await rt.bridge.async_push_defaults()
+
+    call_id_only = {vol.Optional("entry_id"): cv.string,
+                    vol.Optional("call_id"): vol.Any(int, cv.string)}
+    for name, fn, extra in (
+            ("upgrade_to_video", upgrade_to_video,
+             {vol.Optional("camera"): cv.string, vol.Optional("camera_url"): cv.string}),
+            ("start_call_video", start_call_video,
+             {vol.Optional("camera"): cv.string, vol.Optional("camera_url"): cv.string}),
+            ("stop_call_video", stop_call_video, {}),
+            ("start_call_mic", start_call_mic,
+             {vol.Optional("mic"): cv.string, vol.Optional("mic_url"): cv.string}),
+            ("stop_call_mic", stop_call_mic, {})):
+        hass.services.async_register(
+            DOMAIN, name, fn, schema=vol.Schema({**call_id_only, **extra}),
+            supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "set_default_devices", set_default_devices,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string,
+                           vol.Optional("speaker"): cv.string,
+                           vol.Optional("mic"): cv.string,
+                           vol.Optional("mic_url"): cv.string,
+                           vol.Optional("camera"): cv.string,
+                           vol.Optional("auto_mic"): cv.boolean,
+                           vol.Optional("auto_video"): cv.boolean}))
+
     devices = {vol.Optional("speaker"): cv.string,
                vol.Optional("mic"): cv.string,
                vol.Optional("mic_url"): cv.string,
@@ -246,8 +351,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
             vol.Required("thread_id"): cv.string,
             vol.Optional("type", default="user"): vol.In(["user", "video", "group"]),
             vol.Optional("peer_name"): cv.string,
-            vol.Optional("srtp"): vol.In(["auto", "off", "key"]),
-            vol.Optional("extend_profile"): vol.In(["pc", "zca"]),
+            vol.Optional("srtp"): vol.In(["sess", "off", "key"]),
+            vol.Optional("extend_profile"): vol.In(["native", "pc", "zca"]),
             **devices}),
         supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(

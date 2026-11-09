@@ -124,26 +124,29 @@ class ZaloCallApi:
     # -- cuoc goi -----------------------------------------------------------
     async def call_request(self, thread_id: str, call_type: str,
                            peer_name: str = "", srtp: str | None = None,
-                           extend_profile: str | None = None) -> dict:
+                           extend_profile: str | None = None,
+                           devices: dict | None = None) -> dict:
         body = {"callee_id": thread_id, "type": call_type,
                 "peer_name": peer_name or thread_id}
-        if srtp in ("off", "key"):      # bo trong = app tu chon (auto)
+        if srtp in ("sess", "off", "key"):      # bo trong = app tu chon (auto)
             body["srtp"] = srtp
-        if extend_profile in ("pc", "zca"):
+        if extend_profile in ("native", "pc", "zca"):
             body["extend_profile"] = extend_profile
+        body.update(devices or {})              # mic_url / mic_format / camera_url
         return await self._request("POST", "/api/call/request", json=body)
 
-    async def call_answer(self, call_id: str | int | None = None) -> dict:
-        return await self._request(
-            "POST", "/api/call/answer",
-            json={"call_id": call_id if call_id is not None else ""})
+    async def call_answer(self, call_id: str | int | None = None,
+                          devices: dict | None = None) -> dict:
+        body = {"call_id": call_id if call_id is not None else ""}
+        body.update(devices or {})
+        return await self._request("POST", "/api/call/answer", json=body)
 
     async def call_reject(self, call_id: str | int | None = None) -> dict:
         return await self._request(
             "POST", "/api/call/reject",
             json={"call_id": call_id if call_id is not None else ""})
 
-    async def call_media(self, call_id: str | int) -> dict | None:
+    async def call_media_status(self, call_id: str | int) -> dict | None:
         """Trang thai media (kem audio_token) cua mot cuoc goi dang song."""
         data = await self.calls()
         for c in (data or {}).get("calls", []):
@@ -151,11 +154,20 @@ class ZaloCallApi:
                 return c.get("media")
         return None
 
-    async def audio_in(self, call_id: str | int, chunk: bytes) -> dict:
-        """Dua PCM16 16 kHz mono (boi so 640 byte) tu mic vao cuoc goi."""
-        return await self._request(
-            "POST", "/api/call/audio/in/%s" % call_id, data=chunk,
-            headers={"Content-Type": "application/octet-stream"})
+    async def devices_get(self) -> dict:
+        return (await self._request("GET", "/api/settings/devices")).get("devices", {})
+
+    async def devices_set(self, patch: dict) -> dict:
+        """Dat thiet bi mac dinh cua app (mic_url, mic_format, camera_url, video, auto_*)."""
+        return await self._request("POST", "/api/settings/devices", json=patch)
+
+    async def media_control(self, body: dict) -> dict:
+        """Bat/tat mic hoac hinh cua cuoc goi: {call_id?, action, target, mic_url, camera_url...}."""
+        return await self._request("POST", "/api/call/media", json=body)
+
+    async def upgrade_video(self, body: dict) -> dict:
+        """Chuyen cuoc goi THOAI dang dien ra sang VIDEO: {call_id?, camera_url?}."""
+        return await self._request("POST", "/api/call/upgrade_video", json=body)
 
     async def call_end(self, call_id: str | int | None = None) -> dict:
         return await self._request(

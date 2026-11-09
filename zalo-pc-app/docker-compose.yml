@@ -1,37 +1,41 @@
+# Zalo PC app — chạy bằng image dựng sẵn trên GHCR (không cần build, không cài thêm gì).
+#
+#   1) Tạo file .env cạnh file này:   ZALO_PC_APP_USER=...   ZALO_PC_APP_PASSWORD=...
+#   2) docker compose up -d
+#   3) Cập nhật bản mới:              docker compose pull && docker compose up -d
+#      (hoặc để Watchtower tự kéo :latest; muốn ghim phiên bản thì đổi :latest thành :vX.Y.Z)
+#
+# Image đã có sẵn ffmpeg (libx264), libopus, OpenSSL — build sẽ thất bại nếu thiếu
+# (python3 -m zalo_pc_app.deps). Kiểm tra bản đang chạy: GET /api/status -> version, deps.
 services:
   zalo-pc:
-    image: ghcr.io/tritue2011/zalo-pc-app-test:test
+    image: ghcr.io/tritue2011/zalo-pc-app:latest
+    container_name: zalo-pc
     ports:
-      # Bind loopback on the host; put it behind the user's own
-      # reverse proxy / HA ingress for remote access.
+      # Chỉ mở loopback; truy cập từ xa qua reverse proxy / ingress của bạn.
+      # Đổi thành "8080:8080" nếu HA ở máy khác cần gọi trực tiếp trong LAN.
       - "127.0.0.1:8080:8080"
     volumes:
-      # Named volume (default) or a host path (e.g. /opt/zalo:/data):
-      # no manual chown is needed — the entrypoint chowns the data
-      # directory to user app (UID 1000) at startup, then drops
-      # privileges and runs the server as app.
+      # Tên volume (mặc định) hoặc đường dẫn máy chủ (vd /opt/zalo:/data): entrypoint tự chown
+      # thư mục dữ liệu cho user app rồi hạ quyền — không cần chown tay.
       - zalo-pc-data:/data
     environment:
-      # BAT BUOC — dang nhap app (cong ngoai, truoc QR Zalo). Dat gia
-      # tri that luc deploy (Portainer: Stack -> Environment variables
-      # hoac bien moi truong cua stack); KHONG ghi mat khau that vao
-      # file nay. Thieu 2 bien nay server tu choi khoi dong.
-      # Cach 1 (don gian): user + mat khau dang plain text; server
-      # hash PBKDF2 luc khoi dong, salt+hash luu vao /data/app_auth.json.
+      # BẮT BUỘC — đăng nhập app (cổng ngoài, trước mã QR Zalo). Thiếu hai biến này server từ chối
+      # khởi động. KHÔNG ghi mật khẩu thật vào file này (đặt trong .env hoặc biến môi trường stack).
       ZALO_PC_APP_USER: "${ZALO_PC_APP_USER}"
       ZALO_PC_APP_PASSWORD: "${ZALO_PC_APP_PASSWORD}"
-      # Cach 2 (thay cho PASSWORD): hash da tinh san —
-      #   python3 -m zalo_pc_app.app_auth
-      # roi dat ket qua vao ZALO_PC_APP_PASSWORD_HASH, bo trong PASSWORD.
+      # Thay cho PASSWORD: hash tính sẵn (python3 -m zalo_pc_app.app_auth).
       # ZALO_PC_APP_PASSWORD_HASH: "${ZALO_PC_APP_PASSWORD_HASH}"
-      # Tuy chon: phien dang nhap app het han sau so gio nay (mac dinh 8).
       # ZALO_PC_APP_SESSION_HOURS: "8"
-      # Optional. Probe 2026-11-05 verified plaintext + signkey is
-      # accepted for reqqr, so no key is needed for the QR step.
-      # ZALO_PC_PARAM_CIPHER_KEY: ""
       ZALO_PC_HOST: "0.0.0.0"
       ZALO_PC_PORT: "8080"
+      # Bật vết lỗi khi tiến trình bị abort (libopus/ffmpeg): in ngăn xếp của mọi luồng.
+      PYTHONFAULTHANDLER: "1"
+    # Cuộc gọi dùng cổng UDP tạm thời đi RA tới relay Zalo: không cần mở/ánh xạ cổng UDP nào.
     restart: unless-stopped
+    labels:
+      # Watchtower (nếu dùng) tự kéo bản :latest mới.
+      com.centurylinklabs.watchtower.enable: "true"
 
 volumes:
   zalo-pc-data:

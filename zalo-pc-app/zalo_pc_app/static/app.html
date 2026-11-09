@@ -30,6 +30,9 @@
       <button id="nav-services" class="nav-item" type="button">
         <span class="nav-label">Dịch vụ</span>
       </button>
+      <button id="nav-devices" class="nav-item" type="button">
+        <span class="nav-label">Thiết bị</span>
+      </button>
     </nav>
     <div class="sidebar-foot">
       <div id="who" class="who">Đang kiểm tra…</div>
@@ -238,6 +241,29 @@
         <div id="call-incoming" style="display:none">
           <p>Có cuộc gọi đến (kênh nhận cuộc gọi đang ở giai đoạn 2).</p>
         </div>
+        <div id="call-media" class="media-panel" hidden>
+          <h2 class="rail-title">Tiếng và hình trong cuộc gọi</h2>
+          <p id="call-media-state" class="row-sub" role="status"></p>
+          <div class="media-row">
+            <span class="media-label">Loa (nghe bên kia)</span>
+            <audio id="call-audio" controls preload="none"></audio>
+            <button id="btn-listen" class="btn btn-secondary" type="button">Nghe trên trình duyệt</button>
+          </div>
+          <div class="media-row">
+            <span class="media-label">Mic</span>
+            <button id="btn-mic-default" class="btn btn-secondary" type="button" title="Phát nguồn mic mặc định trong mục Thiết bị">Mic mặc định</button>
+            <button id="btn-mic-test" class="btn btn-secondary" type="button">Âm 440 Hz</button>
+            <button id="btn-mic-browser" class="btn btn-secondary" type="button" title="Cần HTTPS hoặc localhost để trình duyệt cho dùng mic">Mic trình duyệt</button>
+            <button id="btn-mic-stop" class="btn btn-text" type="button">Tắt mic</button>
+          </div>
+          <div class="media-row">
+            <span class="media-label">Hình</span>
+            <button id="btn-upgrade-video" class="btn btn-primary" type="button" title="Đang gọi thoại: xin chuyển sang video rồi phát camera mặc định">Chuyển sang video</button>
+            <button id="btn-video-default" class="btn btn-secondary" type="button">Camera mặc định</button>
+            <button id="btn-video-test" class="btn btn-secondary" type="button">Hình thử</button>
+            <button id="btn-video-stop" class="btn btn-text" type="button">Tắt hình</button>
+          </div>
+        </div>
         <div class="detail-actions">
           <button id="btn-answered" class="btn btn-secondary" type="button" title="Bấm khi thấy bên kia đã nhấc máy — cuộc gọi chuyển sang Đang gọi và không tự ngắt ở mốc 30 giây">Bên kia đã nhấc máy</button>
           <button id="btn-end" class="btn btn-primary" type="button">Kết thúc</button>
@@ -297,6 +323,43 @@
         </div>
         <div id="svc-result" class="svc-result" hidden></div>
         <div id="svc-groups"></div>
+      </section>
+
+      <!-- Thiết bị: nguồn mic / camera mặc định và thông số hình -->
+      <section id="view-devices" class="view" style="display:none">
+        <div class="title-row">
+          <div>
+            <h1>Thiết bị</h1>
+            <p class="subline">Nguồn tiếng và hình mặc định cho mọi cuộc gọi. Mỗi cuộc gọi vẫn ghi đè được ngay trong khung cuộc gọi hoặc bằng service Home Assistant. Loa không cài ở đây: app phát WAV cho thiết bị bất kỳ (loa HA, trình duyệt…).</p>
+          </div>
+        </div>
+        <form id="devices-form" class="devices-form" autocomplete="off">
+          <fieldset>
+            <legend>Mic (tiếng của mình gửi cho bên kia)</legend>
+            <label for="dev-mic-url">Nguồn mic (URL)</label>
+            <input id="dev-mic-url" type="text" placeholder="rtsp://… (camera/go2rtc) · http://HA:8123/api/r1_speaker/mic/…?k=… (loa R1) · test" spellcheck="false">
+            <label for="dev-mic-format">Định dạng</label>
+            <select id="dev-mic-format">
+              <option value="auto">Tự nhận (rtsp, http, tệp)</option>
+              <option value="s16le16k">PCM16 mono 16 kHz thô (mic loa R1)</option>
+            </select>
+            <label class="check"><input id="dev-auto-mic" type="checkbox"> Tự phát mic khi cuộc gọi được nghe máy</label>
+          </fieldset>
+          <fieldset>
+            <legend>Camera (hình của mình gửi cho bên kia)</legend>
+            <label for="dev-camera-url">Nguồn camera (URL)</label>
+            <input id="dev-camera-url" type="text" placeholder="rtsp://… (go2rtc, nên dùng luồng -sub) · http(s)://… · test" spellcheck="false">
+            <div class="dev-grid">
+              <label>Rộng <input id="dev-width" type="number" min="160" max="1280" step="2"></label>
+              <label>Cao <input id="dev-height" type="number" min="120" max="720" step="2"></label>
+              <label>Khung/giây <input id="dev-fps" type="number" min="5" max="30"></label>
+              <label>Kbps <input id="dev-bitrate" type="number" min="50" max="1500" step="10"></label>
+            </div>
+            <label class="check"><input id="dev-auto-video" type="checkbox"> Bên kia xin chuyển sang video: tự đồng ý và phát camera mặc định</label>
+          </fieldset>
+          <p id="devices-note" class="row-sub" role="status"></p>
+          <button class="btn btn-primary" type="submit">Lưu</button>
+        </form>
       </section>
 
       <footer class="sheet-foot">

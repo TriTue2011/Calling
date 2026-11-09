@@ -33,7 +33,10 @@ def test_every_catalog_service_is_declared():
     with open(os.path.join(COMP, "catalog.json"), encoding="utf-8") as f:
         names = [e["name"] for e in json.load(f)]
     missing = [n for n in names + ["make_call", "answer_call", "reject_call",
-                                   "end_call", "voice_to_text"] if n not in y]
+                                   "end_call", "voice_to_text", "upgrade_to_video",
+                                   "start_call_video", "stop_call_video",
+                                   "start_call_mic", "stop_call_mic",
+                                   "set_default_devices"] if n not in y]
     assert not missing, missing
 
 
