@@ -23,8 +23,8 @@ Rồi trên server (SSH/terminal):
 
 ```bash
 mkdir -p ~/calling && cd ~/calling
-git clone https://github.com/TriTue2011/Calling.git
-cd Calling
+git clone https://github.com/TriTue2011/Zalo-calling.git
+cd Zalo-calling
 git checkout muse/zalo-addon-pivot
 cd zalo/zalo-pc-app
 
@@ -50,7 +50,7 @@ cần quét lại QR, không cần chown gì thêm. Build lần đầu tải bas
 ## 2. Sau mỗi lần push mới
 
 ```bash
-cd ~/calling/Calling
+cd ~/calling/Zalo-calling
 git pull
 cd zalo/zalo-pc-app
 APP_VERSION=$(git rev-parse HEAD) docker compose -f docker-compose.build.yml up -d --build
@@ -97,7 +97,7 @@ thì thử, còn chắc chắn thì dùng lệnh trực tiếp ở trên.
 ## 4. Quay lại đường image cũ (nếu cần)
 
 ```bash
-cd ~/calling/Calling/zalo/zalo-pc-app
+cd ~/calling/Zalo-calling/zalo/zalo-pc-app
 docker compose -f docker-compose.build.yml down   # KHÔNG thêm -v
 ```
 
@@ -117,7 +117,7 @@ ffmpeg và lỗi 133 vẫn còn.
 ### Redeploy
 
 ```bash
-cd ~/calling/Calling
+cd ~/calling/Zalo-calling
 git pull
 cd zalo/zalo-pc-app
 APP_VERSION=$(git rev-parse HEAD) docker compose -f docker-compose.build.yml up -d --build
@@ -197,7 +197,7 @@ rebuild từ source** như mục 2 (image CI cũ không có 3 sửa này).
 ### Redeploy
 
 ```bash
-cd ~/calling/Calling
+cd ~/calling/Zalo-calling
 git pull
 cd zalo/zalo-pc-app
 APP_VERSION=$(git rev-parse HEAD) docker compose -f docker-compose.build.yml up -d --build

@@ -805,7 +805,7 @@ function cogMenu() {
     { label: "Cài đặt", icon: "cog", run: () => setTab("settings") }, "-",
     { label: "Webhook, proxy, bảo mật", icon: "db", run: () => { setTab("settings"); setTimeout(() => $("set-webhook") && $("set-webhook").scrollIntoView(), 80); } },
     { label: "Ngôn ngữ: Tiếng Việt", icon: "globe", run: () => toast("Hiện chỉ có Tiếng Việt.") },
-    { label: "Hỗ trợ", icon: "help", run: () => window.open("https://github.com/TriTue2011/calling/issues", "_blank", "noopener") }, "-",
+    { label: "Hỗ trợ", icon: "help", run: () => window.open("https://github.com/TriTue2011/Zalo-calling/issues", "_blank", "noopener") }, "-",
     { label: "Đăng xuất", icon: "logout", red: true, run: async () => { await api("/api/app/logout", "POST"); location.href = "/login"; } }], { right: true, up: true });
 }
 async function boot() {

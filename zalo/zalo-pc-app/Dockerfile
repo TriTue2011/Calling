@@ -29,7 +29,7 @@ RUN useradd -m app && mkdir -p /data && chown app:app /data
 ARG APP_VERSION=""
 ENV ZALO_PC_VERSION=${APP_VERSION}
 ENV ZALO_PC_DATA_DIR=/data ZALO_PC_HOST=0.0.0.0 ZALO_PC_PORT=8080 PYTHONUNBUFFERED=1
-LABEL org.opencontainers.image.source="https://github.com/TriTue2011/Calling" \
+LABEL org.opencontainers.image.source="https://github.com/TriTue2011/Zalo-calling" \
       org.opencontainers.image.description="Zalo PC app: goi thoai/video, tin nhan, WebUI" \
       org.opencontainers.image.version="${APP_VERSION}"
 EXPOSE 8080

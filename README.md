@@ -1,63 +1,41 @@
-# Calling — gọi Tele + Zalo (chức năng mới)
+# 📞 Zalo Calling
 
-Repo chứa code gọi cho Telegram và Zalo, chạy bằng Docker trên server.
-Nhắn tin Zalo có sẵn vẫn dùng image `zalobot` của repo has-addons;
-repo này chỉ chứa phần gọi mới.
+Gọi **thoại và video Zalo** từ Home Assistant: điện thoại đổ chuông, nghe máy xong tiếng bên kia ra **loa trong nhà**
+(R1, loa camera, `media_player`), mic loa/camera gửi sang điện thoại, video phát hình từ **camera nhà**.
 
-## Cấu trúc
+> ⚠️ App không chính thức, đăng nhập Zalo bằng mã QR. **Dùng tài khoản Zalo phụ.**
+> Telegram: xem kho riêng [Telegram-calling](https://github.com/TriTue2011/Telegram-calling).
 
-- `zalo/` — **toàn bộ phần Zalo**: app Zalo PC (gọi thoại/video, tin nhắn, WebUI) và client cũ.
-  Cài đặt, cập nhật, thiết bị loa/mic/camera: xem **`zalo/README.md`**. Image: `ghcr.io/tritue2011/zalo-calling`.
-- `custom_components/zalo_call/` — tích hợp Home Assistant cho phần Zalo (cài bằng HACS; phải ở gốc repo).
-- `telegram-gateway/` — gateway Telegram chạy Docker: FastAPI + TDLib
-  (tdjson 1.8.69) + NTgCalls, REST + web UI nội bộ, session bền qua restart.
-  Xem chi tiết trong `telegram-gateway/README.md`.
-- `.github/workflows/` — `ci.yml` (test), `release.yml` (tag `vX` → image `zalo-calling` + GitHub Release),
-  cùng workflow build image test của telegram-gateway và zalo-call-client.
+## Thêm nhanh vào Home Assistant
 
-## Image test (tự build, không cần build tay)
+Cần **2 phần**: ① app Zalo (add-on hoặc Docker) và ② tích hợp **Zalo Call** (HACS). Bấm các nút (cần
+[My Home Assistant](https://my.home-assistant.io) trỏ về HA của bạn):
 
-GitHub Actions tự build và đẩy lên GHCR mỗi khi push lên `main` hoặc bất
-kỳ nhánh `muse/*` nào, hoặc chạy tay (Run workflow). Các workflow nằm ở
-gốc repo này nên mới chạy được — trước đây file workflow nằm lồng trong
-`outbox/` của repo Giao nên GitHub không nhận.
+| Bước | Nút |
+|---|---|
+| ① Thêm kho add-on (HAOS / Supervised) | [![Thêm kho add-on](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FTriTue2011%2Fhas-addons) |
+| ② Mở tích hợp trong HACS | [![Mở trong HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TriTue2011&repository=Zalo-calling&category=integration) |
+| ③ Thêm tích hợp (sau khi tải + khởi động lại HA) | [![Thêm tích hợp](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=zalo_call) |
 
-| Thành phần | Image test |
-| --- | --- |
-| Telegram gateway | `ghcr.io/tritue2011/telegram-gateway-test:test` và `ghcr.io/tritue2011/telegram-gateway-test:test-<sha>` |
-| Zalo call client | `ghcr.io/tritue2011/zalo-call-test:test` và `ghcr.io/tritue2011/zalo-call-test:test-<sha>` |
+**Không dùng được nút?** Làm tay:
 
-Lệnh pull trên server:
+1. **App:** Cài đặt → Add-on → Cửa hàng → ⋮ → Kho lưu trữ → `https://github.com/TriTue2011/has-addons` → cài **Zalo Calling**
+   (hoặc chạy Docker: xem [hướng dẫn đầy đủ](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling/README.md#docker)).
+2. **Tích hợp (HACS 2.x):** HACS → **⋮ → Custom repositories** → dán `https://github.com/TriTue2011/Zalo-calling`,
+   **Type = Integration** → **Add** → tìm **Zalo Call** trong HACS → **Download** → khởi động lại HA.
+3. **Cài đặt → Thiết bị & Dịch vụ → Thêm tích hợp → Zalo Call**: địa chỉ app `http://<IP HA>:8080` + tài khoản WebUI.
 
-```sh
-docker pull ghcr.io/tritue2011/telegram-gateway-test:test
-docker pull ghcr.io/tritue2011/zalo-call-test:test
-```
+Hướng dẫn từng bước, cách cấu hình loa/mic/camera, gọi bằng service, lỗi thường gặp:
+**[zalo_calling/README.md](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling/README.md)** (kho has-addons).
 
-Build đa kiến trúc `linux/amd64,linux/arm64` trong 1 job bằng QEMU
-(giống 2 file workflow đã chuẩn bị trước đó). Nếu build arm64 bằng QEMU
-quá chậm thì tách job arm64 sang runner ARM thật sau.
+## Kho này gồm
 
-Chạy Telegram gateway trên server: vào `telegram-gateway/`, copy
-`.env.example` thành `.env` (sinh `GATEWAY_TOKEN` mới bằng
-`openssl rand -hex 32`, không copy `.env` từ máy khác), rồi
-`docker compose up -d`. Cổng 3333 chỉ bind loopback/LAN — tuyệt đối
-không mở ra Internet.
+| Thư mục | Là gì |
+|---|---|
+| `custom_components/zalo_call/` | Tích hợp Home Assistant (HACS bắt buộc đặt ở gốc kho; **một tích hợp mỗi kho**) |
+| `zalo/zalo-pc-app/` | App Zalo dạng PC chạy Docker: đăng nhập QR, gọi thoại/video, WebUI. Ảnh `ghcr.io/tritue2011/zalo-calling` |
+| `tests/` | Test của tích hợp (bộ test của app nằm trong `zalo/zalo-pc-app/tests/`) |
+| `.github/workflows/` | `ci.yml` (test), `release.yml` (thẻ `vX` → Release + `zalo_call.zip`), `image.yml` (thẻ `vX` → ảnh Docker) |
 
-## Phân biệt rõ
-
-- Patch module `telegram-user` cho web2api KHÔNG nằm trong repo này.
-  Patch đó vẫn nằm ở outbox repo Giao (nhánh `muse/telegram-p1`), chờ
-  gộp vào repo web2api.
-- Repo này chỉ chứa 3 thành phần chạy Docker độc lập: gateway Telegram,
-  client gọi Zalo (đường mobile) và app Zalo kiểu PC (đường QR PC).
-
-## Ràng buộc an toàn
-
-- Mọi thử nghiệm gọi chỉ dùng tài khoản phụ, tuyệt đối không dùng tài
-  khoản chính.
-- Một tài khoản MTProto Telegram không chạy cùng lúc ở cả module web2api
-  lẫn gateway Docker — mỗi đường một tài khoản phụ riêng, hoặc chỉ chạy
-  một đường tại một thời điểm.
-- Không có bí mật, token, OTP, mật khẩu, cookie hay phiên thật nào trong
-  repo này — mọi bí mật đều cấp qua biến môi trường trên server.
+Phát hành: đẩy thẻ `vX.Y.Z.N` khớp `version` trong `custom_components/zalo_call/manifest.json`.
+Chi tiết kỹ thuật của app: [`zalo/README.md`](zalo/README.md).

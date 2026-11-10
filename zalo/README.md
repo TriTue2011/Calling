@@ -1,9 +1,8 @@
 # Zalo — gọi thoại/video, tin nhắn, WebUI
 
-Thư mục này gom **toàn bộ phần Zalo** của repo Calling:
+Thư mục này gom **toàn bộ phần Zalo** của repo Zalo-calling:
 
 - `zalo-pc-app/` — app Zalo dạng PC chạy Docker (đăng nhập QR kiểu PC, tin nhắn, **gọi thoại và video có tiếng thật**, WebUI). Chi tiết: `zalo-pc-app/README.md`, báo cáo kỹ thuật `zalo-pc-app/bao-cao.md`.
-- `zalo-call-client/` — client gọi Zalo bằng Python (bản cũ theo APK mobile, chỉ ở mức signaling; app PC ở trên đã thay thế).
 - Tích hợp Home Assistant **`zalo_call`** nằm ở `../custom_components/zalo_call` (HACS bắt buộc `custom_components/` ở gốc repo).
 
 Image Docker: `ghcr.io/tritue2011/zalo-calling` (tag `vX.Y.Z` và `latest`).
@@ -14,7 +13,7 @@ Image Docker: `ghcr.io/tritue2011/zalo-calling` (tag `vX.Y.Z` và `latest`).
 
 ```sh
 mkdir zalo && cd zalo
-curl -LO https://github.com/TriTue2011/Calling/releases/latest/download/docker-compose.yml
+curl -LO https://github.com/TriTue2011/Zalo-calling/releases/latest/download/docker-compose.yml
 printf 'ZALO_PC_APP_USER=ten\nZALO_PC_APP_PASSWORD=mat-khau-dai\n' > .env
 docker compose up -d          # mở http://<máy chủ>:8080, quét QR Zalo
 docker compose pull && docker compose up -d   # cập nhật bản mới
@@ -23,7 +22,7 @@ docker compose pull && docker compose up -d   # cập nhật bản mới
 Mỗi tag `vX.Y.Z` tự dựng image `ghcr.io/tritue2011/zalo-calling:vX.Y.Z` và `:latest` (amd64 + arm64), rồi tạo
 GitHub Release. Kiểm tra bản đang chạy ở `GET /api/status` (`version`, `deps`). Có Watchtower thì tự kéo `:latest`.
 
-**2. Tích hợp Home Assistant (HACS).** HACS → ⋮ → Kho tùy chỉnh → `https://github.com/TriTue2011/Calling`
+**2. Tích hợp Home Assistant (HACS).** HACS → ⋮ → Kho tùy chỉnh → `https://github.com/TriTue2011/Zalo-calling`
 (loại *Integration*) → tải **Zalo Call** → khởi động lại HA → Cài đặt → Thiết bị & dịch vụ → Thêm tích hợp →
 *Zalo Call* (địa chỉ app, tài khoản app). Cập nhật: HACS báo khi có release mới.
 
