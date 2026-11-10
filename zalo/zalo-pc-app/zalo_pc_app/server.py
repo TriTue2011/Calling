@@ -1073,6 +1073,13 @@ def _send_a2v_async(call_id, thread_id, status):
     threading.Thread(target=run, daemon=True).start()
 
 
+# Hinh chi duoc phat sau khoang cho nay ke tu luc nghe may. Do 10/11/2026 tren dien thoai
+# that: bat hinh NGAY luc nghe may thi tin hieu «camera bat» (12006) toi truoc buoc xac nhan
+# nghe may (answerack) nen dien thoai bo qua — hinh nhay mot lan roi mat. Bat tay sau 2 s
+# (kich ban 01:40) thi hinh len on dinh.
+VIDEO_START_DELAY_S = 2.0
+
+
 def _auto_media_async(call_id):
     """Cuoc goi vua duoc nghe may: tu phat mic (va hinh neu la cuoc goi video)
     theo thiet bi mac dinh / ghi de cua cuoc goi. Khong nem loi."""
@@ -1090,6 +1097,7 @@ def _auto_media_async(call_id):
             if cfg.get("speaker_url"):
                 _start_speaker(call_id, cfg["speaker_url"])
             if (entry.get("type") or "user") == "video" and cfg["camera_url"]:
+                time.sleep(VIDEO_START_DELAY_S)
                 _start_video(call_id, cfg["camera_url"])
         except Exception as exc:  # noqa: BLE001
             _log_call("auto media call_id=%s error=%s" % (call_id, str(exc)[:100]))

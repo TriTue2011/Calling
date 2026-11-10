@@ -353,6 +353,38 @@ def test_per_call_override_is_validated_and_cleaned():
     assert sv._devices_for_call(7)["mic_url"] == "" and sv._devices_for_call(7)["camera_url"] == ""
 
 
+def test_auto_video_starts_after_delay_but_mic_and_speaker_at_once():
+    """Hinh bat ngay luc nghe may thi dien thoai bo qua tin hieu «camera bat» (do 10/11):
+    mic/loa van bat ngay, hinh chi bat sau VIDEO_START_DELAY_S."""
+    names = ("_transport_for_call", "_devices_for_call", "_start_mic", "_start_speaker",
+             "_start_video")
+    saved = {n: getattr(sv, n) for n in names}
+    saved_delay = sv.VIDEO_START_DELAY_S
+    stamps = {}
+    sv.VIDEO_START_DELAY_S = 0.4
+    sv._transport_for_call = lambda cid: object()
+    sv._devices_for_call = lambda cid: {
+        "auto_mic": True, "mic_url": "http://m/x", "mic_format": "s16le16k",
+        "speaker_url": "http://s/x", "camera_url": "test"}
+    sv._start_mic = lambda *a, **k: stamps.setdefault("mic", time.monotonic())
+    sv._start_speaker = lambda *a, **k: stamps.setdefault("speaker", time.monotonic())
+    sv._start_video = lambda *a, **k: stamps.setdefault("video", time.monotonic())
+    try:
+        sv.STATE.calls.record_start(88, "Peer", "20002", "video")
+        t0 = time.monotonic()
+        sv._auto_media_async(88)
+        deadline = t0 + 5
+        while len(stamps) < 3 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert set(stamps) == {"mic", "speaker", "video"}, stamps
+        assert stamps["mic"] - t0 < 0.3 and stamps["speaker"] - t0 < 0.3, stamps
+        assert stamps["video"] - stamps["speaker"] >= 0.35, stamps
+    finally:
+        for n, fn in saved.items():
+            setattr(sv, n, fn)
+        sv.VIDEO_START_DELAY_S = saved_delay
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
