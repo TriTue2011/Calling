@@ -11,6 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY gateway/ ./gateway/
+COPY docker-entrypoint.py /usr/local/bin/docker-entrypoint.py
 
 ENV DATA_DIR=/data
 ENV REST_PORT=3333
@@ -19,4 +20,5 @@ EXPOSE 3333
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3333/health')"
 
+ENTRYPOINT ["python", "/usr/local/bin/docker-entrypoint.py"]
 CMD ["python", "-m", "gateway.main"]

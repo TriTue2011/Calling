@@ -20,13 +20,62 @@ Pure stdlib on purpose: python:3.12-slim has no guaranteed `su` or
 `setpriv`, so the privilege drop is done with os.setgid/os.setuid.
 """
 
+import json
 import os
 import pwd
+import secrets
 import sys
 
 APP_USER = "app"
 DEFAULT_DATA_DIR = "/data"
 DEFAULT_COMMAND = ["python3", "-m", "zalo_pc_app.server"]
+# Add-on Home Assistant: Supervisor ghi tuy chon cua nguoi dung o day (chay Docker thuong thi khong co).
+ADDON_OPTIONS_FILE = "/data/options.json"
+LOGIN_INFO_NAME = "THONG-TIN-DANG-NHAP.txt"
+_PW_PREFIX = "Mat khau: "
+
+
+def _apply_addon_options(env=None, options_path=ADDON_OPTIONS_FILE, data_dir=None):
+    """Chay duoi add-on HA: doi tuy chon (username, password) thanh bien moi truong cua app.
+
+    Khong co options.json = chay Docker thuong: khong dong vao gi. Bo trong password thi tu sinh
+    mot mat khau, giu lai trong THONG-TIN-DANG-NHAP.txt (0600) cua thu muc du lieu va in ra log,
+    de khoi dong lai khong doi. Bien moi truong da dat san thang tuy chon. Tra ve mat khau vua
+    sinh/doc lai tu tep (de in log), hoac None."""
+    env = os.environ if env is None else env
+    try:
+        with open(options_path, encoding="utf-8") as fh:
+            opts = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(opts, dict):
+        return None
+    user = str(opts.get("username") or "").strip() or "admin"
+    password = str(opts.get("password") or "")
+    shown = None
+    if not password:
+        data_dir = data_dir or env.get("ZALO_PC_DATA_DIR", DEFAULT_DATA_DIR)
+        info = os.path.join(data_dir, LOGIN_INFO_NAME)
+        try:
+            with open(info, encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith(_PW_PREFIX):
+                        password = line[len(_PW_PREFIX):].strip()
+        except OSError:
+            pass
+        if not password:
+            password = secrets.token_urlsafe(12)
+            try:
+                os.makedirs(data_dir, exist_ok=True)
+                fd = os.open(info, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write("Ten dang nhap: %s\n%s%s\n" % (user, _PW_PREFIX, password))
+            except OSError as e:
+                print("entrypoint: cannot save %s: %s" % (info, e), file=sys.stderr)
+        shown = password
+    env.setdefault("ZALO_PC_APP_USER", user)
+    env.setdefault("ZALO_PC_APP_PASSWORD", password)
+    return shown
 
 
 def _fix_data_dir():
@@ -71,6 +120,11 @@ def _drop_privileges():
 
 
 def main():
+    generated = _apply_addon_options()
+    if generated:
+        print("Add-on Zalo Calling: dang nhap WebUI = %s / %s (mat khau tu sinh; doi duoc trong WebUI "
+              "hoac dat o tuy chon add-on)" % (os.environ.get("ZALO_PC_APP_USER"), generated),
+              flush=True)
     _fix_data_dir()
     _drop_privileges()
     cmd = sys.argv[1:] or DEFAULT_COMMAND

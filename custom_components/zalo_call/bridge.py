@@ -34,7 +34,9 @@ from .devices import DeviceDefaults
 
 _LOGGER = logging.getLogger(__name__)
 _PENDING_TTL = 120.0
-_VOLUME_TOLERANCE = 0.02   # loa lam tron muc am luong: coi la «chua ai chinh» neu lech it hon
+# Loa lam tron am luong theo nac cua no (R1 co 15 nac: dat 0,77 thi bao 0,80): lech it hon mot nac
+# thi coi la «chua ai chinh» va van tra lai muc cu. Do 10/11/2026: dung nguong 0,02 thi R1 khong duoc tra.
+_VOLUME_TOLERANCE = 0.07
 
 
 class _Running:

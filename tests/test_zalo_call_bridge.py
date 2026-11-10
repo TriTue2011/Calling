@@ -629,6 +629,31 @@ def test_am_luong_cung_dat_va_tra_o_loa_truc_tiep_qua_cua_bo_dam():
     asyncio.run(run())
 
 
+def test_am_luong_van_tra_lai_khi_loa_lam_tron_theo_nac():
+    """R1 chỉ có 15 nấc: đặt 77 % thì loa báo 0,8. Lệch 0,03 không phải là người dùng tự chỉnh —
+    vẫn phải trả mức cũ (đo 10/11/2026: ngưỡng 0,02 làm R1 kẹt ở mức cuộc gọi)."""
+    async def run():
+        hass, api, dd, br = _make({"speaker": "media_player.loa1", "call_volume": 77})
+        hass.states.volume["media_player.loa1"] = 11 / 15
+        br.remember(None, {})
+        await br.start(7)
+        assert hass.services.calls[0][2]["volume_level"] == 0.77
+        hass.states.volume["media_player.loa1"] = 12 / 15                       # loa làm tròn lên nấc 12
+        await br.stop(7)
+        assert hass.services.calls[-1][:2] == ("media_player", "volume_set")
+        assert abs(hass.services.calls[-1][2]["volume_level"] - 11 / 15) < 1e-9
+        # Người dùng kéo xa hơn một nấc thì vẫn không đè.
+        hass, api, dd, br = _make({"speaker": "media_player.loa1", "call_volume": 77})
+        hass.states.volume["media_player.loa1"] = 11 / 15
+        br.remember(None, {})
+        await br.start(8)
+        hass.states.volume["media_player.loa1"] = 1.0
+        n = len(hass.services.calls)
+        await br.stop(8)
+        assert [c for c in hass.services.calls[n:] if c[1] == "volume_set"] == []
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
