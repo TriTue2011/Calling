@@ -28,6 +28,12 @@ Cần **2 phần**: ① app Zalo (add-on hoặc Docker) và ② tích hợp **Za
 Hướng dẫn từng bước, cách cấu hình loa/mic/camera, gọi bằng service, lỗi thường gặp:
 **[zalo_calling/README.md](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling/README.md)** (kho has-addons).
 
+## Định dạng chữ, màu, emoji
+
+`zalo_call.send_message` nhận `format: markdown` (**đậm**, *nghiêng*, gạch chân, gạch ngang, tiêu đề, danh sách, `{red}`/`{orange}`/`{yellow}`/`{green}`, `{big}`/`{small}`),
+`auto_emphasis` (tự đổi màu + đậm cho số như 29°C, 75%), `emoji` (bảng chọn) và `auto_emoji`. Trả lời của AI tự trả lời cũng đi qua đây (ô/công tắc trên thiết bị).
+Chi tiết và ví dụ: [README add-on](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling/README.md).
+
 ## Kho này gồm
 
 | Thư mục | Là gì |

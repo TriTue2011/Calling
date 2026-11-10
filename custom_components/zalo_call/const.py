@@ -11,6 +11,11 @@ CONF_WEBHOOK_ID = "webhook_id"
 CONF_HA_URL = "ha_url"            # dia chi HA ma app 110 goi duoc (webhook)
 CONF_AI_ENABLED = "ai_enabled"    # tu tra loi tin nhan 1-1 bang tro ly AI
 CONF_AI_AGENT = "ai_agent"        # agent hoi thoai (de trong = mac dinh)
+CONF_AI_FORMAT = "ai_format"        # định dạng chữ của trả lời AI: plain | markdown (AI hay trả **đậm**, danh sách…)
+CONF_AI_EMPHASIS = "ai_emphasis"    # tự nhấn mạnh số và chữ đậm bằng màu: off | red | orange | yellow | green
+CONF_AI_EMOJI = "ai_emoji"          # tự thêm emoji hợp ngữ cảnh vào đầu từng dòng trả lời
+AI_FORMATS = ("plain", "markdown")
+AI_EMPHASIS = ("off", "red", "orange", "yellow", "green")
 CONF_AI_THREADS = "ai_threads"    # chi tra loi cac threadId nay (rong = moi 1-1)
 CONF_SPEAKER = "speaker"          # media_player phat tieng cuoc goi
 CONF_MIC = "mic"                  # nguon mic cho cuoc goi

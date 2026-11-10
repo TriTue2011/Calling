@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .bridge_core import entity_of_label, label
-from .const import (CONF_AI_AGENT, CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL, TEST_LABEL,
+from .const import (AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL, TEST_LABEL,
                     TEST_SOURCE)
 from .entity import ZaloCallEntity
 
@@ -37,6 +37,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         DeviceSelect(hass, entry, rt, CONF_AI_AGENT,
                      "Trợ lý hội thoại cho AI (Không = mặc định)", "mdi:forum",
                      ("conversation",), push=False),
+        AiOptionSelect(entry, rt, CONF_AI_FORMAT, "AI: định dạng chữ trả lời (markdown = hết dấu ** thô)",
+                       "mdi:format-text", AI_FORMATS),
+        AiOptionSelect(entry, rt, CONF_AI_EMPHASIS, "AI: tự nhấn mạnh số và chữ đậm bằng màu (off = tắt)",
+                       "mdi:palette", AI_EMPHASIS),
     ])
 
 
@@ -133,6 +137,26 @@ class EchoGuardSelect(ZaloCallEntity, SelectEntity):
         assert mode in ECHO_MODES
         await self._rt.defaults.async_set(**{CONF_ECHO_GUARD: mode})
         await self._rt.bridge.async_push_defaults()
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(self._rt.defaults.add_listener(self.async_write_ha_state))
+
+
+class AiOptionSelect(ZaloCallEntity, SelectEntity):
+    """Ô chọn một giá trị cố định cho cách AI định dạng trả lời (chỉ dùng trong HA, không cần báo app)."""
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, entry: ConfigEntry, rt, key: str, name: str, icon: str, options) -> None:
+        super().__init__(entry, key)
+        self._rt, self._key = rt, key
+        self._attr_name, self._attr_icon, self._attr_options = name, icon, list(options)
+
+    @property
+    def current_option(self) -> str:
+        return str(self._rt.defaults.get(self._key))
+
+    async def async_select_option(self, option: str) -> None:
+        await self._rt.defaults.async_set(**{self._key: option})
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(self._rt.defaults.add_listener(self.async_write_ha_state))

@@ -7,7 +7,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_AI_ENABLED, CONF_AUTO_MIC, CONF_AUTO_VIDEO, DOMAIN
+from .const import CONF_AI_EMOJI, CONF_AI_ENABLED, CONF_AUTO_MIC, CONF_AUTO_VIDEO, DOMAIN
 from .entity import ZaloCallEntity
 
 
@@ -19,7 +19,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
          AutoSwitch(entry, rt, CONF_AUTO_VIDEO,
                     "Tự đồng ý khi bên kia xin gọi video", "mdi:video-switch"),
          AutoSwitch(entry, rt, CONF_AI_ENABLED, "AI tự trả lời tin nhắn 1-1",
-                    "mdi:robot-happy", push=False)])
+                    "mdi:robot-happy", push=False),
+         AutoSwitch(entry, rt, CONF_AI_EMOJI, "AI tự thêm emoji vào trả lời",
+                    "mdi:emoticon-happy-outline", push=False)])
 
 
 class AutoSwitch(ZaloCallEntity, SwitchEntity):

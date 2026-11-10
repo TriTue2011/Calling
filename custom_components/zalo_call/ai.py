@@ -15,7 +15,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .api import ZaloCallError
-from .const import CONF_AI_AGENT, CONF_AI_ENABLED, CONF_AI_THREADS, DOMAIN
+from .const import (CONF_AI_AGENT, CONF_AI_EMOJI, CONF_AI_EMPHASIS, CONF_AI_ENABLED, CONF_AI_FORMAT, CONF_AI_THREADS,
+                    DOMAIN)
 
 _LOGGER = logging.getLogger(__name__)
 MIN_INTERVAL = 2.0        # giây giữa hai lượt trả lời cùng một người
@@ -67,7 +68,11 @@ async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
                 return_response=True)
             reply = _speech(resp)
             if reply:
-                await rt.api.thread_send("user", thread_id, reply[:MAX_REPLY])
+                emphasis = d.get(CONF_AI_EMPHASIS)
+                await rt.api.thread_send(
+                    "user", thread_id, reply[:MAX_REPLY], d.get(CONF_AI_FORMAT) or "plain",
+                    None if emphasis in (None, "", "off") else emphasis,
+                    None, bool(d.get(CONF_AI_EMOJI)))
         except ZaloCallError as err:
             _LOGGER.warning("AI không gửi được trả lời cho %s: %s", thread_id, err)
         except Exception:  # noqa: BLE001 - agent lỗi không được làm sập webhook

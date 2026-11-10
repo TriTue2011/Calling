@@ -11,7 +11,8 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .const import (CONF_AI_AGENT, CONF_AI_ENABLED, CONF_AI_THREADS, CONF_AUTO_MIC,
+from .const import (AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_AI_EMOJI, CONF_AI_EMPHASIS, CONF_AI_ENABLED,
+                    CONF_AI_FORMAT, CONF_AI_THREADS, CONF_AUTO_MIC,
                     CONF_AUTO_VIDEO, CONF_AUTO_VIDEO_DELAY, CONF_CALL_VOLUME, CONF_CAMERA,
                     CONF_ECHO_GUARD, CONF_HA_URL, CONF_MIC, CONF_MIC_URL, CONF_SPEAKER, DOMAIN,
                     ECHO_MODES, MAX_AUTO_VIDEO_DELAY, MAX_CALL_VOLUME, STORAGE_VERSION)
@@ -22,7 +23,9 @@ DEFAULTS: dict[str, Any] = {"speaker": "", "mic": "", "mic_url": "",
                             CONF_CALL_VOLUME: 0,
                             CONF_ECHO_GUARD: "auto",
                             CONF_HA_URL: "", CONF_AI_ENABLED: False,
-                            CONF_AI_AGENT: "", CONF_AI_THREADS: ""}
+                            CONF_AI_AGENT: "", CONF_AI_THREADS: "",
+                            CONF_AI_FORMAT: "markdown", CONF_AI_EMPHASIS: "off",
+                            CONF_AI_EMOJI: False}
 _TEXT_KEYS = ("speaker", "mic", "mic_url", "camera", CONF_HA_URL, CONF_AI_AGENT,
               CONF_AI_THREADS)
 # Giá trị từng nằm trong tuỳ chọn (bánh răng): lần đầu có thì nhập sang, rồi không đọc lại.
@@ -57,9 +60,13 @@ class DeviceDefaults:
                 self.data[key] = str(patch[key] or "").strip()
         if CONF_HA_URL in patch:
             self.data[CONF_HA_URL] = self.data[CONF_HA_URL].rstrip("/")
-        for key in (CONF_AUTO_MIC, CONF_AUTO_VIDEO, CONF_AI_ENABLED):
+        for key in (CONF_AUTO_MIC, CONF_AUTO_VIDEO, CONF_AI_ENABLED, CONF_AI_EMOJI):
             if key in patch:
                 self.data[key] = bool(patch[key])
+        if patch.get(CONF_AI_FORMAT) in AI_FORMATS:
+            self.data[CONF_AI_FORMAT] = patch[CONF_AI_FORMAT]
+        if patch.get(CONF_AI_EMPHASIS) in AI_EMPHASIS:
+            self.data[CONF_AI_EMPHASIS] = patch[CONF_AI_EMPHASIS]
         if patch.get(CONF_ECHO_GUARD) in ECHO_MODES:
             self.data[CONF_ECHO_GUARD] = patch[CONF_ECHO_GUARD]
         if CONF_CALL_VOLUME in patch:
