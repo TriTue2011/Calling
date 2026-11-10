@@ -33,6 +33,124 @@ send_message:
       selector:
         text: null
       example: Hello từ Home Assistant
+    format:
+      name: 'Định dạng chữ: plain (mặc định) hoặc markdown — **đậm**, *nghiêng*, __gạch chân__, ~~gạch
+        ngang~~, # tiêu đề (to + đậm), - mục / 1. mục (danh sách), {red}chữ đỏ{/} {orange} {yellow} {green}
+        (hoặc {đỏ} {cam} {vàng} {xanh}), {big}..{/} {small}..{/}'
+      description: 'Định dạng chữ: plain (mặc định) hoặc markdown — **đậm**, *nghiêng*, __gạch chân__,
+        ~~gạch ngang~~, # tiêu đề (to + đậm), - mục / 1. mục (danh sách), {red}chữ đỏ{/} {orange} {yellow}
+        {green} (hoặc {đỏ} {cam} {vàng} {xanh}), {big}..{/} {small}..{/}'
+      required: false
+      selector:
+        select:
+          options:
+          - plain
+          - markdown
+          mode: dropdown
+    auto_emphasis:
+      name: 'Tự nhấn mạnh con số (29°C, 75%, 15:30) và chữ đậm bằng màu: red, orange, yellow, green (hoặc
+        đỏ, cam, vàng, xanh) hoặc true = đỏ. Để trống = tắt'
+      description: 'Tự nhấn mạnh con số (29°C, 75%, 15:30) và chữ đậm bằng màu: red, orange, yellow, green
+        (hoặc đỏ, cam, vàng, xanh) hoặc true = đỏ. Để trống = tắt'
+      required: false
+      selector:
+        select:
+          options:
+          - red
+          - orange
+          - yellow
+          - green
+          custom_value: true
+          mode: dropdown
+    emoji:
+      name: 'Emoji chèn vào đầu tin: chọn trong bảng hoặc gõ emoji bất kỳ (🎉). Mã :ten: trong chữ (ví
+        dụ :ok:) cũng được đổi thành emoji'
+      description: 'Emoji chèn vào đầu tin: chọn trong bảng hoặc gõ emoji bất kỳ (🎉). Mã :ten: trong chữ
+        (ví dụ :ok:) cũng được đổi thành emoji'
+      required: false
+      selector:
+        select:
+          options:
+          - value: ok
+            label: ✅  ok
+          - value: x
+            label: ❌  x
+          - value: warn
+            label: ⚠️  warn
+          - value: alert
+            label: 🚨  alert
+          - value: info
+            label: ℹ️  info
+          - value: hoi
+            label: ❓  hoi
+          - value: idea
+            label: 💡  idea
+          - value: fire
+            label: 🔥  fire
+          - value: water
+            label: 💧  water
+          - value: temp
+            label: 🌡️  temp
+          - value: sun
+            label: ☀️  sun
+          - value: rain
+            label: 🌧️  rain
+          - value: moon
+            label: 🌙  moon
+          - value: door
+            label: 🚪  door
+          - value: lock
+            label: 🔒  lock
+          - value: unlock
+            label: 🔓  unlock
+          - value: bell
+            label: 🔔  bell
+          - value: home
+            label: 🏠  home
+          - value: car
+            label: 🚗  car
+          - value: wifi
+            label: 📶  wifi
+          - value: battery
+            label: 🔋  battery
+          - value: power
+            label: ⚡  power
+          - value: tv
+            label: 📺  tv
+          - value: music
+            label: 🎵  music
+          - value: camera
+            label: 📷  camera
+          - value: video
+            label: 🎥  video
+          - value: phone
+            label: 📞  phone
+          - value: time
+            label: ⏰  time
+          - value: calendar
+            label: 📅  calendar
+          - value: heart
+            label: ❤️  heart
+          - value: like
+            label: 👍  like
+          - value: clap
+            label: 👏  clap
+          - value: party
+            label: 🎉  party
+          - value: star
+            label: ⭐  star
+          - value: money
+            label: 💰  money
+          custom_value: true
+          mode: dropdown
+    auto_emoji:
+      name: Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ,
+        cửa, đèn…). Bật = true; để trống = tắt
+      description: Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt
+        độ, cửa, đèn…). Bật = true; để trống = tắt
+      required: false
+      selector:
+        boolean: null
 send_file:
   name: send_file
   description: Gửi một file bất kỳ qua URL hoặc từ đường dẫn cục bộ.
@@ -1339,64 +1457,116 @@ add_reaction:
       selector:
         select:
           options:
-          - label: Like
-            value: like
-          - label: Heart
-            value: heart
-          - label: Haha
-            value: haha
-          - label: Wow
-            value: wow
-          - label: Cry
-            value: cry
-          - label: Angry
-            value: angry
-          - label: Kiss
-            value: kiss
-          - label: Tears of Joy
-            value: tears_of_joy
-          - label: Shit
-            value: shit
-          - label: Rose
-            value: rose
-          - label: Broken Heart
-            value: broken_heart
-          - label: Dislike
-            value: dislike
-          - label: Love
-            value: love
-          - label: Confused
-            value: confused
-          - label: Wink
-            value: wink
-          - label: Fade
-            value: fade
-          - label: Sun
-            value: sun
-          - label: Birthday
-            value: birthday
-          - label: Bomb
-            value: bomb
-          - label: OK
-            value: ok
-          - label: Peace
-            value: peace
-          - label: Thanks
-            value: thanks
-          - label: Punch
-            value: punch
-          - label: Share
-            value: share
-          - label: Pray
-            value: pray
-          - label: 'No'
-            value: 'no'
-          - label: Bad
-            value: bad
-          - label: Love You
-            value: love_you
-          - label: Sad
-            value: sad
+          - value: afraid
+            label: afraid
+          - value: angry
+            label: angry
+          - value: angry_face
+            label: angry_face
+          - value: anguish
+            label: anguish
+          - value: bad
+            label: bad
+          - value: beer
+            label: beer
+          - value: big_laugh
+            label: big_laugh
+          - value: big_smile
+            label: big_smile
+          - value: birthday
+            label: birthday
+          - value: bomb
+            label: bomb
+          - value: broken_heart
+            label: broken_heart
+          - value: bye
+            label: bye
+          - value: confused
+            label: confused
+          - value: cool
+            label: cool
+          - value: cry
+            label: cry
+          - value: dig
+            label: dig
+          - value: dislike
+            label: dislike
+          - value: embarrassed
+            label: embarrassed
+          - value: f_chair
+            label: f_chair
+          - value: fade
+            label: fade
+          - value: haha
+            label: haha
+          - value: handclap
+            label: handclap
+          - value: heart
+            label: heart
+          - value: kiss
+            label: kiss
+          - value: l_chair
+            label: l_chair
+          - value: like
+            label: like
+          - value: love
+            label: love
+          - value: love_you
+            label: love_you
+          - value: nerd
+            label: nerd
+          - value: neutral
+            label: neutral
+          - value: 'no'
+            label: 'no'
+          - value: ok
+            label: ok
+          - value: peace
+            label: peace
+          - value: pray
+            label: pray
+          - value: punch
+            label: punch
+          - value: r_chair
+            label: r_chair
+          - value: rich
+            label: rich
+          - value: rose
+            label: rose
+          - value: sad
+            label: sad
+          - value: sad2
+            label: sad2
+          - value: sad_face
+            label: sad_face
+          - value: share
+            label: share
+          - value: shit
+            label: shit
+          - value: silent
+            label: silent
+          - value: sleepy
+            label: sleepy
+          - value: sun
+            label: sun
+          - value: sunglasses
+            label: sunglasses
+          - value: surprise
+            label: surprise
+          - value: tears_of_joy
+            label: tears_of_joy
+          - value: thanks
+            label: thanks
+          - value: very_sad
+            label: very_sad
+          - value: wink
+            label: wink
+          - value: wipe
+            label: wipe
+          - value: wow
+            label: wow
+          custom_value: true
+          mode: dropdown
     msg_id:
       name: ID tin nhắn
       description: ID tin nhắn cần thả cảm xúc

@@ -90,8 +90,64 @@ MUTE_ACTION_UNSET = 3
 # bundle (de dot lan sau doi chieu voi config server):
 #   2:":-(( " 3:"/-strong" 4:"/-weak" 5:"/-heart" 7:":') "
 #   8:":-* " 20:":-h" 32:":o" 65:"/-break" 66:"/-shit" 120:"/-rose"
+# Bang day du (ten -> (rType, rIcon)) lay tu zca-js 2.1.2: dist/apis/addReaction.js (rType) + dist/models/Reaction.js (rIcon),
+# trich bang script, khong go tay. Cac cap da thay trong bundle PC (ghi chu tren) KHOP voi bang nay. Chi "like" da thu live
+# tren app nay; con lai theo thu vien (cung endpoint 12410/12411) — chua thu live.
 REACTION_ICONS = {
-    "like": (3, "/-strong"),
+    'haha': (0, ':>'),
+    'like': (3, '/-strong'),
+    'heart': (5, '/-heart'),
+    'wow': (32, ':o'),
+    'cry': (2, ':-(('),
+    'angry': (20, ':-h'),
+    'kiss': (8, ':-*'),
+    'tears_of_joy': (7, ":')"),
+    'shit': (66, '/-shit'),
+    'rose': (120, '/-rose'),
+    'broken_heart': (65, '/-break'),
+    'dislike': (4, '/-weak'),
+    'love': (29, ';xx'),
+    'confused': (51, ';-/'),
+    'wink': (45, ';-)'),
+    'fade': (121, '/-fade'),
+    'sun': (67, '/-li'),
+    'birthday': (126, '/-bd'),
+    'bomb': (127, '/-bome'),
+    'ok': (68, '/-ok'),
+    'peace': (69, '/-v'),
+    'thanks': (70, '/-thanks'),
+    'punch': (71, '/-punch'),
+    'share': (72, '/-share'),
+    'pray': (73, '_()_'),
+    'no': (131, '/-no'),
+    'bad': (132, '/-bad'),
+    'love_you': (133, '/-loveu'),
+    'sad': (1, '--b'),
+    'very_sad': (16, ':(('),
+    'cool': (21, 'x-)'),
+    'nerd': (22, '8-)'),
+    'big_smile': (23, ';-d'),
+    'sunglasses': (26, 'b-)'),
+    'neutral': (30, ':--|'),
+    'sad_face': (35, 'p-('),
+    'bye': (36, ':-bye'),
+    'sleepy': (38, '|-)'),
+    'wipe': (39, ':wipe'),
+    'dig': (42, ':-dig'),
+    'anguish': (44, '&-('),
+    'handclap': (46, ':handclap'),
+    'angry_face': (47, '>-|'),
+    'f_chair': (48, ':-f'),
+    'l_chair': (49, ':-l'),
+    'r_chair': (50, ':-r'),
+    'silent': (52, ';-x'),
+    'surprise': (53, ':-o'),
+    'embarrassed': (54, ';-s'),
+    'afraid': (60, ';-a'),
+    'sad2': (61, ':-<'),
+    'big_laugh': (62, ':))'),
+    'rich': (63, '$-)'),
+    'beer': (99, '/-beer'),
 }
 # Loai tin mac dinh khi react (module "1pet": MSG_TEXT=1) — gia
 # dinh tin duoc react la tin text; truyen msg_type neu khac.
@@ -622,12 +678,9 @@ def _b_reaction(p, tid, tt):
         r_type = p.get("r_type")
         if not r_icon or r_type in (None, ""):
             raise ValueError(
-                "add_reaction: icon %r chưa có map (rIcon, rType) "
-                "đã xác minh — chỉ có 'like' (rType 3, "
-                "rIcon '/-strong'); các icon khác cần truyền "
-                "r_icon/r_type trực tiếp (bảng icon nằm trong "
-                "config server reactionMsgInfo, chưa lần được)"
-                % icon)
+                "add_reaction: icon %r không có trong bảng (%s); "
+                "hoặc truyền r_icon + r_type trực tiếp"
+                % (icon, ", ".join(sorted(REACTION_ICONS))))
         try:
             r_type = int(r_type)
         except (TypeError, ValueError):

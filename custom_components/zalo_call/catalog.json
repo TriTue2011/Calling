@@ -13,6 +13,26 @@
     "key": "message",
     "label": "Nội dung tin nhắn",
     "required": true
+   },
+   {
+    "key": "format",
+    "label": "Định dạng chữ: plain (mặc định) hoặc markdown — **đậm**, *nghiêng*, __gạch chân__, ~~gạch ngang~~, # tiêu đề (to + đậm), - mục / 1. mục (danh sách), {red}chữ đỏ{/} {orange} {yellow} {green} (hoặc {đỏ} {cam} {vàng} {xanh}), {big}..{/} {small}..{/}",
+    "required": false
+   },
+   {
+    "key": "auto_emphasis",
+    "label": "Tự nhấn mạnh con số (29°C, 75%, 15:30) và chữ đậm bằng màu: red, orange, yellow, green (hoặc đỏ, cam, vàng, xanh) hoặc true = đỏ. Để trống = tắt",
+    "required": false
+   },
+   {
+    "key": "emoji",
+    "label": "Emoji chèn vào đầu tin: chọn trong bảng hoặc gõ emoji bất kỳ (🎉). Mã :ten: trong chữ (ví dụ :ok:) cũng được đổi thành emoji",
+    "required": false
+   },
+   {
+    "key": "auto_emoji",
+    "label": "Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ, cửa, đèn…). Bật = true; để trống = tắt",
+    "required": false
    }
   ]
  },

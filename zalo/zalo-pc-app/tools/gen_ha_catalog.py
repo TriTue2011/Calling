@@ -25,7 +25,17 @@ from zalo_pc_app import services as S  # noqa: E402
 
 # 11 service gui tin: truong rieng cua tich hop (khong co trong catalog app).
 CHAT_FIELDS = {
-    "send_message": [("message", "Nội dung tin nhắn", True)],
+    "send_message": [
+        ("message", "Nội dung tin nhắn", True),
+        ("format", "Định dạng chữ: plain (mặc định) hoặc markdown — **đậm**, *nghiêng*, __gạch chân__, ~~gạch ngang~~, "
+                   "# tiêu đề (to + đậm), - mục / 1. mục (danh sách), {red}chữ đỏ{/} {orange} {yellow} {green} "
+                   "(hoặc {đỏ} {cam} {vàng} {xanh}), {big}..{/} {small}..{/}", False),
+        ("auto_emphasis", "Tự nhấn mạnh con số (29°C, 75%, 15:30) và chữ đậm bằng màu: red, orange, yellow, green "
+                          "(hoặc đỏ, cam, vàng, xanh) hoặc true = đỏ. Để trống = tắt", False),
+        ("emoji", "Emoji chèn vào đầu tin: chọn trong bảng hoặc gõ emoji bất kỳ (🎉). Mã :ten: trong chữ (ví dụ :ok:) "
+                  "cũng được đổi thành emoji", False),
+        ("auto_emoji", "Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ, cửa, đèn…). "
+                       "Bật = true; để trống = tắt", False)],
     "send_file": [("file", "Đường dẫn tệp trong HA hoặc URL", True)],
     "send_image": [("file", "Ảnh (đường dẫn trong HA hoặc URL)", True)],
     "send_image_to_user": [("file", "Ảnh (đường dẫn hoặc URL)", True)],
@@ -50,6 +60,31 @@ ACCT = {
     "remove_proxy": [], "get_login_qr": [],
 }
 
+
+def _emoji_options():
+    from zalo_pc_app import rich_text
+    seen, opts = set(), []
+    for name, ch in rich_text.EMOJI.items():
+        if ch in seen:
+            continue                                   # một biểu tượng, một dòng chọn (tên đầu tiên trong bảng)
+        seen.add(ch)
+        opts.append({"value": name, "label": "%s  %s" % (ch, name)})
+    return opts
+
+
+def _reaction_options():
+    return [{"value": n, "label": n} for n in sorted(S.REACTION_ICONS)]
+
+
+# Truong co danh sach chon (select) thay cho o go chu: bang emoji va bang bieu tuong cam xuc.
+SELECTOR_OVERRIDES = {
+    ("send_message", "emoji"): {"select": {"options": _emoji_options(), "custom_value": True, "mode": "dropdown"}},
+    ("send_message", "auto_emoji"): {"boolean": None},
+    ("send_message", "format"): {"select": {"options": ["plain", "markdown"], "mode": "dropdown"}},
+    ("send_message", "auto_emphasis"): {"select": {"options": ["red", "orange", "yellow", "green"], "custom_value": True,
+                                                  "mode": "dropdown"}},
+    ("add_reaction", "icon"): {"select": {"options": _reaction_options(), "custom_value": True, "mode": "dropdown"}},
+}
 
 ENTRY_ID_FIELD = {
     "name": "Tài khoản Zalo Call",
@@ -210,6 +245,9 @@ def main():
                 "selector": {"select": {"options": ["user", "group"]}}}
         for f in e["fields"]:
             fields[f["key"]] = _field_entry(e["name"], f, meta)
+            sel = SELECTOR_OVERRIDES.get((e["name"], f["key"]))
+            if sel:
+                fields[f["key"]]["selector"] = sel
         doc[e["name"]] = {"name": e["label"].split(" — ")[0]
                           if e["kind"] == "zca" else e["label"],
                           "description": desc,

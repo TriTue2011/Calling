@@ -100,6 +100,7 @@ from . import events as events_mod
 from . import proxy_store as proxy_store_mod
 from . import protocol
 from . import qr_login
+from . import rich_text
 from . import services as services_mod
 from . import session as session_mod
 from . import signaling as signaling_mod
@@ -2948,6 +2949,17 @@ def _photo_bundle_from_fields(fields):
 STATE = AppState(DATA_DIR)
 
 
+def _link_preview(link):
+    """(tiêu đề, mô tả, ảnh) xem trước của liên kết, lấy từ chính Zalo (dịch vụ parse_link) như app thật làm trước khi gửi.
+    Zalo từ chối (114) liên kết gửi lên thiếu tiêu đề/mô tả. Không lấy được thì trả rỗng để việc gửi vẫn thử như cũ."""
+    try:
+        status, obj = services_mod.handle_svc(STATE, "parse_link", {"link": link})
+        d = ((obj.get("data") or {}).get("data") or {}) if status == 200 and isinstance(obj, dict) else {}
+        return str(d.get("title") or ""), str(d.get("desc") or ""), str(d.get("thumb") or "")
+    except Exception:  # noqa: BLE001 - xem trước chỉ là bổ trợ, không được làm hỏng việc gửi
+        return "", "", ""
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -3682,8 +3694,30 @@ class Handler(BaseHTTPRequestHandler):
         try:
             chat = self._chat_client(sess)
             if action == "send":
-                message = (body.get("message") or "").strip()
-                if not message:
+                raw_msg = body.get("message") or ""
+                styles = None
+                fmt = str(body.get("format") or "plain").strip().lower()
+                auto_emoji = str(body.get("auto_emoji") or "").strip().lower() \
+                    not in ("", "0", "false", "off", "no", "none")
+                if fmt != "plain" or body.get("auto_emphasis") \
+                        or body.get("styles") or body.get("emoji") \
+                        or auto_emoji:
+                    # Dinh dang chu: markdown nhe / tu nhan manh so bang mau /
+                    # styles tu tinh (rich_text.py). Sai tham so -> 400 ro rang,
+                    # khong gui mu (Zalo im lang bo qua ma style la).
+                    try:
+                        message, styles = rich_text.render(
+                            raw_msg, fmt,
+                            rich_text.normalize_emphasis(
+                                body.get("auto_emphasis")),
+                            body.get("styles"), body.get("emoji"),
+                            auto_emoji)
+                    except ValueError as exc:
+                        return self._send_json({"error": str(exc)},
+                                               status=400)
+                else:
+                    message = raw_msg.strip()
+                if not message.strip():
                     return self._send_json({"error": "message rong"},
                                            status=400)
                 try:
@@ -3691,7 +3725,7 @@ class Handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     ttl = 0
                 res = chat.send_text(thread_type, thread_id, message,
-                                     ttl=ttl)
+                                     ttl=ttl, styles=styles)
                 local = STATE.chat_store.local_message(
                     thread_type, thread_id, "text", text=message,
                     client_id=res["client_id"])
@@ -3710,12 +3744,16 @@ class Handler(BaseHTTPRequestHandler):
                     ttl = int(body.get("ttl") or 0)
                 except (TypeError, ValueError):
                     ttl = 0
+                title = body.get("title") or ""
+                desc = body.get("desc") or ""
+                thumb = body.get("thumbnail") or body.get("thumb") or ""
+                if not (title or desc):
+                    title, desc, thumb_pv = _link_preview(link)
+                    thumb = thumb or thumb_pv
                 res = chat.send_link(
                     thread_type, thread_id, link,
                     message=body.get("message") or "",
-                    title=body.get("title") or "",
-                    desc=body.get("desc") or "",
-                    thumb=body.get("thumbnail") or "", ttl=ttl)
+                    title=title, desc=desc, thumb=thumb, ttl=ttl)
                 local = STATE.chat_store.local_message(
                     thread_type, thread_id, "text",
                     text=body.get("message") or link,

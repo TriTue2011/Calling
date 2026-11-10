@@ -90,7 +90,9 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
     elif name.endswith("_to_group"):
         ttype = "group"
     if name == "send_message":
-        return await api.thread_send(ttype, tid, str(d["message"]))
+        return await api.thread_send(ttype, tid, str(d["message"]), d.get("format"),
+                                     d.get("auto_emphasis"), d.get("emoji"),
+                                     d.get("auto_emoji"))
     if name == "send_link":
         return await api.thread_sendlink(ttype, tid, str(d["link"]),
                                          str(d.get("message") or ""))

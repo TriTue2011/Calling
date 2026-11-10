@@ -89,10 +89,20 @@ class ZaloCallApi:
         return res.get("data", res) if isinstance(res, dict) else res
 
     # -- tin nhan -----------------------------------------------------------
-    async def thread_send(self, ttype: str, thread_id: str, message: str) -> Any:
+    async def thread_send(self, ttype: str, thread_id: str, message: str,
+                          fmt: str | None = None,
+                          auto_emphasis: Any = None,
+                          emoji: str | None = None,
+                          auto_emoji: Any = None) -> Any:
+        body: dict[str, Any] = {"type": ttype, "message": message}
+        if fmt:
+            body["format"] = str(fmt)
+        for key, val in (("auto_emphasis", auto_emphasis), ("emoji", emoji),
+                         ("auto_emoji", auto_emoji)):
+            if val not in (None, "", False):
+                body[key] = val
         return await self._request(
-            "POST", "/api/thread/%s/send" % thread_id,
-            json={"type": ttype, "message": message})
+            "POST", "/api/thread/%s/send" % thread_id, json=body)
 
     async def thread_sendlink(self, ttype: str, thread_id: str, link: str,
                               message: str = "") -> Any:

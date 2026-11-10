@@ -138,7 +138,7 @@ import unicodedata
 import urllib.parse
 import uuid
 
-from . import protocol
+from . import protocol, rich_text
 from .crypto import decode_postlogin_data, session_aes_encrypt
 
 CHAT_DOMAIN = "https://chat-wpa.zalo.me"
@@ -1011,7 +1011,7 @@ class Chat:
 
     # -- gui text --------------------------------------------------------
     def send_text(self, thread_type, thread_id, message,
-                  visibility=0, ttl=0):
+                  visibility=0, ttl=0, styles=None):
         """11151 (1-1) / 11163 (nhom). Body {message, clientId:
         NUMBER, imei, toid|grid, visibility (nhom), ttl} — ttl =
         ms tu xoa cua hoi thoai, 0 = khong tu xoa (SERVICE-MAP.md
@@ -1020,17 +1020,21 @@ class Chat:
         if not message or not str(message).strip():
             raise ValueError("chat: message rong")
         client_id = _new_client_id()
+        # Dinh dang chu (dam/nghieng/mau/co): textProperties = {"styles":[{start,len,st}],"ver":0}, start/len tinh theo
+        # UTF-16, dung cach zca-js 2.1.2 (sendMessage.js handleStyles) va add-on zalo_bot cu. Xem rich_text.py.
+        extra = {"textProperties": rich_text.text_properties(
+            rich_text.validate_styles(message, styles))} if styles else {}
         if thread_type == "group":
             body = {"message": message, "clientId": client_id,
                     "imei": self.device_id, "visibility": visibility,
-                    "grid": str(thread_id), "ttl": int(ttl)}
+                    "grid": str(thread_id), "ttl": int(ttl), **extra}
             url = _url_with_params(GROUP_DOMAIN, "/api/group/sendmsg",
                                    body, self.zpw_enk)
             data = self._get(url, "GET /api/group/sendmsg")
         else:
             body = {"message": message, "clientId": client_id,
                     "imei": self.device_id, "toid": str(thread_id),
-                    "ttl": int(ttl)}
+                    "ttl": int(ttl), **extra}
             url = _url_with_params(CHAT_DOMAIN, "/api/message/sms",
                                    body, self.zpw_enk)
             data = self._get(url, "GET /api/message/sms")

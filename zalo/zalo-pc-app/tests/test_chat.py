@@ -533,6 +533,69 @@ def test_server_thread_routes():
                                 {"type": "user", "link": "   "})
         assert status == 400, body
 
+        # Dinh dang chu: markdown + tu nhan manh -> textProperties (UTF-16) den Chat.send_text,
+        # ca 1-1 lan nhom; styles sai -> 400, khong gui.
+        got = []
+        real_send_text = chat_mod.Chat.send_text
+
+        def spy_send_text(self, thread_type, thread_id, message, **kw):
+            got.append((thread_type, message, kw.get("styles")))
+            return real_send_text(self, thread_type, thread_id, message, **kw)
+        chat_mod.Chat.send_text = spy_send_text
+        try:
+            status, body = api_json("POST", "/api/thread/20001/send", {
+                "type": "user", "message": "Nhiet do **29C** va 75%", "format": "markdown", "auto_emphasis": "cam"})
+            assert status == 200 and got[-1][1] == "Nhiet do 29C va 75%", (status, got)
+            assert got[-1][2] == [{"start": 9, "len": 3, "st": "c_f27806,b"},
+                                  {"start": 16, "len": 3, "st": "c_f27806,b"}], got[-1]
+            assert body["message"]["text"] == "Nhiet do 29C va 75%", body
+            status, body = api_json("POST", "/api/thread/30001/send", {
+                "type": "group", "message": "Xin chao", "styles": [{"start": 0, "len": 3, "st": "b"}]})
+            assert status == 200 and got[-1][2] == [{"start": 0, "len": 3, "st": "b"}], got[-1]
+            n = len(got)
+            for bad in ({"message": "abc", "styles": [{"start": 0, "len": 3, "st": "f_20"}]},
+                        {"message": "abc", "format": "html"},
+                        {"message": "abc", "auto_emphasis": "tim"},
+                        {"message": "{red}{/}", "format": "markdown"}):      # chi con the -> khong con chu -> rong
+                status, body = api_json("POST", "/api/thread/20001/send", dict(bad, type="user"))
+                assert status == 400 and "error" in body, (bad, status, body)
+            assert len(got) == n, "request sai khong duoc tới Zalo"
+        finally:
+            chat_mod.Chat.send_text = real_send_text
+
+        # Link thieu title/desc: Zalo tu choi (114) -> app tu lay xem truoc
+        # tu dich vu parse_link, co title tu truyen thi giu nguyen, parse_link
+        # hong thi van gui nhu cu (khong lam hong viec gui).
+        sent = []
+        real_send_link = chat_mod.Chat.send_link
+        real_handle = app_server.services_mod.handle_svc
+
+        def spy_send_link(self, thread_type, thread_id, href, **kw):
+            sent.append(kw)
+            return real_send_link(self, thread_type, thread_id, href, **kw)
+        chat_mod.Chat.send_link = spy_send_link
+        try:
+            app_server.services_mod.handle_svc = lambda st, action, b, **k: (
+                200, {"ok": True, "data": {"data": {
+                    "title": "Tieu de PV", "desc": "Mo ta PV", "thumb": "https://x/t.jpg"}}})
+            status, body = api_json("POST", "/api/thread/20001/sendlink",
+                                    {"type": "user", "link": "https://example.invalid/c"})
+            assert status == 200 and sent[-1]["title"] == "Tieu de PV" \
+                and sent[-1]["desc"] == "Mo ta PV" \
+                and sent[-1]["thumb"] == "https://x/t.jpg", sent
+            api_json("POST", "/api/thread/20001/sendlink",
+                     {"type": "user", "link": "https://example.invalid/d", "title": "Tu dat"})
+            assert sent[-1]["title"] == "Tu dat", sent
+            def boom(*a, **k):
+                raise RuntimeError("parse_link hong")
+            app_server.services_mod.handle_svc = boom
+            status, body = api_json("POST", "/api/thread/20001/sendlink",
+                                    {"type": "user", "link": "https://example.invalid/e"})
+            assert status == 200 and sent[-1]["title"] == "" and sent[-1]["desc"] == "", (status, sent)
+        finally:
+            chat_mod.Chat.send_link = real_send_link
+            app_server.services_mod.handle_svc = real_handle
+
         # Dinh kem file (multipart) 1-1 + anh nhom (kind=photo).
         mbody, mctype = chat_mod.build_multipart(
             {"type": "user"},
