@@ -463,7 +463,42 @@ def test_push_defaults_to_app_with_resolved_urls():
         H["urls"].pop("camera.cam2")
         api.pushed.clear()
         await br.async_push_defaults()
-        assert api.pushed[0]["camera_url"] == ""
+        # Camera DA CHON nhung chua co stream (HA moi khoi dong): KHONG gui rong de khong ghi de gia tri dang dung cua app.
+        assert "camera_url" not in api.pushed[0], api.pushed[0]
+        assert br.policy.pushed_ok is False                      # chua xong: coordinator se thu lai
+    asyncio.run(run())
+
+
+def test_push_camera_chua_san_sang_tu_hoi_phuc_va_chi_gui_rong_khi_bo_chon():
+    async def run():
+        hass, api, dd, br = _make({"camera": "camera.cam2", "auto_video": True})
+        H["urls"].pop("camera.cam2")                              # camera chua nap xong luc HA khoi dong
+        await br.async_push_defaults()
+        assert "camera_url" not in api.pushed[-1] and br.policy.pushed_ok is False
+        assert api.pushed[-1]["auto_video_on_request"] is True    # cac truong khac van duoc gui
+        H["urls"]["camera.cam2"] = "rtsp://cam2.local/s"          # camera da san sang -> lan thu lai thanh cong
+        await br.async_push_defaults()
+        assert api.pushed[-1]["camera_url"] == "rtsp://cam2.local/s" and br.policy.pushed_ok is True
+        # Nguoi dung THAT SU bo chon camera -> gui rong de app tat hinh.
+        await dd.async_set(camera="")
+        await br.async_push_defaults()
+        assert api.pushed[-1]["camera_url"] == "" and br.policy.pushed_ok is True
+        # «Hinh kiem tra» khong can camera nao -> khong bi coi la thieu.
+        await dd.async_set(camera="test")
+        await br.async_push_defaults()
+        assert api.pushed[-1]["camera_url"] == "test" and br.policy.pushed_ok is True
+    asyncio.run(run())
+
+
+def test_push_camera_khong_bao_gio_co_stream_thi_thoi_thu_lai_sau_gioi_han():
+    async def run():
+        hass, api, dd, br = _make({"camera": "camera.cam2"})
+        H["urls"].pop("camera.cam2")
+        for _ in range(bridge_mod._PUSH_THIEU_TOI_DA - 1):
+            await br.async_push_defaults()
+            assert br.policy.pushed_ok is False
+        await br.async_push_defaults()                           # lan thu toi da -> thoi, khong lap mai
+        assert br.policy.pushed_ok is True and "camera_url" not in api.pushed[-1]
     asyncio.run(run())
 
 

@@ -34,6 +34,7 @@ from .devices import DeviceDefaults
 
 _LOGGER = logging.getLogger(__name__)
 _PENDING_TTL = 120.0
+_PUSH_THIEU_TOI_DA = 30   # so lan thu lai (moi ~10 s, ~5 phut) khi thiet bi da chon chua phan giai duoc
 # Loa lam tron am luong theo nac cua no (R1 co 15 nac: dat 0,77 thi bao 0,80): lech it hon mot nac
 # thi coi la «chua ai chinh» va van tra lai muc cu. Do 10/11/2026: dung nguong 0,02 thi R1 khong duoc tra.
 _VOLUME_TOLERANCE = 0.07
@@ -54,6 +55,7 @@ class CallAudioBridge:
         self._running: dict[str, _Running] = {}
         self.policy = PushPolicy()
         self._pushing = False
+        self._push_thieu_lan = 0
 
     # -- thiet bi cua mot cuoc goi -----------------------------------------
     def remember(self, call_id: Any, override: dict[str, Any]) -> None:
@@ -217,21 +219,47 @@ class CallAudioBridge:
             self._pushing = False
 
     async def _async_push(self) -> None:
-        res = await self.async_resolve(self.devices_for(),
-                                       str(self.defaults.get("echo_guard") or "auto"))
+        devices = self.devices_for()
+        res = await self.async_resolve(devices, str(self.defaults.get("echo_guard") or "auto"))
+        payload = {
+            "mic_url": res["mic_url"], "mic_format": res["mic_format"],
+            "camera_url": res["camera_url"], "speaker_url": res["speaker_url"],
+            "echo_guard": res["echo_guard"] == "true",
+            "auto_mic": bool(self.defaults.get("auto_mic")),
+            "auto_video_on_request": bool(self.defaults.get("auto_video")),
+            "auto_video_delay": int(self.defaults.get("auto_video_delay") or 0)}
+        # Thiet bi DA CHON nhung chua phan giai duoc (camera chua nap xong luc HA khoi dong: «Camera not found»):
+        # KHONG gui rong de ghi de gia tri dang dung cua app (do 10/11/2026: HA khoi dong lai lam camera mac dinh cua
+        # app ve trong). Bo truong do khoi goi (app giu gia tri cu) va danh dau chua xong de coordinator tu thu lai.
+        # Chi gui rong khi nguoi dung THAT SU bo chon (khong chon thiet bi nao).
+        cam_id = entity_of_label(devices.get("camera", ""))
+        mic_id = entity_of_label(devices.get("mic", ""))
+        thieu: list[str] = []
+        if cam_id and cam_id != TEST_SOURCE and not res["camera_url"]:
+            payload.pop("camera_url")
+            thieu.append("camera")
+        if not devices.get("mic_url") and mic_id.startswith("camera.") and not res["mic_url"]:
+            payload.pop("mic_url")
+            payload.pop("mic_format")
+            thieu.append("mic")
         try:
-            await self.api.devices_set({
-                "mic_url": res["mic_url"], "mic_format": res["mic_format"],
-                "camera_url": res["camera_url"], "speaker_url": res["speaker_url"],
-                "echo_guard": res["echo_guard"] == "true",
-                "auto_mic": bool(self.defaults.get("auto_mic")),
-                "auto_video_on_request": bool(self.defaults.get("auto_video")),
-                "auto_video_delay": int(self.defaults.get("auto_video_delay") or 0)})
+            await self.api.devices_set(payload)
         except ZaloCallError as err:
             self.policy.pushed(False)
             _LOGGER.warning("Khong dua duoc thiet bi mac dinh cho app (se thu lai): %s", err)
-        else:
+            return
+        if not thieu:
+            self._push_thieu_lan = 0
             self.policy.pushed(True)
+            return
+        self._push_thieu_lan += 1
+        if self._push_thieu_lan >= _PUSH_THIEU_TOI_DA:
+            # Camera bi xoa han / khong bao gio co stream: thoi thu lai, nhung noi ro de nguoi dung sua.
+            _LOGGER.warning("Khong phan giai duoc %s da chon sau %d lan thu; giu gia tri cu cua app. Chon lai thiet bi "
+                            "hoac kiem tra thuc the.", ", ".join(thieu), self._push_thieu_lan)
+            self.policy.pushed(True)
+        else:
+            self.policy.pushed(False)
 
     # -- loa -----------------------------------------------------------------
     async def start(self, call_id: Any) -> dict[str, str]:
