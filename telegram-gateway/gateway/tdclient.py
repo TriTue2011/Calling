@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 
@@ -84,6 +85,106 @@ class _RealTdjsonTransport:
         return tdjson.td_execute(data)
 
 
+_SHARED_TRANSPORT = _RealTdjsonTransport()      # td_receive là hàm toàn cục: mọi client dùng chung MỘT transport
+
+
+class TdPump:
+    """MỘT luồng duy nhất gọi ``td_receive`` cho mọi client dùng chung transport.
+
+    ``td_receive`` của TDLib trả tin của MỌI client trong tiến trình; nếu mỗi client tự gọi nó
+    (kiểu cũ) thì client này nhận mất tin của client kia, và tin mới (``updateNewMessage``...) chỉ
+    được nhận khi có lệnh đang chờ. Luồng này: phản hồi (có ``@extra`` đang chờ) trả cho đúng
+    người gọi; còn lại là update, giao cho client theo ``@client_id`` (transport giả không có
+    ``@client_id`` thì giao cho client duy nhất). Luồng tự thoát khi không còn client và lệnh chờ."""
+
+    def __init__(self, transport):
+        self.transport = transport
+        self._lock = threading.Lock()
+        self._waiters: dict[str, list] = {}
+        self._clients: dict[int, "TdlibClient"] = {}
+        self._thread: threading.Thread | None = None
+
+    def register(self, client_id: int, client: "TdlibClient") -> None:
+        with self._lock:
+            self._clients[client_id] = client
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._loop, name="td-pump", daemon=True)
+                self._thread.start()
+
+    def unregister(self, client_id: int) -> None:
+        with self._lock:
+            self._clients.pop(client_id, None)
+
+    def request(self, client_id: int, req: dict, timeout: float) -> dict:
+        extra = uuid.uuid4().hex
+        waiter = [threading.Event(), None]
+        with self._lock:
+            self._waiters[extra] = waiter
+        body = dict(req)
+        body["@extra"] = extra
+        self.transport.send(client_id, tdjson_bytes(body))
+        if not waiter[0].wait(timeout):
+            with self._lock:
+                self._waiters.pop(extra, None)
+            raise TimeoutError(f"TDLib không trả lời request {req.get('@type')}")
+        return waiter[1]
+
+    def _loop(self) -> None:
+        while True:
+            with self._lock:
+                if not self._clients and not self._waiters:
+                    self._thread = None
+                    return
+            t0 = time.time()
+            try:
+                raw = self.transport.receive(1.0)
+            except Exception:  # noqa: BLE001
+                logger.exception("td_receive lỗi")
+                time.sleep(0.5)
+                continue
+            if raw is None:
+                if time.time() - t0 < 0.05:        # transport giả trả None ngay: đừng quay vòng 100% CPU
+                    time.sleep(0.02)
+                continue
+            try:
+                obj = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                continue
+            self._route(obj)
+
+    def _route(self, obj: dict) -> None:
+        extra = obj.get("@extra")
+        if extra is not None:
+            with self._lock:
+                waiter = self._waiters.pop(extra, None)
+            if waiter is not None:
+                waiter[1] = obj
+                waiter[0].set()
+                return
+        cid = obj.get("@client_id")
+        with self._lock:
+            client = self._clients.get(cid)
+            if client is None and cid is None and len(self._clients) == 1:
+                client = next(iter(self._clients.values()))
+        if client is not None:
+            try:
+                client._dispatch_update(obj)
+            except Exception:  # noqa: BLE001
+                logger.exception("xử lý update TDLib lỗi (đã nuốt, không sập luồng nhận)")
+
+
+_PUMPS: dict[int, TdPump] = {}
+_PUMPS_LOCK = threading.Lock()
+
+
+def get_pump(transport) -> TdPump:
+    with _PUMPS_LOCK:
+        pump = _PUMPS.get(id(transport))
+        if pump is None or pump.transport is not transport:
+            pump = _PUMPS[id(transport)] = TdPump(transport)
+        return pump
+
+
 class TdlibClient:
     """Một client TDLib cho một tài khoản (đồng bộ, dùng td_receive).
 
@@ -100,12 +201,13 @@ class TdlibClient:
         self.key_path = os.path.join(session_dir, "khoa")
         self.api_id = int(api_id)
         self.api_hash = api_hash
-        self._transport = transport or _RealTdjsonTransport()
+        self._transport = transport or _SHARED_TRANSPORT
+        self._pump = get_pump(self._transport)
         self.on_update = on_update
         self.client_id: int | None = None
-        self._buffered_updates: list[dict] = []
         self.qr_link: str = ""
         self._auth_state: str = ""
+        self._closed = threading.Event()
 
     # -- vòng đời ------------------------------------------------------
     def open(self) -> None:
@@ -117,7 +219,9 @@ class TdlibClient:
             os.chmod(self.files_dir, 0o700)
         except OSError:
             pass
+        self._closed.clear()
         self.client_id = self._transport.create_client_id()
+        self._pump.register(self.client_id, self)
         try:        # TDLib mặc định ghi log rất dài ra stdout: chỉ giữ lỗi
             self._transport.execute(tdjson_bytes(
                 {"@type": "setLogVerbosityLevel", "new_verbosity_level": 1}))
@@ -143,8 +247,8 @@ class TdlibClient:
             "application_version": "0.1.0",
         })
         # Client ở WaitPhoneNumber / WaitCode / Ready tùy session cũ còn hạn hay không;
-        # trạng thái đọc qua getAuthorizationState.
-        self._auth_state = self.authorization_state()
+        # trạng thái đọc qua getAuthorizationState (update tới qua luồng nhận chung).
+        self._auth_state = self.authorization_state() or self._auth_state
 
     def _read_key(self) -> bytes:
         try:
@@ -168,57 +272,27 @@ class TdlibClient:
             self.call({"@type": "close"})
         except Exception:
             pass
-        deadline = time.time() + timeout
-        while time.time() < deadline and self._auth_state != "authorizationStateClosed":
-            try:
-                raw = self._transport.receive(max(0.0, min(0.5, deadline - time.time())))
-            except Exception:  # noqa: BLE001
-                break
-            if raw is None:
-                continue
-            try:
-                obj = json.loads(raw.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
-                continue
-            if obj.get("@type") == "updateAuthorizationState":
-                self._dispatch_update(obj)
+        self._closed.wait(timeout)
+        self._pump.unregister(self.client_id)
         self.client_id = None
 
     def refresh_auth(self) -> tuple[str, str]:
         """(trạng thái đăng nhập, link QR hiện hành). Hai lần hỏi để nhận cả update đến muộn;
         link QR mới (Telegram đổi mã ~30 giây) được ghi vào ``qr_link`` khi update tới."""
-        state = self.authorization_state()
-        state = self.authorization_state() or state
-        return state, self.qr_link
+        return (self.authorization_state() or self._auth_state), self.qr_link
 
     # -- request/response ----------------------------------------------
     def call(self, request: dict, timeout: float = 30) -> dict:
-        """Gửi một request, chờ response cùng @extra; update được đệm."""
+        """Gửi một request, chờ phản hồi cùng @extra (luồng nhận chung giao tới)."""
         if self.client_id is None:
             raise RuntimeError("Client TDLib chưa mở (gọi open() trước).")
-        extra = uuid.uuid4().hex
-        req = dict(request)
-        req["@extra"] = extra
-        self._transport.send(self.client_id, tdjson_bytes(req))
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            raw = self._transport.receive(max(0.0, deadline - time.time()))
-            if raw is None:
-                continue
-            try:
-                obj = json.loads(raw.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
-                continue
-            if obj.get("@extra") == extra:
-                if obj.get("@type") == "error":
-                    raise TelegramError(int(obj.get("code", 400)),
-                                        str(obj.get("message", "")))
-                return obj
-            self._dispatch_update(obj)
-        raise TimeoutError(f"TDLib không trả lời request {request.get('@type')}")
+        obj = self._pump.request(self.client_id, request, timeout)
+        if obj.get("@type") == "error":
+            raise TelegramError(int(obj.get("code", 400)), str(obj.get("message", "")))
+        return obj
 
     def _dispatch_update(self, obj: dict) -> None:
-        self._buffered_updates.append(obj)
+        """Gọi từ luồng nhận chung cho MỖI update của client này (không được chặn lâu)."""
         if obj.get("@type") == "updateAuthorizationState":
             state = obj.get("authorization_state", {})
             self._auth_state = state.get("@type", "")
@@ -227,28 +301,13 @@ class TdlibClient:
             if self._auth_state in ("authorizationStateWaitOtherDeviceConfirmation",
                                     "authorizationStateWaitQrCode"):
                 self.qr_link = state.get("link", "") or self.qr_link
+            if self._auth_state == "authorizationStateClosed":
+                self._closed.set()
         if self.on_update is not None:
             try:
                 self.on_update(obj)
             except Exception:
                 logger.exception("on_update lỗi (đã nuốt, không sập client)")
-
-    def _wait_auth_state(self, wanted: set, timeout: float = 30) -> str:
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            for upd in list(self._buffered_updates):
-                if upd.get("@type") == "updateAuthorizationState":
-                    st = upd.get("authorization_state", {}).get("@type", "")
-                    if st in wanted:
-                        return st
-            try:
-                self.call({"@type": "getAuthorizationState"}, timeout=5)
-            except Exception:
-                pass
-            if self._auth_state in wanted:
-                return self._auth_state
-            time.sleep(0.2)
-        return self._auth_state
 
     def authorization_state(self) -> str:
         try:
@@ -295,11 +354,7 @@ class TdlibClient:
                    "other_user_ids": []})
         deadline = time.time() + timeout
         while time.time() < deadline and not self.qr_link:
-            try:
-                self.call({"@type": "getAuthorizationState"}, timeout=2)
-            except Exception:
-                pass
-            time.sleep(0.2)
+            time.sleep(0.1)                  # link tới bằng update qua luồng nhận chung
         return self.qr_link
 
     def get_me(self) -> dict:

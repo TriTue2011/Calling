@@ -148,6 +148,12 @@ class AccountStore:
         self._save()
         return acc
 
+    def set_status(self, phone: str, status: str) -> None:
+        acc = self._accounts.get(phone)
+        if acc is not None and acc.status != status:
+            acc.status = status
+            self._save()
+
     def remove(self, phone: str) -> bool:
         """Xóa tài khoản + session (chỉ qua web UI có xác nhận)."""
         if phone not in self._accounts:

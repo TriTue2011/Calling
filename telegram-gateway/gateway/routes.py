@@ -17,9 +17,8 @@ Bảng đường (ngữ nghĩa + mã lỗi theo thiết kế module, §4):
   POST /api/answer_call             state machine thật
   POST /api/hangup_call             state machine thật + dọn TTS file
   GET  /api/calls
-  GET  /api/history                 501 P4
-  GET  /api/contacts                501 P4
-  GET  /api/groups                  501 P4
+  GET  /api/chats, /api/chats/{id}/messages, /api/contacts, /api/search, /api/file/{id}, /api/feed ...
+                                    xem chat_routes.py (giao diện trò chuyện)
   GET  /api/events?since=<cursor>   poll fallback
   POST /api/audio/in                mic HA -> engine (khối JSON, P2)
   POST /api/audio/upload            nạp audio TTS HA theo khối (P2)
@@ -193,7 +192,7 @@ def build_app(cfg: Config, store: AccountStore | None = None,
     @app.get("/", include_in_schema=False)
     async def root():
         # Mở thẳng địa chỉ gateway (không có /ui/) thì đưa tới trang quản lý.
-        return RedirectResponse("/ui/")
+        return RedirectResponse("/ui/app.html")
 
     @app.get("/api/accounts")
     async def accounts(request: Request):
@@ -401,21 +400,6 @@ def build_app(cfg: Config, store: AccountStore | None = None,
             "duration_seconds": round(c.duration_seconds, 1),
         } for c in calls.list_calls()]}
 
-    @app.get("/api/history")
-    async def history(request: Request):
-        _auth(request)
-        raise not_implemented_yet("P4")
-
-    @app.get("/api/contacts")
-    async def contacts(request: Request):
-        _auth(request)
-        raise not_implemented_yet("P4")
-
-    @app.get("/api/groups")
-    async def groups(request: Request):
-        _auth(request)
-        raise not_implemented_yet("P4")
-
     @app.get("/api/events")
     async def poll_events(request: Request, since: int = 0):
         _auth(request)
@@ -525,4 +509,8 @@ def build_app(cfg: Config, store: AccountStore | None = None,
             raise not_found("Không rõ tài khoản.")
         return {"ok": True}
 
+    from .chat_routes import add_chat_routes
+    add_chat_routes(app, data_dir=cfg.data_dir, auth=_auth, body_dict=_body_dict,
+                    telegram_to_api=_telegram_to_api, clients=clients, store=store,
+                    logins=logins, tdlib_factory=tdlib_factory)
     return app

@@ -86,10 +86,7 @@ def test_send_message_mock_and_validation(tmp_path):
 def test_stage_501_endpoints(tmp_path):
     client, app, _ = make_client(tmp_path)
     for method, path in [("POST", "/api/send_media"),
-                         ("POST", "/api/send_voice"),
-                         ("GET", "/api/history"),
-                         ("GET", "/api/contacts"),
-                         ("GET", "/api/groups")]:
+                         ("POST", "/api/send_voice")]:
         r = client.request(method, path, headers=auth(), json={})
         assert r.status_code == 501, path
         assert "giai đoạn" in r.json()["error"]["message"]
@@ -846,7 +843,7 @@ def test_root_redirects_to_ui_page(tmp_path):
     client, _, _ = make_client(tmp_path)
     r = client.get("/", follow_redirects=False)
     assert r.status_code in (301, 302, 307, 308)
-    assert r.headers["location"] == "/ui/"
+    assert r.headers["location"] == "/ui/app.html"
 
 
 class _Td1869Transport:

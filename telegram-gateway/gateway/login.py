@@ -44,6 +44,8 @@ class LoginManager:
         self.client_factory = client_factory
         # login_id -> {phone, failures, locked_until, stage, client, qr_link}
         self._pending: dict[str, dict] = {}
+        #: gọi (phone, client) khi một client đăng nhập xong: gắn dịch vụ trò chuyện để nhận tin ngay
+        self.on_client = None
 
     # -- helpers ---------------------------------------------------------
     @staticmethod
@@ -96,6 +98,8 @@ class LoginManager:
         client = entry.get("client")
         if client is not None:
             self.clients[phone] = client
+            if self.on_client is not None:
+                self.on_client(phone, client)
         del self._pending[login_id]
         logger.info("login ok account=%s", mask_peer(phone))
         return acc
