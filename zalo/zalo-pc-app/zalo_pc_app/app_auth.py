@@ -84,26 +84,41 @@ def _verifier_path(data_dir):
     return os.path.join(data_dir, VERIFIER_FILENAME)
 
 
-def _load_verifier_file(data_dir):
+def _load_verifier_record(data_dir):
+    """{"password_hash", "source", "env_hash"} hoac None. source: "env" (tu bien
+    moi truong) | "ui" (doi qua WebUI); env_hash = PBKDF2 cua mat khau trong env tai
+    thoi diem do (de biet env co bi doi ve sau khong)."""
     try:
         with open(_verifier_path(data_dir), "r", encoding="utf-8") as f:
             data = json.load(f)
-        stored = data.get("password_hash", "")
-        if isinstance(stored, str) and stored.startswith("$pbkdf2-sha256$"):
-            return stored
     except (OSError, ValueError):
-        pass
-    return None
+        return None
+    stored = data.get("password_hash", "") if isinstance(data, dict) else ""
+    if not (isinstance(stored, str) and stored.startswith("$pbkdf2-sha256$")):
+        return None
+    env_hash = data.get("env_hash")
+    return {"password_hash": stored,
+            "source": "ui" if data.get("source") == "ui" else "env",
+            "env_hash": env_hash if isinstance(env_hash, str)
+            and env_hash.startswith("$pbkdf2-sha256$") else ""}
 
 
-def _save_verifier_file(data_dir, stored):
+def _load_verifier_file(data_dir):
+    rec = _load_verifier_record(data_dir)
+    return rec["password_hash"] if rec else None
+
+
+def _save_verifier_file(data_dir, stored, source="env", env_hash=""):
     os.makedirs(data_dir, exist_ok=True)
     tmp = _verifier_path(data_dir) + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"password_hash": stored}, f)
+    rec = {"password_hash": stored, "source": source}
+    if env_hash:
+        rec["env_hash"] = env_hash
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(rec, f)
         f.flush()
         os.fsync(f.fileno())
-    os.chmod(tmp, 0o600)
     os.replace(tmp, _verifier_path(data_dir))
     try:
         os.chmod(_verifier_path(data_dir), 0o600)
@@ -111,12 +126,29 @@ def _save_verifier_file(data_dir, stored):
         pass
 
 
+MIN_PASSWORD_LEN = 8
+MAX_PASSWORD_LEN = 256
+
+
+class PasswordChangeError(Exception):
+    """Doi mat khau that bai; `code` la ma loi cho API."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
 class AppAuth:
     """Mot tai khoan app + cac phien dang nhap (token, trong bo nho)."""
 
-    def __init__(self, username, password_hash, session_hours=None):
+    def __init__(self, username, password_hash, session_hours=None,
+                 data_dir=None, env_hash="", managed_by_env_hash=False):
         self.username = username
         self.password_hash = password_hash
+        self._data_dir = data_dir
+        self._env_hash = env_hash                 # PBKDF2 cua mat khau trong env (neu co)
+        # ZALO_PC_APP_PASSWORD_HASH la nguon duy nhat: khong cho doi qua WebUI.
+        self.managed_by_env_hash = managed_by_env_hash
         self.session_hours = (DEFAULT_SESSION_HOURS if session_hours is None
                               else session_hours)
         self._sessions = {}  # token -> (username, expires_at)
@@ -140,15 +172,24 @@ class AppAuth:
                     "ZALO_PC_APP_PASSWORD_HASH sai dinh dang (can "
                     "$pbkdf2-sha256$<iterations>$<salt_b64>$<hash_b64>); "
                     "tinh lai bang: python3 -m zalo_pc_app.app_auth")
-            stored = password_hash
+            stored, env_hash = password_hash, ""
         elif password:
-            stored = _load_verifier_file(data_dir)
-            if stored is not None and verify_password(password, stored):
-                pass  # mat khau khong doi: giu nguyen salt/hash cu
+            rec = _load_verifier_record(data_dir)
+            if rec and rec["source"] == "ui" and rec["env_hash"] \
+                    and verify_password(password, rec["env_hash"]):
+                # Da doi qua WebUI va bien moi truong KHONG doi tu do: giu mat
+                # khau moi (khong ghi de bang mat khau cu trong env).
+                stored, env_hash = rec["password_hash"], rec["env_hash"]
+            elif rec and verify_password(password, rec["password_hash"]):
+                stored = rec["password_hash"]    # mat khau khong doi: giu salt/hash cu
+                env_hash = rec["env_hash"] or hash_password(password)
+                if rec["source"] != "env" or not rec["env_hash"]:
+                    _save_verifier_file(data_dir, stored, "env", env_hash)
             else:
-                # Lan dau hoac da doi mat khau: salt moi, ghi de file.
+                # Lan dau, hoac env doi sang mat khau khac: salt moi, ghi de file.
                 stored = hash_password(password)
-                _save_verifier_file(data_dir, stored)
+                env_hash = stored
+                _save_verifier_file(data_dir, stored, "env", env_hash)
         else:
             raise MissingAppCredentials(
                 "Thieu mat khau app: dat ZALO_PC_APP_PASSWORD hoac "
@@ -162,7 +203,32 @@ class AppAuth:
         except ValueError:
             raise MissingAppCredentials(
                 "ZALO_PC_APP_SESSION_HOURS phai la so > 0 (gio).")
-        return cls(username, stored, session_hours=hours)
+        return cls(username, stored, session_hours=hours, data_dir=data_dir,
+                   env_hash=env_hash, managed_by_env_hash=bool(password_hash))
+
+    # -- doi mat khau -----------------------------------------------------
+    def change_password(self, old_password, new_password, keep_token=None):
+        """Doi mat khau (WebUI): kiem mat khau cu, luu hash moi (0600), thu hoi
+        MOI phien khac (giu keep_token). Nem PasswordChangeError(code):
+        managed_by_env | sai_mat_khau_cu | mat_khau_qua_ngan | mat_khau_qua_dai |
+        mat_khau_trung."""
+        if self.managed_by_env_hash:
+            raise PasswordChangeError("managed_by_env")
+        if not isinstance(old_password, str) \
+                or not verify_password(old_password, self.password_hash):
+            raise PasswordChangeError("sai_mat_khau_cu")
+        if not isinstance(new_password, str) or len(new_password) < MIN_PASSWORD_LEN:
+            raise PasswordChangeError("mat_khau_qua_ngan")
+        if len(new_password) > MAX_PASSWORD_LEN:
+            raise PasswordChangeError("mat_khau_qua_dai")
+        if new_password == old_password:
+            raise PasswordChangeError("mat_khau_trung")
+        new_hash = hash_password(new_password)
+        with self._lock:
+            if self._data_dir:
+                _save_verifier_file(self._data_dir, new_hash, "ui", self._env_hash)
+            self.password_hash = new_hash
+        return self.revoke_all(keep_token=keep_token)
 
     # -- dang nhap --------------------------------------------------------
     def verify(self, username, password):

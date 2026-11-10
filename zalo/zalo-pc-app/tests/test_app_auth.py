@@ -278,8 +278,11 @@ def test_http_gate():
         assert TEST_PASSWORD not in blob
         assert "app_auth" not in blob and "pbkdf2" not in blob
         status, _h, _sc, _raw, body = c.req("GET", "/api/app/status")
+        # Khi da dang nhap con co co `can_change_password` (khong nhay cam);
+        # trang /login (chua dang nhap) van chi thay logged_in + username.
         assert status == 200 and body == {"logged_in": True,
-                                           "username": TEST_USER}, body
+                                           "username": TEST_USER,
+                                           "can_change_password": True}, body
         status, _h, _sc, _raw, body = c.req("GET", "/api/calls")
         # No Zalo login yet: still 401, but for the ZALO session —
         # the app gate itself passed (different error code).

@@ -476,6 +476,15 @@ set_default_devices:
       description: Bật thì khi bên kia xin chuyển sang video sẽ tự đồng ý và phát camera mặc định.
       selector:
         boolean: null
+    auto_video_delay:
+      name: Chờ trước khi tự đồng ý (giây)
+      description: Số giây chờ rồi mới tự đồng ý lời xin chuyển sang video (0 = đồng ý ngay; chỉ áp dụng khi cuộc gọi còn đang nói).
+      selector:
+        number:
+          min: 0
+          max: 120
+          mode: box
+          unit_of_measurement: s
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.

@@ -34,6 +34,9 @@
       <button id="nav-devices" class="nav-item" type="button">
         <span class="nav-label">Thiết bị</span>
       </button>
+      <button id="nav-account" class="nav-item" type="button">
+        <span class="nav-label">Tài khoản</span>
+      </button>
     </nav>
     <div class="sidebar-foot">
       <div id="who" class="who">Đang kiểm tra…</div>
@@ -357,9 +360,34 @@
               <label>Kbps <input id="dev-bitrate" type="number" min="50" max="1500" step="10"></label>
             </div>
             <label class="check"><input id="dev-auto-video" type="checkbox"> Bên kia xin chuyển sang video: tự đồng ý và phát camera mặc định</label>
+            <label for="dev-auto-delay">Chờ trước khi tự đồng ý (giây, 0 = ngay)</label>
+            <input id="dev-auto-delay" type="number" min="0" max="120" step="1" style="max-width:120px">
           </fieldset>
           <p id="devices-note" class="row-sub" role="status"></p>
           <button class="btn btn-primary" type="submit">Lưu</button>
+        </form>
+      </section>
+
+      <!-- Tài khoản: đổi mật khẩu đăng nhập app -->
+      <section id="view-account" class="view" style="display:none">
+        <div class="title-row">
+          <div>
+            <h1>Tài khoản</h1>
+            <p class="subline">Đổi mật khẩu đăng nhập app (không phải mật khẩu Zalo). Đổi xong, các phiên đăng nhập khác bị đăng xuất.</p>
+          </div>
+        </div>
+        <form id="account-form" class="devices-form" autocomplete="off">
+          <fieldset>
+            <legend>Đổi mật khẩu</legend>
+            <label for="acc-old">Mật khẩu hiện tại</label>
+            <input id="acc-old" type="password" autocomplete="current-password" required>
+            <label for="acc-new">Mật khẩu mới (từ 8 ký tự)</label>
+            <input id="acc-new" type="password" autocomplete="new-password" minlength="8" required>
+            <label for="acc-new2">Nhập lại mật khẩu mới</label>
+            <input id="acc-new2" type="password" autocomplete="new-password" minlength="8" required>
+          </fieldset>
+          <p id="account-note" class="row-sub" role="status"></p>
+          <button id="account-save" class="btn btn-primary" type="submit">Đổi mật khẩu</button>
         </form>
       </section>
 

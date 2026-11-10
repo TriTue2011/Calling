@@ -45,7 +45,8 @@ from .const import (
 from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor", "binary_sensor", "select", "text", "switch", "button"]
+PLATFORMS = ["sensor", "binary_sensor", "select", "text", "switch", "button",
+             "number"]
 WEBHOOK_KINDS = ("message", "group_event", "reaction", "call")
 # Trang thai ket thuc: dung cau noi am thanh (loa/mic) cua cuoc goi do.
 TERMINAL_STATES = ("ended", "no_answer", "declined", "missed", "rejected",

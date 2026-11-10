@@ -19,7 +19,9 @@ DEFAULTS = {
     "video": {"width": 640, "height": 360, "fps": 15, "bitrate_kbps": 300},
     "auto_mic": True,           # tu phat mic khi cuoc goi duoc nghe may
     "auto_video_on_request": True,   # dien thoai xin len video: dong y + phat camera
+    "auto_video_delay": 0,           # giay cho truoc khi tu dong y (0 = ngay)
 }
+MAX_AUTO_VIDEO_DELAY = 120
 MIC_FORMATS = ("auto", "s16le16k")
 _URL_OK = re.compile(r"^(rtsps?|https?|rtmps?)://\S+$")
 _MASK = re.compile(r"(://[^/\s:@]+:)[^@/\s]*@")
@@ -78,6 +80,12 @@ class DeviceStore:
         for key in ("auto_mic", "auto_video_on_request"):
             if key in patch:
                 data[key] = bool(patch[key])
+        if "auto_video_delay" in patch:
+            try:
+                data["auto_video_delay"] = max(
+                    0, min(MAX_AUTO_VIDEO_DELAY, int(patch["auto_video_delay"])))
+            except (TypeError, ValueError):
+                bad("auto_video_delay khong hop le")
         video = patch.get("video")
         if isinstance(video, dict):
             for key, (lo, hi) in _LIMITS.items():

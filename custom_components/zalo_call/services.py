@@ -309,7 +309,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def set_default_devices(call: ServiceCall) -> None:
         rt, _ = _api(hass, call)
         patch = {k: call.data[k] for k in
-                 ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video")
+                 ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video",
+                  "auto_video_delay")
                  if k in call.data}
         if patch.get("mic_url") or patch.get("mic"):
             patch.setdefault("mic_url" if patch.get("mic") else "mic", "")
@@ -338,7 +339,9 @@ async def async_register_services(hass: HomeAssistant) -> None:
                            vol.Optional("mic_url"): cv.string,
                            vol.Optional("camera"): cv.string,
                            vol.Optional("auto_mic"): cv.boolean,
-                           vol.Optional("auto_video"): cv.boolean}))
+                           vol.Optional("auto_video"): cv.boolean,
+                           vol.Optional("auto_video_delay"):
+                               vol.All(vol.Coerce(int), vol.Range(min=0, max=120))}))
 
     devices = {vol.Optional("speaker"): cv.string,
                vol.Optional("mic"): cv.string,

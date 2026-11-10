@@ -2096,8 +2096,9 @@ class AppState:
 
     def _on_video_request(self, event):
         """Dien thoai xin chuyen cuoc goi THOAI dang dien ra sang VIDEO (12056).
-        status 1 = loi xin: dong y (status 2) va, neu bat `auto_video_on_request`
-        va co camera mac dinh, phat hinh. status 2 = dong y loi xin cua ta."""
+        status 1 = loi xin: neu bat `auto_video_on_request` thi sau `auto_video_delay`
+        giay (0 = ngay) dong y (status 2) va, neu co camera mac dinh, phat hinh —
+        chi khi luc do cuoc goi van dang noi may. status 2 = dong y loi xin cua ta."""
         call_id = int(event["call_id"])
         data = event.get("data") if isinstance(event.get("data"), dict) else {}
         params = data.get("params") if isinstance(data.get("params"), dict) else data
@@ -2107,18 +2108,33 @@ class AppState:
             status = 1
         _log_call("video request call_id=%s status=%s" % (call_id, status))
         cfg = _devices_for_call(call_id)
-        entry = next((c for c in STATE.calls.snapshot()["calls"]
-                      if str(c["call_id"]) == str(call_id)), None)
-        if entry is None or entry["status"] != "answered":
+        if status != 1 or not cfg["auto_video_on_request"]:
             return
-        if status == 1 and cfg["auto_video_on_request"]:
+        delay = int(cfg.get("auto_video_delay") or 0)
+
+        def accept():
+            entry = next((c for c in STATE.calls.snapshot()["calls"]
+                          if str(c["call_id"]) == str(call_id)), None)
+            if entry is None or entry["status"] != "answered":
+                _log_call("video auto call_id=%s bo qua (cuoc goi da het)"
+                          % call_id)
+                return
             _send_a2v_async(call_id, entry["thread_id"], 2)
-            if cfg["camera_url"]:
+            cam = _devices_for_call(call_id)["camera_url"]
+            if cam:
                 try:
-                    _start_video(call_id, cfg["camera_url"])
+                    _start_video(call_id, cam)
                 except (ValueError, RuntimeError) as exc:
                     _log_call("video auto call_id=%s error=%s"
                               % (call_id, str(exc)[:80]))
+
+        if delay <= 0:
+            accept()
+        else:
+            _log_call("video auto call_id=%s se dong y sau %ds" % (call_id, delay))
+            timer = threading.Timer(delay, accept)
+            timer.daemon = True
+            timer.start()
 
     def _on_incoming_call_request(self, event):
         """Cuoc goi den (call_event act "request"): ghi entry
@@ -3140,8 +3156,11 @@ class Handler(BaseHTTPRequestHandler):
             # Public: the login page uses it to redirect when the
             # session is already valid. Never leaks anything else.
             user = self._app_user()
-            return self._send_json({"logged_in": bool(user),
-                                    "username": user or ""})
+            out = {"logged_in": bool(user), "username": user or ""}
+            if user and STATE.auth is not None:
+                # Chi lo khi DA dang nhap: trang /login khong duoc biet gi them.
+                out["can_change_password"] = not STATE.auth.managed_by_env_hash
+            return self._send_json(out)
         if path.startswith("/api/"):
             app_user = self._require_app_login()
             if app_user is None:
@@ -3819,6 +3838,37 @@ class Handler(BaseHTTPRequestHandler):
         STATE.auth.revoke_token(self._cookie_token())
 
     def _api_post(self, path, body, app_user):
+        if path == "/api/app/password":
+            # Doi mat khau app tu WebUI. Can phien dang nhap + mat khau cu; dung chung
+            # bo han che sai mat khau voi /api/app/login (theo IP). Thanh cong thi
+            # thu hoi moi phien KHAC cua tai khoan.
+            if STATE.auth is None:
+                return self._send_json({"error": "app_chua_cau_hinh"},
+                                       status=503)
+            ip = self.client_address[0]
+            if STATE.login_limiter.blocked(ip):
+                return self._send_json(
+                    {"error": "qua_nhieu_lan_sai", "retry_after_seconds": 900},
+                    status=429)
+            try:
+                revoked = STATE.auth.change_password(
+                    body.get("old_password"), body.get("new_password"),
+                    keep_token=self._cookie_token())
+            except app_auth.PasswordChangeError as exc:
+                if exc.code == "sai_mat_khau_cu":
+                    STATE.login_limiter.fail(ip)
+                    status = 403
+                elif exc.code == "managed_by_env":
+                    status = 409
+                else:
+                    status = 400
+                return self._send_json({"ok": False, "error": exc.code},
+                                       status=status)
+            STATE.login_limiter.reset(ip)
+            _log_call("app password changed (other sessions revoked: %d)"
+                      % revoked)
+            return self._send_json({"ok": True,
+                                    "other_sessions_revoked": revoked})
         if path == "/api/qr/new":
             STATE.start_qr()
             return self._send_json({"ok": True})

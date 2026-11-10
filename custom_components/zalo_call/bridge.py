@@ -158,7 +158,8 @@ class CallAudioBridge:
                 "mic_url": res["mic_url"], "mic_format": res["mic_format"],
                 "camera_url": res["camera_url"],
                 "auto_mic": bool(self.defaults.get("auto_mic")),
-                "auto_video_on_request": bool(self.defaults.get("auto_video"))})
+                "auto_video_on_request": bool(self.defaults.get("auto_video")),
+                "auto_video_delay": int(self.defaults.get("auto_video_delay") or 0)})
         except ZaloCallError as err:
             _LOGGER.warning("Khong dua duoc thiet bi mac dinh cho app: %s", err)
 

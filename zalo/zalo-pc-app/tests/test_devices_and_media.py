@@ -34,12 +34,17 @@ def test_store_defaults_update_validate_and_mask():
     got = st.get()
     assert got["video"]["fps"] == 30 and got["video"]["width"] == 800   # kep trong gioi han
     assert got["auto_video_on_request"] is False and got["mic_format"] == "s16le16k"
+    assert got["auto_video_delay"] == 0
+    assert st.update({"auto_video_delay": 9999})["auto_video_delay"] == 120     # kep trong gioi han
+    assert st.update({"auto_video_delay": "7"})["auto_video_delay"] == 7
+    assert st.update({"auto_video_delay": -5})["auto_video_delay"] == 0
     pub = st.public()
     assert pub["camera_url"] == "rtsp://u:***@172.16.10.200:8554/phong-khach-sub"
     # Gui lai ban da che thi giu nguyen mat khau that.
     st.update({"camera_url": pub["camera_url"]})
     assert st.get()["camera_url"].endswith("u:pw@172.16.10.200:8554/phong-khach-sub")
-    for bad in ({"mic_url": "ftp://x"}, {"mic_format": "mp3"}, {"video": {"fps": "x"}}):
+    for bad in ({"mic_url": "ftp://x"}, {"mic_format": "mp3"}, {"video": {"fps": "x"}},
+                {"auto_video_delay": "abc"}):
         try:
             st.update(bad)
         except ValueError:

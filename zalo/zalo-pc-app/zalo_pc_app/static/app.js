@@ -66,7 +66,7 @@ function scheduleStaleRefresh() {
 // khi await /api/status — nên mỗi lần làm mới trang đều nháy
 // trang QR dù phiên vẫn còn (lỗi 2026-11-05).
 const VIEWS = ["view-loading", "view-login", "view-main", "view-calls", "view-call",
-               "view-chat", "view-webhooks", "view-services", "view-devices"];
+               "view-chat", "view-webhooks", "view-services", "view-devices", "view-account"];
 function show(view) {
   VIEWS.forEach((v) => { $(v).style.display = (v === view ? "" : "none"); });
   // No contacts to search before login — hide the search box there.
@@ -82,6 +82,8 @@ function show(view) {
     "nav-item" + (view === "view-services" ? " on" : "");
   $("nav-devices").className =
     "nav-item" + (view === "view-devices" ? " on" : "");
+  $("nav-account").className =
+    "nav-item" + (view === "view-account" ? " on" : "");
   closeMenu();
 }
 
@@ -2258,6 +2260,7 @@ async function loadDevices() {
     $("dev-fps").value = v.fps || 15;
     $("dev-bitrate").value = v.bitrate_kbps || 300;
     $("dev-auto-video").checked = !!d.auto_video_on_request;
+    $("dev-auto-delay").value = d.auto_video_delay || 0;
     $("devices-note").textContent = "";
   } catch (e) {
     $("devices-note").textContent = "Không tải được cài đặt: " + (e.message || e);
@@ -2272,6 +2275,7 @@ async function saveDevices(ev) {
       auto_mic: $("dev-auto-mic").checked,
       camera_url: $("dev-camera-url").value.trim(),
       auto_video_on_request: $("dev-auto-video").checked,
+      auto_video_delay: +$("dev-auto-delay").value || 0,
       video: { width: +$("dev-width").value, height: +$("dev-height").value,
                fps: +$("dev-fps").value, bitrate_kbps: +$("dev-bitrate").value },
     });
@@ -2283,6 +2287,48 @@ async function saveDevices(ev) {
 }
 $("devices-form").onsubmit = saveDevices;
 $("nav-devices").onclick = async () => { show("view-devices"); await loadDevices(); };
+
+// Doi mat khau app
+const PW_ERRORS = {
+  sai_mat_khau_cu: "Mật khẩu hiện tại không đúng.",
+  mat_khau_qua_ngan: "Mật khẩu mới phải từ 8 ký tự.",
+  mat_khau_qua_dai: "Mật khẩu mới quá dài (tối đa 256 ký tự).",
+  mat_khau_trung: "Mật khẩu mới phải khác mật khẩu cũ.",
+  managed_by_env: "Mật khẩu đang đặt bằng biến môi trường ZALO_PC_APP_PASSWORD_HASH của container: đổi ở cấu hình container, không đổi được ở đây.",
+  qua_nhieu_lan_sai: "Sai quá nhiều lần, thử lại sau 15 phút.",
+};
+async function openAccount() {
+  show("view-account");
+  $("account-note").textContent = "";
+  try {
+    const st = await (await fetch("/api/app/status")).json();
+    const can = st.can_change_password !== false;
+    $("account-save").disabled = !can;
+    if (!can) $("account-note").textContent = PW_ERRORS.managed_by_env;
+  } catch (e) { /* giu form, loi se hien khi gui */ }
+}
+async function saveAccount(ev) {
+  ev.preventDefault();
+  const note = $("account-note");
+  if ($("acc-new").value !== $("acc-new2").value) {
+    note.textContent = "Hai ô mật khẩu mới không giống nhau.";
+    return;
+  }
+  const r = await fetch("/api/app/password", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ old_password: $("acc-old").value, new_password: $("acc-new").value }),
+  });
+  let d = {};
+  try { d = await r.json(); } catch (e) { /* khong phai JSON */ }
+  if (r.ok && d.ok) {
+    note.textContent = "Đã đổi mật khẩu" + (d.other_sessions_revoked ? " (đã đăng xuất " + d.other_sessions_revoked + " phiên khác)." : ".");
+    $("account-form").reset();
+  } else {
+    note.textContent = PW_ERRORS[d.error] || ("Không đổi được mật khẩu (" + (d.error || r.status) + ").");
+  }
+}
+$("account-form").onsubmit = saveAccount;
+$("nav-account").onclick = openAccount;
 
 // Khởi động: hiện màn hình chờ trung tính TRƯỚC khi biết phiên,
 // rồi loadMain() mới quyết định view theo /api/status — trang QR

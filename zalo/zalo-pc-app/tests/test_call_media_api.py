@@ -137,6 +137,25 @@ def test_endpoints():
         state._on_video_request({
             "call_id": 77, "act": "audio_to_video", "data": {"params": {"status": 1}}})
         assert ("a2v", 77, "20001", 2) in sent and ("cam", 77, "20001", True) in sent, sent
+        # Co do tre: chua lam gi truoc han, den han thi dong y + phat; cuoc goi het truoc han thi bo qua.
+        sv._stop_video(77)
+        sent.clear()
+        api("POST", "/api/settings/devices", {"auto_video_delay": 1})
+        state._on_video_request({"call_id": 77, "act": "audio_to_video",
+                                 "data": {"params": {"status": 1}}})
+        assert sent == [] and "77" not in sv.VIDEO_SENDERS                  # chua toi han
+        time.sleep(1.5)
+        assert ("a2v", 77, "20001", 2) in sent and ("cam", 77, "20001", True) in sent, sent
+        sv._stop_video(77)
+        sent.clear()
+        state._on_video_request({"call_id": 77, "act": "audio_to_video",
+                                 "data": {"params": {"status": 1}}})
+        state.calls.record_end(77, "peer_ended")                           # ket thuc truoc han
+        time.sleep(1.5)
+        assert sent == [] and "77" not in sv.VIDEO_SENDERS, sent
+        state.calls.record_start(77, "Peer", "20001", "user")              # dung lai cuoc goi cho phan sau
+        state.calls.record_answered(77, "test")
+        api("POST", "/api/settings/devices", {"auto_video_delay": 0})
         # Tat auto_video_on_request thi khong tu phat.
         sv._stop_video(77)
         sent.clear()

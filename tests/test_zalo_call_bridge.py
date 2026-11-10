@@ -200,9 +200,18 @@ def test_defaults_store_roundtrip_legacy_import_and_listeners():
                              "mic_url": "", "camera": "camera.cu"})   # tuy chon cu (banh rang)
         assert dd.get("speaker") == "media_player.cu" and dd.get("auto_mic") is True
         assert H["saved"]["zalo_call.devices.e1"]["camera"] == "camera.cu"   # da nhap + luu
-        await dd.async_set(speaker="media_player.moi", auto_video=False, mic_url=" rtsp://x/y ")
+        await dd.async_set(speaker="media_player.moi", auto_video=False, mic_url=" rtsp://x/y ",
+                           auto_video_delay=15)
         assert dd.get("speaker") == "media_player.moi" and dd.get("auto_video") is False
         assert dd.get("mic_url") == "rtsp://x/y" and seen == [1]
+        assert dd.get("auto_video_delay") == 15
+        await dd.async_set(auto_video_delay=9999)
+        assert dd.get("auto_video_delay") == 120                       # kep trong gioi han
+        await dd.async_set(auto_video_delay="abc")                     # sai kieu: giu nguyen
+        assert dd.get("auto_video_delay") == 120
+        await dd.async_set(auto_video_delay=-3)
+        assert dd.get("auto_video_delay") == 0
+        await dd.async_set(auto_video_delay=15)
         dd2 = devices_mod.DeviceDefaults(hass, "e1")                   # nap lai tu Store
         await dd2.async_load({"speaker": "media_player.cu"})           # Store thang tuy chon cu
         assert dd2.get("speaker") == "media_player.moi" and dd2.get("auto_video") is False
@@ -263,11 +272,12 @@ def test_call_fields_default_override_and_off():
 def test_push_defaults_to_app_with_resolved_urls():
     async def run():
         hass, api, dd, br = _make({"mic": "camera.cam1", "camera": "camera.cam2",
-                                   "auto_mic": False, "auto_video": True})
+                                   "auto_mic": False, "auto_video": True,
+                                   "auto_video_delay": 0})
         await br.async_push_defaults()
         assert api.pushed == [{"mic_url": "rtsp://u:p@cam.local/stream", "mic_format": "auto",
                                "camera_url": "rtsp://cam2.local/s", "auto_mic": False,
-                               "auto_video_on_request": True}]
+                               "auto_video_on_request": True, "auto_video_delay": 0}]
         # camera khong co stream -> day rong (app khong tu phat hinh)
         H["urls"].pop("camera.cam2")
         api.pushed.clear()
