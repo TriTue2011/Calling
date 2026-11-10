@@ -572,20 +572,27 @@ def test_dispatch_reaction():
         assert d["path"] == "/api/group/reaction", d
         assert d["body"]["grid"] == "30001", d
         assert d["body"]["imei"] == "dev-1", d
-        # Icon chua map: phai truyen r_icon/r_type truc tiep.
+        # Bang day du (zca-js): icon co ten trong bang -> tu suy (rIcon, rType), khong can truyen tay.
         d = svc.dispatch("add_reaction", {
             "thread_id": "20001", "type": "user", "icon": "heart",
+            "msg_id": "m1", "cli_msg_id": "1234567890123"})
+        msg = json.loads(d["body"]["react_list"][0]["message"])
+        assert msg["rIcon"] == "/-heart" and msg["rType"] == 5, msg
+        assert len(svc_mod.REACTION_ICONS) >= 50, "bang bieu tuong phai day du"
+        # Icon ngoai bang: phai truyen r_icon/r_type truc tiep (co thi dung), khong co thi bao loi ro rang kem danh sach ten.
+        d = svc.dispatch("add_reaction", {
+            "thread_id": "20001", "type": "user", "icon": "tu-dat",
             "msg_id": "m1", "cli_msg_id": "1234567890123",
             "r_icon": "/-heart", "r_type": "5"})
         msg = json.loads(d["body"]["react_list"][0]["message"])
         assert msg["rIcon"] == "/-heart" and msg["rType"] == 5, msg
         try:
             svc.dispatch("add_reaction", {
-                "thread_id": "20001", "type": "user", "icon": "heart",
+                "thread_id": "20001", "type": "user", "icon": "tu-dat",
                 "msg_id": "m1", "cli_msg_id": "1234567890123"})
-            raise AssertionError("unmapped icon must raise")
+            raise AssertionError("icon ngoai bang phai bao loi")
         except ValueError as e:
-            assert "chưa có map" in str(e), e
+            assert "không có trong bảng" in str(e) and "heart" in str(e), e
         # Khong co services map -> tu choi, khong doan domain.
         svc2 = make_svc_no_map()
         try:
