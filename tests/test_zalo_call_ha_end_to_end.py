@@ -212,3 +212,23 @@ async def test_ai_does_not_reply_to_groups_or_own_messages(hass, setup, app, fak
     await async_ai_reply(hass, setup, {"content": "x", "thread_id": "9", "thread_type": "group", "is_self": False})
     await async_ai_reply(hass, setup, {"content": "x", "thread_id": THREAD, "thread_type": "user", "is_self": True})
     assert not fake_agent and len(app.requests) == n
+
+
+async def test_send_voice_service_posts_the_audio_file_as_multipart_to_the_app(hass, setup, app, tmp_path):
+    f = tmp_path / "tts.mp3"
+    f.write_bytes(b"ID3-GIA-MP3")
+    await call(hass, "send_voice", {"thread_id": THREAD, "type": "user", "file": str(f)})
+    r = app.last("/sendvoice")
+    assert r["path"] == "/api/thread/%s/sendvoice" % THREAD and r["ctype"] == "multipart/form-data" and b"ID3-GIA-MP3" in r["raw"], r
+
+
+async def test_translate_message_service_sends_fields_without_params(hass, setup, app):
+    await call(hass, "translate_message", {"msgId": "8474", "threadId": THREAD, "type": 0, "srcLang": "vi", "desLang": "en", "text": "Xin chào"})
+    j = app.last("/api/svc/translate_message")["json"]
+    assert j["msgId"] == "8474" and j["srcLang"] == "vi" and j["desLang"] == "en" and j["text"] == "Xin chào" and "params" not in j, j
+
+
+async def test_reaction_icon_picker_lists_heart_for_the_service(hass, setup, app):
+    await call(hass, "add_reaction", {"thread_id": THREAD, "type": "user", "icon": "heart", "msg_id": "1", "cli_msg_id": "2"})
+    j = app.last("/api/svc/add_reaction")["json"]
+    assert j["icon"] == "heart" and "r_icon" not in j and "r_type" not in j, j
