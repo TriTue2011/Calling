@@ -26,8 +26,8 @@ from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import (audio_out_url, dahua_mic_url, entity_of_label,
-                          explicit_off, mic_format_for_url, pick_devices,
-                          r1_mic_url, valid_url)
+                          explicit_off, host_of, localize_url, mic_format_for_url,
+                          pick_devices, r1_mic_url, valid_url)
 from .const import CONF_HA_URL
 from .devices import DeviceDefaults
 
@@ -79,15 +79,17 @@ class CallAudioBridge:
     async def async_camera_url(self, entity_id: str) -> str:
         """Stream cua mot camera HA (RTSP/go2rtc...), rong neu khong co."""
         try:
-            return await ha_camera.async_get_stream_source(self.hass, entity_id) or ""
+            url = await ha_camera.async_get_stream_source(self.hass, entity_id) or ""
         except (HomeAssistantError, ValueError) as err:
             _LOGGER.warning("Camera %s khong co stream: %s", entity_id, err)
             return ""
+        # localhost cua HA khong dung duoc tu app: doi sang dia chi LAN cua may HA.
+        return localize_url(url, host_of(self._ha_base()))
 
     async def async_mic_source(self, devices: dict[str, str]) -> tuple[str, str]:
         """(url, dinh_dang) cua mic: mic_url thang thuc the `mic`."""
         if devices.get("mic_url"):
-            url = devices["mic_url"]
+            url = localize_url(devices["mic_url"], host_of(self._ha_base()))
             return (url, mic_format_for_url(url)) if valid_url(url) else ("", "auto")
         entity_id = entity_of_label(devices.get("mic", ""))
         if not entity_id:

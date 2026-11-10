@@ -11,7 +11,7 @@ nen test duoc ngoai HA (tests/test_zalo_call_bridge.py).
 from __future__ import annotations
 
 from typing import Any, Mapping
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 ALLOWED_SCHEMES = ("rtsp", "rtsps", "http", "https", "rtmp", "rtmps")
 DEVICE_KEYS = ("speaker", "mic", "mic_url", "camera")
@@ -82,6 +82,28 @@ def valid_url(url: str) -> bool:
     parts = urlsplit(url or "")
     return parts.scheme.lower() in ALLOWED_SCHEMES and bool(parts.netloc) \
         and " " not in url and "\n" not in url
+
+
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+
+
+def localize_url(url: str, host: str) -> str:
+    """Doi dia chi may CUC BO (localhost, 127.0.0.1...) trong `url` thanh `host`.
+
+    Luong camera ma HA tra ve (vd go2rtc rtsp://u:p@localhost:8554/x) chi dung duoc tu
+    chinh may HA; app chay o container/may khac phai goi qua dia chi LAN cua may HA."""
+    parts = urlsplit(url or "")
+    if not host or (parts.hostname or "").lower() not in LOOPBACK_HOSTS:
+        return url
+    userinfo = parts.netloc.rpartition("@")[0]
+    netloc = (userinfo + "@" if userinfo else "") + host \
+        + (":%d" % parts.port if parts.port else "")
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
+def host_of(base_url: str) -> str:
+    """Ten may trong mot URL co so (vd http://172.16.10.200:8123 -> 172.16.10.200)."""
+    return urlsplit(base_url or "").hostname or ""
 
 
 def mic_format_for_url(url: str) -> str:

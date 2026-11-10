@@ -16,6 +16,9 @@ from zalo_pc_app import audio_tx, devices, protocol  # noqa: E402
 def test_mask_and_valid_source():
     assert devices.mask_url("rtsp://u:p4ss@h:8554/x") == "rtsp://u:***@h:8554/x"
     assert devices.mask_url("http://h/api") == "http://h/api"
+    assert devices.mask_url("http://ha:8123/api/r1_speaker/mic/E1?k=SECRET&x=1") == \
+        "http://ha:8123/api/r1_speaker/mic/E1?k=***&x=1"
+    assert devices.mask_url("rtsp://u:p@h/x?token=abc") == "rtsp://u:***@h/x?token=***"
     for ok in ("", "test", "rtsp://h/x", "https://h/x?k=1", "/media/a.wav"):
         assert devices.valid_source(ok), ok
     for bad in ("ftp://h/x", "rm -rf /", "/a/../b", "javascript:1", "rtsp://h x"):
@@ -40,6 +43,10 @@ def test_store_defaults_update_validate_and_mask():
     assert st.update({"auto_video_delay": -5})["auto_video_delay"] == 0
     pub = st.public()
     assert pub["camera_url"] == "rtsp://u:***@172.16.10.200:8554/phong-khach-sub"
+    # Che ca khoa trong query; gui lai ban da che van giu khoa that.
+    assert "abc" not in st.public()["mic_url"] and st.public()["mic_url"].endswith("?k=***")
+    st.update({"mic_url": st.public()["mic_url"]})
+    assert st.get()["mic_url"].endswith("?k=abc")
     # Gui lai ban da che thi giu nguyen mat khau that.
     st.update({"camera_url": pub["camera_url"]})
     assert st.get()["camera_url"].endswith("u:pw@172.16.10.200:8554/phong-khach-sub")

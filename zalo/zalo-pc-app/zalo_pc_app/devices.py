@@ -25,13 +25,16 @@ MAX_AUTO_VIDEO_DELAY = 120
 MIC_FORMATS = ("auto", "s16le16k")
 _URL_OK = re.compile(r"^(rtsps?|https?|rtmps?)://\S+$")
 _MASK = re.compile(r"(://[^/\s:@]+:)[^@/\s]*@")
+# Tham so truy van mang bi mat (khoa mic R1 `?k=`, token...) cung bi che khi hien thi.
+_MASK_QUERY = re.compile(r"([?&](?:k|key|token|access_token|auth|pass|password|pwd|secret)=)[^&#\s]*",
+                         re.I)
 _LIMITS = {"width": (160, 1280), "height": (120, 720), "fps": (5, 30),
            "bitrate_kbps": (50, 1500)}
 
 
 def mask_url(url):
-    """URL voi mat khau thay bang *** (de hien thi / log)."""
-    return _MASK.sub(r"\1***@", url or "")
+    """URL voi mat khau (user:***@) va tham so bi mat (?k=***) thay bang *** (hien thi / log)."""
+    return _MASK_QUERY.sub(r"\1***", _MASK.sub(r"\1***@", url or ""))
 
 
 def valid_source(url):
@@ -67,7 +70,7 @@ class DeviceStore:
         for key in ("mic_url", "camera_url"):
             if key in patch:
                 val = str(patch[key] or "").strip()
-                if "***@" in val:
+                if "***@" in val or re.search(r"=\*\*\*(?:&|$)", val):
                     continue                      # ban da che: giu nguyen
                 if valid_source(val):
                     data[key] = val

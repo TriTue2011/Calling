@@ -115,6 +115,17 @@ def test_pick_devices_default_override_and_explicit_off():
         defaults, {"mic": "", "mic_url": "rtsp://x/y"})) is False       # con mic_url
 
 
+def test_localize_url_rewrites_only_loopback():
+    f = core.localize_url
+    assert f("rtsp://u:p@localhost:8554/phong-khach", "172.16.10.200") == \
+        "rtsp://u:p@172.16.10.200:8554/phong-khach"
+    assert f("rtsp://127.0.0.1/x?a=1#f", "10.0.0.2") == "rtsp://10.0.0.2/x?a=1#f"
+    assert f("http://[::1]:1984/s", "ha.lan") == "http://ha.lan:1984/s"
+    assert f("rtsp://cam.lan/x", "10.0.0.2") == "rtsp://cam.lan/x"          # khong dong cham may khac
+    assert f("rtsp://localhost/x", "") == "rtsp://localhost/x"               # khong co dia chi -> giu
+    assert core.host_of("http://172.16.10.200:8123/") == "172.16.10.200" and core.host_of("") == ""
+
+
 def test_labels_urls_and_formats():
     assert core.label("camera.a", "Camera phòng khách") == "Camera phòng khách · camera.a"
     assert core.label("camera.a", None) == "camera.a" == core.label("camera.a", "camera.a")
@@ -279,6 +290,10 @@ def test_push_defaults_to_app_with_resolved_urls():
                                "camera_url": "rtsp://cam2.local/s", "auto_mic": False,
                                "auto_video_on_request": True, "auto_video_delay": 0}]
         # camera khong co stream -> day rong (app khong tu phat hinh)
+        H["urls"]["camera.cam2"] = "rtsp://u:p@localhost:8554/cam2-sub"        # go2rtc cua HA
+        await br.async_push_defaults()
+        assert api.pushed[-1]["camera_url"] == "rtsp://u:p@ha:8554/cam2-sub", api.pushed[-1]
+        api.pushed.clear()
         H["urls"].pop("camera.cam2")
         api.pushed.clear()
         await br.async_push_defaults()
