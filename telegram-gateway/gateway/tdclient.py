@@ -6,7 +6,7 @@ Luồng TDLib (đã đối chiếu td_api.tl qua T0-B):
   authorizationStateWaitPhoneNumber -> setAuthenticationPhoneNumber ->
   checkAuthenticationCode -> (nếu server yêu cầu) checkAuthenticationPassword
   -> authorizationStateReady. QR là đường thay thế: requestQrCodeAuthentication
-  -> update authorizationStateWaitQrCode (mang link) -> Ready khi quét xong.
+  -> update authorizationStateWaitOtherDeviceConfirmation (mang link) -> Ready khi quét xong.
 
 Binding tdjson nhận BYTES, không nhận str: mọi request đều JSON-encode
 sang bytes trước khi gửi (caveat T0-B). Transport được inject để test
@@ -159,14 +159,37 @@ class TdlibClient:
                 return raw.encode("utf-8")
         return b""
 
-    def close(self) -> None:
+    def close(self, timeout: float = 5) -> None:
+        """Đóng client và CHỜ TDLib đóng hẳn DB (authorizationStateClosed): chưa đóng xong mà
+        mở client khác trên cùng thư mục thì lỗi "Can't lock file td.binlog"."""
         if self.client_id is None:
             return
         try:
             self.call({"@type": "close"})
         except Exception:
             pass
+        deadline = time.time() + timeout
+        while time.time() < deadline and self._auth_state != "authorizationStateClosed":
+            try:
+                raw = self._transport.receive(max(0.0, min(0.5, deadline - time.time())))
+            except Exception:  # noqa: BLE001
+                break
+            if raw is None:
+                continue
+            try:
+                obj = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                continue
+            if obj.get("@type") == "updateAuthorizationState":
+                self._dispatch_update(obj)
         self.client_id = None
+
+    def refresh_auth(self) -> tuple[str, str]:
+        """(trạng thái đăng nhập, link QR hiện hành). Hai lần hỏi để nhận cả update đến muộn;
+        link QR mới (Telegram đổi mã ~30 giây) được ghi vào ``qr_link`` khi update tới."""
+        state = self.authorization_state()
+        state = self.authorization_state() or state
+        return state, self.qr_link
 
     # -- request/response ----------------------------------------------
     def call(self, request: dict, timeout: float = 30) -> dict:
@@ -199,7 +222,10 @@ class TdlibClient:
         if obj.get("@type") == "updateAuthorizationState":
             state = obj.get("authorization_state", {})
             self._auth_state = state.get("@type", "")
-            if self._auth_state == "authorizationStateWaitQrCode":
+            # TDLib >= 1.8.6 gọi bước này WaitOtherDeviceConfirmation (tên cũ: WaitQrCode).
+            # Link đổi sau ~30 giây: mỗi update mới ghi đè link cũ.
+            if self._auth_state in ("authorizationStateWaitOtherDeviceConfirmation",
+                                    "authorizationStateWaitQrCode"):
                 self.qr_link = state.get("link", "") or self.qr_link
         if self.on_update is not None:
             try:
@@ -264,6 +290,7 @@ class TdlibClient:
 
     def request_qr(self, timeout: float = 10) -> str:
         """Xin QR đăng nhập; trả link QR (rỗng nếu update chưa tới kịp)."""
+        self.qr_link = ""
         self.call({"@type": "requestQrCodeAuthentication",
                    "other_user_ids": []})
         deadline = time.time() + timeout

@@ -32,6 +32,7 @@ logger = logging.getLogger("telegram_gateway")
 
 LOCK_AFTER_FAILURES = 3
 LOCK_SECONDS = 15 * 60
+PENDING_TTL = 10 * 60      # phiên đăng nhập bỏ dở quá lâu thì đóng client (nhả khóa file TDLib)
 
 
 class LoginManager:
@@ -45,6 +46,31 @@ class LoginManager:
         self._pending: dict[str, dict] = {}
 
     # -- helpers ---------------------------------------------------------
+    @staticmethod
+    def _close_client(entry: dict) -> None:
+        client = entry.get("client")
+        if client is not None:
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001 - đóng hỏng không được chặn đăng nhập mới
+                logger.exception("đóng client TDLib của phiên đăng nhập bỏ dở lỗi")
+
+    def _discard(self, login_id: str) -> None:
+        """Bỏ một phiên đăng nhập và ĐÓNG client của nó. Client TDLib giữ khóa file
+        td.binlog của số đó: để mở thì lần đăng nhập sau cho cùng số báo
+        "Can't lock file ... already in use"."""
+        entry = self._pending.pop(login_id, None)
+        if entry is not None:
+            self._close_client(entry)
+
+    def _sweep(self, phone: str | None = None) -> None:
+        """Đóng phiên bỏ dở của `phone` (đang đăng nhập lại) và mọi phiên quá hạn."""
+        now = time.time()
+        for lid, e in list(self._pending.items()):
+            if (phone is not None and e["phone"] == phone) \
+                    or now - e.get("created", now) > PENDING_TTL:
+                self._discard(lid)
+
     def _fail(self, entry: dict, now: float):
         entry["failures"] += 1
         logger.info("login attempt failed count=%d (so dien thoai da che)",
@@ -79,9 +105,12 @@ class LoginManager:
         if not phone or len(phone.strip()) < 6:
             raise bad_request("Số điện thoại không hợp lệ.")
         phone = phone.strip()
+        if phone in self.clients:
+            raise bad_request("Tài khoản này đã đăng nhập ở gateway. Xoá nó trước nếu muốn đăng nhập lại.")
+        self._sweep(phone)
         login_id = uuid.uuid4().hex
         entry = {"phone": phone, "failures": 0, "locked_until": 0.0,
-                 "stage": "code", "client": None, "qr_link": ""}
+                 "stage": "code", "client": None, "qr_link": "", "created": time.time()}
         self._pending[login_id] = entry
         if self.client_factory is None:
             return login_id  # khung mock: mã kiểm ở submit_code
@@ -93,9 +122,9 @@ class LoginManager:
             client.set_phone(phone)
         except TelegramError as exc:
             if exc.flood_wait_seconds is not None:
-                del self._pending[login_id]
+                self._discard(login_id)
                 raise flood_wait(exc.flood_wait_seconds)
-            del self._pending[login_id]
+            self._discard(login_id)
             raise bad_request(f"Telegram từ chối số điện thoại: "
                               f"{exc.message or exc.code}")
         return login_id
@@ -110,9 +139,12 @@ class LoginManager:
         if not phone or len(phone.strip()) < 6:
             raise bad_request("Số điện thoại không hợp lệ.")
         phone = phone.strip()
+        if phone in self.clients:
+            raise bad_request("Tài khoản này đã đăng nhập ở gateway. Xoá nó trước nếu muốn đăng nhập lại.")
+        self._sweep(phone)
         login_id = uuid.uuid4().hex
         entry = {"phone": phone, "failures": 0, "locked_until": 0.0,
-                 "stage": "qr", "client": None, "qr_link": ""}
+                 "stage": "qr", "client": None, "qr_link": "", "created": time.time()}
         self._pending[login_id] = entry
         sdir = self.store.ensure_session_dir(phone)
         client = self.client_factory(phone, sdir)
@@ -122,16 +154,39 @@ class LoginManager:
             link = client.request_qr()
         except TelegramError as exc:
             if exc.flood_wait_seconds is not None:
-                del self._pending[login_id]
+                self._discard(login_id)
                 raise flood_wait(exc.flood_wait_seconds)
-            del self._pending[login_id]
+            self._discard(login_id)
             raise bad_request(f"Telegram từ chối yêu cầu QR: "
                               f"{exc.message or exc.code}")
+        if not link:
+            self._discard(login_id)
+            raise bad_request("Telegram chưa trả mã QR (chưa kết nối được tới máy chủ Telegram?). Thử lại sau vài giây.")
         entry["qr_link"] = link
         return login_id, link
 
     def status(self, login_id: str) -> dict:
+        """Trạng thái phiên đăng nhập. Ở bước QR, hỏi TDLib để lấy mã mới (Telegram đổi mã sau
+        ~30 giây) và tự hoàn tất khi đã quét xong (hoặc chuyển sang bước mật khẩu 2FA)."""
+        self._sweep()
         entry = self._get_pending(login_id)
+        client = entry.get("client")
+        if entry["stage"] == "qr" and client is not None:
+            state, link = client.refresh_auth()
+            if link:
+                entry["qr_link"] = link
+            if state == "authorizationStateReady":
+                name = ""
+                try:
+                    me = client.get_me()
+                    name = (me.get("first_name", "") + " " + me.get("last_name", "")).strip()
+                except Exception:  # noqa: BLE001
+                    name = ""
+                acc = self._finish(login_id, entry, name)
+                return {"login_id": login_id, "stage": "done", "phone": mask_peer(acc.phone),
+                        "qr_link": "", "mock": False}
+            if state == "authorizationStateWaitPassword":
+                entry["stage"] = "password"
         return {"login_id": login_id, "stage": entry["stage"],
                 "phone": mask_peer(entry["phone"]),
                 "qr_link": entry["qr_link"] if entry["stage"] == "qr" else ""}

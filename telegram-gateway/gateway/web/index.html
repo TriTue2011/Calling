@@ -101,7 +101,8 @@
       <p>Mở Telegram trên điện thoại của tài khoản phụ → Cài đặt → Thiết bị → Liên kết thiết bị, rồi quét mã:</p>
       <div id="qr"></div>
       <p>Hoặc mở liên kết: <code id="qr-link"></code></p>
-      <button id="btn-qr-done">Tôi đã quét xong</button>
+      <p class="sub">Mã tự đổi sau ~30 giây; quét xong trang tự nhận, không cần bấm gì. Quét từ màn hình lớn, phóng to trang (Ctrl và +) nếu máy ảnh khó lấy nét.</p>
+      <button id="btn-qr-done" class="sec">Tôi đã quét xong (nếu trang chưa tự nhận)</button>
     </div>
 
     <p class="msg" id="login-msg" role="status"></p>
@@ -184,8 +185,38 @@
     $("accounts").hidden = false; $("login").hidden = false;
   }
 
+  let qrTimer = null, qrShown = "";
+  function stopQrPoll() { if (qrTimer) { clearInterval(qrTimer); qrTimer = null; } }
+
   function showStep(name) {
+    if (name !== "qr") stopQrPoll();
     ["phone", "code", "pass", "qr"].forEach(function (s) { $("step-" + s).hidden = (s !== name); });
+  }
+
+  function drawQr(link) {
+    if (!link) { $("qr").textContent = "Đang chờ mã QR từ Telegram…"; return; }
+    if (link === qrShown) return;
+    qrShown = link;
+    $("qr-link").textContent = link;
+    $("qr").textContent = "";
+    if (window.qrcode) {
+      const q = window.qrcode(0, "M"); q.addData(link); q.make();
+      $("qr").innerHTML = q.createSvgTag({ cellSize: 7, margin: 4, scalable: true });
+    } else { $("qr").textContent = "(Không tải được thư viện vẽ QR; dùng liên kết bên dưới.)"; }
+  }
+
+  // Telegram đổi mã QR sau ~30 giây: hỏi gateway 2,5 giây một lần, vẽ lại khi mã đổi, tự hoàn tất khi đã quét.
+  function startQrPoll() {
+    stopQrPoll();
+    qrTimer = setInterval(async function () {
+      if (!loginId) { stopQrPoll(); return; }
+      try {
+        const r = await api("GET", "/ui/api/accounts/" + encodeURIComponent(loginId));
+        if (r.stage === "done") { stopQrPoll(); await loginDone(r); }
+        else if (r.stage === "password") { stopQrPoll(); showStep("pass"); say("login-msg", "Đã quét. Tài khoản bật hai bước: nhập mật khẩu.", "warn"); $("pass").focus(); }
+        else if (r.stage === "qr") { drawQr(r.qr_link); }
+      } catch (e) { stopQrPoll(); say("login-msg", e.message + " Bấm «Đăng nhập bằng QR» để tạo lại.", "err"); }
+    }, 2500);
   }
 
   function loginDone(r) {
@@ -236,13 +267,9 @@
     say("login-msg", "Đang tạo mã QR…");
     try {
       const r = await api("POST", "/ui/api/accounts/qr", { phone: qrPhone });
-      loginId = r.login_id; showStep("qr");
-      $("qr-link").textContent = r.qr_link;
-      $("qr").textContent = "";
-      if (window.qrcode) {
-        const q = window.qrcode(0, "M"); q.addData(r.qr_link); q.make();
-        $("qr").innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
-      } else { $("qr").textContent = "(Không tải được thư viện vẽ QR; dùng liên kết bên dưới.)"; }
+      loginId = r.login_id; qrShown = ""; showStep("qr");
+      drawQr(r.qr_link);
+      startQrPoll();
       say("login-msg", "");
     } catch (e) { say("login-msg", e.message, "err"); }
   });

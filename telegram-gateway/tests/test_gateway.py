@@ -309,6 +309,10 @@ class FakeTdlibClient:
     def request_qr(self):
         return self.qr_link
 
+    def refresh_auth(self):
+        return ("authorizationStateReady" if self._qr_done
+                else "authorizationStateWaitOtherDeviceConfirmation"), self.qr_link
+
     def is_authorized(self):
         return self._qr_done
 
@@ -902,3 +906,126 @@ def test_tdlib_client_open_with_real_tdjson_reaches_phone_number_state(tmp_path)
     c.open()
     assert c.authorization_state() == "authorizationStateWaitPhoneNumber"
     c.close()
+
+
+def test_qr_status_refreshes_link_and_finishes_when_scanned(tmp_path):
+    client, app, _ = make_client_p1(tmp_path, factory=FakeTdlibFactory())
+    r = client.post("/ui/api/accounts/qr", headers=auth(), json={"phone": "+84900000011"})
+    assert r.status_code == 200, r.text
+    lid = r.json()["login_id"]
+    fake = app.state.logins._pending[lid]["client"]
+    fake.qr_link = "https://t.me/qr-2"                       # Telegram đổi mã sau ~30 giây
+    st = client.get(f"/ui/api/accounts/{lid}", headers=auth()).json()
+    assert st["stage"] == "qr" and st["qr_link"] == "https://t.me/qr-2"
+    fake._qr_done = True                                     # đã quét xong -> tự hoàn tất, không cần nút
+    st = client.get(f"/ui/api/accounts/{lid}", headers=auth()).json()
+    assert st["stage"] == "done"
+    assert lid not in app.state.logins._pending
+    assert any(a["phone"] == "+84900000011" for a in
+               client.get("/api/accounts", headers=auth()).json()["tai_khoan"])
+
+
+def test_new_login_for_same_phone_closes_the_abandoned_client(tmp_path):
+    """Lỗi thật: bấm QR rồi «Gửi mã» -> client cũ giữ khóa td.binlog -> "Can't lock file"."""
+    client, app, _ = make_client_p1(tmp_path, factory=FakeTdlibFactory())
+    r = client.post("/ui/api/accounts/qr", headers=auth(), json={"phone": "+84900000012"})
+    old = app.state.logins._pending[r.json()["login_id"]]["client"]
+    assert old.closed is False
+    r2 = client.post("/ui/api/accounts", headers=auth(), json={"phone": "+84900000012"})
+    assert r2.status_code == 200, r2.text
+    assert old.closed is True                                # đã đóng trước khi mở client mới
+    assert len(app.state.logins._pending) == 1
+
+
+def test_stale_pending_logins_are_swept_and_closed(tmp_path):
+    from gateway import login as login_mod
+    client, app, _ = make_client_p1(tmp_path, factory=FakeTdlibFactory())
+    r = client.post("/ui/api/accounts/qr", headers=auth(), json={"phone": "+84900000013"})
+    lid = r.json()["login_id"]
+    old = app.state.logins._pending[lid]["client"]
+    app.state.logins._pending[lid]["created"] -= login_mod.PENDING_TTL + 5
+    client.post("/ui/api/accounts", headers=auth(), json={"phone": "+84900000014"})   # bất kỳ lần bắt đầu mới
+    assert lid not in app.state.logins._pending and old.closed is True
+
+
+def test_failed_start_closes_its_client(tmp_path):
+    client, app, _ = make_client_p1(tmp_path, factory=FakeTdlibFactory())
+    # Không có hàm mở lỗi trong fake mặc định: kiểm đường close khi _discard trực tiếp.
+    lid = app.state.logins.start("+84900000015")
+    c = app.state.logins._pending[lid]["client"]
+    app.state.logins._discard(lid)
+    assert c.closed is True and lid not in app.state.logins._pending
+
+
+def test_real_tdjson_second_client_on_same_dir_needs_the_first_to_be_closed(tmp_path):
+    """Đo trên TDLib thật: mở client thứ hai trên cùng thư mục khi cái đầu CHƯA đóng -> lỗi khóa
+    td.binlog (đúng lỗi người dùng gặp); đóng cái đầu (chờ đóng hẳn) rồi mới mở thì được."""
+    pytest.importorskip("tdjson")
+    from gateway.tdclient import TdlibClient
+    d = str(tmp_path)
+    a = TdlibClient(d, 1, "0" * 32)
+    a.open()
+    b = TdlibClient(d, 1, "0" * 32)
+    with pytest.raises(Exception) as ei:
+        b.open()
+    assert "lock" in str(ei.value).lower()
+    b.close()
+    a.close()                                   # chờ authorizationStateClosed
+    c = TdlibClient(d, 1, "0" * 32)
+    c.open()
+    assert c.authorization_state() == "authorizationStateWaitPhoneNumber"
+    c.close()
+
+
+class _QrTransport(_Td1869Transport):
+    """TDLib 1.8.69: sau requestQrCodeAuthentication báo authorizationStateWaitOtherDeviceConfirmation
+    (KHÔNG còn WaitQrCode); link đổi định kỳ."""
+
+    def send(self, client_id, data):
+        import json as _j
+        req = _j.loads(data.decode("utf-8"))
+        if req["@type"] == "requestQrCodeAuthentication":
+            self.sent.append(req)
+            self._queue.append({"@type": "ok", "@extra": req["@extra"]})
+            self._queue.append({"@type": "updateAuthorizationState", "authorization_state": {
+                "@type": "authorizationStateWaitOtherDeviceConfirmation", "link": "tg://login?token=AAA"}})
+        else:
+            super().send(client_id, data)
+
+    def new_link(self, link):
+        self._queue.append({"@type": "updateAuthorizationState", "authorization_state": {
+            "@type": "authorizationStateWaitOtherDeviceConfirmation", "link": link}})
+
+
+def test_request_qr_reads_link_from_wait_other_device_confirmation_and_follows_refresh(tmp_path):
+    """Lỗi thật: gateway chỉ nhận tên bước cũ WaitQrCode -> link rỗng -> trang vẽ QR của chuỗi rỗng."""
+    from gateway.tdclient import TdlibClient
+    tr = _QrTransport()
+    c = TdlibClient(str(tmp_path), 12345678, "a" * 32, transport=tr)
+    c.open()
+    link = c.request_qr()
+    assert link == "tg://login?token=AAA"
+    tr.new_link("tg://login?token=BBB")             # Telegram đổi mã sau ~30 giây
+    state, link2 = c.refresh_auth()
+    assert link2 == "tg://login?token=BBB"
+
+
+def test_start_qr_rejects_empty_link(tmp_path):
+    client, app, _ = make_client_p1(tmp_path, factory=FakeTdlibFactory(qr_link=""))
+    r = client.post("/ui/api/accounts/qr", headers=auth(), json={"phone": "+84900000021"})
+    assert r.status_code == 400 and "QR" in r.text
+    assert app.state.logins.pending_count() == 0
+
+
+def test_real_tdlib_returns_a_scannable_qr_link(tmp_path):
+    """Cần mạng và TELEGRAM_API_ID/HASH thật (có trong container gateway); không có thì bỏ qua."""
+    pytest.importorskip("tdjson")
+    api_id, api_hash = os.environ.get("TELEGRAM_API_ID"), os.environ.get("TELEGRAM_API_HASH")
+    if not (api_id and api_hash):
+        pytest.skip("không có TELEGRAM_API_ID/HASH")
+    from gateway.tdclient import TdlibClient
+    c = TdlibClient(str(tmp_path), int(api_id), api_hash)
+    c.open()
+    link = c.request_qr(timeout=30)
+    c.close()
+    assert link.startswith("tg://login?token="), "link QR rỗng hoặc sai dạng"
