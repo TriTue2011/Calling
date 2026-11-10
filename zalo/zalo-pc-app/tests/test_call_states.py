@@ -66,6 +66,17 @@ CALL_ID_MEDIA_CONNECT = 1763200105
 CALL_ID_NO_CALLEE_SIG = 1763200106
 
 
+def _wait_for(pred, timeout=20.0, step=0.1):
+    """Cho toi khi pred() dung (toi da `timeout` giay) thay vi sleep co dinh: tren may CI cham, luong nen
+    (answerack, het gio do chuong) hoan thanh tre hon sleep(1 s / 4 s) — CI 10/11/2026 hong 5/6 hai lan."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        time.sleep(step)
+    return bool(pred())
+
+
 def test_dial_stays_ringing_no_missed():
     """Goi di phai o trang thai "ringing", khong phai "connected",
     khong ghi "missed" ngay: sau requestcall + request (11300/
@@ -114,7 +125,7 @@ def test_answerack_connects():
                             {"call_id": eff_id})
         assert body["ok"] is True, body
         # answerack di tren daemon thread — doi no toi mock.
-        time.sleep(1.0)
+        _wait_for(lambda: mock.server_call_state(eff_id)["state"] == "connected")
         state = mock.server_call_state(eff_id)
         assert state["state"] == "connected", state
         assert state["record"] is None, state
@@ -133,7 +144,7 @@ def test_unanswered_timeout_is_missed():
     try:
         def check(base, mock, endpoints):
             eff_id = _start_call(base, "20001", CALL_ID_TIMEOUT)
-            time.sleep(4.0)
+            _wait_for(lambda: mock.server_call_state(eff_id)["state"] == "ended")
             state = mock.server_call_state(eff_id)
             assert state["state"] == "ended", state
             assert state["record"] == "missed", state
@@ -195,11 +206,11 @@ def test_first_media_connects_and_survives_timeout():
             except Exception:
                 pass  # expected without SRTP hooks; arrival is enough
             # answerack di tren daemon thread — doi no toi mock.
-            time.sleep(1.0)
+            _wait_for(lambda: mock.server_call_state(eff_id)["state"] == "connected")
             state = mock.server_call_state(eff_id)
             assert state["state"] == "connected", state
             assert state["record"] is None, state
-            time.sleep(4.0)
+            time.sleep(4.0)       # kiem «khong xay ra»: cho lau hon ring timeout (2 s) la an toan
             active = _active(base, eff_id)
             assert active is not None, \
                 "media-answered call died at ring timeout"

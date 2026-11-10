@@ -44,12 +44,23 @@ def main(argv):
     if "--only" in argv:
         only = set(argv[argv.index("--only") + 1].split(","))
     files = sorted(glob.glob(os.path.join(HERE, "test_*.py")))
-    failed, warned = [], []
+    failed, warned, flaky = [], [], []
     for path in files:
         name = os.path.basename(path)
         if only and name[:-3] not in only and name not in only:
             continue
         ok, out = run_one(path)
+        if not ok and name not in KNOWN_RED:
+            # Test co luong nen + thoi gian co the chap chon tren may CI cham: thu lai DUNG MOT lan. Qua o lan 2 thi
+            # in «FLAKY» (khong che): hong ca hai lan van do CI.
+            ok2, out2 = run_one(path)
+            if ok2:
+                flaky.append(name)
+                print("FLAKY %s (hong lan 1, qua lan 2)" % name, flush=True)
+                print("\n".join("    >> " + ln[:300] for ln in out.splitlines() if ln.startswith("FAIL"))[:600], flush=True)
+                ok, out = ok2, out2
+            else:
+                out = out2
         status = "OK  " if ok else ("WARN" if name in KNOWN_RED else "FAIL")
         print("%s %s" % (status, name), flush=True)
         if not ok:
@@ -59,7 +70,7 @@ def main(argv):
             bad = [ln for ln in out.splitlines() if ln.startswith("FAIL") or ln.startswith("Traceback")]
             print("\n".join("    >> " + ln[:300] for ln in bad[:10]), flush=True)
             print("\n".join("    " + ln for ln in out.splitlines()[-12:]), flush=True)
-    print("\n%d file, %d hong, %d canh bao" % (len(files), len(failed), len(warned)))
+    print("\n%d file, %d hong, %d canh bao, %d chap chon (qua khi thu lai)" % (len(files), len(failed), len(warned), len(flaky)))
     return 1 if failed else 0
 
 
