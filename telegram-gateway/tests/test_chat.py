@@ -7,6 +7,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+import schema
 from gateway import chat
 from gateway.config import Config
 from gateway.routes import build_app
@@ -38,6 +39,7 @@ class MultiClientTransport:
 
     def send(self, client_id, data):
         req = json.loads(data.decode())
+        schema.validate(req)
         self.sent.append((client_id, req["@type"]))
         self.push({"@type": "ok", "@extra": req["@extra"], "@client_id": client_id,
                    "who": client_id})
@@ -148,6 +150,7 @@ class FakeTd:
         self.users = {10: {"id": 10, "first_name": "Bình", "last_name": "Lê"}}
 
     def call(self, req, timeout=30):
+        schema.validate(req)                 # mọi yêu cầu gửi cho TDLib phải đúng lược đồ thật
         self.calls.append(req)
         t = req["@type"]
         if t == "getMe":
@@ -248,7 +251,7 @@ def test_chat_routes_happy_paths(tmp_path):
     r = client.post("/api/chats/100/send_file?kind=photo&name=../../etc/a.jpg", headers=H, content=b"jpegdata")
     assert r.status_code == 200
     td = app.state.clients["+84900000000"]
-    path = [c for c in td.calls if c["@type"] == "sendMessage"][-1]["input_message_content"]["photo"]["path"]
+    path = [c for c in td.calls if c["@type"] == "sendMessage"][-1]["input_message_content"]["photo"]["photo"]["path"]
     assert path.startswith(str(tmp_path / "uploads")) and ".." not in path.replace(str(tmp_path), "")
     assert client.post("/api/chats/100/read", headers=H, json={"message_ids": [1, 2]}).json() == {"ok": True}
     # Bảng tin: tin đến qua on_update xuất hiện ở /api/feed.
@@ -257,3 +260,29 @@ def test_chat_routes_happy_paths(tmp_path):
     assert any(i["type"] == "chat" and i["chat_id"] == 100 for i in f["items"])
     assert client.get("/api/feed?since=abc", headers=H).status_code == 400
     assert client.get("/api/search?q=", headers=H).json() == {"chats": []}
+
+
+def test_schema_validator_catches_the_old_shapes_that_broke_in_production():
+    """Ba kiểu sai đã gặp thật: tệp không bọc, setTdlibParameters lồng, trường không tồn tại."""
+    doc_old = {"@type": "inputMessageDocument", "caption": {"@type": "formattedText", "text": "", "entities": []},
+               "document": {"@type": "inputFileLocal", "path": "/x"}}
+    assert any("inputDocument" in e for e in schema.errors(doc_old))
+    nested = {"@type": "setTdlibParameters", "parameters": {"@type": "tdlibParameters", "api_id": 1}}
+    assert any("parameters" in e for e in schema.errors(nested))
+    assert schema.errors({"@type": "getMe"}) == []
+    assert any("không có trường" in e for e in schema.errors({"@type": "getMe", "bogus": 1}))
+    # Gửi mọi loại tệp qua ChatService: FakeTd.call đã kiểm lược đồ từng yêu cầu.
+    svc = chat.ChatService(FakeTd())
+    for kind in ("photo", "video", "voice", "audio", "document"):
+        svc.send_file(100, "/data/uploads/f", kind, "cap")
+
+
+def test_send_result_updates_reach_the_feed():
+    svc = chat.ChatService(FakeTd())
+    msg = {"id": 900, "chat_id": 100, "date": 5, "is_outgoing": True, "content": {"@type": "messageText", "text": {"text": "ok"}}}
+    svc.handle_update({"@type": "updateMessageSendSucceeded", "old_message_id": 77, "message": msg})
+    svc.handle_update({"@type": "updateMessageSendFailed", "old_message_id": 78, "message": dict(msg, id=78),
+                       "error": {"code": 400, "message": "FILE_PART_INVALID"}})
+    ok, bad = svc.feed.since(0)["items"]
+    assert ok["type"] == "send_ok" and ok["old_id"] == 77 and ok["message"]["id"] == 900
+    assert bad["type"] == "send_failed" and bad["old_id"] == 78 and "FILE_PART" in bad["error"]

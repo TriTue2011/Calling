@@ -252,12 +252,19 @@ class ChatService:
         """kind: photo | video | document | voice | audio."""
         cap = {"@type": "formattedText", "text": caption, "entities": []}
         f = {"@type": "inputFileLocal", "path": path}
+        # TDLib >= 1.8.x bọc tệp trong lớp riêng (inputPhoto/inputVideo/...): đưa thẳng inputFileLocal vào
+        # thì lỗi "InputFile is not specified" (đã gặp thật).
         content = {
-            "photo": {"@type": "inputMessagePhoto", "photo": f, "caption": cap},
-            "video": {"@type": "inputMessageVideo", "video": f, "caption": cap, "supports_streaming": True},
-            "voice": {"@type": "inputMessageVoiceNote", "voice_note": f, "caption": cap},
-            "audio": {"@type": "inputMessageAudio", "audio": f, "caption": cap},
-        }.get(kind) or {"@type": "inputMessageDocument", "document": f, "caption": cap}
+            "photo": {"@type": "inputMessagePhoto", "caption": cap,
+                      "photo": {"@type": "inputPhoto", "photo": f, "width": 0, "height": 0, "added_sticker_file_ids": []}},
+            "video": {"@type": "inputMessageVideo", "caption": cap,
+                      "video": {"@type": "inputVideo", "video": f, "supports_streaming": True}},
+            "voice": {"@type": "inputMessageVoiceNote", "caption": cap,
+                      "voice_note": {"@type": "inputVoiceNote", "voice_note": f, "duration": 0, "waveform": ""}},
+            "audio": {"@type": "inputMessageAudio", "caption": cap,
+                      "audio": {"@type": "inputAudio", "audio": f}},
+        }.get(kind) or {"@type": "inputMessageDocument", "caption": cap,
+                        "document": {"@type": "inputDocument", "document": f}}
         return normalize_message(self.client.call({"@type": "sendMessage", "chat_id": int(chat_id),
                                                    "input_message_content": content}, timeout=60), "")
 
@@ -322,6 +329,15 @@ class ChatService:
         if t == "updateNewMessage":
             m = obj.get("message") or {}
             self.feed.push("message", chat_id=m.get("chat_id"), message=normalize_message(m, self._cached_sender(m)))
+        elif t == "updateMessageSendSucceeded":
+            # sendMessage trả tin TẠM (id tạm); gửi xong TDLib đổi sang id thật bằng update này.
+            m = obj.get("message") or {}
+            self.feed.push("send_ok", chat_id=m.get("chat_id"), old_id=obj.get("old_message_id"),
+                           message=normalize_message(m, self._cached_sender(m)))
+        elif t == "updateMessageSendFailed":
+            m = obj.get("message") or {}
+            self.feed.push("send_failed", chat_id=m.get("chat_id"), old_id=obj.get("old_message_id"),
+                           error=(obj.get("error") or {}).get("message", "gửi không được"))
         elif t == "updateMessageContent":
             self.feed.push("message_changed", chat_id=obj.get("chat_id"), message_id=obj.get("message_id"))
         elif t == "updateMessageEdited":

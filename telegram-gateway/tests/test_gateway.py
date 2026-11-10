@@ -4,6 +4,7 @@ import os
 import stat
 
 import pytest
+import schema
 from fastapi.testclient import TestClient
 
 from gateway.audio import AudioHub
@@ -863,6 +864,7 @@ class _Td1869Transport:
     def send(self, client_id, data):
         import json as _j
         req = _j.loads(data.decode("utf-8"))
+        schema.validate(req)
         self.sent.append(req)
         extra = req.get("@extra")
         if req["@type"] == "setTdlibParameters":
@@ -981,6 +983,7 @@ class _QrTransport(_Td1869Transport):
     def send(self, client_id, data):
         import json as _j
         req = _j.loads(data.decode("utf-8"))
+        schema.validate(req)
         if req["@type"] == "requestQrCodeAuthentication":
             self.sent.append(req)
             self._queue.append({"@type": "ok", "@extra": req["@extra"]})

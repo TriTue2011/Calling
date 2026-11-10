@@ -400,7 +400,8 @@ class TdlibClient:
             "chat_id": chat_id,
             "input_message_content": {
                 "@type": "inputMessageDocument",
-                "document": {"@type": "inputFileLocal", "path": file_path},
+                "document": {"@type": "inputDocument",
+                             "document": {"@type": "inputFileLocal", "path": file_path}},
                 "caption": {"@type": "formattedText", "text": caption,
                             "entities": []},
             },
@@ -416,10 +417,9 @@ class TdlibClient:
             "chat_id": chat_id,
             "input_message_content": {
                 "@type": "inputMessageVoiceNote",
-                "voice_note": {"@type": "inputFileLocal",
-                               "path": audio_path},
-                "duration": int(duration),
-                "waveform": "",
+                "voice_note": {"@type": "inputVoiceNote",
+                               "voice_note": {"@type": "inputFileLocal", "path": audio_path},
+                               "duration": int(duration), "waveform": ""},
                 "caption": {"@type": "formattedText", "text": "",
                             "entities": []},
             },

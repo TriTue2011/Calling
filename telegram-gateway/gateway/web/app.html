@@ -304,6 +304,8 @@
       else if (it.message && !it.message.outgoing && document.hidden === false) { /* thông báo nhẹ ở danh sách */ }
       scheduleChats();
     } else if (it.type === "chat") scheduleChats();
+    else if (it.type === "send_ok") { if (it.chat_id === cur) { removeMsg(it.old_id); if (it.message) appendMessages([it.message], false); } scheduleChats(); }
+    else if (it.type === "send_failed") { toast("Gửi không được: " + it.error); const n = rendered.get(it.old_id); if (n) { n.style.opacity = ".5"; n.title = "Gửi không được: " + it.error; } }
     else if (it.type === "deleted" && it.chat_id === cur) it.ids.forEach(removeMsg);
     else if (it.type === "message_changed" && it.chat_id === cur) { reloadSoon(); }
     else if (it.type === "typing" && it.chat_id === cur) { $("typing").textContent = it.action === "chatActionCancel" ? "" : "đang gõ…"; clearTimeout(typingTimer); typingTimer = setTimeout(() => { $("typing").textContent = ""; }, 5000); }
