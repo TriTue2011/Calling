@@ -128,6 +128,47 @@ def _eval(expr, inputs, args, ctx):
     raise ZcaError("bieu thuc khong ho tro: %r" % (expr,))
 
 
+def _thread_type_num(value):
+    """type cua Zalo: 0 = nguoi dung (1-1), 1 = nhom. Nhan so hoac chu user/group."""
+    if value in (None, ""):
+        return 0
+    v = str(value).strip().lower()
+    if v in ("0", "user"):
+        return 0
+    if v in ("1", "group"):
+        return 1
+    raise ZcaError("type phai la 0/user (1-1) hoac 1/group (nhom)")
+
+
+def _translate_params(entry, inputs):
+    """Tham so dich cua Zalo AI (translateMessage 13397 / translateMessageSuggest 13399), dung nhu ban fork @softtynet/zca-js
+    2.3.13 gui: {reqId: pcw_<ms>, [msgId], threadId, type, srcLang, desLang, msg: {text, metadata: {immutableItems}}}.
+    translateMessageAuto la lo nhieu tin (msgs) nen van truyen `params`."""
+    manual = entry["name"] == "translateMessage"
+    need = ("msgId",) * manual + ("threadId", "srcLang", "desLang", "text")
+    missing = [n for n in need if inputs.get(n) in (None, "")]
+    if missing:
+        raise ZcaError("thieu truong bat buoc: %s" % ", ".join(missing))
+    items = inputs.get("immutableItems")
+    if isinstance(items, str) and items.strip():
+        try:
+            items = json.loads(items)
+        except ValueError:
+            raise ZcaError("immutableItems phai la danh sach JSON")
+    if items is not None and not isinstance(items, list):
+        raise ZcaError("immutableItems phai la danh sach")
+    out = {"reqId": str(inputs.get("reqId") or "pcw_%d" % int(time.time() * 1000))}
+    if manual:
+        out["msgId"] = str(inputs["msgId"])
+    out.update({"threadId": str(inputs["threadId"]), "type": _thread_type_num(inputs.get("type")),
+                "srcLang": str(inputs["srcLang"]), "desLang": str(inputs["desLang"]),
+                "msg": {"text": str(inputs["text"]), "metadata": {"immutableItems": items or []}}})
+    return out
+
+
+_RAW_BUILDERS = {"translateMessage": _translate_params, "translateMessageSuggest": _translate_params}
+
+
 def build_params(entry, inputs, ctx):
     """Dung params gui di. `params` (neu co) la JSON nguyen khoi, THANG THE."""
     args = {a["name"]: a for a in entry.get("args", [])}
@@ -141,6 +182,8 @@ def build_params(entry, inputs, ctx):
         return raw
     missing = [n for n, a in args.items()
                if a.get("required") and inputs.get(n) in (None, "")]
+    if entry["mode"] == "raw" and entry["name"] in _RAW_BUILDERS:
+        return _RAW_BUILDERS[entry["name"]](entry, inputs)
     if entry["mode"] == "raw":
         raise ZcaError(
             "%s co bieu thuc phuc tap (%s): truyen san `params` (JSON nhu zca-js gui)"

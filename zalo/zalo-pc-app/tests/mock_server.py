@@ -911,6 +911,19 @@ class MockZalo:
             {"msgId": "msg-voice-1", "clientId": body["clientId"],
              "body": body})
 
+    @staticmethod
+    def _is_voice_forward(raw_body):
+        """forward dung chung cho chuyen tiep tin (dich vu forward_message) va tin thoai (msgType 3): chi tin thoai vao handler rieng."""
+        m = re.search(r"(?:^|&)params=([^&]*)", raw_body or "")
+        if not m:
+            return False
+        try:
+            key = base64.b64decode(TEST_SESSION_KEY)
+            body = json.loads(_openssl_aes(key, base64.b64decode(urllib.parse.unquote(m.group(1))), decrypt=True).decode("utf-8"))
+        except Exception:  # noqa: BLE001 - khong giai ma duoc thi de handler chung xu ly
+            return False
+        return isinstance(body, dict) and body.get("msgType") == 3 and "msgInfo" in body
+
     def _chat_voice_forward(self, path, qs, headers, raw_body="", raw_qs=""):
         """Gui tin thoai bang `forward` (cach zalo cu / zca-js sendVoice.js): POST form params=<AES JSON> len
         {files-wpa}/api/message/forward (1-1) | /api/group/forward (nhom). params: {toId|grid, ttl, zsource: -1,
@@ -937,7 +950,7 @@ class MockZalo:
         return self._postlogin_envelope({"msgId": "msg-voice-1", "clientId": body["clientId"], "body": body})
 
     def route_post(self, path, qs, headers, raw_body="", raw_qs=""):
-        if path in ("/api/message/forward", "/api/group/forward"):
+        if path in ("/api/message/forward", "/api/group/forward") and self._is_voice_forward(raw_body):
             return 200, self._chat_voice_forward(path, qs, headers, raw_body, raw_qs)
         if path == "/api/group/getmg-v2" and self.slow_seconds:
             time.sleep(self.slow_seconds)

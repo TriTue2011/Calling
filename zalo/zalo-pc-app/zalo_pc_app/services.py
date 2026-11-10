@@ -1830,6 +1830,10 @@ _DOMAINS = {
 # domainType trong bundle); gia tri la URL day du hoac list URL
 # (v3 map: lay phan tu dau).
 _SERVICES_MAP_DOMAINS = ("reaction", "quick_message")
+# Domain DU PHONG khi service_map cua phien PC (config zpw_service_map_new) khong co khoa do. Chi co bang chung moi duoc them:
+# reaction -> zca-js (addReaction.js dung zpw_service_map_v3.reaction[0] cua phien web) VA thu that tren phien PC 11/11/2026
+# (POST add_reaction «like» tra msgIds, phan ung hien tren tin that). quick_message chua co bang chung -> van tu choi.
+_DOMAIN_FALLBACKS = {"reaction": "https://reaction.chat.zalo.me"}
 
 
 def _resolve(action, spec, ttype):
@@ -2020,13 +2024,17 @@ class Services:
 
     def _domain_for(self, action, domain_key):
         """URL goc cho mot domain key. REACTION / QUICK_MESSAGE
-        chi resolve qua services map (log domain resolve duoc, chi
-        log host — khong log params/gia tri); neu map chua co thi
-        tu choi ro rang thay vi doan domain."""
+        resolve qua services map (log domain resolve duoc, chi log
+        host — khong log params/gia tri); map thieu thi dung
+        _DOMAIN_FALLBACKS neu co bang chung (reaction), con lai tu
+        choi ro rang thay vi doan domain."""
         if domain_key in _SERVICES_MAP_DOMAINS:
             raw = (self.service_map or {}).get(domain_key)
             if isinstance(raw, list):
                 raw = raw[0] if raw else None
+            if (not raw or not isinstance(raw, str)) \
+                    and domain_key in _DOMAIN_FALLBACKS:
+                raw = _DOMAIN_FALLBACKS[domain_key]
             if not raw or not isinstance(raw, str):
                 raise UnsupportedService(
                     action, "unsupported",

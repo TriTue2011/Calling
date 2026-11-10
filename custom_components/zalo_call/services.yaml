@@ -2908,8 +2908,9 @@ translate_message:
         text: null
     params:
       name: params
-      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
-      required: true
+      description: 'Tuỳ chọn: JSON nguyên khối nếu muốn tự dựng; bỏ trống thì app dựng từ các trường ở
+        trên.'
+      required: false
       selector:
         object: null
 translate_message_auto:
@@ -3014,8 +3015,9 @@ translate_message_suggest:
         text: null
     params:
       name: params
-      description: JSON đúng như zca-js gửi (API này có biểu thức phức tạp).
-      required: true
+      description: 'Tuỳ chọn: JSON nguyên khối nếu muốn tự dựng; bỏ trống thì app dựng từ các trường ở
+        trên.'
+      required: false
       selector:
         object: null
 undo:

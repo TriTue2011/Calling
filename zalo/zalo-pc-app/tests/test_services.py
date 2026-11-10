@@ -593,15 +593,14 @@ def test_dispatch_reaction():
             raise AssertionError("icon ngoai bang phai bao loi")
         except ValueError as e:
             assert "không có trong bảng" in str(e) and "heart" in str(e), e
-        # Khong co services map -> tu choi, khong doan domain.
+        # Phien PC khong co khoa reaction trong service_map -> domain du phong da co bang chung (zca-js + thu that), khong tu choi.
         svc2 = make_svc_no_map()
-        try:
-            svc2.dispatch("add_reaction", {
-                "thread_id": "20001", "type": "user", "icon": "like",
-                "msg_id": "m1", "cli_msg_id": "1234567890123"})
-            raise AssertionError("no service map must refuse")
-        except svc_mod.UnsupportedService as e:
-            assert "services map" in e.reason, e.reason
+        assert svc2._domain_for("add_reaction", "reaction") == "https://reaction.chat.zalo.me"
+        assert svc_mod._DOMAIN_FALLBACKS == {"reaction": "https://reaction.chat.zalo.me"}, "chi domain co bang chung moi co du phong"
+        # Map co khoa reaction thi uu tien map.
+        svc3 = svc_mod.Services(partial(http_get, cookie="sek-test"), partial(http_post, cookie="sek-test"), "dev-1", TEST_SESSION_KEY,
+                                service_map={"reaction": ["reaction-x.example"]})
+        assert svc3._domain_for("add_reaction", "reaction") == "https://reaction-x.example"
     finally:
         mock.stop()
 

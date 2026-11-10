@@ -2471,8 +2471,8 @@
    {
     "key": "params",
     "label": "params",
-    "required": true,
-    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "required": false,
+    "description": "Tuỳ chọn: JSON nguyên khối nếu muốn tự dựng; bỏ trống thì app dựng từ các trường ở trên.",
     "selector": {
      "object": null
     }
@@ -2591,8 +2591,8 @@
    {
     "key": "params",
     "label": "params",
-    "required": true,
-    "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+    "required": false,
+    "description": "Tuỳ chọn: JSON nguyên khối nếu muốn tự dựng; bỏ trống thì app dựng từ các trường ở trên.",
     "selector": {
      "object": null
     }

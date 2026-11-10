@@ -159,8 +159,11 @@ def _zca_extras(core):
                    "description": ((f.get("description") or f["name"]) + " (" + f["type"] + ")")[:200]}
                   for f in a.get("args", [])]
         if a["mode"] == "raw":
-            fields.append({"key": "params", "label": "params", "required": True,
-                           "description": "JSON đúng như zca-js gửi (API này có biểu thức phức tạp).",
+            from zalo_pc_app import zca_api
+            built = a["name"] in zca_api._RAW_BUILDERS            # app tự dựng được params từ các trường ở trên (vd. dịch)
+            fields.append({"key": "params", "label": "params", "required": not built,
+                           "description": ("Tuỳ chọn: JSON nguyên khối nếu muốn tự dựng; bỏ trống thì app dựng từ các trường ở trên."
+                                           if built else "JSON đúng như zca-js gửi (API này có biểu thức phức tạp)."),
                            "selector": {"object": None}})
         if a["danger"]:
             fields.append({"key": "confirm", "label": "confirm", "required": False,
