@@ -1,4 +1,4 @@
-"""Công tắc tự động: tự phát mic khi nghe máy; tự đồng ý khi bên kia xin video."""
+"""Công tắc trên thiết bị: tự phát mic khi nghe máy; tự đồng ý khi bên kia xin video; AI tự trả lời tin nhắn."""
 from __future__ import annotations
 
 from homeassistant.components.switch import SwitchEntity
@@ -7,7 +7,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_AUTO_MIC, CONF_AUTO_VIDEO, DOMAIN
+from .const import CONF_AI_ENABLED, CONF_AUTO_MIC, CONF_AUTO_VIDEO, DOMAIN
 from .entity import ZaloCallEntity
 
 
@@ -17,15 +17,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
     add([AutoSwitch(entry, rt, CONF_AUTO_MIC, "Tự phát mic khi nghe máy",
                     "mdi:microphone-settings"),
          AutoSwitch(entry, rt, CONF_AUTO_VIDEO,
-                    "Tự đồng ý khi bên kia xin gọi video", "mdi:video-switch")])
+                    "Tự đồng ý khi bên kia xin gọi video", "mdi:video-switch"),
+         AutoSwitch(entry, rt, CONF_AI_ENABLED, "AI tự trả lời tin nhắn 1-1",
+                    "mdi:robot-happy", push=False)])
 
 
 class AutoSwitch(ZaloCallEntity, SwitchEntity):
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, entry: ConfigEntry, rt, key: str, name: str, icon: str) -> None:
+    def __init__(self, entry: ConfigEntry, rt, key: str, name: str, icon: str,
+                 push: bool = True) -> None:
         super().__init__(entry, key)
-        self._rt, self._key = rt, key
+        self._rt, self._key, self._push = rt, key, push
         self._attr_name, self._attr_icon = name, icon
 
     @property
@@ -34,7 +37,8 @@ class AutoSwitch(ZaloCallEntity, SwitchEntity):
 
     async def _set(self, on: bool) -> None:
         await self._rt.defaults.async_set(**{self._key: on})
-        await self._rt.bridge.async_push_defaults()
+        if self._push:                       # công tắc AI chỉ dùng trong HA, không cần báo app
+            await self._rt.bridge.async_push_defaults()
 
     async def async_turn_on(self, **kwargs) -> None:
         await self._set(True)

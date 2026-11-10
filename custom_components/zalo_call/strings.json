@@ -36,18 +36,5 @@
       "reauth_successful": "Đã cập nhật mật khẩu, kết nối lại thành công.",
       "reconfigure_successful": "Đã cập nhật kết nối app."
     }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Tuỳ chọn Zalo Call",
-        "data": {
-          "ha_url": "Địa chỉ HA mà app gọi được (webhook)",
-          "ai_enabled": "AI tự trả lời tin nhắn 1-1",
-          "ai_agent": "Trợ lý hội thoại cho AI",
-          "ai_threads": "Chỉ trả lời các threadId này (cách nhau dấu phẩy, bỏ trống = tất cả)"
-        }
-      }
-    }
   }
 }

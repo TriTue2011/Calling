@@ -11,18 +11,12 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
 )
-from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import ZaloCallApi, ZaloCallAuthError, ZaloCallError
 from .const import (
-    CONF_AI_AGENT,
-    CONF_AI_ENABLED,
-    CONF_AI_THREADS,
-    CONF_HA_URL,
     CONF_PASSWORD,
     CONF_URL,
     CONF_USERNAME,
@@ -131,30 +125,3 @@ class ZaloCallConfigFlow(ConfigFlow, domain=DOMAIN):
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
         })
         return self.async_show_form(step_id="reconfigure", data_schema=schema, errors=errors)
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(entry: ConfigEntry) -> OptionsFlow:
-        return ZaloCallOptionsFlow()
-
-
-class ZaloCallOptionsFlow(OptionsFlow):
-    async def async_step_init(self, user_input: dict[str, Any] | None = None
-                              ) -> ConfigFlowResult:
-        if user_input is not None:
-            return self.async_create_entry(data=user_input)
-        o = self.config_entry.options
-
-        def opt(key, selector_):
-            cur = o.get(key)
-            return vol.Optional(key, description={"suggested_value": cur}), selector_
-
-        fields = dict([
-            opt(CONF_HA_URL, selector.TextSelector()),
-            (vol.Optional(CONF_AI_ENABLED, default=o.get(CONF_AI_ENABLED, False)),
-             selector.BooleanSelector()),
-            opt(CONF_AI_AGENT, selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="conversation"))),
-            opt(CONF_AI_THREADS, selector.TextSelector()),
-        ])
-        return self.async_show_form(step_id="init", data_schema=vol.Schema(fields))

@@ -263,6 +263,82 @@ def test_speaker_sink_and_echo_guard_endpoints():
         httpd.shutdown()
 
 
+def test_duplex_speaker_opens_before_mic_and_is_not_restarted():
+    global BASE, _COOKIE
+    state = sv.AppState(tempfile.mkdtemp(prefix="zalo-pc-dup-"))
+    sv.STATE = state
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), sv.Handler)
+    BASE = "http://127.0.0.1:%d" % httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    _COOKIE = ""
+    state.auth = sv.app_auth.AppAuth.from_env(state.data_dir, {
+        "ZALO_PC_APP_USER": "nguoi-dung-test", "ZALO_PC_APP_PASSWORD": "mat-khau-test-123"})
+    api("POST", "/api/app/login", {"username": "nguoi-dung-test", "password": "mat-khau-test-123"})
+    state.session = {"zpw_sek": "x", "zpw_enk": "k", "device_id": "d", "uid": "1"}
+    state.calls.record_start(89, "Peer", "20002", "user")
+    state.calls.record_answered(89, "test")
+    media_endpoints.ENDPOINTS.active[89] = {"transport": _Transport()}
+
+    class Eng:
+        call_info = {"call_id": 89}
+
+        def read_frame(self, timeout=0):
+            return None
+
+        def queue_depth(self):
+            return 0
+    sv.engine_seam.SEAM.engine = Eng()
+    order, args_seen = [], []
+
+    class P:
+        def __init__(self):
+            self.stdin = type("S", (), {"write": lambda s, b: None, "close": lambda s: None})()
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            pass
+
+    def make_sink(e, u, guard=None):
+        order.append("sink")
+        return real_sink(e, u, guard=guard, popen=lambda a, **k: (args_seen.append(a), P())[1],
+                         sleep=lambda s: None)
+
+    def make_mic(f, source="test", fmt="auto", gate=None):
+        order.append("mic")
+        return real_mic(f, source=source, fmt=fmt, gate=gate, popen=lambda *a, **k: _Proc())
+    real_sink, real_mic = sv.audio_rx_mod.AudioSink, sv.audio_tx_mod.AudioSender
+    sv.audio_rx_mod.AudioSink, sv.audio_tx_mod.AudioSender = make_sink, make_mic
+    real_settle, sv.audio_rx_mod.DUPLEX_SETTLE_SECONDS = sv.audio_rx_mod.DUPLEX_SETTLE_SECONDS, 0
+    import shutil
+    real_which = shutil.which
+    shutil.which = lambda n: "/usr/bin/" + n
+    try:
+        duplex = "http://ha:8123/api/r1_speaker/duplex/E?k=S"
+        api("POST", "/api/settings/devices", {"speaker_url": duplex, "echo_guard": False, "mic_url": "test"})
+        # Mo MIC truoc (nhu khi nghe may): phien song cong phai duoc mo truoc mic.
+        sv._start_mic(89, "test")
+        assert order == ["sink", "mic"], order
+        first = sv.SPEAKER_SINKS["89"]
+        assert any("pcm_s16le" in a for a in args_seen), "phai gui PCM tho, khong phai A-law"
+        # Goi lai loa cung dich (auto media / API) khong dong POST dang mo.
+        assert sv._start_speaker(89, duplex) is first and order == ["sink", "mic"]
+        sv._start_mic(89, "test")                       # doi mic: khong mo lai phien song cong
+        assert order == ["sink", "mic", "mic"] and sv.SPEAKER_SINKS["89"] is first
+        # Loa khac dich (cua bo dam) thi thay the.
+        other = sv._start_speaker(89, "http://ha:8123/api/r1_speaker/intercom/E?k=S")
+        assert other is not first
+    finally:
+        shutil.which = real_which
+        sv.audio_rx_mod.AudioSink, sv.audio_tx_mod.AudioSender = real_sink, real_mic
+        sv.audio_rx_mod.DUPLEX_SETTLE_SECONDS = real_settle
+        sv._stop_mic(89); sv._stop_speaker(89)
+        sv.engine_seam.SEAM.engine = None
+        media_endpoints.ENDPOINTS.active.pop(89, None)
+        httpd.shutdown()
+
+
 def test_per_call_override_is_validated_and_cleaned():
     sv._CALL_DEVICES.clear()
     out = sv._remember_call_devices(5, {"mic_url": "http://h/x", "camera_url": "rm -rf",

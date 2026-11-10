@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .bridge_core import entity_of_label, label
-from .const import CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL
+from .const import CONF_AI_AGENT, CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL
 from .entity import ZaloCallEntity
 
 REFRESH = timedelta(minutes=1)
@@ -33,14 +33,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         DeviceSelect(hass, entry, rt, "camera", "Camera mặc định",
                      "mdi:cctv", ("camera",)),
         EchoGuardSelect(entry, rt),
+        DeviceSelect(hass, entry, rt, CONF_AI_AGENT,
+                     "Trợ lý hội thoại cho AI (Không = mặc định)", "mdi:forum",
+                     ("conversation",), push=False),
     ])
 
 
 class DeviceSelect(ZaloCallEntity, SelectEntity):
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, hass, entry, rt, key, name, icon, domains, extra=()) -> None:
+    def __init__(self, hass, entry, rt, key, name, icon, domains, extra=(), push=True) -> None:
         super().__init__(entry, key)
+        self._push = push
         self.hass = hass
         self._rt = rt
         self._key = key
@@ -83,7 +87,8 @@ class DeviceSelect(ZaloCallEntity, SelectEntity):
             if self._key == "mic":
                 patch["mic_url"] = ""
         await self._rt.defaults.async_set(**patch)
-        await self._rt.bridge.async_push_defaults()
+        if self._push:                       # trợ lý AI chỉ dùng trong HA, không cần báo app
+            await self._rt.bridge.async_push_defaults()
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(self._rt.defaults.add_listener(self.async_write_ha_state))
@@ -91,7 +96,10 @@ class DeviceSelect(ZaloCallEntity, SelectEntity):
             self.hass, lambda _now: self.async_write_ha_state(), REFRESH))
 
 
-ECHO_LABELS = {"auto": "Tự động (chỉ khi mic và loa cùng thiết bị)", "on": "Luôn bật", "off": "Tắt"}
+ECHO_LABELS = {"auto": "Tự động (chỉ khi mic và loa cùng thiết bị)",
+               "on": "Luôn bật (chặn mic khi loa đang phát)",
+               "duplex": "Song công (nói chen được, dùng khử vọng của loa R1)",
+               "off": "Tắt"}
 
 
 class EchoGuardSelect(ZaloCallEntity, SelectEntity):

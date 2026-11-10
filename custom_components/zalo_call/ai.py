@@ -37,20 +37,20 @@ def _speech(resp: dict) -> str:
 
 async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
                          event: dict) -> None:
-    opts = entry.options
-    if not opts.get(CONF_AI_ENABLED):
+    rt = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if rt is None:
+        return
+    d = rt.defaults
+    if not d.get(CONF_AI_ENABLED):
         return
     text = str(event.get("content") or "").strip()
     thread_id = str(event.get("thread_id") or "")
     if not text or not thread_id or event.get("is_self") \
             or _is_group(event.get("thread_type")):
         return
-    allow = [t.strip() for t in str(opts.get(CONF_AI_THREADS) or "").split(",")
+    allow = [t.strip() for t in str(d.get(CONF_AI_THREADS) or "").split(",")
              if t.strip()]
     if allow and thread_id not in allow:
-        return
-    rt = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    if rt is None:
         return
     lock = _locks.setdefault(thread_id, asyncio.Lock())
     async with lock:
@@ -59,8 +59,8 @@ async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
             await asyncio.sleep(wait)
         data = {"text": text, "conversation_id": "zalo_call_" + thread_id,
                 "language": hass.config.language}
-        if opts.get(CONF_AI_AGENT):
-            data["agent_id"] = opts[CONF_AI_AGENT]
+        if d.get(CONF_AI_AGENT):
+            data["agent_id"] = d.get(CONF_AI_AGENT)
         try:
             resp = await hass.services.async_call(
                 "conversation", "process", data, blocking=True,

@@ -5,6 +5,10 @@ Bo dam (R1, camera Imou/Dahua qua tich hop HA) nhan luong A-law 8 kHz bang
 PCM16 16 kHz (stdin) -> A-law 8 kHz -> POST. Khong qua may phat nhac (DLNA) nen khong
 co bo dem vai giay.
 
+Phien song cong cua R1 (`POST /api/r1_speaker/duplex/<id>?k=`): nhan PCM16 16 kHz tho (khong
+A-law), mic van mo, loa R1 tu khu vong. Mic cua R1 PHAI duoc mo sau khi phien nay bat dau (neu
+khong HA tra luong mic tho chua khu vong): `DUPLEX_SETTLE_SECONDS` la thoi gian cho do.
+
 Chong vong (`EchoGuard`): mic va loa cung mot thiet bi (R1) thi mic thu lai tieng loa roi
 gui nguoc cho ben kia. Khi loa dang phat tieng that thi tam NGUNG gui mic
 (nua song cong, nhu bo dam); het tieng `hold` giay thi gui lai.
@@ -23,6 +27,7 @@ from . import call_audio
 
 RMS_THRESHOLD = 180.0       # duoi muc nay coi la im lang (nen cua luong Opus/DTX)
 HOLD_SECONDS = 0.5          # het tieng that van chan mic them chung nay (duoi vong phong)
+DUPLEX_SETTLE_SECONDS = 0.8  # cho phien song cong cua R1 mo xong roi moi mo mic
 
 
 def frame_rms(frame):
@@ -53,15 +58,24 @@ class EchoGuard:
         return False
 
 
+def is_duplex_url(url):
+    """URL phien song cong cua R1 (nhan PCM16 16 kHz tho)."""
+    return "/api/r1_speaker/duplex/" in str(url or "")
+
+
 def build_ffmpeg_args(url, ffmpeg="ffmpeg"):
-    """stdin PCM16 16 kHz mono -> A-law 8 kHz mono -> POST (chunked) toi `url`."""
-    return [ffmpeg, "-hide_banner", "-loglevel", "error",
+    """stdin PCM16 16 kHz mono -> POST (chunked) toi `url`: A-law 8 kHz cho cua bo dam,
+    PCM16 16 kHz tho cho phien song cong cua R1."""
+    head = [ffmpeg, "-hide_banner", "-loglevel", "error",
             "-fflags", "nobuffer", "-flags", "low_delay",
             "-probesize", "32", "-analyzeduration", "0",
-            "-f", "s16le", "-ar", "16000", "-ac", "1", "-i", "-",
-            "-ac", "1", "-ar", "8000", "-c:a", "pcm_alaw", "-f", "alaw",
-            "-flush_packets", "1", "-method", "POST", "-chunked_post", "1",
-            "-content_type", "application/octet-stream", url]
+            "-f", "s16le", "-ar", "16000", "-ac", "1", "-i", "-"]
+    if is_duplex_url(url):
+        out = ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "s16le"]
+    else:
+        out = ["-ac", "1", "-ar", "8000", "-c:a", "pcm_alaw", "-f", "alaw"]
+    return head + out + ["-flush_packets", "1", "-method", "POST", "-chunked_post", "1",
+                         "-content_type", "application/octet-stream", url]
 
 
 class AudioSink:
@@ -69,6 +83,7 @@ class AudioSink:
                  sleep=time.sleep):
         self._engine = engine
         self._args = build_ffmpeg_args(url)
+        self.target = url               # de nhan ra cung dich (KHONG ghi ra log/trang thai: co khoa)
         self._guard = guard
         self._popen = popen or subprocess.Popen
         self._clock, self._sleep = clock, sleep

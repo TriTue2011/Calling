@@ -140,10 +140,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     webhook.async_register(hass, DOMAIN, "Zalo Call", webhook_id, _handle,
                            allowed_methods=["POST"])
     entry.async_on_unload(lambda: webhook.async_unregister(hass, webhook_id))
-    hass.async_create_task(_async_push_webhooks(hass, entry, api, webhook_id))
+    hass.async_create_task(_async_push_webhooks(hass, defaults, api, webhook_id))
+    # Đổi ô «Địa chỉ HA» trên thiết bị: báo lại cho app địa chỉ webhook mới (không cần tải lại).
+    last_url = {"v": defaults.get(CONF_HA_URL)}
+
+    def _on_defaults_changed() -> None:
+        if defaults.get(CONF_HA_URL) != last_url["v"]:
+            last_url["v"] = defaults.get(CONF_HA_URL)
+            hass.async_create_task(_async_push_webhooks(hass, defaults, api, webhook_id))
+
+    entry.async_on_unload(defaults.add_listener(_on_defaults_changed))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(_async_reload))
     # Dua thiet bi mac dinh (da phan giai ra URL luong) cho app: WebUI hien thong nhat
     # va cuoc goi nghe may ngoai HA / ben kia xin len video cung dung dung nguon.
     hass.async_create_task(bridge.async_push_defaults())
@@ -186,23 +194,19 @@ async def _async_call_state(hass: HomeAssistant, bridge: CallAudioBridge,
     hass.bus.async_fire(EVENT_STATE, event)
 
 
-async def _async_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
-
-
-async def _async_push_webhooks(hass: HomeAssistant, entry: ConfigEntry,
+async def _async_push_webhooks(hass: HomeAssistant, defaults: DeviceDefaults,
                                api: ZaloCallApi, webhook_id: str) -> None:
     """Báo cho app địa chỉ webhook của HA (một URL chung cho cả 4 loại).
 
     Không ghi đè webhook mà người dùng đã đặt sang chỗ khác: chỉ điền khi
     ô còn trống hoặc đã là của chính tích hợp này.
     """
-    base = entry.options.get(CONF_HA_URL)
+    base = defaults.get(CONF_HA_URL)
     try:
         base = base or get_url(hass, allow_external=False, allow_cloud=False)
     except NoURLAvailableError:
         _LOGGER.warning("Không xác định được địa chỉ nội bộ của HA; đặt "
-                        "'Địa chỉ HA' trong tuỳ chọn tích hợp để nhận sự kiện")
+                        "ô «Địa chỉ HA» trên thiết bị Zalo Call để nhận sự kiện")
         return
     url = base.rstrip("/") + webhook.async_generate_path(webhook_id)
     try:

@@ -71,7 +71,7 @@ class CallAudioBridge:
 
     # -- phan giai thuc the -> URL luong -----------------------------------
     def _ha_base(self) -> str:
-        base = self.entry.options.get(CONF_HA_URL)
+        base = self.defaults.get(CONF_HA_URL)
         if base:
             return str(base)
         try:
@@ -128,9 +128,10 @@ class CallAudioBridge:
             return r1_mic_url(base, cfg.entry_id, key)
         return ""
 
-    async def async_speaker_sink(self, entity_id: str) -> str:
-        """URL «cua bo dam» de app phat tieng thang vao loa (R1, camera Imou/Dahua), hoac ""
-        (loa khac: dung media_player.play_media). Khoa lay tu chinh tich hop cua loa."""
+    async def async_speaker_sink(self, entity_id: str, mode: str = "auto") -> str:
+        """URL de app phat tieng thang vao loa (R1, camera Imou/Dahua), hoac "" (loa khac: dung
+        media_player.play_media). Mac dinh la «cua bo dam»; che do duplex + loa R1 -> phien song
+        cong cua R1. Khoa lay tu chinh tich hop cua loa."""
         if not entity_id:
             return ""
         ent = er.async_get(self.hass).async_get(entity_id)
@@ -143,7 +144,8 @@ class CallAudioBridge:
         if not key or not base:
             _LOGGER.warning("Loa %s chua co khoa bo dam hoac HA chua co dia chi noi bo", entity_id)
             return ""
-        return intercom_url(base, cfg.domain, cfg.entry_id, key)
+        kind = "duplex" if (mode == "duplex" and cfg.domain == "r1_speaker") else "intercom"
+        return intercom_url(base, cfg.domain, cfg.entry_id, key, kind)
 
     def _same_device(self, speaker_id: str, mic_id: str, mic_url: str, sink_url: str) -> bool:
         """Mic va loa co cung MOT thiet bi khong (de bat chong vong khi o che do tu dong)."""
@@ -166,7 +168,7 @@ class CallAudioBridge:
         cam_id = entity_of_label(devices.get("camera", ""))
         cam_url = await self.async_camera_url(cam_id) if cam_id else ""
         spk_id = entity_of_label(devices.get("speaker", ""))
-        spk_url = await self.async_speaker_sink(spk_id)
+        spk_url = await self.async_speaker_sink(spk_id, echo_mode)
         mic_id = entity_of_label(devices.get("mic", ""))
         echo = echo_guard_on(echo_mode, self._same_device(spk_id, mic_id, mic_url, spk_url)) \
             if spk_url else False
@@ -235,7 +237,7 @@ class CallAudioBridge:
         speaker = entity_of_label(devices["speaker"])
         if not speaker:
             return devices
-        if await self.async_speaker_sink(speaker):
+        if await self.async_speaker_sink(speaker, str(self.defaults.get("echo_guard") or "auto")):
             return devices          # loa truc tiep: app tu day tieng vao bo dam, khong qua play_media
         try:
             media = await self.api.call_media_status(call_id)

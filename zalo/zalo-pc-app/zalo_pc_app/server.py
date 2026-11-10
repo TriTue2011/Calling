@@ -947,10 +947,15 @@ def _guard_for_call(call_id):
 
 
 def _start_speaker(call_id, url):
-    """Phat tieng ben kia thang vao bo dam `url` (A-law 8 kHz POST). Nem RuntimeError."""
+    """Phat tieng ben kia thang vao loa `url` (cua bo dam A-law 8 kHz, hoac phien song cong cua R1
+    PCM16 16 kHz). Da chay dung dich thi giu nguyen (dong POST = ket thuc phien song cong cua R1,
+    keo theo luong mic). Nem RuntimeError."""
     engine = _engine_for_call(call_id)
     if engine is None:
         raise RuntimeError("no_live_transport")
+    old = SPEAKER_SINKS.get(str(call_id))
+    if old is not None and old.alive and getattr(old, "target", None) == url:
+        return old
     _stop_speaker(call_id)
     sink = audio_rx_mod.AudioSink(engine, url, guard=_guard_for_call(call_id))
     sink.start()
@@ -1010,6 +1015,12 @@ def _start_mic(call_id, source, fmt="auto"):
     transport = _transport_for_call(call_id)
     if transport is None:
         raise RuntimeError("no_live_transport")
+    # Loa la phien song cong cua R1: phai mo phien TRUOC roi moi mo mic, neu khong HA tra luong
+    # mic tho (chua khu vong) cho den het cuoc goi.
+    spk = _devices_for_call(call_id).get("speaker_url") or ""
+    if audio_rx_mod.is_duplex_url(spk) and str(call_id) not in SPEAKER_SINKS:
+        _start_speaker(call_id, spk)
+        time.sleep(audio_rx_mod.DUPLEX_SETTLE_SECONDS)
     _stop_mic(call_id)
     guard = _guard_for_call(call_id)
     sender = audio_tx_mod.AudioSender(transport.send_pcm, source=source, fmt=fmt,

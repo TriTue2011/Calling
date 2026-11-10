@@ -123,13 +123,14 @@ def dahua_mic_url(options: Mapping[str, Any], data: Mapping[str, Any]) -> str:
     return str(options.get("mic_url") or data.get("mic_url") or "").strip()
 
 
-def intercom_url(base: str, domain: str, entry_id: str, key: str) -> str:
-    """«Cua bo dam» cua r1_speaker / dahua_talk: POST A-law 8 kHz (xem go2rtc_source cua ho)."""
-    return "%s/api/%s/intercom/%s?k=%s" % (base.rstrip("/"), domain,
-                                           quote(entry_id, safe=""), quote(key, safe=""))
+def intercom_url(base: str, domain: str, entry_id: str, key: str, kind: str = "intercom") -> str:
+    """Duong day tieng vao loa: «cua bo dam» (kind=intercom, A-law 8 kHz, nua cong: HA tu tat mic
+    khi dang phat) hoac phien song cong cua R1 (kind=duplex, PCM16 16 kHz tho, mic van mo)."""
+    return "%s/api/%s/%s/%s?k=%s" % (base.rstrip("/"), domain, kind,
+                                     quote(entry_id, safe=""), quote(key, safe=""))
 
 
-_DEVICE_URL = re.compile(r"/api/(r1_speaker|dahua_talk)/(?:mic|intercom)/([^/?#]+)")
+_DEVICE_URL = re.compile(r"/api/(r1_speaker|dahua_talk)/(?:mic|intercom|duplex)/([^/?#]+)")
 
 
 def device_of_url(url: str) -> tuple[str, str] | None:
@@ -139,10 +140,11 @@ def device_of_url(url: str) -> tuple[str, str] | None:
 
 
 def echo_guard_on(mode: str, same_device: bool) -> bool:
-    """Chong vong co bat khong: on / off, hoac auto = chi khi mic va loa cung mot thiet bi."""
+    """App co chan mic khi loa phat khong: on = luon; off va duplex = khong (duplex de loa R1 tu
+    khu vong, mic van mo); auto = chi khi mic va loa cung mot thiet bi."""
     if mode == "on":
         return True
-    if mode == "off":
+    if mode in ("off", "duplex"):
         return False
     return bool(same_device)
 

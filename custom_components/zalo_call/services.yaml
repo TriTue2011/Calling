@@ -6802,13 +6802,15 @@ set_default_devices:
         boolean: null
     echo_guard:
       name: Chống vọng
-      description: auto = chỉ bật khi mic và loa là cùng một thiết bị (ví dụ R1); on = luôn bật (tạm ngừng
-        gửi mic khi loa đang phát tiếng bên kia); off = tắt.
+      description: auto = chỉ chặn mic khi mic và loa là cùng một thiết bị (ví dụ R1); on = luôn chặn
+        mic khi loa đang phát tiếng bên kia; duplex = song công, nói chen được (loa R1 dùng khử vọng của
+        nó); off = tắt.
       selector:
         select:
           options:
           - auto
           - 'on'
+          - duplex
           - 'off'
     auto_video_delay:
       name: Chờ trước khi tự đồng ý (giây)

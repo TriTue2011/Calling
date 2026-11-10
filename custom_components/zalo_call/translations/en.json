@@ -36,18 +36,5 @@
       "reauth_successful": "Password updated; reconnected.",
       "reconfigure_successful": "App connection updated."
     }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Zalo Call options",
-        "data": {
-          "ha_url": "HA address reachable by the app (webhook)",
-          "ai_enabled": "AI auto-reply to 1-1 messages",
-          "ai_agent": "Conversation agent for AI",
-          "ai_threads": "Only reply to these threadIds (comma separated, empty = all)"
-        }
-      }
-    }
   }
 }

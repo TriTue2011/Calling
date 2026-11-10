@@ -225,6 +225,42 @@ def test_failed_push_is_recorded_and_not_concurrent():
     asyncio.run(run())
 
 
+def test_legacy_gear_options_import_without_overwriting_device_values():
+    async def run():
+        hass = FakeHass()
+        key = "zalo_call.devices.e1"
+        H["saved"] = {key: {"speaker": "media_player.x", "ai_agent": "conversation.mine"}}   # kho da co
+        dd = devices_mod.DeviceDefaults(hass, "e1")
+        await dd.async_load({"ha_url": "http://ha:8123/", "ai_enabled": True,
+                             "ai_threads": "1, 2", "ai_agent": "conversation.cu"})
+        assert dd.get("ha_url") == "http://ha:8123"              # bo dau / cuoi
+        assert dd.get("ai_enabled") is True and dd.get("ai_threads") == "1, 2"
+        assert dd.get("ai_agent") == "conversation.mine"         # da dat tren thiet bi: khong ghi de
+        assert H["saved"][key]["ha_url"] == "http://ha:8123"     # da luu: lan sau khong doc lai options
+    asyncio.run(run())
+
+
+def test_duplex_mode_uses_r1_duplex_url_and_leaves_mic_open():
+    async def run():
+        hass, api, dd, br = _make({"speaker": "media_player.r1_loa", "mic": "assist_satellite.r1"},
+                                  options={"ha_url": "http://ha.lan:8123"})
+        _ent("r1_speaker", "media_player.r1_loa", "r1entry")
+        _ent("r1_speaker", "assist_satellite.r1", "r1entry")
+        H["entries"]["r1entry"].data = {"intercom_key": "KHOA"}
+        res = await br.async_resolve(br.devices_for(), "duplex")
+        assert res["speaker_url"] == "http://ha.lan:8123/api/r1_speaker/duplex/r1entry?k=KHOA"
+        assert res["echo_guard"] == "false"                      # mic mo: loa R1 tu khu vong
+        res = await br.async_resolve(br.devices_for(), "on")
+        assert "/intercom/" in res["speaker_url"] and res["echo_guard"] == "true"
+        # Loa camera khong co phien song cong -> van la cua bo dam.
+        _ent("dahua_talk", "media_player.cam_loa", "dhentry")
+        H["entries"]["dhentry"].data = {"intercom_key": "DK"}
+        assert "/intercom/dhentry" in await br.async_speaker_sink("media_player.cam_loa", "duplex")
+        assert core.device_of_url("http://ha/api/r1_speaker/duplex/r1entry?k=1") == ("r1_speaker", "r1entry")
+        assert core.echo_guard_on("duplex", True) is False
+    asyncio.run(run())
+
+
 def test_localize_url_rewrites_only_loopback():
     f = core.localize_url
     assert f("rtsp://u:p@localhost:8554/phong-khach", "172.16.10.200") == \
@@ -304,6 +340,8 @@ def _make(defaults, token="TOKEN", options=None):
     hass, api = FakeHass(), FakeApi(token)
     dd = devices_mod.DeviceDefaults(hass, "e1")
     dd._merge(defaults)
+    if options and options.get("ha_url"):       # «Địa chỉ HA» nay là ô trên thiết bị, không phải bánh răng
+        dd._merge({"ha_url": options["ha_url"]})
     return hass, api, dd, bridge_mod.CallAudioBridge(hass, FakeEntry(options), api, dd)
 
 

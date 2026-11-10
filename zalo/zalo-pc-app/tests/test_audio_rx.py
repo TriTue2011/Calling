@@ -61,6 +61,18 @@ def test_ffmpeg_args_alaw_post_low_latency():
     assert a.index("-probesize") < a.index("-i")
 
 
+def test_ffmpeg_args_duplex_posts_raw_pcm16_16k():
+    url = "http://ha:8123/api/r1_speaker/duplex/E?k=K"
+    assert audio_rx.is_duplex_url(url)
+    assert not audio_rx.is_duplex_url("http://ha:8123/api/r1_speaker/intercom/E?k=K")
+    assert not audio_rx.is_duplex_url("") and not audio_rx.is_duplex_url(None)
+    a = audio_rx.build_ffmpeg_args(url)
+    assert a[a.index("-c:a") + 1] == "pcm_s16le" and "pcm_alaw" not in a
+    assert a[a.index("-f", a.index("-c:a")) + 1] == "s16le"
+    assert a[a.index("-ar", a.index("-c:a") - 4) + 1] == "16000"          # khong ha xuong 8 kHz
+    assert a[a.index("-method") + 1] == "POST" and a[-1] == url
+
+
 def test_stream_out_header_optional():
     for header in (True, False):
         out = []

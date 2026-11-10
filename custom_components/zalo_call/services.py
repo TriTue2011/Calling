@@ -21,7 +21,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .const import DOMAIN
+from .const import DOMAIN, ECHO_MODES
 
 MAX_FILE = 100 * 1024 * 1024
 _ANY = cv.match_all
@@ -340,7 +340,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
                            vol.Optional("camera"): cv.string,
                            vol.Optional("auto_mic"): cv.boolean,
                            vol.Optional("auto_video"): cv.boolean,
-                           vol.Optional("echo_guard"): vol.In(["auto", "on", "off"]),
+                           vol.Optional("echo_guard"): vol.In(list(ECHO_MODES)),
                            vol.Optional("auto_video_delay"):
                                vol.All(vol.Coerce(int), vol.Range(min=0, max=120))}))
 
