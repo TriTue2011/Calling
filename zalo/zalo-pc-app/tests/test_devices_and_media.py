@@ -71,10 +71,14 @@ def test_ffmpeg_args_per_source():
     assert "lavfi" in t and t[-1] == "pipe:1" and "s16le" in t
     r = audio_tx.build_ffmpeg_args("rtsp://h/x")
     assert r[r.index("-rtsp_transport") + 1] == "tcp" and "-re" not in r
+    assert "nobuffer" in r and r[r.index("-analyzeduration") + 1] == "1000000"   # van nhan ra luong audio
+    assert r.index("-analyzeduration") < r.index("-i")                           # tuy chon dat TRUOC -i
     p = audio_tx.build_ffmpeg_args("http://h/mic?k=1", "s16le16k")
-    assert p[p.index("-f") + 1] == "s16le" and "-ar" in p and p.index("-i") > p.index("-ar")
+    assert p[p.index("-f") + 1] == "s16le" and p.index("-i") > p.index("-ar")
+    assert "nobuffer" in p and p[p.index("-probesize") + 1] == "32"               # PCM tho: khong do dinh dang
+    assert p[p.index("-analyzeduration") + 1] == "0" and p.index("-probesize") < p.index("-i")
     h = audio_tx.build_ffmpeg_args("http://h/x.mp3")
-    assert h.count("-f") == 1 and "-stream_loop" not in h
+    assert h.count("-f") == 1 and "-stream_loop" not in h and "-probesize" not in h
     assert "-stream_loop" in audio_tx.build_ffmpeg_args("/media/a.wav")
 
 

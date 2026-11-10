@@ -26,18 +26,26 @@ MAX_BACKLOG = 10            # > 200 ms ton dong thi bo khung cu (giu do tre thap
 FORMATS = ("auto", "s16le16k")
 
 
+# Do 10/11 tren luong mic R1 that: ffmpeg mac dinh doi ~3,3 s (do dinh dang) roi xa don gap 4 lan,
+# app mat 3 s tiep dau va bo ~150 khung. Co do tre thap dua byte dau ve ~0,25 s va deu dan.
+LOW_LATENCY = ["-fflags", "nobuffer", "-flags", "low_delay"]
+
+
 def build_ffmpeg_args(source, fmt="auto", ffmpeg="ffmpeg"):
     src = str(source or "test")
     args = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin"]
     if src == "test":
         args += ["-re", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000"]
     elif src.startswith(("rtsp://", "rtsps://")):
-        args += ["-rtsp_transport", "tcp", "-i", src]
+        # Can do ~1 s de nhan ra luong tieng; RTSP khac 0 s se khong thay audio.
+        args += ["-rtsp_transport", "tcp"] + LOW_LATENCY \
+            + ["-analyzeduration", "1000000", "-probesize", "200000", "-i", src]
     elif src.startswith(("http://", "https://", "rtmp://", "rtmps://")):
-        if fmt == "s16le16k":
-            args += ["-f", "s16le", "-ar", "16000", "-ac", "1", "-i", src]
+        if fmt == "s16le16k":                    # dinh dang da biet: khong can do
+            args += LOW_LATENCY + ["-probesize", "32", "-analyzeduration", "0",
+                                   "-f", "s16le", "-ar", "16000", "-ac", "1", "-i", src]
         else:
-            args += ["-i", src]
+            args += LOW_LATENCY + ["-analyzeduration", "1000000", "-i", src]
     else:
         args += ["-re", "-stream_loop", "-1", "-i", src]
     args += ["-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1"]
