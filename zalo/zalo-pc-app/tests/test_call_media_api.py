@@ -102,8 +102,8 @@ def test_endpoints():
     tr = _Transport()
     media_endpoints.ENDPOINTS.active[77] = {"transport": tr}
     real = sv.audio_tx_mod.AudioSender
-    sv.audio_tx_mod.AudioSender = lambda f, source="test", fmt="auto", gate=None: real(
-        f, source=source, fmt=fmt, gate=gate, popen=lambda *a, **k: _Proc())
+    sv.audio_tx_mod.AudioSender = lambda f, source="test", fmt="auto", gate=None, **kw: real(
+        f, source=source, fmt=fmt, gate=gate, popen=lambda *a, **k: _Proc(), **kw)
     real_v = sv.video_tx_mod.VideoSender
     sv.video_tx_mod.VideoSender = lambda f, **kw: real_v(
         f, popen=lambda *a, **k: _Proc(), **kw)
@@ -222,10 +222,10 @@ def test_speaker_sink_and_echo_guard_endpoints():
         def kill(self):
             pass
     real_sink, real_mic = sv.audio_rx_mod.AudioSink, sv.audio_tx_mod.AudioSender
-    sv.audio_rx_mod.AudioSink = lambda e, u, guard=None: real_sink(
-        e, u, guard=guard, popen=lambda *a, **k: P(), sleep=lambda s: None)
-    sv.audio_tx_mod.AudioSender = lambda f, source="test", fmt="auto", gate=None: real_mic(
-        f, source=source, fmt=fmt, gate=gate, popen=lambda *a, **k: _Proc())
+    sv.audio_rx_mod.AudioSink = lambda e, u, guard=None, **kw: real_sink(
+        e, u, guard=guard, popen=lambda *a, **k: P(), sleep=lambda s: None, **kw)
+    sv.audio_tx_mod.AudioSender = lambda f, source="test", fmt="auto", gate=None, **kw: real_mic(
+        f, source=source, fmt=fmt, gate=gate, popen=lambda *a, **k: _Proc(), **kw)
     import shutil
     real_which = shutil.which
     shutil.which = lambda n: "/usr/bin/" + n
@@ -300,12 +300,12 @@ def test_duplex_speaker_opens_before_mic_and_is_not_restarted():
         def kill(self):
             pass
 
-    def make_sink(e, u, guard=None):
+    def make_sink(e, u, guard=None, **kw):
         order.append("sink")
         return real_sink(e, u, guard=guard, popen=lambda a, **k: (args_seen.append(a), P())[1],
                          sleep=lambda s: None)
 
-    def make_mic(f, source="test", fmt="auto", gate=None):
+    def make_mic(f, source="test", fmt="auto", gate=None, **kw):
         order.append("mic")
         return real_mic(f, source=source, fmt=fmt, gate=gate, popen=lambda *a, **k: _Proc())
     real_sink, real_mic = sv.audio_rx_mod.AudioSink, sv.audio_tx_mod.AudioSender
