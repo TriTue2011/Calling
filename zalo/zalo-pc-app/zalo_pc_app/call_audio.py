@@ -89,14 +89,15 @@ MAX_BACKLOG_FRAMES = 5     # > 100 ms ton dong thi bo bot khung cu (giu do tre t
 
 
 def stream_out(engine, write, is_live, clock=time.monotonic,
-               sleep=time.sleep):
+               sleep=time.sleep, header=True):
     """Ghi WAV lien tuc cho den khi `is_live()` sai hoac `write` loi.
 
     DUNG MOT KHUNG MOI 20 MS theo dong ho (khung that neu co, khong thi
     im lang): thiet bi phat theo thoi gian thuc, nen ghi nhanh hon se bi
     TCP chan roi hang doi day, khung bi rot va do tre tang dan. Neu hang doi
     ton hon MAX_BACKLOG_FRAMES (mang khung den dap), bo bot khung cu nhat."""
-    write(wav_header())
+    if header:                                  # loa truc tiep ghi PCM tho, khong co header WAV
+        write(wav_header())
     depth = getattr(engine, "queue_depth", None)
     tick = clock()
     while is_live():

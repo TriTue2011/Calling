@@ -115,6 +115,87 @@ def test_pick_devices_default_override_and_explicit_off():
         defaults, {"mic": "", "mic_url": "rtsp://x/y"})) is False       # con mic_url
 
 
+def test_intercom_helpers_and_echo_modes():
+    assert core.intercom_url("http://ha:8123/", "r1_speaker", "E1", "k e") == \
+        "http://ha:8123/api/r1_speaker/intercom/E1?k=k%20e"
+    assert core.device_of_url("http://ha:8123/api/r1_speaker/intercom/E1?k=1") == ("r1_speaker", "E1")
+    assert core.device_of_url("http://ha/api/r1_speaker/mic/E1?k=1") == ("r1_speaker", "E1")
+    assert core.device_of_url("http://ha/api/dahua_talk/intercom/D9?k=1") == ("dahua_talk", "D9")
+    assert core.device_of_url("rtsp://cam/x") is None and core.device_of_url("") is None
+    assert core.echo_guard_on("on", False) is True and core.echo_guard_on("off", True) is False
+    assert core.echo_guard_on("auto", True) is True and core.echo_guard_on("auto", False) is False
+    assert core.echo_guard_on("la", True) is True                       # mode la -> coi nhu auto
+
+
+def test_speaker_sink_resolution_and_echo_auto():
+    async def run():
+        hass, api, dd, br = _make({"speaker": "media_player.r1_loa", "mic": "assist_satellite.r1"},
+                                  options={"ha_url": "http://ha.lan:8123"})
+        r1 = _ent("r1_speaker", "media_player.r1_loa", "r1entry")
+        _ent("r1_speaker", "assist_satellite.r1", "r1entry")
+        r1.data = {"intercom_key": "KHOA", "intercom_key_x": 1}
+        H["entries"]["r1entry"].data = {"intercom_key": "KHOA"}
+        url = await br.async_speaker_sink("media_player.r1_loa")
+        assert url == "http://ha.lan:8123/api/r1_speaker/intercom/r1entry?k=KHOA"
+        # Loa va mic cung tich hop R1 -> auto bat chong vong; loa camera + mic camera khac thiet bi -> tat.
+        res = await br.async_resolve(br.devices_for(), "auto")
+        assert res["speaker_url"] == url and res["echo_guard"] == "true"
+        assert (await br.async_resolve(br.devices_for(), "off"))["echo_guard"] == "false"
+        # Mic khac thiet bi (camera) -> auto KHONG bat.
+        _ent("go2rtc", "camera.cam1", "gcfg")
+        res = await br.async_resolve(br.devices_for({"mic": "camera.cam1"}), "auto")
+        assert res["echo_guard"] == "false" and (await br.async_resolve(
+            br.devices_for({"mic": "camera.cam1"}), "on"))["echo_guard"] == "true"
+        # Mic bang URL luong R1 cung entry voi cua bo dam -> cung thiet bi.
+        d = br.devices_for({"mic": "", "mic_url": "http://ha/api/r1_speaker/mic/r1entry?k=x"})
+        assert (await br.async_resolve(d, "auto"))["echo_guard"] == "true"
+        d = br.devices_for({"mic": "", "mic_url": "http://ha/api/r1_speaker/mic/KHAC?k=x"})
+        assert (await br.async_resolve(d, "auto"))["echo_guard"] == "false"
+        # Camera Imou/Dahua: loa cua dahua_talk cung co cua bo dam rieng.
+        dh = _ent("dahua_talk", "media_player.cam_loa", "dhentry")
+        H["entries"]["dhentry"].data = {"intercom_key": "DK"}
+        assert (await br.async_speaker_sink("media_player.cam_loa")).endswith(
+            "/api/dahua_talk/intercom/dhentry?k=DK")
+        # Loa khac (Bluetooth/Cast/TV), thuc the la, thieu khoa -> khong co cua bo dam (dung play_media).
+        _ent("bluetooth_speaker", "media_player.bt", "btcfg")
+        for ent in ("media_player.bt", "media_player.khong_co", ""):
+            assert await br.async_speaker_sink(ent) == ""
+        H["entries"]["dhentry"].data = {}
+        assert await br.async_speaker_sink("media_player.cam_loa") == ""
+        # Khong co dia chi noi bo cua HA -> khong doan.
+        H["entries"]["r1entry"].data = {"intercom_key": "KHOA"}
+        H["base"] = ""
+        hass2, api2, dd2, br2 = _make({"speaker": "media_player.r1_loa"})
+        _ent("r1_speaker", "media_player.r1_loa", "r1entry").data = {"intercom_key": "KHOA"}
+        assert await br2.async_speaker_sink("media_player.r1_loa") == ""
+        H["base"] = "http://ha:8123"
+    asyncio.run(run())
+
+
+def test_call_fields_and_start_use_sink_not_play_media():
+    async def run():
+        hass, api, dd, br = _make({"speaker": "media_player.r1_loa", "mic": "assist_satellite.r1"},
+                                  options={"ha_url": "http://ha.lan:8123"})
+        r1 = _ent("r1_speaker", "media_player.r1_loa", "r1entry")
+        _ent("r1_speaker", "assist_satellite.r1", "r1entry")
+        H["entries"]["r1entry"].data = {"intercom_key": "KHOA"}
+        f = await br.async_call_fields(None)
+        assert f["speaker_url"].endswith("/api/r1_speaker/intercom/r1entry?k=KHOA")
+        assert f["echo_guard"] == "true" and f["mic_url"].endswith("/api/r1_speaker/mic/r1entry?k=KHOA")
+        # Ghi de loa rong -> "off"; khong co echo_guard di kem.
+        f = await br.async_call_fields({"speaker": ""})
+        assert f["speaker_url"] == "off" and "echo_guard" not in f
+        # Loa truc tiep: start() KHONG goi play_media (app tu day tieng vao bo dam).
+        devices = await br.start(5)
+        assert devices["speaker"] and hass.services.calls == []
+        # Che do echo cua mac dinh duoc ton trong (off thi khong bat du cung thiet bi).
+        dd._merge({"echo_guard": "off"})
+        assert (await br.async_call_fields(None))["echo_guard"] == "false"
+        dd._merge({"echo_guard": "bogus"})                                # sai -> giu "off"
+        assert dd.get("echo_guard") == "off"
+    asyncio.run(run())
+
+
 def test_localize_url_rewrites_only_loopback():
     f = core.localize_url
     assert f("rtsp://u:p@localhost:8554/phong-khach", "172.16.10.200") == \
@@ -193,8 +274,9 @@ def _make(defaults, token="TOKEN", options=None):
     return hass, api, dd, bridge_mod.CallAudioBridge(hass, FakeEntry(options), api, dd)
 
 
-def _ent(domain, entry_id, config_entry_id):
-    H["registry"][entry_id] = types.SimpleNamespace(config_entry_id=config_entry_id)
+def _ent(domain, entry_id, config_entry_id, device_id=None):
+    H["registry"][entry_id] = types.SimpleNamespace(config_entry_id=config_entry_id,
+                                                    device_id=device_id)
     H["entries"][config_entry_id] = types.SimpleNamespace(
         domain=domain, entry_id=config_entry_id, options={}, data={})
     return H["entries"][config_entry_id]
@@ -287,7 +369,8 @@ def test_push_defaults_to_app_with_resolved_urls():
                                    "auto_video_delay": 0})
         await br.async_push_defaults()
         assert api.pushed == [{"mic_url": "rtsp://u:p@cam.local/stream", "mic_format": "auto",
-                               "camera_url": "rtsp://cam2.local/s", "auto_mic": False,
+                               "camera_url": "rtsp://cam2.local/s", "speaker_url": "",
+                               "echo_guard": False, "auto_mic": False,
                                "auto_video_on_request": True, "auto_video_delay": 0}]
         # camera khong co stream -> day rong (app khong tu phat hinh)
         H["urls"]["camera.cam2"] = "rtsp://u:p@localhost:8554/cam2-sub"        # go2rtc cua HA

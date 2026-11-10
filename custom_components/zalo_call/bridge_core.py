@@ -10,6 +10,7 @@ nen test duoc ngoai HA (tests/test_zalo_call_bridge.py).
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping
 from urllib.parse import quote, urlsplit, urlunsplit
 
@@ -120,6 +121,30 @@ def r1_mic_url(base: str, entry_id: str, key: str) -> str:
 def dahua_mic_url(options: Mapping[str, Any], data: Mapping[str, Any]) -> str:
     """mic_url cua mot entry dahua_talk (options thang data)."""
     return str(options.get("mic_url") or data.get("mic_url") or "").strip()
+
+
+def intercom_url(base: str, domain: str, entry_id: str, key: str) -> str:
+    """«Cua bo dam» cua r1_speaker / dahua_talk: POST A-law 8 kHz (xem go2rtc_source cua ho)."""
+    return "%s/api/%s/intercom/%s?k=%s" % (base.rstrip("/"), domain,
+                                           quote(entry_id, safe=""), quote(key, safe=""))
+
+
+_DEVICE_URL = re.compile(r"/api/(r1_speaker|dahua_talk)/(?:mic|intercom)/([^/?#]+)")
+
+
+def device_of_url(url: str) -> tuple[str, str] | None:
+    """(tich hop, entry_id) tu URL mic/bo dam cua r1_speaker/dahua_talk, hoac None."""
+    m = _DEVICE_URL.search(url or "")
+    return (m.group(1), m.group(2)) if m else None
+
+
+def echo_guard_on(mode: str, same_device: bool) -> bool:
+    """Chong vong co bat khong: on / off, hoac auto = chi khi mic va loa cung mot thiet bi."""
+    if mode == "on":
+        return True
+    if mode == "off":
+        return False
+    return bool(same_device)
 
 
 def audio_out_url(base: str, token: str) -> str:

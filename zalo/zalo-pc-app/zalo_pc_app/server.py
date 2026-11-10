@@ -106,6 +106,7 @@ from . import signaling as signaling_mod
 from . import srtp_mode as srtp_mode_mod
 from . import video_tx as video_tx_mod
 from . import audio_tx as audio_tx_mod
+from . import audio_rx as audio_rx_mod
 from . import deps as deps_mod
 from . import devices as devices_mod
 from . import sync_poll as sync_poll_mod
@@ -890,6 +891,8 @@ def _calls_snapshot_with_media():
             _m = AUDIO_SENDERS.get(str(entry["call_id"]))
             media["video"] = _v.status() if _v else None
             media["mic"] = _m.status() if _m else None
+            _s = SPEAKER_SINKS.get(str(entry["call_id"]))
+            media["speaker"] = _s.status() if _s else None
             entry["media"] = media
     return snap
 
@@ -906,7 +909,9 @@ def _engine_for_call(call_id):
 VIDEO_SENDERS = {}               # call_id -> video_tx.VideoSender
 AUDIO_SENDERS = {}               # call_id -> audio_tx.AudioSender (mic len cuoc goi)
 _CALL_DEVICES = {}               # call_id -> ghi de rieng cua cuoc goi (mic/camera)
-_CALL_DEVICE_KEYS = ("mic_url", "mic_format", "camera_url")
+SPEAKER_SINKS = {}               # call_id -> audio_rx.AudioSink (loa truc tiep)
+ECHO_GUARDS = {}                 # call_id -> audio_rx.EchoGuard (mic nin khi loa phat)
+_CALL_DEVICE_KEYS = ("mic_url", "mic_format", "camera_url", "speaker_url", "echo_guard")
 
 
 def _stop_video(call_id):
@@ -923,6 +928,38 @@ def _stop_mic(call_id):
     return sender
 
 
+def _stop_speaker(call_id):
+    sink = SPEAKER_SINKS.pop(str(call_id), None)
+    if sink is not None:
+        sink.stop()
+    return sink
+
+
+def _guard_for_call(call_id):
+    """EchoGuard cua cuoc goi (tao khi cai dat bat chong vong), dung chung cho mic va loa."""
+    key = str(call_id)
+    if key in ECHO_GUARDS:
+        return ECHO_GUARDS[key]
+    if _devices_for_call(call_id).get("echo_guard"):
+        ECHO_GUARDS[key] = audio_rx_mod.EchoGuard()
+        return ECHO_GUARDS[key]
+    return None
+
+
+def _start_speaker(call_id, url):
+    """Phat tieng ben kia thang vao bo dam `url` (A-law 8 kHz POST). Nem RuntimeError."""
+    engine = _engine_for_call(call_id)
+    if engine is None:
+        raise RuntimeError("no_live_transport")
+    _stop_speaker(call_id)
+    sink = audio_rx_mod.AudioSink(engine, url, guard=_guard_for_call(call_id))
+    sink.start()
+    SPEAKER_SINKS[str(call_id)] = sink
+    _log_call("speaker sink start call_id=%s echo_guard=%s"
+              % (call_id, bool(ECHO_GUARDS.get(str(call_id)))))
+    return sink
+
+
 def _remember_call_devices(call_id, body):
     """Ghi de thiet bi rieng cua cuoc goi (tu body request/answer). Gia tri "off"
     = tat thiet bi do cho cuoc nay (du co mac dinh)."""
@@ -932,7 +969,16 @@ def _remember_call_devices(call_id, body):
             val = body.get(key)
             if val in (None, ""):
                 continue
+            if key == "echo_guard":
+                over[key] = val is True or str(val).strip().lower() in ("1", "true", "yes", "on")
+                continue
             val = str(val).strip()
+            if key == "speaker_url":
+                if val.lower() == "off":
+                    over[key] = ""
+                elif re.match(r"^https?://\S+$", val):
+                    over[key] = val
+                continue
             if key == "mic_format":
                 if val in devices_mod.MIC_FORMATS:
                     over[key] = val
@@ -965,7 +1011,9 @@ def _start_mic(call_id, source, fmt="auto"):
     if transport is None:
         raise RuntimeError("no_live_transport")
     _stop_mic(call_id)
-    sender = audio_tx_mod.AudioSender(transport.send_pcm, source=source, fmt=fmt)
+    guard = _guard_for_call(call_id)
+    sender = audio_tx_mod.AudioSender(transport.send_pcm, source=source, fmt=fmt,
+                                      gate=guard.blocked if guard else None)
     sender.start()
     AUDIO_SENDERS[str(call_id)] = sender
     _log_call("mic start call_id=%s source=%s" % (
@@ -1028,6 +1076,8 @@ def _auto_media_async(call_id):
                           if str(c["call_id"]) == str(call_id)), {})
             if cfg["auto_mic"] and cfg["mic_url"]:
                 _start_mic(call_id, cfg["mic_url"], cfg["mic_format"])
+            if cfg.get("speaker_url"):
+                _start_speaker(call_id, cfg["speaker_url"])
             if (entry.get("type") or "user") == "video" and cfg["camera_url"]:
                 _start_video(call_id, cfg["camera_url"])
         except Exception as exc:  # noqa: BLE001
@@ -1042,6 +1092,8 @@ def _cleanup_call_media(entry):
         _evaluate_srtp_outcome(entry)
         _stop_video(entry["call_id"])
         _stop_mic(entry["call_id"])
+        _stop_speaker(entry["call_id"])
+        ECHO_GUARDS.pop(str(entry["call_id"]), None)
         _CALL_DEVICES.pop(str(entry["call_id"]), None)
         engine_seam.SEAM.stop_media()
         media_endpoints.ENDPOINTS.stop_call(int(entry["call_id"]))
@@ -2999,8 +3051,8 @@ class Handler(BaseHTTPRequestHandler):
 
         /api/call/video          {action: start|stop|status, source, width, height,
                                   fps, bitrate_kbps}
-        /api/call/media          {action: start|stop|status, target: mic|video|both,
-                                  mic_url, mic_format, camera_url}  (thieu thi dung mac dinh)
+        /api/call/media          {action: start|stop|status, target: mic|video|speaker|both,
+                                  mic_url, mic_format, camera_url, speaker_url}  (thieu thi dung mac dinh)
         /api/call/upgrade_video  {camera_url?}  chuyen cuoc goi THOAI sang VIDEO
         """
         snap = STATE.calls.snapshot()
@@ -3020,6 +3072,10 @@ class Handler(BaseHTTPRequestHandler):
             sd = AUDIO_SENDERS.get(str(call_id))
             return sd.status() if sd else None
 
+        def sstat():
+            sd = SPEAKER_SINKS.get(str(call_id))
+            return sd.status() if sd else None
+
         if action not in ("start", "stop", "status"):
             return self._send_json({"error": "action_khong_hop_le"}, status=400)
         if path == "/api/call/video":
@@ -3030,7 +3086,8 @@ class Handler(BaseHTTPRequestHandler):
             target = "upgrade"
         if action == "status":
             return self._send_json({"ok": True, "call_id": call_id,
-                                    "video": vstat(), "mic": mstat()})
+                                    "video": vstat(), "mic": mstat(),
+                                    "speaker": sstat()})
         if action == "stop":
             if target in ("video", "both"):
                 if _stop_video(call_id) is not None:
@@ -3038,8 +3095,11 @@ class Handler(BaseHTTPRequestHandler):
                         call_id, _thread_of_call(call_id), False)
             if target in ("mic", "both"):
                 _stop_mic(call_id)
+            if target in ("speaker", "both"):
+                _stop_speaker(call_id)
             return self._send_json({"ok": True, "call_id": call_id,
-                                    "video": vstat(), "mic": mstat()})
+                                    "video": vstat(), "mic": mstat(),
+                                    "speaker": sstat()})
         cfg = _devices_for_call(call_id)
         try:
             if target == "upgrade":
@@ -3060,6 +3120,16 @@ class Handler(BaseHTTPRequestHandler):
                     if src:
                         _start_mic(call_id, src,
                                    str(body.get("mic_format") or cfg["mic_format"]))
+                if target in ("speaker", "both"):
+                    spk = str(body.get("speaker_url")
+                              or (body.get("source") if target == "speaker" else "")
+                              or cfg.get("speaker_url") or "")
+                    if spk:
+                        if not re.match(r"^https?://\S+$", spk):
+                            raise ValueError("speaker_url phai la URL http(s)")
+                        _start_speaker(call_id, spk)
+                    elif target == "speaker":
+                        raise ValueError("chua_co_speaker_url")
                 if target in ("video", "both"):
                     src = str(body.get("camera_url") or body.get("source")
                               or cfg["camera_url"] or "")
@@ -3071,7 +3141,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, RuntimeError) as exc:
             return self._send_json({"ok": False, "error": str(exc)[:120]})
         return self._send_json({"ok": True, "call_id": call_id,
-                                "video": vstat(), "mic": mstat()})
+                                "video": vstat(), "mic": mstat(),
+                                "speaker": sstat()})
 
     def _handle_call_audio_in(self, call_id):
         """Nhan PCM16 16 kHz mono (boi so 640 byte) tu mic cua thiet bi bat

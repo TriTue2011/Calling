@@ -41,6 +41,21 @@ def test_store_defaults_update_validate_and_mask():
     assert st.update({"auto_video_delay": 9999})["auto_video_delay"] == 120     # kep trong gioi han
     assert st.update({"auto_video_delay": "7"})["auto_video_delay"] == 7
     assert st.update({"auto_video_delay": -5})["auto_video_delay"] == 0
+    # Loa truc tiep: chi http(s); che khoa; gui lai ban da che giu nguyen; echo_guard la bool.
+    spk = "http://ha:8123/api/r1_speaker/intercom/E1?k=SECRET"
+    got2 = st.update({"speaker_url": spk, "echo_guard": 1})
+    assert got2["speaker_url"] == spk and got2["echo_guard"] is True
+    assert st.public()["speaker_url"].endswith("?k=***") and "SECRET" not in str(st.public())
+    st.update({"speaker_url": st.public()["speaker_url"]})
+    assert st.get()["speaker_url"] == spk
+    for bad_spk in ("rtsp://h/x", "ftp://h", "khong phai url"):
+        try:
+            st.update({"speaker_url": bad_spk})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(bad_spk)
+    assert st.update({"speaker_url": ""})["speaker_url"] == "" and st.update({"echo_guard": 0})["echo_guard"] is False
     pub = st.public()
     assert pub["camera_url"] == "rtsp://u:***@172.16.10.200:8554/phong-khach-sub"
     # Che ca khoa trong query; gui lai ban da che van giu khoa that.

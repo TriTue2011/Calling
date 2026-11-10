@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(__file__)
-FILES = ["test_aes.py", "test_srtp_pure.py", "test_video_tx.py", "test_devices_and_media.py", "test_deps.py", "test_app_password_change.py", "test_call_media_api.py", "test_zca_api.py", "test_stickers.py", "test_voice2text.py", "test_srtp_mode.py", "test_call_audio.py", "test_crypto.py", "test_flow_mock.py",
+FILES = ["test_aes.py", "test_srtp_pure.py", "test_video_tx.py", "test_devices_and_media.py", "test_deps.py", "test_audio_rx.py", "test_app_password_change.py", "test_call_media_api.py", "test_zca_api.py", "test_stickers.py", "test_voice2text.py", "test_srtp_mode.py", "test_call_audio.py", "test_crypto.py", "test_flow_mock.py",
          "test_logininfo.py", "test_contacts.py", "test_calls.py",
          "test_call_114.py", "test_call_id_counter.py",
          "test_call_11301.py", "test_call_end.py",

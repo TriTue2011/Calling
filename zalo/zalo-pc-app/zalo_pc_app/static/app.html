@@ -261,6 +261,11 @@
             <button id="btn-mic-stop" class="btn btn-text" type="button">Tắt mic</button>
           </div>
           <div class="media-row">
+            <span class="media-label">Loa trực tiếp</span>
+            <button id="btn-speaker-default" class="btn btn-secondary" type="button" title="Đưa tiếng bên kia vào bộ đàm mặc định trong mục Thiết bị">Bật loa trực tiếp</button>
+            <button id="btn-speaker-stop" class="btn btn-text" type="button">Tắt loa trực tiếp</button>
+          </div>
+          <div class="media-row">
             <span class="media-label">Hình</span>
             <button id="btn-upgrade-video" class="btn btn-primary" type="button" title="Đang gọi thoại: xin chuyển sang video rồi phát camera mặc định">Chuyển sang video</button>
             <button id="btn-video-default" class="btn btn-secondary" type="button">Camera mặc định</button>
@@ -348,6 +353,13 @@
               <option value="s16le16k">PCM16 mono 16 kHz thô (mic loa R1)</option>
             </select>
             <label class="check"><input id="dev-auto-mic" type="checkbox"> Tự phát mic khi cuộc gọi được nghe máy</label>
+          </fieldset>
+          <fieldset>
+            <legend>Loa trực tiếp (tiếng bên kia ra loa, độ trễ thấp)</legend>
+            <label for="dev-speaker-url">URL bộ đàm (http/https, nhận A-law 8 kHz bằng POST)</label>
+            <input id="dev-speaker-url" type="text" placeholder="http://HA:8123/api/r1_speaker/intercom/…?k=… (loa R1) · …/api/dahua_talk/intercom/…?k=… (camera Imou/Dahua)" spellcheck="false">
+            <label class="check"><input id="dev-echo-guard" type="checkbox"> Chống vọng: tạm ngừng gửi mic khi loa đang phát tiếng bên kia (dùng khi mic và loa là cùng một thiết bị, ví dụ R1)</label>
+            <p class="row-sub">Để trống = không dùng; loa HA bình thường vẫn do tích hợp Home Assistant điều khiển.</p>
           </fieldset>
           <fieldset>
             <legend>Camera (hình của mình gửi cho bên kia)</legend>

@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .bridge_core import entity_of_label, label
-from .const import DOMAIN, MIC_URL_LABEL, NONE_LABEL
+from .const import CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL
 from .entity import ZaloCallEntity
 
 REFRESH = timedelta(minutes=1)
@@ -32,6 +32,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                      extra=(MIC_URL_LABEL,)),
         DeviceSelect(hass, entry, rt, "camera", "Camera mặc định",
                      "mdi:cctv", ("camera",)),
+        EchoGuardSelect(entry, rt),
     ])
 
 
@@ -88,3 +89,32 @@ class DeviceSelect(ZaloCallEntity, SelectEntity):
         self.async_on_remove(self._rt.defaults.add_listener(self.async_write_ha_state))
         self.async_on_remove(async_track_time_interval(
             self.hass, lambda _now: self.async_write_ha_state(), REFRESH))
+
+
+ECHO_LABELS = {"auto": "Tự động (chỉ khi mic và loa cùng thiết bị)", "on": "Luôn bật", "off": "Tắt"}
+
+
+class EchoGuardSelect(ZaloCallEntity, SelectEntity):
+    """Chống vọng: tạm ngừng gửi mic khi loa đang phát tiếng bên kia (nửa song công)."""
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_name = "Chống vọng"
+    _attr_icon = "mdi:ear-hearing-off"
+    _attr_options = list(ECHO_LABELS.values())
+
+    def __init__(self, entry: ConfigEntry, rt) -> None:
+        super().__init__(entry, CONF_ECHO_GUARD)
+        self._rt = rt
+
+    @property
+    def current_option(self) -> str:
+        return ECHO_LABELS.get(str(self._rt.defaults.get(CONF_ECHO_GUARD) or "auto"),
+                               ECHO_LABELS["auto"])
+
+    async def async_select_option(self, option: str) -> None:
+        mode = next((k for k, v in ECHO_LABELS.items() if v == option), "auto")
+        assert mode in ECHO_MODES
+        await self._rt.defaults.async_set(**{CONF_ECHO_GUARD: mode})
+        await self._rt.bridge.async_push_defaults()
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(self._rt.defaults.add_listener(self.async_write_ha_state))

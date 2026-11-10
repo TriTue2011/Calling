@@ -16,6 +16,8 @@ DEFAULTS = {
     "mic_url": "",              # "" = khong tu dong phat mic
     "mic_format": "auto",       # auto | s16le16k (PCM tho 16 kHz, vi du mic R1)
     "camera_url": "",           # "" = khong tu dong phat hinh
+    "speaker_url": "",          # "" = khong tu dong phat loa truc tiep (URL bo dam http(s) A-law 8 kHz)
+    "echo_guard": False,        # tam ngung gui mic khi loa dang phat tieng that (mic va loa cung thiet bi)
     "video": {"width": 640, "height": 360, "fps": 15, "bitrate_kbps": 300},
     "auto_mic": True,           # tu phat mic khi cuoc goi duoc nghe may
     "auto_video_on_request": True,   # dien thoai xin len video: dong y + phat camera
@@ -24,6 +26,7 @@ DEFAULTS = {
 MAX_AUTO_VIDEO_DELAY = 120
 MIC_FORMATS = ("auto", "s16le16k")
 _URL_OK = re.compile(r"^(rtsps?|https?|rtmps?)://\S+$")
+_HTTP_OK = re.compile(r"^https?://\S+$")
 _MASK = re.compile(r"(://[^/\s:@]+:)[^@/\s]*@")
 # Tham so truy van mang bi mat (khoa mic R1 `?k=`, token...) cung bi che khi hien thi.
 _MASK_QUERY = re.compile(r"([?&](?:k|key|token|access_token|auth|pass|password|pwd|secret)=)[^&#\s]*",
@@ -67,6 +70,16 @@ class DeviceStore:
             if strict:
                 raise ValueError(msg)
 
+        if "speaker_url" in patch:
+            val = str(patch["speaker_url"] or "").strip()
+            if "***" in val and re.search(r"=\*\*\*(?:&|$)|\*\*\*@", val):
+                pass                          # ban da che: giu nguyen
+            elif val == "" or _HTTP_OK.match(val):
+                data["speaker_url"] = val
+            else:
+                bad("speaker_url phai la URL http(s)")
+        if "echo_guard" in patch:
+            data["echo_guard"] = bool(patch["echo_guard"])
         for key in ("mic_url", "camera_url"):
             if key in patch:
                 val = str(patch[key] or "").strip()
@@ -107,6 +120,7 @@ class DeviceStore:
         d = self.get()
         d["mic_url"] = mask_url(d["mic_url"])
         d["camera_url"] = mask_url(d["camera_url"])
+        d["speaker_url"] = mask_url(d["speaker_url"])
         return d
 
     def update(self, patch):

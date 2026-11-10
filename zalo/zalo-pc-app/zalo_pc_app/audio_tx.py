@@ -54,10 +54,11 @@ def build_ffmpeg_args(source, fmt="auto", ffmpeg="ffmpeg"):
 
 class AudioSender:
     def __init__(self, send_pcm, source="test", fmt="auto", popen=None,
-                 clock=time.monotonic, sleep=time.sleep):
+                 clock=time.monotonic, sleep=time.sleep, gate=None):
         if fmt not in FORMATS:
             raise ValueError("fmt khong hop le: %r" % (fmt,))
         self._send = send_pcm
+        self._gate = gate               # gate() True = bo khung nay (chong vong)
         self._args = build_ffmpeg_args(source, fmt)
         self._popen = popen or subprocess.Popen
         self._clock, self._sleep = clock, sleep
@@ -68,6 +69,7 @@ class AudioSender:
         self._threads = []
         self.frames = 0
         self.dropped = 0
+        self.gated = 0
         self.errors = 0
         self.last_error = ""
         self.started_at = None
@@ -125,6 +127,9 @@ class AudioSender:
             elif due > now:
                 self._sleep(due - now)
             due += FRAME_SECONDS
+            if self._gate is not None and self._gate():
+                self.gated += 1                  # loa dang phat: khong gui mic (giu nhip)
+                continue
             try:
                 self._send(frame)
                 self.frames += 1
@@ -150,7 +155,7 @@ class AudioSender:
 
     def status(self):
         return {"alive": self.alive, "frames": self.frames,
-                "dropped": self.dropped, "errors": self.errors,
+                "dropped": self.dropped, "gated": self.gated, "errors": self.errors,
                 "last_error": self.last_error,
                 "seconds": (round(time.time() - self.started_at, 1)
                             if self.started_at else 0)}

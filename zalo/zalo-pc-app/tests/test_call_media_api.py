@@ -102,8 +102,8 @@ def test_endpoints():
     tr = _Transport()
     media_endpoints.ENDPOINTS.active[77] = {"transport": tr}
     real = sv.audio_tx_mod.AudioSender
-    sv.audio_tx_mod.AudioSender = lambda f, source="test", fmt="auto": real(
-        f, source=source, fmt=fmt, popen=lambda *a, **k: _Proc())
+    sv.audio_tx_mod.AudioSender = lambda f, source="test", fmt="auto", gate=None: real(
+        f, source=source, fmt=fmt, gate=gate, popen=lambda *a, **k: _Proc())
     real_v = sv.video_tx_mod.VideoSender
     sv.video_tx_mod.VideoSender = lambda f, **kw: real_v(
         f, popen=lambda *a, **k: _Proc(), **kw)
@@ -177,6 +177,89 @@ def test_endpoints():
         sv._stop_mic(77)
         media_endpoints.ENDPOINTS.active.pop(77, None)
         media_endpoints.ENDPOINTS.active.pop(78, None)
+        httpd.shutdown()
+
+
+def test_speaker_sink_and_echo_guard_endpoints():
+    global BASE
+    state = sv.AppState(tempfile.mkdtemp(prefix="zalo-pc-spk-"))
+    sv.STATE = state
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), sv.Handler)
+    BASE = "http://127.0.0.1:%d" % httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    global _COOKIE
+    _COOKIE = ""
+    state.auth = sv.app_auth.AppAuth.from_env(state.data_dir, {
+        "ZALO_PC_APP_USER": "nguoi-dung-test", "ZALO_PC_APP_PASSWORD": "mat-khau-test-123"})
+    assert api("POST", "/api/app/login", {"username": "nguoi-dung-test",
+                                          "password": "mat-khau-test-123"})[0] == 200
+    state.session = {"zpw_sek": "x", "zpw_enk": "k", "device_id": "d", "uid": "1"}
+    state.calls.record_start(88, "Peer", "20001", "user")
+    state.calls.record_answered(88, "test")
+    tr = _Transport()
+    media_endpoints.ENDPOINTS.active[88] = {"transport": tr}
+
+    class Eng:
+        call_info = {"call_id": 88}
+
+        def read_frame(self, timeout=0):
+            return None
+
+        def queue_depth(self):
+            return 0
+    sv.engine_seam.SEAM.engine = Eng()
+    procs = []
+
+    class P:
+        def __init__(self):
+            import io
+            self.stdin = type("S", (), {"write": lambda s, b: None, "close": lambda s: None})()
+            procs.append(self)
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            pass
+    real_sink, real_mic = sv.audio_rx_mod.AudioSink, sv.audio_tx_mod.AudioSender
+    sv.audio_rx_mod.AudioSink = lambda e, u, guard=None: real_sink(
+        e, u, guard=guard, popen=lambda *a, **k: P(), sleep=lambda s: None)
+    sv.audio_tx_mod.AudioSender = lambda f, source="test", fmt="auto", gate=None: real_mic(
+        f, source=source, fmt=fmt, gate=gate, popen=lambda *a, **k: _Proc())
+    import shutil
+    real_which = shutil.which
+    shutil.which = lambda n: "/usr/bin/" + n
+    try:
+        # Chua co speaker_url: bat tay thieu -> loi ro; URL xau bi tu choi.
+        assert api("POST", "/api/call/media", {"target": "speaker"})[1]["error"] == "chua_co_speaker_url"
+        assert "http" in api("POST", "/api/call/media", {"target": "speaker", "speaker_url": "rtsp://x"})[1]["error"]
+        # Cai dat mac dinh co chong vong -> mic va loa dung chung MOT guard, mic co cong chan.
+        api("POST", "/api/settings/devices", {"speaker_url": "http://ha:8123/api/r1_speaker/intercom/E?k=S",
+                                              "echo_guard": True, "mic_url": "test"})
+        st, b = api("POST", "/api/call/media", {"target": "both"})
+        assert b["ok"] and b["speaker"]["alive"] and b["speaker"]["echo_guard"] is True, b
+        assert sv.ECHO_GUARDS["88"] is sv.SPEAKER_SINKS["88"]._guard
+        assert sv.AUDIO_SENDERS["88"]._gate == sv.ECHO_GUARDS["88"].blocked
+        st, b = api("GET", "/api/calls")
+        media = [c for c in b["calls"] if c["call_id"] == "88" or str(c["call_id"]) == "88"][0].get("media") or {}
+        assert media.get("speaker") and "http" not in json.dumps(media["speaker"]), media
+        # Dung rieng loa.
+        st, b = api("POST", "/api/call/media", {"action": "stop", "target": "speaker"})
+        assert b["speaker"] is None and b["mic"] is not None
+        # Ghi de theo cuoc goi: tat loa va chong vong cho rieng cuoc nay.
+        sv._stop_mic(88); sv._stop_speaker(88); sv.ECHO_GUARDS.pop("88", None)
+        sv._remember_call_devices(88, {"speaker_url": "off", "echo_guard": "false"})
+        assert sv._devices_for_call(88)["speaker_url"] == "" and sv._devices_for_call(88)["echo_guard"] is False
+        sv._CALL_DEVICES.pop("88", None)
+        # Dong cuoc goi: don sach loa, guard, mic.
+        api("POST", "/api/call/media", {"target": "both"})
+        sv._cleanup_call_media({"call_id": 88})
+        assert "88" not in sv.SPEAKER_SINKS and "88" not in sv.ECHO_GUARDS and "88" not in sv.AUDIO_SENDERS
+    finally:
+        shutil.which = real_which
+        sv.audio_rx_mod.AudioSink, sv.audio_tx_mod.AudioSender = real_sink, real_mic
+        sv.engine_seam.SEAM.engine = None
+        media_endpoints.ENDPOINTS.active.pop(88, None)
         httpd.shutdown()
 
 

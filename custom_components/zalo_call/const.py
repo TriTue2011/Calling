@@ -28,6 +28,8 @@ EVENT_STATE = EVENT_PREFIX + "call_state"   # zalo_call_call_state: state + thie
 # Store cua HA — khong phai options (doi khong lam tai lai tich hop).
 CONF_AUTO_MIC = "auto_mic"        # tu phat mic khi cuoc goi duoc nghe may
 CONF_AUTO_VIDEO = "auto_video"    # ben kia xin len video: tu dong y + phat camera
+CONF_ECHO_GUARD = "echo_guard"          # chong vong: auto | on | off
+ECHO_MODES = ("auto", "on", "off")
 CONF_AUTO_VIDEO_DELAY = "auto_video_delay"   # giay cho truoc khi tu dong y (0 = ngay)
 MAX_AUTO_VIDEO_DELAY = 120
 STORAGE_VERSION = 1

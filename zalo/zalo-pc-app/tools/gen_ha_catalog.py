@@ -476,6 +476,15 @@ set_default_devices:
       description: Bật thì khi bên kia xin chuyển sang video sẽ tự đồng ý và phát camera mặc định.
       selector:
         boolean: null
+    echo_guard:
+      name: Chống vọng
+      description: auto = chỉ bật khi mic và loa là cùng một thiết bị (ví dụ R1); on = luôn bật (tạm ngừng gửi mic khi loa đang phát tiếng bên kia); off = tắt.
+      selector:
+        select:
+          options:
+          - auto
+          - 'on'
+          - 'off'
     auto_video_delay:
       name: Chờ trước khi tự đồng ý (giây)
       description: Số giây chờ rồi mới tự đồng ý lời xin chuyển sang video (0 = đồng ý ngay; chỉ áp dụng khi cuộc gọi còn đang nói).

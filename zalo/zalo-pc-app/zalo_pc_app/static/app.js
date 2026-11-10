@@ -2156,10 +2156,11 @@ function renderCallMedia(rec) {
   box.hidden = !answered;
   if (!answered) return;
   const m = rec.media || {};
-  const mic = m.mic, vid = m.video;
+  const mic = m.mic, vid = m.video, spk = m.speaker;
   const parts = [];
   parts.push("Mic: " + (mic ? (mic.alive ? "đang phát (" + mic.frames + " khung)" : "đã dừng") : "tắt"));
   parts.push("Hình: " + (vid ? (vid.alive ? "đang phát (" + vid.frames + " khung, " + vid.keys + " khung khoá)" : "đã dừng") : "tắt"));
+  parts.push("Loa trực tiếp: " + (spk ? (spk.alive ? "đang phát (" + spk.frames + " khung" + (spk.echo_guard ? ", chống vọng: đã chặn mic " + spk.mic_suppressed + " lần" : "") + ")" : "đã dừng") : "tắt"));
   if (m.srtp) parts.push("SRTP: " + m.srtp);
   $("call-media-state").textContent = parts.join(" · ");
   const audio = $("call-audio");
@@ -2187,6 +2188,8 @@ $("btn-video-test").onclick = () => mediaCall("/api/call/video", { source: "test
 $("btn-video-stop").onclick = () => mediaCall("/api/call/media", { action: "stop", target: "video" }, "Đã tắt hình.");
 $("btn-mic-default").onclick = () => mediaCall("/api/call/media", { target: "mic" }, "Đang phát mic mặc định…");
 $("btn-mic-test").onclick = () => mediaCall("/api/call/media", { target: "mic", source: "test" }, "Đang phát âm 440 Hz…");
+$("btn-speaker-default").onclick = () => mediaCall("/api/call/media", { target: "speaker" }, "Đang bật loa trực tiếp…");
+$("btn-speaker-stop").onclick = () => mediaCall("/api/call/media", { action: "stop", target: "speaker" }, "Đã tắt loa trực tiếp.");
 $("btn-mic-stop").onclick = () => { stopBrowserMic(); mediaCall("/api/call/media", { action: "stop", target: "mic" }, "Đã tắt mic."); };
 $("btn-listen").onclick = () => {
   const a = $("call-audio");
@@ -2253,6 +2256,8 @@ async function loadDevices() {
     $("dev-mic-url").value = d.mic_url || "";
     $("dev-mic-format").value = d.mic_format || "auto";
     $("dev-auto-mic").checked = !!d.auto_mic;
+    $("dev-speaker-url").value = d.speaker_url || "";
+    $("dev-echo-guard").checked = !!d.echo_guard;
     $("dev-camera-url").value = d.camera_url || "";
     const v = d.video || {};
     $("dev-width").value = v.width || 640;
@@ -2273,6 +2278,8 @@ async function saveDevices(ev) {
       mic_url: $("dev-mic-url").value.trim(),
       mic_format: $("dev-mic-format").value,
       auto_mic: $("dev-auto-mic").checked,
+      speaker_url: $("dev-speaker-url").value.trim(),
+      echo_guard: $("dev-echo-guard").checked,
       camera_url: $("dev-camera-url").value.trim(),
       auto_video_on_request: $("dev-auto-video").checked,
       auto_video_delay: +$("dev-auto-delay").value || 0,

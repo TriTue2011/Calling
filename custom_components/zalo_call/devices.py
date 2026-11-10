@@ -12,12 +12,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (CONF_AUTO_MIC, CONF_AUTO_VIDEO, CONF_AUTO_VIDEO_DELAY,
-                    CONF_CAMERA, CONF_MIC, CONF_MIC_URL, CONF_SPEAKER, DOMAIN,
-                    MAX_AUTO_VIDEO_DELAY, STORAGE_VERSION)
+                    CONF_CAMERA, CONF_ECHO_GUARD, CONF_MIC, CONF_MIC_URL, CONF_SPEAKER,
+                    DOMAIN, ECHO_MODES, MAX_AUTO_VIDEO_DELAY, STORAGE_VERSION)
 
 DEFAULTS: dict[str, Any] = {"speaker": "", "mic": "", "mic_url": "",
                             "camera": "", CONF_AUTO_MIC: True,
-                            CONF_AUTO_VIDEO: True, CONF_AUTO_VIDEO_DELAY: 0}
+                            CONF_AUTO_VIDEO: True, CONF_AUTO_VIDEO_DELAY: 0,
+                            CONF_ECHO_GUARD: "auto"}
 _TEXT_KEYS = ("speaker", "mic", "mic_url", "camera")
 _LEGACY = {"speaker": CONF_SPEAKER, "mic": CONF_MIC, "mic_url": CONF_MIC_URL,
            "camera": CONF_CAMERA}
@@ -47,6 +48,8 @@ class DeviceDefaults:
         for key in (CONF_AUTO_MIC, CONF_AUTO_VIDEO):
             if key in patch:
                 self.data[key] = bool(patch[key])
+        if patch.get(CONF_ECHO_GUARD) in ECHO_MODES:
+            self.data[CONF_ECHO_GUARD] = patch[CONF_ECHO_GUARD]
         if CONF_AUTO_VIDEO_DELAY in patch:
             try:
                 self.data[CONF_AUTO_VIDEO_DELAY] = max(

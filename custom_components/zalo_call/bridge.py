@@ -25,9 +25,10 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .api import ZaloCallApi, ZaloCallError
-from .bridge_core import (audio_out_url, dahua_mic_url, entity_of_label,
-                          explicit_off, host_of, localize_url, mic_format_for_url,
-                          pick_devices, r1_mic_url, valid_url)
+from .bridge_core import (audio_out_url, dahua_mic_url, device_of_url, echo_guard_on,
+                          entity_of_label, explicit_off, host_of, intercom_url,
+                          localize_url, mic_format_for_url, pick_devices, r1_mic_url,
+                          valid_url)
 from .const import CONF_HA_URL
 from .devices import DeviceDefaults
 
@@ -125,12 +126,50 @@ class CallAudioBridge:
             return r1_mic_url(base, cfg.entry_id, key)
         return ""
 
-    async def async_resolve(self, devices: dict[str, str]) -> dict[str, str]:
-        """Thiet bi -> truong gui cho app: mic_url, mic_format, camera_url (rong = khong dung)."""
+    async def async_speaker_sink(self, entity_id: str) -> str:
+        """URL «cua bo dam» de app phat tieng thang vao loa (R1, camera Imou/Dahua), hoac ""
+        (loa khac: dung media_player.play_media). Khoa lay tu chinh tich hop cua loa."""
+        if not entity_id:
+            return ""
+        ent = er.async_get(self.hass).async_get(entity_id)
+        cfg = self.hass.config_entries.async_get_entry(ent.config_entry_id) \
+            if ent and ent.config_entry_id else None
+        if cfg is None or cfg.domain not in ("r1_speaker", "dahua_talk"):
+            return ""
+        key = str(cfg.data.get("intercom_key") or "")
+        base = self._ha_base()
+        if not key or not base:
+            _LOGGER.warning("Loa %s chua co khoa bo dam hoac HA chua co dia chi noi bo", entity_id)
+            return ""
+        return intercom_url(base, cfg.domain, cfg.entry_id, key)
+
+    def _same_device(self, speaker_id: str, mic_id: str, mic_url: str, sink_url: str) -> bool:
+        """Mic va loa co cung MOT thiet bi khong (de bat chong vong khi o che do tu dong)."""
+        a, b = device_of_url(sink_url), device_of_url(mic_url)
+        if a and b:
+            return a == b
+        if speaker_id and mic_id:
+            reg = er.async_get(self.hass)
+            s, m = reg.async_get(speaker_id), reg.async_get(mic_id)
+            if s and m and s.config_entry_id and s.config_entry_id == m.config_entry_id:
+                return True
+            return bool(s and m and s.device_id and s.device_id == m.device_id)
+        return False
+
+    async def async_resolve(self, devices: dict[str, str],
+                            echo_mode: str = "auto") -> dict[str, str]:
+        """Thiet bi -> truong gui cho app: mic_url, mic_format, camera_url, speaker_url,
+        echo_guard ("true"/"false") (rong = khong dung)."""
         mic_url, mic_fmt = await self.async_mic_source(devices)
         cam_id = entity_of_label(devices.get("camera", ""))
         cam_url = await self.async_camera_url(cam_id) if cam_id else ""
-        return {"mic_url": mic_url, "mic_format": mic_fmt, "camera_url": cam_url}
+        spk_id = entity_of_label(devices.get("speaker", ""))
+        spk_url = await self.async_speaker_sink(spk_id)
+        mic_id = entity_of_label(devices.get("mic", ""))
+        echo = echo_guard_on(echo_mode, self._same_device(spk_id, mic_id, mic_url, spk_url)) \
+            if spk_url else False
+        return {"mic_url": mic_url, "mic_format": mic_fmt, "camera_url": cam_url,
+                "speaker_url": spk_url, "echo_guard": "true" if echo else "false"}
 
     # -- app -----------------------------------------------------------------
     async def async_call_fields(self, override: dict[str, Any] | None) -> dict[str, str]:
@@ -140,25 +179,30 @@ class CallAudioBridge:
         tri do. Ghi de RONG cho nhom do (mic / camera) va khong con nguon nao: gui
         "off" de app TAT thiet bi do cho rieng cuoc goi nay."""
         devices = self.devices_for(override)
-        res = await self.async_resolve(devices)
+        res = await self.async_resolve(devices, str(self.defaults.get("echo_guard") or "auto"))
         out: dict[str, str] = {}
-        for field, keys in (("mic_url", ("mic", "mic_url")), ("camera_url", ("camera",))):
+        for field, keys in (("mic_url", ("mic", "mic_url")), ("camera_url", ("camera",)),
+                            ("speaker_url", ("speaker",))):
             if res[field]:
                 out[field] = res[field]
             elif explicit_off(override, keys, devices):
                 out[field] = "off"
         if out.get("mic_url", "off") != "off":
             out["mic_format"] = res["mic_format"]
+        if out.get("speaker_url", "off") != "off":
+            out["echo_guard"] = res["echo_guard"]
         return out
 
     async def async_push_defaults(self) -> None:
         """Dua mac dinh da phan giai cho app (WebUI hien thong nhat; cuoc goi nghe may
         ngoai HA, hoac ben kia xin len video, cung dung dung nguon)."""
-        res = await self.async_resolve(self.devices_for())
+        res = await self.async_resolve(self.devices_for(),
+                                       str(self.defaults.get("echo_guard") or "auto"))
         try:
             await self.api.devices_set({
                 "mic_url": res["mic_url"], "mic_format": res["mic_format"],
-                "camera_url": res["camera_url"],
+                "camera_url": res["camera_url"], "speaker_url": res["speaker_url"],
+                "echo_guard": res["echo_guard"] == "true",
                 "auto_mic": bool(self.defaults.get("auto_mic")),
                 "auto_video_on_request": bool(self.defaults.get("auto_video")),
                 "auto_video_delay": int(self.defaults.get("auto_video_delay") or 0)})
@@ -176,6 +220,8 @@ class CallAudioBridge:
         speaker = entity_of_label(devices["speaker"])
         if not speaker:
             return devices
+        if await self.async_speaker_sink(speaker):
+            return devices          # loa truc tiep: app tu day tieng vao bo dam, khong qua play_media
         try:
             media = await self.api.call_media_status(call_id)
         except ZaloCallError as err:
