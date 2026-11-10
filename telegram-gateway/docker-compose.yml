@@ -1,9 +1,8 @@
 services:
   telegram-gateway:
     build: .
-    # Tag trùng với image test tự build trên GHCR để pull và build
-    # local dùng chung một tên.
-    image: ghcr.io/tritue2011/telegram-gateway-test:test
+    # Ảnh phát hành (amd64 + arm64) do CI dựng khi đẩy tag vX. `build: .` giữ lại để tự dựng từ mã nguồn.
+    image: ghcr.io/tritue2011/telegram-gateway:latest
     container_name: telegram-gateway
     restart: unless-stopped
     # Mặc định: HA và gateway cùng server -> chỉ bind loopback.
