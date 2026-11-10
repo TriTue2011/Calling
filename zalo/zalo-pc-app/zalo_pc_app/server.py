@@ -3883,6 +3883,7 @@ class Handler(BaseHTTPRequestHandler):
             STATE.message_store.record(thread_type, thread_id, local)
             return self._send_json({"ok": True, "data": res["data"],
                                     "message": local,
+                                    "voice_url": res.get("voice_url"),
                                     "converted_to_aac": converted,
                                     "note": "Thu am tai trinh duyet, "
                                     "da chuyen sang AAC (ffmpeg, mono "

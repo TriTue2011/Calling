@@ -126,6 +126,7 @@ def test_server_sendvoice_route_sends_a_voice_bubble_via_forward():
             status, body = v.api("POST", "/api/thread/20001/sendvoice", mbody, {"Content-Type": mctype})
             assert status == 200 and body["ok"] is True and body["message"]["kind"] == "voice", body
             assert body.get("converted_to_aac") is False, body
+            assert body.get("voice_url") == VOICE_URL, "tra URL tin thoai de dung cho voice_to_text"
             assert len(mock.voice_forward_bodies) == 1 and mock.voice_upload_calls == 0, mock.voice_forward_bodies
         finally:
             httpd.shutdown()
