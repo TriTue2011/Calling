@@ -1073,6 +1073,93 @@ class Chat:
             "client_id": client_id}
 
     # -- gui file / anh / voice ------------------------------------------
+    def _upload_async(self, thread_type, thread_id, file_name, data):
+        """Buoc 1 + 1.5 cua gui file: tai len theo khoi (asyncfile/upload 11776/13000) roi DOI event ctrl `file_done` de co URL.
+        Dung chung cho send_file (buoc 2 = asyncfile/msg) va send_voice (buoc 2 = forward msgType 3, giong zalo cu:
+        zca-js uploadAttachment tai .aac nhu tep thuong). Tra {file_id, file_url, client_id, total_size}.
+        Het gio / khong co kenh ctrl / khong co URL -> ZaloChatError, KHONG gui buoc 2 khong co fileUrl."""
+        is_group = thread_type == "group"
+        client_id = _new_client_id()
+        total_size = len(data)
+        total_chunks = (total_size + FILE_CHUNK_SIZE - 1) \
+            // FILE_CHUNK_SIZE
+        if is_group:
+            upload_path = "/api/group/asyncfile/upload"
+            type_param = TYPE_FILE_GROUP
+        else:
+            upload_path = "/api/message/asyncfile/upload"
+            type_param = TYPE_FILE_USER
+        # -- buoc 1: upload chunked ------------------------------------
+        file_id = None
+        upload_data = {}
+        for chunk_id in range(1, total_chunks + 1):
+            chunk = data[(chunk_id - 1) * FILE_CHUNK_SIZE:
+                         chunk_id * FILE_CHUNK_SIZE]
+            params = {"totalChunk": total_chunks,
+                      "fileName": file_name,
+                      "clientId": client_id,
+                      "totalSize": total_size,
+                      "imei": self.device_id,
+                      "chunkId": chunk_id}
+            if is_group:
+                params["grid"] = str(thread_id)
+            else:
+                params["toid"] = str(thread_id)
+            url = _multipart_url(FILES_DOMAIN, upload_path, params,
+                                 self.zpw_enk, type_param)
+            body, ctype = build_multipart(
+                {}, [("chunkContent", file_name,
+                      "application/octet-stream", chunk)])
+            upload_data = self._post_multipart_retry(
+                url, body, ctype,
+                "POST %s chunk %d/%d" % (upload_path, chunk_id,
+                                         total_chunks))
+            if chunk_id == total_chunks:
+                if not isinstance(upload_data, dict) \
+                        or not upload_data.get("finished") \
+                        or not upload_data.get("fileId"):
+                    raise ZaloChatError(
+                        "chat: upload file xong nhung Zalo khong "
+                        "tra fileId (finished/fileId thieu): %r"
+                        % (upload_data,), error_code=0)
+                file_id = upload_data["fileId"]
+        # -- buoc 1.5: doi event async ctrl file_done ----------------
+        # Bundle DOI event (waitAsyncFileInfo) truoc buoc 2 de lay
+        # URL file; chunk-response chi co {finished:1, fileId} —
+        # bundle KHONG BAO GIO lay URL tu chunk-response (truong
+        # url trong chunk-response thuoc nhanh DUPLICATE/cache),
+        # nen ham nay LUON doi event (wait tra ngay neu event da
+        # ve truoc — cache-hit cua bundle). Het gio / khong co
+        # kenh ctrl / khong co waiter -> loi ro, KHONG gui buoc 2
+        # (gui buoc 2 khong co fileUrl la cai gay ra 114 live o
+        # voice).
+        waiter = self.file_async
+        if waiter is None:
+            raise ZaloChatError(
+                "chat: gui file chua nhan duoc URL file — khong co "
+                "kenh cho event async ctrl file_done (99101); "
+                "khong gui buoc 2 khong co fileUrl"
+                + self._ctrl_hint(), error_code=0)
+        if not getattr(waiter, "feeder_running", True):
+            raise ZaloChatError(
+                "chat: gui file chua nhan duoc URL file — kenh ctrl "
+                "(99101) chua chay; khong gui buoc 2 khong co "
+                "fileUrl" + self._ctrl_hint(), error_code=0)
+        got = waiter.wait(file_id, self.file_async_timeout)
+        file_url = None
+        if isinstance(got, dict):
+            url = got.get("url")
+            file_url = url if isinstance(url, str) and url else None
+        if not file_url:
+            raise ZaloChatError(
+                "chat: gui file het %.0f giay cho event async ctrl "
+                "file_done ma khong thay URL file cho fileId da "
+                "upload xong; khong gui buoc 2 khong co fileUrl"
+                % self.file_async_timeout + self._ctrl_hint(),
+                error_code=0)
+        return {"file_id": file_id, "file_url": file_url,
+                "client_id": client_id, "total_size": total_size}
+
     def send_file(self, thread_type, thread_id, filename, data,
                   mime="application/octet-stream"):
         """Gui file thuong (Word/Excel/PDF/...) — DUONG HAI BUOC
@@ -1143,86 +1230,11 @@ class Chat:
         file_name = _normalize_filename(filename)
         extension = _file_extension(file_name)
         is_group = thread_type == "group"
-        client_id = _new_client_id()
-        total_size = len(data)
-        total_chunks = (total_size + FILE_CHUNK_SIZE - 1) \
-            // FILE_CHUNK_SIZE
-        if is_group:
-            upload_path = "/api/group/asyncfile/upload"
-            send_path = "/api/group/asyncfile/msg"
-            type_param = TYPE_FILE_GROUP
-        else:
-            upload_path = "/api/message/asyncfile/upload"
-            send_path = "/api/message/asyncfile/msg"
-            type_param = TYPE_FILE_USER
-        # -- buoc 1: upload chunked ------------------------------------
-        file_id = None
-        upload_data = {}
-        for chunk_id in range(1, total_chunks + 1):
-            chunk = data[(chunk_id - 1) * FILE_CHUNK_SIZE:
-                         chunk_id * FILE_CHUNK_SIZE]
-            params = {"totalChunk": total_chunks,
-                      "fileName": file_name,
-                      "clientId": client_id,
-                      "totalSize": total_size,
-                      "imei": self.device_id,
-                      "chunkId": chunk_id}
-            if is_group:
-                params["grid"] = str(thread_id)
-            else:
-                params["toid"] = str(thread_id)
-            url = _multipart_url(FILES_DOMAIN, upload_path, params,
-                                 self.zpw_enk, type_param)
-            body, ctype = build_multipart(
-                {}, [("chunkContent", file_name,
-                      "application/octet-stream", chunk)])
-            upload_data = self._post_multipart_retry(
-                url, body, ctype,
-                "POST %s chunk %d/%d" % (upload_path, chunk_id,
-                                         total_chunks))
-            if chunk_id == total_chunks:
-                if not isinstance(upload_data, dict) \
-                        or not upload_data.get("finished") \
-                        or not upload_data.get("fileId"):
-                    raise ZaloChatError(
-                        "chat: upload file xong nhung Zalo khong "
-                        "tra fileId (finished/fileId thieu): %r"
-                        % (upload_data,), error_code=0)
-                file_id = upload_data["fileId"]
-        # -- buoc 1.5: doi event async ctrl file_done ----------------
-        # Bundle DOI event (waitAsyncFileInfo) truoc buoc 2 de lay
-        # URL file; chunk-response chi co {finished:1, fileId} —
-        # bundle KHONG BAO GIO lay URL tu chunk-response (truong
-        # url trong chunk-response thuoc nhanh DUPLICATE/cache),
-        # nen ham nay LUON doi event (wait tra ngay neu event da
-        # ve truoc — cache-hit cua bundle). Het gio / khong co
-        # kenh ctrl / khong co waiter -> loi ro, KHONG gui buoc 2
-        # (gui buoc 2 khong co fileUrl la cai gay ra 114 live o
-        # voice).
-        waiter = self.file_async
-        if waiter is None:
-            raise ZaloChatError(
-                "chat: gui file chua nhan duoc URL file — khong co "
-                "kenh cho event async ctrl file_done (99101); "
-                "khong gui buoc 2 khong co fileUrl"
-                + self._ctrl_hint(), error_code=0)
-        if not getattr(waiter, "feeder_running", True):
-            raise ZaloChatError(
-                "chat: gui file chua nhan duoc URL file — kenh ctrl "
-                "(99101) chua chay; khong gui buoc 2 khong co "
-                "fileUrl" + self._ctrl_hint(), error_code=0)
-        got = waiter.wait(file_id, self.file_async_timeout)
-        file_url = None
-        if isinstance(got, dict):
-            url = got.get("url")
-            file_url = url if isinstance(url, str) and url else None
-        if not file_url:
-            raise ZaloChatError(
-                "chat: gui file het %.0f giay cho event async ctrl "
-                "file_done ma khong thay URL file cho fileId da "
-                "upload xong; khong gui buoc 2 khong co fileUrl"
-                % self.file_async_timeout + self._ctrl_hint(),
-                error_code=0)
+        up = self._upload_async(thread_type, thread_id, file_name, data)
+        client_id, total_size = up["client_id"], up["total_size"]
+        file_id, file_url = up["file_id"], up["file_url"]
+        send_path = ("/api/group/asyncfile/msg" if is_group
+                     else "/api/message/asyncfile/msg")
         # -- buoc 2: gui bang fileId -----------------------------------
         item = {"fileId": file_id,
                 "checksum": hashlib.md5(data).hexdigest(),
@@ -1332,224 +1344,50 @@ class Chat:
         return {"data": sent, "client_id": client_id}
 
     def send_voice(self, thread_type, thread_id, filename, data,
-                   mime="audio/aac"):
-        """Gui tin thoai — DUONG HAI BUOC cua upload-manager
-        (bundle PC 26.11.10; xem ghi chu o dau module):
-        Buoc 1: POST multipart chunkContent len 12060 (1-1) /
-        12063 (nhom), moi chunk 256_000 byte, params AES
-        {totalChunk, fileName, clientId NUMBER, totalSize, imei,
-        chunkId, toid|grid, fileType: "aac"|"amr"} (KHONG checksum
-        trong params — bundle xoa truoc khi gui; checksum chi o
-        client-side), & type=2/11. Chunk cuoi tra data
-        {finished: 1, fileId}.
-        Buoc 2: POST form params=<AES JSON> len asyncfile/msg
-        11777 (1-1) / 13001 (nhom), body la item getFileAsyncItem:
-        {fileId, checksum (md5 hex cua toan file), checksumSha: "",
-        totalSize, clientId NUMBER, toid|grid, imei (chi 1-1),
-        zsource: -1} + fileUrl (= amr||aac tu event async ctrl
-        voice_aac_success — DOI truoc buoc 2, xem ctrl_poll.py) +
-        aacUrl (chi khi co amr) + secureKey (chi khi async data
-        co no).
-        Ghi am la viec cua trinh duyet (MediaRecorder) + server doi
-        sang AAC truoc (voice_transcode.ensure_voice_aac) — ham nay
-        chi gui file AAC ADTS da chuan bi. File rong bi tu choi
-        ngay truoc khi goi mang. Thu lai gioi han khi gap 112 o
-        CA hai buoc (tam thoi theo bundle; dung cung clientId/body
-        de server dedup, tranh gui trung).
-
-        GHI CHU TRUNG THUC VE BUOC 2 (DA XAC NHAN DUNG, vong 114
-        2026-11-06 — khong con la suy luan theo shape): trong
-        bundle, sendMsgFileAsync (API class, 15136113) la API duy
-        nhat (khong E2EE) POST dung item getFileAsyncItem, toi
-        {files-wpa}/api/message/asyncfile/msg (11777) / /api/group/
-        asyncfile/msg (13001), POST form params=<AES JSON>; caller
-        duy nhat trong JS la UploadAsyncControl._sendMsgFileAsync
-        (8579214). Bang lenh 231 muc khong co endpoint gui-tin-
-        thoai nao khac: khong co /api/message/voice (gui bang URL);
-        voicemp3/sendmp3 chet (0 caller); dispatcher gui tin tu
-        choi MSG_VOICE. zsource -1 la mac dinh cua buildParams/
-        transform (3955260: khong co src thi zsource=-1).
-        GIOI HAN CON LAI (khong phai bang chung chong lai
-        endpoint): khong co caller Voice TRUC TIEP nao quan sat
-        duoc trong JS — sendMsgAsync chi xu ly Photo/File, va
-        sendFileByChunkV2 tra thang urlRes cho Voice/Video (cho
-        lop native gui sau upload); 2 call site cua
-        sendFileByChunkV2 trong JS chi la File va Photo. Viec ghi
-        am + gui sau upload nam o lop native ngoai JS, nen buoc
-        gui cuoi cua lop do khong doc duoc tu bundle JS.
-        fType LOAI TRU (kiem toan tham so vong 114): extData cua
-        task upload Voice duy nhat lan duoc ({uploadMainType:
-        Voice, e2ee: false}) khong co fType nen JSON.stringify
-        loai truong do — item voice that khong co fType, app bo
-        qua la dung. Duong truc tiep voicemp3/sendmp3 cu DA BO
-        (code chet, 0 caller; live 2026-11-06 08:36 +07 van 112)
-        — khong giu lam fallback.
-
-        KET LUAN LOI 114 (kiem toan tham so 2026-11-06, xem
-        tests/test_voice_112.py::test_voice_114_*): buoc 1 khop
-        bundle tren MOI tham so chung minh duoc (totalChunk,
-        fileName, clientId NUMBER, totalSize, imei, chunkId 1..N,
-        toid|grid, fileType aac|amr; khong checksum; khong
-        isE2EE tren duong thuong). Nghi pham chinh la buoc 2
-        THIEU fileUrl: client that CHI gui item sau khi cho async
-        event voice_aac_success {aac, amr, secureKey} qua
-        waitAsyncFileInfo (__waitAsyncFileInfo: fileUrl = amr||
-        aac, aacUrl = aac chi khi co amr, secureKey neu event co)
-        roi moi gui; app gui ngay sau chunk cuoi, khong co URL
-        tin thoai nao trong item — server tu choi bang 114 "Tham
-        so khong hop le" (thieu tham so bat buoc). Da sua: KHONG
-        gui fileUrl/aacUrl lay tu response chunk (nguon sai —
-        bundle khong bao gio lay URL tu do) va DOI event truoc
-        buoc 2 (xem DOI EVENT ASYNC ben duoi). Neu live retest
-        van 114 sau khi co event, diem can kiem tiep la ten file
-        ghi am that (app dung "voice.aac"; ten cua recorder
-        native chua lan duoc) va chunk_size_file that (app dung
-        256000 theo default cua bundle khi setting < 64000).
-
-        DOI EVENT ASYNC (loi 114, 2026-11-06 09:46 +07 — DA
-        IMPLEMENT): truoc buoc 2, bundle DOI event ctrl
-        `voice_aac_success` qua waitAsyncFileInfo (kenh ctrl 99101,
-        xem ctrl_poll.py) — event mang {amr, aac} (key so "5"/"6");
-        handler dien fileUrl=amr||aac (+ aacUrl khi co amr) vao
-        fileAsync, roi API sendMsgFileAsync moi POST {...fileAsync}.
-        Ham nay lam dung vay: LUON doi waiter (VoiceAsyncRegistry
-        do CtrlPoller nap; tra ngay neu event da ve truoc —
-        cache-hit) toi da voice_async_timeout (mac dinh 120 s nhu
-        bundle); het gio / kenh ctrl chua chay / khong co waiter
-        -> loi ro rang, KHONG gui buoc 2 (gui mu chinh la cai gay
-        ra 114 live). URL buoc 2 CHI tu event — KHONG BAO GIO lay
-        tu chunk-response (khac ban goc cua vong async: shortcut
-        "chunk-response co URL thi dung luon" la SAI vi truong url
-        trong chunk-response thuoc nhanh DUPLICATE/cache, khong
-        phai URL tin thoai de gui).
-        secureKey: event ctrl voice KHONG co secureKey (chi co
-        amr/aac) — secureKey chi co trong mapVoiceResponse (tu
-        chunk-response) va chi dung cho E2EE/pcloud; ham nay gui
-        kem secureKey CHI khi chunk-response hoac event co no
-        (thuong vang — KHONG phai nguyen nhan 114 cho tin thoai
-        thuong).
-        Con thieu so voi bundle: khong replay chunk cuoi khi het
-        gio (bundle replay sau 30 s voi file nho) — het timeout thi
-        loi, khong tu replay. fType LOAI TRU (xem o tren) — khong
-        gui fType."""
-        if not data:
-            raise ValueError("chat: file ghi am rong (0 byte) — Zalo "
-                             "khong nhan tin thoai rong, hay ghi am lai")
-        is_group = thread_type == "group"
-        client_id = _new_client_id()
-        total_size = len(data)
-        total_chunks = (total_size + VOICE_CHUNK_SIZE - 1) \
-            // VOICE_CHUNK_SIZE
-        file_type = ("amr" if ".amr" in (filename or "").lower()
-                     else "aac")
-        if is_group:
-            upload_path = "/api/group/voice/upload"
-            send_path = "/api/group/asyncfile/msg"
-            type_param = TYPE_FILE_GROUP
-        else:
-            upload_path = "/api/message/voice/upload"
-            send_path = "/api/message/asyncfile/msg"
-            type_param = TYPE_FILE_USER
-        # -- buoc 1: upload chunked ------------------------------------
-        file_id = None
-        upload_data = {}
-        for chunk_id in range(1, total_chunks + 1):
-            chunk = data[(chunk_id - 1) * VOICE_CHUNK_SIZE:
-                         chunk_id * VOICE_CHUNK_SIZE]
-            params = {"totalChunk": total_chunks,
-                      "fileName": filename,
-                      "clientId": client_id,
-                      "totalSize": total_size,
-                      "imei": self.device_id,
-                      "chunkId": chunk_id,
-                      "fileType": file_type}
-            if is_group:
-                params["grid"] = str(thread_id)
-            else:
-                params["toid"] = str(thread_id)
-            url = _multipart_url(FILES_DOMAIN, upload_path, params,
-                                 self.zpw_enk, type_param)
-            body, ctype = build_multipart(
-                {}, [("chunkContent", filename,
-                      "application/octet-stream", chunk)])
-            upload_data = self._post_multipart_retry(
-                url, body, ctype,
-                "POST %s chunk %d/%d" % (upload_path, chunk_id,
-                                         total_chunks))
-            if chunk_id == total_chunks:
-                if not isinstance(upload_data, dict) \
-                        or not upload_data.get("finished") \
-                        or not upload_data.get("fileId"):
-                    raise ZaloChatError(
-                        "chat: upload ghi am xong nhung Zalo khong "
-                        "tra fileId (finished/fileId thieu): %r"
-                        % (upload_data,), error_code=0)
-                file_id = upload_data["fileId"]
-        # -- buoc 1.5: doi event async ctrl voice_aac_success -------
-        # Bundle DOI event (waitAsyncFileInfo) truoc buoc 2 de lay
-        # URL ghi am (amr/aac); chunk-response chi co
-        # {finished:1, fileId} — bundle KHONG BAO GIO lay URL tu
-        # chunk-response (handleSendChunkResp chi doc finished/
-        # fileId; truong url trong chunk-response thuoc nhanh
-        # DUPLICATE/cache), nen ham nay LUON doi event (wait tra
-        # ngay neu event da ve truoc — cache-hit cua bundle).
-        # secureKey (neu co) lay tu chunk-response hoac event
-        # (chi dung cho E2EE/pcloud; thuong vang). Het gio /
-        # khong co kenh ctrl / khong co waiter -> loi ro, KHONG
-        # gui buoc 2 (gui buoc 2 khong co fileUrl la cai gay ra
-        # 114 live).
-        chunk_key = _voice_secure_key(upload_data)
-        waiter = self.voice_async
-        if waiter is None:
-            raise ZaloChatError(
-                "chat: gui ghi am chua nhan duoc URL ghi am "
-                "(amr/aac) — khong co kenh cho event async ctrl "
-                "voice_aac_success (99101); khong gui buoc 2 "
-                "khong co fileUrl" + self._ctrl_hint(), error_code=0)
-        if not getattr(waiter, "feeder_running", True):
-            raise ZaloChatError(
-                "chat: gui ghi am chua nhan duoc URL ghi am "
-                "(amr/aac) — kenh ctrl (99101) chua chay; "
-                "khong gui buoc 2 khong co fileUrl"
-                + self._ctrl_hint(),
-                error_code=0)
-        got = waiter.wait(file_id, self.voice_async_timeout)
-        file_url, aac_url, event_key = \
-            _voice_urls_from_async_data(got)
-        secure_key = event_key or chunk_key
-        if not file_url:
-            raise ZaloChatError(
-                "chat: gui ghi am het %.0f giay cho event async "
-                "ctrl voice_aac_success ma khong thay URL ghi am "
-                "(amr/aac) cho fileId da upload xong; khong gui "
-                "buoc 2 khong co fileUrl"
-                % self.voice_async_timeout + self._ctrl_hint(),
-                error_code=0)
-        # -- buoc 2: gui bang fileId -----------------------------------
-        item = {"fileId": file_id,
-                "checksum": hashlib.md5(data).hexdigest(),
-                "checksumSha": "",
-                "totalSize": total_size,
-                "clientId": client_id,
-                "zsource": -1}
-        if is_group:
+                   mime="audio/aac", ttl=0):
+        """Gui tin thoai (bong bong ghi am phat duoc) — DUNG CACH ZALO CU (zalo_bot: voiceAac.js + zca-js sendVoice):
+        1) du lieu da la AAC-LC 16 kHz mono ADTS (server doi bang voice_transcode.ensure_voice_aac truoc khi toi day);
+        2) tai len nhu TEP THUONG qua asyncfile/upload + doi event `file_done` lay URL (_upload_async) — zca-js
+           uploadAttachment xu ly .aac nhu tep thuong;
+        3) gui bang `forward` tren may chu tep: POST {files-wpa}/api/message/forward (1-1) | /api/group/forward (nhom),
+           params AES {toId|grid, ttl, zsource: -1, msgType: 3, clientId, msgInfo: JSON {voiceUrl, m4aUrl, fileSize},
+           imei, visibility (nhom)} — dung sendVoice.js cua zca-js 2.1.2.
+        Tai sao bo duong cu (voice/upload 12060/12063 + asyncfile/msg, `fileType: aac`): Zalo tra 114 ngay o buoc tai len
+        (do thay 10/11/2026: 0,3-0,8 giay, ca mp3 lan aac), con duong tep thuong thi dang chay tot. Du lieu rong bi tu choi
+        truoc khi goi mang. Zalo tra data rong (khong tao tin) -> ZaloChatError, khong bao thanh cong gia."""
+        validate_attachment("voice", filename, mime, data)
+        try:
+            ttl = int(ttl or 0)
+        except (TypeError, ValueError):
+            raise ValueError("chat: ttl phai la so")
+        if ttl < 0:
+            raise ValueError("chat: ttl khong am")
+        file_name = _normalize_filename(filename)
+        if not file_name.lower().endswith(".aac"):
+            file_name = "voice.aac"
+        up = self._upload_async(thread_type, thread_id, file_name, data)
+        client_id = up["client_id"]
+        info = json.dumps({"voiceUrl": up["file_url"], "m4aUrl": up["file_url"],
+                           "fileSize": up["total_size"]},
+                          separators=(",", ":"))
+        item = {"ttl": ttl, "zsource": -1, "msgType": 3,
+                "clientId": str(client_id), "msgInfo": info,
+                "imei": self.device_id}
+        if thread_type == "group":
             item["grid"] = str(thread_id)
+            item["visibility"] = 0
+            path = "/api/group/forward"
         else:
-            item["toid"] = str(thread_id)
-            item["imei"] = self.device_id
-        # URL ghi am tu event async (bundle: fileAsync.fileUrl =
-        # amr||aac, aacUrl chi khi co amr; secureKey chi khi async
-        # data co no). Buoc 2 KHONG bao gio gui khi thieu fileUrl
-        # (xem khoi doi event o tren).
-        item["fileUrl"] = file_url
-        if aac_url:
-            item["aacUrl"] = aac_url
-        if secure_key:
-            item["secureKey"] = secure_key
-        send_data = self._post_form_retry(
-            FILES_DOMAIN, send_path, item, "POST %s" % send_path)
+            item["toId"] = str(thread_id)
+            path = "/api/message/forward"
+        send_data = self._post_form_retry(FILES_DOMAIN, path, item,
+                                          "POST %s" % path)
+        if not send_data:
+            raise ZaloChatError(
+                "voice: Zalo tra ve khong co ma tin — tin thoai chua "
+                "duoc tao (data rong sau khi giai ma)")
         return {"data": send_data, "client_id": client_id,
-                "file_id": file_id}
+                "file_id": up["file_id"], "voice_url": up["file_url"]}
 
     # -- typing / seen ----------------------------------------------------
     def send_typing(self, thread_type, thread_id):

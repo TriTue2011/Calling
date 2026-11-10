@@ -3850,13 +3850,14 @@ class Handler(BaseHTTPRequestHandler):
                                            local)
                 return self._send_json({"ok": True, "data": res["data"],
                                         "message": local})
-            # sendvoice: file ghi am cua trinh duyet (MediaRecorder).
-            # Chrome cho webm/opus, Safari cho mp4/aac — duong hai
-            # buoc (upload chunked 12060/12063 + asyncfile/msg)
-            # doi file AAC (fileType "aac"|"amr"); buoc 2 chi gui
-            # SAU KHI event ctrl voice_aac_success mang URL ve
-            # (chat.send_voice doi registry — loi 114), khong gui
-            # mu khong co fileUrl.
+            # sendvoice: file ghi am cua trinh duyet (MediaRecorder) hoac TTS.
+            # Chrome cho webm/opus, Safari cho mp4/aac: doi sang AAC o
+            # server (ensure_voice_aac), roi chat.send_voice tai .aac len
+            # NHU TEP THUONG (asyncfile/upload + event file_done) va gui bang
+            # forward msgType 3 — dung cach zalo cu (zalo_bot voiceAac.js +
+            # zca-js sendVoice); duong cu voice/upload 12060/12063 bi Zalo
+            # tra 114 (do thay 10/11/2026). Khong co URL thi KHONG gui mu.
+            # Doi sang AAC:
             # day TRUOC khi gui, theo dung cach Node.js lam
             # (zalobot voiceAac.js: ffmpeg server-side, mono 16 kHz
             # 64 kbps, timeout 60 s) — Y HET tham so, khong con lech

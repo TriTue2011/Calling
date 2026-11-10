@@ -257,9 +257,11 @@ def test_thread_post_app_login_with_zalo_session():
             seen = [p for p, _, _ in mock.seen]
             for want in ("/api/message/sms", "/api/message/link",
                          "/api/message/typing", "/api/message/seen",
-                         "/api/message/asyncfile/upload",
-                         "/api/message/voice/upload"):
+                         "/api/message/forward"):
                 assert seen.count(want) == 1, (want, seen)
+            # tep + tin thoai deu tai len bang asyncfile/upload (cach zalo cu); duong cu voice/upload khong con goi
+            assert seen.count("/api/message/asyncfile/upload") == 2, seen
+            assert "/api/message/voice/upload" not in seen, seen
         finally:
             httpd.shutdown()
     finally:

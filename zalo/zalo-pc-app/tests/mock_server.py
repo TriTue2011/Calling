@@ -190,6 +190,7 @@ class MockZalo:
         # _chat_upload de tai lieu hoa loi that 2026-11-05).
         self.voice_upload_mode = "ok"
         self.voice_upload_calls = 0
+        self.voice_forward_bodies = []   # tin thoai gui bang forward msgType 3 (cach zalo cu)
         # File thuong (Word/Excel/PDF — DUONG HAI BUOC asyncfile,
         # khong phai sharefile_full chet): "ok" | "empty".
         # file_upload_* dem/ghi cac lan goi chunk asyncfile/upload;
@@ -910,7 +911,34 @@ class MockZalo:
             {"msgId": "msg-voice-1", "clientId": body["clientId"],
              "body": body})
 
+    def _chat_voice_forward(self, path, qs, headers, raw_body="", raw_qs=""):
+        """Gui tin thoai bang `forward` (cach zalo cu / zca-js sendVoice.js): POST form params=<AES JSON> len
+        {files-wpa}/api/message/forward (1-1) | /api/group/forward (nhom). params: {toId|grid, ttl, zsource: -1,
+        msgType: 3, clientId STRING, msgInfo: JSON {voiceUrl, m4aUrl, fileSize}, imei, visibility (nhom)}."""
+        self._check_common(qs, headers, "voice forward")
+        m = re.search(r"(?:^|&)params=([^&]*)", raw_body or "")
+        assert m, "forward needs params form body"
+        enc = urllib.parse.unquote(m.group(1))
+        key = base64.b64decode(TEST_SESSION_KEY)
+        body = json.loads(_openssl_aes(key, base64.b64decode(enc), decrypt=True).decode("utf-8"))
+        assert body.get("msgType") == 3 and body.get("zsource") == -1, body
+        assert isinstance(body.get("clientId"), str) and body["clientId"], body
+        info = json.loads(body["msgInfo"])
+        assert info["voiceUrl"].startswith("https://") and info["m4aUrl"] == info["voiceUrl"], info
+        assert isinstance(info["fileSize"], int) and info["fileSize"] > 0, info
+        assert body.get("imei"), body
+        if path.startswith("/api/group/"):
+            assert body.get("grid") and body.get("visibility") == 0 and "toId" not in body, body
+        else:
+            assert body.get("toId") and "grid" not in body, body
+        self.voice_forward_bodies.append({"path": path, "body": body})
+        if self.voice_send_mode == "empty":
+            return self._postlogin_envelope({})
+        return self._postlogin_envelope({"msgId": "msg-voice-1", "clientId": body["clientId"], "body": body})
+
     def route_post(self, path, qs, headers, raw_body="", raw_qs=""):
+        if path in ("/api/message/forward", "/api/group/forward"):
+            return 200, self._chat_voice_forward(path, qs, headers, raw_body, raw_qs)
         if path == "/api/group/getmg-v2" and self.slow_seconds:
             time.sleep(self.slow_seconds)
         if path == "/api/group/getmg-v2":

@@ -191,151 +191,16 @@ def test_registry_wait_then_deliver_and_timeout():
 
 # -- Chat.send_voice: doi event roi moi gui buoc 2 ----------------------
 
-def test_voice_waits_for_ctrl_event_and_sends_file_url():
-    """Waiter tra {amr, aac} -> buoc 2 phai gui kem fileUrl=amr,
-    aacUrl=aac (giong fileAsync sau wait cua bundle)."""
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        waiter = FakeVoiceWaiter({"amr": AMR_URL, "aac": AAC_URL})
-        chat = make_chat(mock, waiter=waiter)
-        res = chat.send_voice("user", "20001", "voice.aac",
-                              FAKE_AAC, "audio/aac")
-        assert res["data"]["msgId"] == "msg-voice-1", res
-        assert mock.voice_send_calls == 1, mock.voice_send_calls
-        assert waiter.calls == [("file-voice-1", 5.0)], waiter.calls
-        sent = mock.voice_send_bodies[0]["body"]
-        assert sent["fileUrl"] == AMR_URL, sent
-        assert sent["aacUrl"] == AAC_URL, sent
-    finally:
-        mock.stop()
 
 
-def test_voice_waits_for_late_ctrl_event():
-    """Event den TRE (0.5 s sau khi wait bat dau) van duoc nhan:
-    buoc 2 gui kem fileUrl; khong phai cho het timeout."""
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        waiter = DelayedVoiceWaiter()
-        chat = make_chat(mock, waiter=waiter, timeout=5.0)
-        box = {}
-
-        def _send():
-            try:
-                box["res"] = chat.send_voice(
-                    "user", "20001", "voice.aac", FAKE_AAC, "audio/aac")
-            except Exception as e:  # noqa: BLE001
-                box["err"] = e
-
-        th = threading.Thread(target=_send)
-        th.start()
-        time.sleep(0.5)
-        waiter.deliver({"amr": AMR_URL, "aac": AAC_URL})
-        th.join(timeout=10)
-        assert "err" not in box, box
-        assert box["res"]["data"]["msgId"] == "msg-voice-1", box
-        assert mock.voice_send_calls == 1, mock.voice_send_calls
-        sent = mock.voice_send_bodies[0]["body"]
-        assert sent["fileUrl"] == AMR_URL, sent
-        assert sent["aacUrl"] == AAC_URL, sent
-    finally:
-        mock.stop()
 
 
-def test_voice_never_sends_step2_without_async_url():
-    """Event KHONG bao gio den -> het timeout thi loi ro rang va
-    KHONG gui buoc 2 (khong gui "hi vong" nhu code cu — do chinh
-    la cai gay ra 114 live)."""
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        waiter = FakeVoiceWaiter(None)
-        chat = make_chat(mock, waiter=waiter, timeout=0.5)
-        try:
-            chat.send_voice("user", "20001", "voice.aac",
-                            FAKE_AAC, "audio/aac")
-            raise AssertionError("expected ZaloChatError on timeout")
-        except chat_mod.ZaloChatError as e:
-            assert "voice" in str(e).lower() or "async" in str(e) \
-                or "ctrl" in str(e) or "URL" in str(e), e
-        assert mock.voice_upload_calls == 1, mock.voice_upload_calls
-        assert mock.voice_send_calls == 0, mock.voice_send_calls
-    finally:
-        mock.stop()
 
 
-def test_voice_no_waiter_or_ctrl_down_fails_fast():
-    """Khong co waiter, hoac kenh ctrl chua chay (feeder_running
-    False) -> loi NGAY, khong doi het timeout roi moi loi, va
-    khong gui buoc 2."""
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        for waiter in (None, FakeVoiceWaiter(
-                {"amr": AMR_URL, "aac": AAC_URL}, feeder_running=False)):
-            chat = make_chat(mock, waiter=waiter, timeout=30.0)
-            started = time.time()
-            try:
-                chat.send_voice("user", "20001", "voice.aac",
-                                FAKE_AAC, "audio/aac")
-                raise AssertionError("expected ZaloChatError, waiter=%r"
-                                     % (waiter,))
-            except chat_mod.ZaloChatError:
-                pass
-            assert time.time() - started < 5.0, \
-                "phai loi nhanh, khong doi het timeout"
-        assert mock.voice_send_calls == 0, mock.voice_send_calls
-    finally:
-        mock.stop()
 
 
-def test_voice_chunk_response_urls_do_not_skip_wait():
-    """(a) CHUNK-RESPONSE CO URL VAN PHAI DOI EVENT: truong amr/aac
-    trong chunk-response thuoc nhanh DUPLICATE/cache — bundle khong
-    bao gio lay URL tu do (handleSendChunkResp chi doc finished/
-    fileId). Mock tra chunk cuoi kem amr/aac nhung event KHONG bao
-    gio den -> het timeout thi loi ro rang va KHONG gui buoc 2
-    (waiter VAN duoc goi). Ban goc cua test nay ("chunk-response
-    co URL thi bo qua wait") la SAI, da doi thanh pin hanh vi dung
-    khi gop vong 114."""
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        mock.voice_upload_extra = {"amr": AMR_URL, "aac": AAC_URL}
-        waiter = FakeVoiceWaiter(None)
-        chat = make_chat(mock, waiter=waiter, timeout=0.5)
-        try:
-            chat.send_voice("user", "20001", "voice.aac",
-                            FAKE_AAC, "audio/aac")
-            raise AssertionError("expected ZaloChatError on timeout")
-        except chat_mod.ZaloChatError:
-            pass
-        assert waiter.calls == [("file-voice-1", 0.5)], waiter.calls
-        assert mock.voice_send_calls == 0, mock.voice_send_calls
-    finally:
-        mock.stop()
 
 
-def test_voice_group_waits_too():
-    """Nhom cung doi event nhu 1-1; buoc 2 nhom co fileUrl, grid,
-    KHONG imei."""
-    mock = MockZalo().start()
-    try:
-        patch_domains(mock)
-        waiter = FakeVoiceWaiter({"amr": AMR_URL, "aac": AAC_URL})
-        chat = make_chat(mock, waiter=waiter)
-        res = chat.send_voice("group", "30001", "voice.aac",
-                              FAKE_AAC, "audio/aac")
-        assert res["data"]["msgId"] == "msg-voice-1", res
-        sent = mock.voice_send_bodies[0]["body"]
-        assert mock.voice_send_bodies[0]["path"] == \
-            "/api/group/asyncfile/msg", mock.voice_send_bodies
-        assert sent["fileUrl"] == AMR_URL, sent
-        assert sent["grid"] == "30001", sent
-        assert "imei" not in sent, sent
-    finally:
-        mock.stop()
 
 
 # -- e2e qua route app: registry cua AppState ---------------------------
@@ -396,55 +261,8 @@ def _sendvoice_via_app():
                mbody, {"Content-Type": mctype})
 
 
-def test_server_voice_sends_file_url_from_ctrl_registry():
-    """Qua route app: event ctrl da den TRUOC (registry cua AppState
-    da co URL cho file-voice-1 — duong cache-hit cua bundle) ->
-    route 200 ok, buoc 2 co fileUrl."""
-    mock = MockZalo().start()
-    try:
-        httpd, state = _run_server(mock)
-        try:
-            state.voice_async.deliver("file-voice-1", AMR_URL, AAC_URL)
-            status, body = _sendvoice_via_app()
-            assert status == 200 and body["ok"] is True, body
-            assert body["message"]["kind"] == "voice", body
-            assert mock.voice_send_calls == 1, mock.voice_send_calls
-            sent = mock.voice_send_bodies[0]["body"]
-            assert sent["fileUrl"] == AMR_URL, sent
-            assert sent["aacUrl"] == AAC_URL, sent
-        finally:
-            httpd.shutdown()
-    finally:
-        mock.stop()
-        # Dung poller sync/ctrl SAU KHI mock tat: tranh abort 134
-        # luc shutdown (xem ghi chu o sync_poll.run).
-        state.stop_sync()
 
 
-def test_server_voice_without_ctrl_event_fails_honestly():
-    """Qua route app: khong co event ctrl nao (kenh ctrl chua chay
-    o AppState test) -> route 502, loi noi ro chua co URL ghi am,
-    va KHONG co lan goi asyncfile/msg nao (khong gui mu)."""
-    mock = MockZalo().start()
-    try:
-        httpd, state = _run_server(mock)
-        try:
-            state.voice_async_timeout = 0.5
-            status, body = _sendvoice_via_app()
-            assert status == 502, body
-            assert "URL" in str(body.get("error", "")) \
-                or "ctrl" in str(body.get("error", "")).lower() \
-                or "voice" in str(body.get("error", "")).lower(), body
-            assert mock.voice_upload_calls == 1, \
-                mock.voice_upload_calls
-            assert mock.voice_send_calls == 0, mock.voice_send_calls
-        finally:
-            httpd.shutdown()
-    finally:
-        mock.stop()
-        # Dung poller sync/ctrl SAU KHI mock tat: tranh abort 134
-        # luc shutdown (xem ghi chu o sync_poll.run).
-        state.stop_sync()
 
 
 # -- file thuong: CHO EVENT ASYNC ctrl `file_done` TRUOC KHI GUI

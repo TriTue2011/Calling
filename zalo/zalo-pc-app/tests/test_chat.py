@@ -256,33 +256,31 @@ def test_send_file_photo_voice():
         assert res["data"]["msgId"] == "msg-file-1", res
         assert isinstance(res["client_id"], int), res
         assert res["data"]["clientId"] == res["client_id"], res
-        # Voice di duong hai buoc (12060/12063 + asyncfile/msg):
-        # chunk AAC len 12060/12063, roi gui bang fileId — xem
-        # test_voice_112.py. clientId o day la NUMBER (JSON.stringify
-        # cua upload-manager), khac voi STRING cua sendFile truc tiep.
+        # Voice (cach zalo cu): tai .aac len nhu TEP THUONG (asyncfile/upload + file_done) roi gui bang forward msgType 3.
         aac = b"\xff\xf1\x50\x80\x00\x1f\xfc" + b"\x00" * 100
         res = chat.send_voice("user", "20001", "voice.aac",
                               aac, "audio/aac")
         assert res["data"]["msgId"] == "msg-voice-1", res
         assert isinstance(res["client_id"], int), res
-        assert res["data"]["clientId"] == res["client_id"], res
-        assert res["file_id"] == "file-voice-1", res
+        assert res["voice_url"] == "https://f1-file-dl.zdn.vn/test.docx", res
         res = chat.send_voice("group", "30001", "voice.aac",
-                              aac, "audio/aac")
+                              aac, "audio/aac", ttl=60000)
         assert res["data"]["msgId"] == "msg-voice-1", res
-        assert isinstance(res["client_id"], int), res
-        assert res["data"]["clientId"] == res["client_id"], res
-        assert res["file_id"] == "file-voice-1", res
+        fw = mock.voice_forward_bodies
+        assert [f["path"] for f in fw] == ["/api/message/forward", "/api/group/forward"], fw
+        assert fw[0]["body"]["toId"] == "20001" and fw[0]["body"]["ttl"] == 0, fw[0]
+        assert fw[1]["body"]["grid"] == "30001" and fw[1]["body"]["ttl"] == 60000, fw[1]
+        assert json.loads(fw[0]["body"]["msgInfo"])["fileSize"] == len(aac), fw[0]
         seen = [p for p, _, _ in mock.seen]
-        for want in ("/api/message/asyncfile/upload",
-                     "/api/group/asyncfile/upload",
-                     "/api/message/photo", "/api/group/sendpt",
-                     "/api/message/voice/upload",
-                     "/api/group/voice/upload"):
-            assert seen.count(want) == 1, (want, seen)
-        # asyncfile/msg: 2 lan moi phia (file + voice).
-        assert seen.count("/api/message/asyncfile/msg") == 2, seen
-        assert seen.count("/api/group/asyncfile/msg") == 2, seen
+        # tep + tin thoai deu tai len bang asyncfile/upload (2 lan moi phia); duong cu voice/upload KHONG con duoc goi.
+        for want, n in (("/api/message/asyncfile/upload", 2), ("/api/group/asyncfile/upload", 2),
+                        ("/api/message/photo", 1), ("/api/group/sendpt", 1),
+                        ("/api/message/forward", 1), ("/api/group/forward", 1)):
+            assert seen.count(want) == n, (want, seen)
+        assert not [p for p in seen if "voice/upload" in p], seen
+        # asyncfile/msg: chi tep (1 lan moi phia); tin thoai khong di duong nay nua.
+        assert seen.count("/api/message/asyncfile/msg") == 1, seen
+        assert seen.count("/api/group/asyncfile/msg") == 1, seen
         # Duong truc tiep sharefile_full CHEt — khong bao gio duoc
         # goi nua (goi la mock tra 405 nhu Zalo that, live
         # 2026-11-07).
