@@ -29,17 +29,19 @@ from .bridge_core import (PushPolicy, audio_out_url, dahua_mic_url, device_of_ur
                           entity_of_label, explicit_off, host_of, intercom_url,
                           localize_url, mic_format_for_url, pick_devices, r1_mic_url,
                           valid_url)
-from .const import CONF_HA_URL, TEST_SOURCE
+from .const import CONF_CALL_VOLUME, CONF_HA_URL, MAX_CALL_VOLUME, TEST_SOURCE
 from .devices import DeviceDefaults
 
 _LOGGER = logging.getLogger(__name__)
 _PENDING_TTL = 120.0
+_VOLUME_TOLERANCE = 0.02   # loa lam tron muc am luong: coi la «chua ai chinh» neu lech it hon
 
 
 class _Running:
     def __init__(self, devices: dict[str, str]) -> None:
         self.devices = devices
         self.speaker_started = False
+        self.volume_restore: tuple[str, float, float] | None = None   # (loa, muc cu, muc da dat)
 
 
 class CallAudioBridge:
@@ -234,12 +236,14 @@ class CallAudioBridge:
         key = str(call_id)
         if key in self._running:
             return self._running[key].devices
-        devices = self.devices_for(self._take(call_id))
+        override = self._take(call_id)
+        devices = self.devices_for(override)
         run = _Running(devices)
         self._running[key] = run
         speaker = entity_of_label(devices["speaker"])
         if not speaker:
             return devices
+        await self._async_set_volume(run, speaker, self.volume_for(override))
         if await self.async_speaker_sink(speaker, str(self.defaults.get("echo_guard") or "auto")):
             return devices          # loa truc tiep: app tu day tieng vao bo dam, khong qua play_media
         try:
@@ -261,15 +265,67 @@ class CallAudioBridge:
 
     async def stop(self, call_id: Any) -> None:
         run = self._running.pop(str(call_id), None)
-        if run is None or not run.speaker_started:
+        if run is None:
+            return
+        if run.speaker_started:
+            try:
+                await self.hass.services.async_call(
+                    "media_player", "media_stop",
+                    {"entity_id": entity_of_label(run.devices["speaker"])},
+                    blocking=False)
+            except HomeAssistantError as err:
+                _LOGGER.debug("Khong dung duoc loa: %s", err)
+        await self._async_restore_volume(run)
+
+    def volume_for(self, override: dict[str, Any] | None) -> int:
+        """% am luong loa cho cuoc goi: ghi de cua service > mac dinh; 0 = khong dong vao."""
+        raw = (override or {}).get("volume")
+        if raw is None:
+            raw = self.defaults.get(CONF_CALL_VOLUME)
+        try:
+            return max(0, min(MAX_CALL_VOLUME, int(raw)))
+        except (TypeError, ValueError):
+            return 0
+
+    async def _async_set_volume(self, run: _Running, speaker: str, percent: int) -> None:
+        """Dat am luong loa luc nghe may, nho muc cu de tra lai khi cuoc goi ket thuc."""
+        if percent <= 0:
+            return
+        state = self.hass.states.get(speaker)
+        try:
+            old = float(state.attributes.get("volume_level")) if state else None
+        except (TypeError, ValueError):
+            old = None
+        target = round(percent / 100, 2)
+        try:
+            await self.hass.services.async_call(
+                "media_player", "volume_set",
+                {"entity_id": speaker, "volume_level": target}, blocking=True)
+        except HomeAssistantError as err:
+            _LOGGER.warning("Khong dat duoc am luong %s%% cho loa %s: %s", percent, speaker, err)
+            return
+        if old is not None:
+            run.volume_restore = (speaker, old, target)
+
+    async def _async_restore_volume(self, run: _Running) -> None:
+        """Tra am luong cu cua loa, tru khi nguoi dung da tu chinh trong luc goi."""
+        restore, run.volume_restore = run.volume_restore, None
+        if restore is None:
+            return
+        speaker, old, target = restore
+        state = self.hass.states.get(speaker)
+        try:
+            now = float(state.attributes.get("volume_level")) if state else None
+        except (TypeError, ValueError):
+            now = None
+        if now is not None and abs(now - target) > _VOLUME_TOLERANCE:
             return
         try:
             await self.hass.services.async_call(
-                "media_player", "media_stop",
-                {"entity_id": entity_of_label(run.devices["speaker"])},
-                blocking=False)
+                "media_player", "volume_set",
+                {"entity_id": speaker, "volume_level": old}, blocking=True)
         except HomeAssistantError as err:
-            _LOGGER.debug("Khong dung duoc loa: %s", err)
+            _LOGGER.debug("Khong tra duoc am luong loa %s: %s", speaker, err)
 
     async def async_shutdown(self) -> None:
         for key in list(self._running):

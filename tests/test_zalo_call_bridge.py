@@ -320,10 +320,22 @@ class FakeConfigEntries:
         return H["entries"].get(entry_id)
 
 
+class FakeStates:
+    """hass.states.get(eid).attributes[...]: chỉ cần volume_level của loa."""
+    def __init__(self):
+        self.volume = {}
+
+    def get(self, entity_id):
+        if entity_id not in self.volume:
+            return None
+        return types.SimpleNamespace(attributes={"volume_level": self.volume[entity_id]})
+
+
 class FakeHass:
     def __init__(self):
         self.services = FakeServices()
         self.config_entries = FakeConfigEntries()
+        self.states = FakeStates()
 
 
 class FakeEntry:
@@ -521,6 +533,100 @@ def test_lich_cap_nhat_trang_thai_phai_la_callback():
                         getattr(n, "attr", "") == "async_write_ha_state" for n in ast.walk(arg)):
                     bad.append("%s:%d" % (fn, arg.lineno))
     assert not bad, "lambda gọi async_write_ha_state sẽ chạy ở luồng nền: %s" % bad
+
+
+def test_am_luong_cuoc_goi_ket_gioi_han_0_100():
+    dd = devices_mod.DeviceDefaults(FakeHass(), "e1")
+    assert dd.get("call_volume") == 0                                   # mặc định: giữ nguyên âm lượng loa
+    dd._merge({"call_volume": 250})
+    assert dd.get("call_volume") == 100
+    dd._merge({"call_volume": -5})
+    assert dd.get("call_volume") == 0
+    dd._merge({"call_volume": "60"})
+    assert dd.get("call_volume") == 60
+    dd._merge({"call_volume": "abc"})                                   # sai kiểu: giữ nguyên
+    assert dd.get("call_volume") == 60
+
+
+def test_am_luong_cuoc_goi_dat_luc_nghe_may_va_tra_lai_khi_ket_thuc():
+    async def run():
+        hass, api, dd, br = _make({"speaker": "media_player.loa1", "call_volume": 60})
+        hass.states.volume["media_player.loa1"] = 0.3
+        br.remember(None, {})
+        await br.start(7)
+        assert hass.services.calls[0] == ("media_player", "volume_set",
+                                          {"entity_id": "media_player.loa1", "volume_level": 0.6}), \
+            hass.services.calls
+        assert hass.services.calls[1][:2] == ("media_player", "play_media")     # đặt âm lượng TRƯỚC khi phát
+        hass.states.volume["media_player.loa1"] = 0.6                           # loa đã đổi theo lệnh
+        await br.stop(7)
+        assert hass.services.calls[-1] == ("media_player", "volume_set",
+                                           {"entity_id": "media_player.loa1", "volume_level": 0.3})
+        n = len(hass.services.calls)
+        await br.stop(7)                                                        # dừng lặp lại vô hại, không đặt lại
+        assert len(hass.services.calls) == n
+    asyncio.run(run())
+
+
+def test_am_luong_khong_tra_lai_khi_nguoi_dung_tu_chinh_giua_cuoc_goi():
+    async def run():
+        hass, api, dd, br = _make({"speaker": "media_player.loa1", "call_volume": 60})
+        hass.states.volume["media_player.loa1"] = 0.3
+        br.remember(None, {})
+        await br.start(7)
+        hass.states.volume["media_player.loa1"] = 0.9                           # người dùng tự kéo âm lượng
+        n = len(hass.services.calls)
+        await br.stop(7)
+        assert [c for c in hass.services.calls[n:] if c[1] == "volume_set"] == []
+    asyncio.run(run())
+
+
+def test_am_luong_ghi_de_tung_cuoc_goi_va_0_la_giu_nguyen():
+    async def run():
+        # Mặc định 0 + ghi đè 40 -> đặt 0,4
+        hass, api, dd, br = _make({"speaker": "media_player.loa1"})
+        hass.states.volume["media_player.loa1"] = 0.5
+        br.remember(None, {"volume": 40})
+        await br.start(1)
+        assert ("media_player", "volume_set",
+                {"entity_id": "media_player.loa1", "volume_level": 0.4}) in hass.services.calls
+        # Mặc định 60 + ghi đè 0 -> không đụng vào loa
+        hass, api, dd, br = _make({"speaker": "media_player.loa1", "call_volume": 60})
+        hass.states.volume["media_player.loa1"] = 0.5
+        br.remember(None, {"volume": 0})
+        await br.start(2)
+        assert [c for c in hass.services.calls if c[1] == "volume_set"] == []
+        # Mặc định 0, không ghi đè -> không đụng vào loa (hành vi cũ)
+        hass, api, dd, br = _make({"speaker": "media_player.loa1"})
+        br.remember(None, {})
+        await br.start(3)
+        assert [c for c in hass.services.calls if c[1] == "volume_set"] == []
+        # Không có loa -> không làm gì
+        hass, api, dd, br = _make({"call_volume": 60})
+        br.remember(None, {})
+        await br.start(4)
+        assert hass.services.calls == []
+        assert br.volume_for({"volume": "x"}) == 0 and br.volume_for({"volume": 999}) == 100
+    asyncio.run(run())
+
+
+def test_am_luong_cung_dat_va_tra_o_loa_truc_tiep_qua_cua_bo_dam():
+    """Loa R1 / loa camera nhận tiếng qua cửa bộ đàm (app tự đẩy), không qua play_media:
+    âm lượng vẫn phải được đặt lúc nghe máy và trả lại khi kết thúc."""
+    async def run():
+        hass, api, dd, br = _make({"speaker": "media_player.r1_loa", "call_volume": 50},
+                                  options={"ha_url": "http://ha.lan:8123"})
+        _ent("r1_speaker", "media_player.r1_loa", "r1entry")
+        H["entries"]["r1entry"].data = {"intercom_key": "KHOA"}
+        hass.states.volume["media_player.r1_loa"] = 0.7333
+        br.remember(None, {})
+        await br.start(9)
+        assert [c[:2] for c in hass.services.calls] == [("media_player", "volume_set")]   # không play_media
+        assert hass.services.calls[0][2]["volume_level"] == 0.5
+        hass.states.volume["media_player.r1_loa"] = 0.5
+        await br.stop(9)
+        assert hass.services.calls[-1][2]["volume_level"] == 0.7333
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

@@ -32,6 +32,8 @@ CONF_ECHO_GUARD = "echo_guard"          # chong vong: auto | on (chan mic) | dup
 ECHO_MODES = ("auto", "on", "duplex", "off")
 CONF_AUTO_VIDEO_DELAY = "auto_video_delay"   # giay cho truoc khi tu dong y (0 = ngay)
 MAX_AUTO_VIDEO_DELAY = 120
+CONF_CALL_VOLUME = "call_volume"   # % am luong loa luc dang goi (0 = giu nguyen am luong cua loa)
+MAX_CALL_VOLUME = 100
 STORAGE_VERSION = 1
 NONE_LABEL = "Không"
 TEST_SOURCE = "test"                       # camera «test»: app Zalo tự tạo hình kiểm tra (các ô màu + đồng hồ) thay vì đọc camera

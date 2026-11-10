@@ -12,13 +12,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (CONF_AI_AGENT, CONF_AI_ENABLED, CONF_AI_THREADS, CONF_AUTO_MIC,
-                    CONF_AUTO_VIDEO, CONF_AUTO_VIDEO_DELAY, CONF_CAMERA, CONF_ECHO_GUARD,
-                    CONF_HA_URL, CONF_MIC, CONF_MIC_URL, CONF_SPEAKER, DOMAIN, ECHO_MODES,
-                    MAX_AUTO_VIDEO_DELAY, STORAGE_VERSION)
+                    CONF_AUTO_VIDEO, CONF_AUTO_VIDEO_DELAY, CONF_CALL_VOLUME, CONF_CAMERA,
+                    CONF_ECHO_GUARD, CONF_HA_URL, CONF_MIC, CONF_MIC_URL, CONF_SPEAKER, DOMAIN,
+                    ECHO_MODES, MAX_AUTO_VIDEO_DELAY, MAX_CALL_VOLUME, STORAGE_VERSION)
 
 DEFAULTS: dict[str, Any] = {"speaker": "", "mic": "", "mic_url": "",
                             "camera": "", CONF_AUTO_MIC: True,
                             CONF_AUTO_VIDEO: True, CONF_AUTO_VIDEO_DELAY: 0,
+                            CONF_CALL_VOLUME: 0,
                             CONF_ECHO_GUARD: "auto",
                             CONF_HA_URL: "", CONF_AI_ENABLED: False,
                             CONF_AI_AGENT: "", CONF_AI_THREADS: ""}
@@ -61,6 +62,12 @@ class DeviceDefaults:
                 self.data[key] = bool(patch[key])
         if patch.get(CONF_ECHO_GUARD) in ECHO_MODES:
             self.data[CONF_ECHO_GUARD] = patch[CONF_ECHO_GUARD]
+        if CONF_CALL_VOLUME in patch:
+            try:
+                self.data[CONF_CALL_VOLUME] = max(
+                    0, min(MAX_CALL_VOLUME, int(patch[CONF_CALL_VOLUME])))
+            except (TypeError, ValueError):
+                pass
         if CONF_AUTO_VIDEO_DELAY in patch:
             try:
                 self.data[CONF_AUTO_VIDEO_DELAY] = max(

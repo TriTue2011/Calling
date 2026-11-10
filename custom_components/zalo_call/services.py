@@ -182,7 +182,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
 
     def _device_override(call: ServiceCall) -> dict:
         """Thiet bi ghi de cua service nay (vang = dung mac dinh; "" = tat)."""
-        return {k: call.data[k] for k in ("speaker", "mic", "mic_url", "camera")
+        return {k: call.data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume")
                 if k in call.data}
 
     async def make_call(call: ServiceCall) -> dict:
@@ -310,7 +310,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         rt, _ = _api(hass, call)
         patch = {k: call.data[k] for k in
                  ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video",
-                  "auto_video_delay", "echo_guard")
+                  "auto_video_delay", "echo_guard", "call_volume")
                  if k in call.data}
         if patch.get("mic_url") or patch.get("mic"):
             patch.setdefault("mic_url" if patch.get("mic") else "mic", "")
@@ -341,13 +341,16 @@ async def async_register_services(hass: HomeAssistant) -> None:
                            vol.Optional("auto_mic"): cv.boolean,
                            vol.Optional("auto_video"): cv.boolean,
                            vol.Optional("echo_guard"): vol.In(list(ECHO_MODES)),
+                           vol.Optional("call_volume"):
+                               vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
                            vol.Optional("auto_video_delay"):
                                vol.All(vol.Coerce(int), vol.Range(min=0, max=120))}))
 
     devices = {vol.Optional("speaker"): cv.string,
                vol.Optional("mic"): cv.string,
                vol.Optional("mic_url"): cv.string,
-               vol.Optional("camera"): cv.string}
+               vol.Optional("camera"): cv.string,
+               vol.Optional("volume"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100))}
     hass.services.async_register(
         DOMAIN, "make_call", make_call,
         schema=vol.Schema({

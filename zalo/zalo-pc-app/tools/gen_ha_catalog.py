@@ -276,6 +276,15 @@ EXTRA_YAML = '''make_call:
       selector:
         entity:
           domain: media_player
+    volume:
+      name: Âm lượng loa trong cuộc gọi (ghi đè mặc định)
+      description: 1-100 % — đặt âm lượng loa khi nghe máy rồi trả lại mức cũ khi cuộc gọi kết thúc. Bỏ trống = dùng «Âm lượng cuộc gọi» mặc định trên thiết bị; 0 = giữ nguyên âm lượng loa.
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: slider
+          unit_of_measurement: '%'
     mic:
       name: Mic (ghi đè mặc định)
       description: Camera (lấy tiếng từ stream của nó) hoặc vệ tinh Assist của camera Imou/Dahua hay loa R1. Bỏ trống = mic mặc định; để rỗng = không phát mic cho cuộc này.
@@ -310,6 +319,15 @@ answer_call:
       selector:
         entity:
           domain: media_player
+    volume:
+      name: Âm lượng loa trong cuộc gọi (ghi đè mặc định)
+      description: 1-100 % — đặt âm lượng loa khi nghe máy rồi trả lại mức cũ khi cuộc gọi kết thúc. Bỏ trống = dùng «Âm lượng cuộc gọi» mặc định trên thiết bị; 0 = giữ nguyên âm lượng loa.
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: slider
+          unit_of_measurement: '%'
     mic:
       name: Mic (ghi đè mặc định)
       description: Camera (lấy tiếng từ stream của nó) hoặc vệ tinh Assist của camera Imou/Dahua hay loa R1. Bỏ trống = mic mặc định; để rỗng = không phát mic cho cuộc này.
@@ -495,6 +513,15 @@ set_default_devices:
           max: 120
           mode: box
           unit_of_measurement: s
+    call_volume:
+      name: Âm lượng cuộc gọi mặc định
+      description: 1-100 % — âm lượng loa đặt khi nghe máy rồi trả lại khi cuộc gọi kết thúc; 0 = giữ nguyên âm lượng loa.
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: slider
+          unit_of_measurement: '%'
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.
