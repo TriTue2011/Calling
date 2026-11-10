@@ -54,6 +54,10 @@ def main(argv):
         print("%s %s" % (status, name), flush=True)
         if not ok:
             (warned if name in KNOWN_RED else failed).append(name)
+            # In ca HONG (dong FAIL / Traceback) truoc, roi 12 dong cuoi: truoc day chi in 12 dong cuoi nen
+            # khong thay ca nao hong khi test chap chon theo thoi gian (CI 10/11/2026: «4/5 tests passed»).
+            bad = [ln for ln in out.splitlines() if ln.startswith("FAIL") or ln.startswith("Traceback")]
+            print("\n".join("    >> " + ln[:300] for ln in bad[:10]), flush=True)
             print("\n".join("    " + ln for ln in out.splitlines()[-12:]), flush=True)
     print("\n%d file, %d hong, %d canh bao" % (len(files), len(failed), len(warned)))
     return 1 if failed else 0
