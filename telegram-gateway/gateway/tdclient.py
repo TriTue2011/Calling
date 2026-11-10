@@ -1,9 +1,9 @@
 """Client TDLib thật cho gateway (P1) — báo hiệu + gửi tin qua MTProto.
 
 Luồng TDLib (đã đối chiếu td_api.tl qua T0-B):
-  setTdlibParameters (database_directory = thư mục files, khóa mã hóa
-  local từ file ``khoa``) -> authorizationStateWaitEncryptionKey ->
-  checkDatabaseEncryptionKey -> setAuthenticationPhoneNumber ->
+  setTdlibParameters (THAM SỐ PHẲNG, không lồng ``parameters``; khóa mã hóa DB
+  local từ file ``khoa`` đi trong ``database_encryption_key``, base64) ->
+  authorizationStateWaitPhoneNumber -> setAuthenticationPhoneNumber ->
   checkAuthenticationCode -> (nếu server yêu cầu) checkAuthenticationPassword
   -> authorizationStateReady. QR là đường thay thế: requestQrCodeAuthentication
   -> update authorizationStateWaitQrCode (mang link) -> Ready khi quét xong.
@@ -25,6 +25,7 @@ Cuộc gọi thật tài khoản phụ ↔ tài khoản test (T1) mới chốt �
 runtime (đặc biệt ``config``/``custom_parameters`` từ server thật).
 """
 
+import base64
 import json
 import logging
 import os
@@ -108,7 +109,7 @@ class TdlibClient:
 
     # -- vòng đời ------------------------------------------------------
     def open(self) -> None:
-        """Tạo client + setTdlibParameters + mở khóa DB local."""
+        """Tạo client + setTdlibParameters (kèm khóa DB local)."""
         if self.client_id is not None:
             return
         os.makedirs(self.files_dir, exist_ok=True)
@@ -117,33 +118,32 @@ class TdlibClient:
         except OSError:
             pass
         self.client_id = self._transport.create_client_id()
+        try:        # TDLib mặc định ghi log rất dài ra stdout: chỉ giữ lỗi
+            self._transport.execute(tdjson_bytes(
+                {"@type": "setLogVerbosityLevel", "new_verbosity_level": 1}))
+        except Exception:
+            pass
+        # TDLib >= 1.8.6: setTdlibParameters nhận trường PHẲNG; bọc trong "parameters" thì
+        # api_id bị đọc là 0 -> "Valid api_id must be provided". Khóa DB là bytes -> base64.
         self.call({
             "@type": "setTdlibParameters",
-            "parameters": {
-                "@type": "tdlibParameters",
-                "use_test_dc": False,
-                "database_directory": self.files_dir,
-                "files_directory": self.files_dir,
-                "use_file_database": True,
-                "use_chat_info_database": True,
-                "use_message_database": True,
-                "use_secret_chats": False,
-                "api_id": self.api_id,
-                "api_hash": self.api_hash,
-                "system_language_code": "en",
-                "device_model": "telegram-gateway",
-                "system_version": "Linux",
-                "application_version": "0.1.0",
-                "enable_storage_optimizer": True,
-            },
+            "use_test_dc": False,
+            "database_directory": self.files_dir,
+            "files_directory": self.files_dir,
+            "database_encryption_key": base64.b64encode(self._read_key()).decode("ascii"),
+            "use_file_database": True,
+            "use_chat_info_database": True,
+            "use_message_database": True,
+            "use_secret_chats": False,
+            "api_id": self.api_id,
+            "api_hash": self.api_hash,
+            "system_language_code": "en",
+            "device_model": "telegram-gateway",
+            "system_version": "Linux",
+            "application_version": "0.1.0",
         })
-        state = self._wait_auth_state(
-            {"authorizationStateWaitEncryptionKey"}, timeout=30)
-        if state == "authorizationStateWaitEncryptionKey":
-            key = self._read_key()
-            self.call({"@type": "checkDatabaseEncryptionKey", "key": key})
-        # Sau mở khóa, client ở WaitPhoneNumber / WaitCode / Ready tùy
-        # session cũ còn hạn hay không; trạng thái đọc qua getAuthorizationState.
+        # Client ở WaitPhoneNumber / WaitCode / Ready tùy session cũ còn hạn hay không;
+        # trạng thái đọc qua getAuthorizationState.
         self._auth_state = self.authorization_state()
 
     def _read_key(self) -> bytes:

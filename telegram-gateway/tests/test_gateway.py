@@ -836,3 +836,69 @@ def test_p2_dispatch_error_codes_full(tmp_path):
     os.utime(path, (0, 0))
     assert store.prune_expired(ttl=3600) >= 1
     assert store.get_path(out["tts_audio_id"]) is None
+
+
+def test_root_redirects_to_ui_page(tmp_path):
+    client, _, _ = make_client(tmp_path)
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code in (301, 302, 307, 308)
+    assert r.headers["location"] == "/ui/"
+
+
+class _Td1869Transport:
+    """Giả lập ĐÚNG hành vi TDLib 1.8.69 đã đo trên thư viện thật: setTdlibParameters chỉ đọc
+    trường PHẲNG (bọc trong "parameters" thì api_id = 0 và trả lỗi), không có bước khóa mã hoá."""
+
+    def __init__(self):
+        self.sent = []
+        self._queue = []
+
+    def create_client_id(self):
+        return 1
+
+    def execute(self, data):
+        return None
+
+    def send(self, client_id, data):
+        import json as _j
+        req = _j.loads(data.decode("utf-8"))
+        self.sent.append(req)
+        extra = req.get("@extra")
+        if req["@type"] == "setTdlibParameters":
+            if not req.get("api_id") or not req.get("api_hash"):
+                self._queue.append({"@type": "error", "code": 400, "@extra": extra,
+                                    "message": "Valid api_id must be provided. Can be obtained at https://my.telegram.org"})
+            else:
+                self._queue.append({"@type": "ok", "@extra": extra})
+                self._queue.append({"@type": "updateAuthorizationState", "authorization_state":
+                                    {"@type": "authorizationStateWaitPhoneNumber"}})
+        elif req["@type"] == "getAuthorizationState":
+            self._queue.append({"@type": "authorizationStateWaitPhoneNumber", "@extra": extra})
+        else:
+            self._queue.append({"@type": "ok", "@extra": extra})
+
+    def receive(self, timeout):
+        import json as _j
+        return _j.dumps(self._queue.pop(0)).encode("utf-8") if self._queue else None
+
+
+def test_tdlib_client_open_sends_flat_parameters_with_real_api_id(tmp_path):
+    from gateway.tdclient import TdlibClient
+    tr = _Td1869Transport()
+    c = TdlibClient(str(tmp_path), 12345678, "a" * 32, transport=tr)
+    c.open()                                    # nếu còn lồng "parameters" thì ném TelegramError
+    first = next(r for r in tr.sent if r["@type"] == "setTdlibParameters")
+    assert first["api_id"] == 12345678 and first["api_hash"] == "a" * 32
+    assert "parameters" not in first and "database_encryption_key" in first
+    assert not any(r["@type"] == "checkDatabaseEncryptionKey" for r in tr.sent)
+    assert c.authorization_state() == "authorizationStateWaitPhoneNumber"
+
+
+def test_tdlib_client_open_with_real_tdjson_reaches_phone_number_state(tmp_path):
+    """Chạy với thư viện TDLib THẬT (không mạng): api_id/api_hash giả hợp lệ về định dạng."""
+    pytest.importorskip("tdjson")
+    from gateway.tdclient import TdlibClient
+    c = TdlibClient(str(tmp_path), 1, "0" * 32)
+    c.open()
+    assert c.authorization_state() == "authorizationStateWaitPhoneNumber"
+    c.close()

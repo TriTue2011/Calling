@@ -34,6 +34,7 @@ import time
 from collections import defaultdict, deque
 
 from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 from fastapi.responses import JSONResponse
 
 from .audio import AudioHub, resample_pcm
@@ -188,6 +189,11 @@ def build_app(cfg: Config, store: AccountStore | None = None,
                 "accounts_total": len(accounts),
                 "accounts_online": online,
                 "mock_mode": cfg.mock_mode}
+
+    @app.get("/", include_in_schema=False)
+    async def root():
+        # Mở thẳng địa chỉ gateway (không có /ui/) thì đưa tới trang quản lý.
+        return RedirectResponse("/ui/")
 
     @app.get("/api/accounts")
     async def accounts(request: Request):
