@@ -152,12 +152,7 @@ class AudioSender:
                 self.last_error = str(exc)[:80]
 
     def _kill(self):
-        proc = self._proc
-        if proc is not None and proc.poll() is None:
-            try:
-                proc.kill()
-            except OSError:
-                pass
+        ffmpeg_log.kill_and_reap(self._proc)
 
     def stop(self):
         self._stop.set()

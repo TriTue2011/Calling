@@ -87,6 +87,31 @@ class FfmpegLogTests(unittest.TestCase):
         time.sleep(0.2)
         self.assertEqual(logs, [])
 
+    def test_kill_and_reap_khong_de_lai_zombie(self):
+        """kill() một mình để lại zombie; kill_and_reap phải thu xác: sau đó waitpid báo không còn con để thu."""
+        import subprocess
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        ffmpeg_log.kill_and_reap(proc)
+        self.assertIsNotNone(proc.returncode)
+        with self.assertRaises(ChildProcessError):
+            os.waitpid(proc.pid, os.WNOHANG)
+
+    def test_kill_and_reap_chiu_duoc_process_gia_va_da_xong(self):
+        class Fake:
+            killed = False
+
+            def poll(self):
+                return None
+
+            def kill(self):
+                self.killed = True
+        f = Fake()
+        ffmpeg_log.kill_and_reap(f)           # không có wait(): không được nổ
+        self.assertTrue(f.killed)
+        ffmpeg_log.kill_and_reap(None)
+        done = type("D", (), {"poll": lambda self: 0, "kill": lambda self: self.fail})()
+        ffmpeg_log.kill_and_reap(done)        # đã xong thì không kill
+
 
 if __name__ == "__main__":
     unittest.main()

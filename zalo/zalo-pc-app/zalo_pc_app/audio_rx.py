@@ -150,11 +150,7 @@ class AudioSink:
             proc.stdin.close()
         except (OSError, ValueError):
             pass
-        if proc.poll() is None:
-            try:
-                proc.kill()
-            except OSError:
-                pass
+        ffmpeg_log.kill_and_reap(proc)
 
     def stop(self):
         self._stop.set()

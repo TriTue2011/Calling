@@ -7,9 +7,25 @@ from __future__ import annotations
 
 import collections
 import re
+import subprocess
 import threading
 
 _SECRET = re.compile(r"(://[^/\s:@]+:)[^@/\s]*@|([?&]k=)[^&\s\"']+", re.I)
+
+
+def kill_and_reap(proc, timeout: float = 2.0) -> None:
+    """Giết ffmpeg con RỒI thu xác nó. ``kill()`` một mình để lại tiến trình ma (zombie) cho tới lần ``Popen`` kế tiếp;
+    trên máy yếu, gọi nhiều cuộc liên tiếp là tích dần. Tiến trình giả (test) không có ``wait`` thì bỏ qua."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        proc.kill()
+    except OSError:
+        return
+    try:
+        proc.wait(timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError, AttributeError):
+        pass
 
 
 def redact(text: str) -> str:
