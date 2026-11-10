@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 
 from .chat import ChatService, Feed
+from .live_call import CallRuntime
 from .errors import ApiError, bad_request, not_found
 from .tdclient import TelegramError
 
@@ -34,13 +35,30 @@ def add_chat_routes(app: FastAPI, *, data_dir: str, auth, body_dict, telegram_to
     uploads = os.path.join(data_dir, "uploads")
     os.makedirs(uploads, exist_ok=True)
 
+    runtime: dict = {"rt": None}
+
+    def get_runtime():
+        """NTgCalls chỉ nạp khi cần (lần đầu có tài khoản thật); lỗi nạp không làm hỏng phần nhắn tin."""
+        if runtime["rt"] is None:
+            runtime["rt"] = CallRuntime(on_event=lambda kind, c: feed.push(
+                "call", event=kind, call=c.info()), data_dir=data_dir)
+        return runtime["rt"]
+
     def attach(phone: str, client) -> ChatService:
-        """Gắn dịch vụ trò chuyện vào client (nhận update theo thời gian thực kể từ lúc này)."""
+        """Gắn dịch vụ trò chuyện + cuộc gọi vào client (nhận update theo thời gian thực kể từ lúc này)."""
         svc = services.get(phone)
         if svc is None or svc.client is not client:
             svc = ChatService(client, feed=feed, account=phone)
             services[phone] = svc
-            client.on_update = svc.handle_update
+
+            def on_update(obj, _svc=svc, _phone=phone, _client=client):
+                _svc.handle_update(obj)
+                if obj.get("@type") in ("updateCall", "updateNewCallSignalingData"):
+                    try:
+                        get_runtime().on_tdlib_update(_phone, _client, obj)
+                    except Exception:  # noqa: BLE001 - lỗi cuộc gọi không được làm sập luồng nhận tin
+                        logger.exception("xử lý update cuộc gọi lỗi")
+            client.on_update = on_update
         return svc
 
     logins.on_client = attach
@@ -206,6 +224,124 @@ def add_chat_routes(app: FastAPI, *, data_dir: str, auth, body_dict, telegram_to
         auth(request)
         wait = max(0.0, min(25.0, float(request.query_params.get("wait", 0) or 0)))
         return await asyncio.to_thread(feed.since, int_arg(request, "since"), wait)
+
+    # -- cuộc gọi thật (thoại + video) ----------------------------------------------------------------
+    settings_path = os.path.join(data_dir, "live_settings.json")
+    DEFAULT_SETTINGS = {"mic": "test", "mic_format": "auto", "camera": "test", "playback": "file"}
+
+    def load_settings() -> dict:
+        import json
+        out = dict(DEFAULT_SETTINGS)
+        try:
+            with open(settings_path, encoding="utf-8") as fh:
+                saved = json.load(fh)
+            out.update({k: str(v) for k, v in saved.items() if k in out})
+        except (OSError, ValueError):
+            pass
+        return out
+
+    def _mask(v: str) -> str:
+        import re as _re
+        return _re.sub(r"(://[^/\s:@]+:)[^@/\s]*@", r"\1***@", v or "")
+
+    @app.get("/api/live/settings")
+    async def get_live_settings(request: Request):
+        auth(request)
+        s = load_settings()
+        return {"mic": _mask(s["mic"]), "mic_format": s["mic_format"], "camera": _mask(s["camera"]),
+                "playback": s["playback"]}
+
+    @app.post("/api/live/settings")
+    async def set_live_settings(request: Request):
+        """Nguồn mic/camera MẶC ĐỊNH cho cuộc gọi: "test" hoặc URL (rtsp/http) / tệp. Có mật khẩu: chỉ ghi, không trả lại."""
+        import json
+        auth(request)
+        b = await body_dict(request)
+        s = load_settings()
+        for k in ("mic", "camera"):
+            if k in b:
+                v = str(b[k] or "test").strip()
+                if v != "test" and not (v.startswith(("rtsp://", "rtsps://", "http://", "https://", "rtmp://")) or v.startswith("/")):
+                    raise bad_request(f"{k} phải là test, URL rtsp/http hoặc đường dẫn tệp.")
+                if "***@" not in v:
+                    s[k] = v
+        if b.get("mic_format") in ("auto", "s16le16k"):
+            s["mic_format"] = b["mic_format"]
+        if b.get("playback") in ("external", "file"):
+            s["playback"] = b["playback"]
+        tmp = settings_path + ".tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(s, fh)
+        os.replace(tmp, settings_path)
+        return {"ok": True}
+
+    def _phone_of(request: Request) -> str:
+        svc = service(acct(request))
+        return svc.account
+
+    @app.post("/api/live/call")
+    async def live_call(request: Request):
+        auth(request)
+        b = await body_dict(request)
+        phone = _phone_of(request)
+        try:
+            user_id = int(b["user_id"])
+        except (KeyError, ValueError, TypeError):
+            raise bad_request("Thiếu user_id (số).")
+        rt = get_runtime()
+        try:
+            d = load_settings()           # nguồn mặc định (có thể ghi đè từng cuộc bằng mic/camera trong body)
+            call = await run(rt.call_out, phone, clients[phone], user_id, bool(b.get("video", False)),
+                             str(b.get("mic") or d["mic"]), str(b.get("mic_format") or d["mic_format"]),
+                             str(b.get("camera") or d["camera"]), str(b.get("playback") or d["playback"]))
+        except RuntimeError as exc:
+            raise ApiError(409, "CALL_BUSY", str(exc))
+        return call.info()
+
+    @app.get("/api/live/calls")
+    async def live_calls(request: Request):
+        auth(request)
+        rt = runtime["rt"]
+        return {"calls": [c.info() for c in (rt.calls.values() if rt else [])][-10:]}
+
+    @app.post("/api/live/hangup")
+    async def live_hangup(request: Request):
+        auth(request)
+        b = await body_dict(request)
+        rt = runtime["rt"]
+        c = rt.calls.get(str(b.get("id"))) if rt else None
+        if c is None:
+            raise not_found("Không có cuộc gọi này.")
+        await run(c.hangup)
+        return c.info()
+
+    @app.post("/api/live/playback")
+    async def live_playback(request: Request):
+        """Đổi cách nhận tiếng bên kia ngay trong cuộc gọi: kind = external | file | shell (+ cmd)."""
+        auth(request)
+        b = await body_dict(request)
+        rt = runtime["rt"]
+        c = rt.calls.get(str(b.get("id"))) if rt else None
+        if c is None:
+            raise not_found("Không có cuộc gọi này.")
+        kind = str(b.get("kind") or "file")
+        if kind not in ("external", "file", "shell"):
+            raise bad_request("kind phải là external, file hoặc shell.")
+        asyncio.run_coroutine_threadsafe(c._set_playback(kind, str(b.get("cmd") or "")), rt.loop)
+        await asyncio.sleep(0.5)
+        return c.info()
+
+    @app.post("/api/live/accept")
+    async def live_accept(request: Request):
+        auth(request)
+        b = await body_dict(request)
+        rt = runtime["rt"]
+        c = rt.calls.get(str(b.get("id"))) if rt else None
+        if c is None or c.outgoing:
+            raise not_found("Không có cuộc gọi đến này.")
+        await run(c.accept)
+        return c.info()
 
     # -- mở lại tài khoản đã đăng nhập khi khởi động ------------------------
     def restore() -> None:

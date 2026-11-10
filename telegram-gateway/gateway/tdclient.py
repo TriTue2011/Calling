@@ -427,9 +427,9 @@ class TdlibClient:
         return int(resp["id"])
 
     # -- gọi (báo hiệu; media qua glue ở engine.py) ------------------------
-    def create_call(self, user_id: int, protocol: dict) -> int:
+    def create_call(self, user_id: int, protocol: dict, is_video: bool = False) -> int:
         resp = self.call({"@type": "createCall", "user_id": int(user_id),
-                          "protocol": protocol, "is_video": False})
+                          "protocol": protocol, "is_video": bool(is_video)})
         # createCall trả CallId (int32): response JSON là số trần, hoặc
         # dict bọc call_id tùy binding — chấp nhận cả hai.
         if isinstance(resp, dict):

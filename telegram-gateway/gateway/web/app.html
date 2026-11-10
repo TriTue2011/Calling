@@ -65,6 +65,11 @@
   .empty { margin:auto; color:var(--mut); text-align:center; padding:24px; }
   #gate { margin:auto; padding:24px; max-width:420px; width:100%; }
   .back { display:none; }
+  #callbar { display:none; position:fixed; left:50%; top:12px; transform:translateX(-50%); z-index:8; background:#1b2733; color:#fff;
+             border-radius:14px; padding:12px 16px; min-width:min(92vw,360px); box-shadow:0 8px 28px rgba(0,0,0,.35); }
+  #callbar .cn { font-weight:600; font-size:16px; } #callbar .cs { color:#b8c7d6; font-size:13px; margin:2px 0 8px; }
+  #callbar .cb { display:flex; gap:8px; } #callbar button { flex:1; } .green { background:#2e9b57; } .red { background:#d64545; }
+  .lazy { display:inline-flex; gap:8px; align-items:center; margin:2px 0; }
   #toast { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); background:#222; color:#fff; padding:8px 14px; border-radius:9px; display:none; z-index:9; max-width:90%; }
   @media (max-width:760px) {
     aside { width:100%; border-right:0; }
@@ -84,7 +89,7 @@
     <div id="list" role="list"></div>
   </aside>
   <main>
-    <div class="bar" id="head" hidden><button class="icon back" id="back" aria-label="Quay lại">←</button><h1 id="title"></h1></div>
+    <div class="bar" id="head" hidden><button class="icon back" id="back" aria-label="Quay lại">←</button><h1 id="title"></h1><button class="icon" id="call-a" aria-label="Gọi thoại" title="Gọi thoại">📞</button><button class="icon" id="call-v" aria-label="Gọi video" title="Gọi video">🎥</button></div>
     <div id="gate">
       <h1 style="font-size:18px">Telegram Gateway</h1>
       <p class="d">Dán token của gateway (<code>GATEWAY_TOKEN</code>) để vào. Trình duyệt chỉ nhớ trong phiên đang mở.</p>
@@ -103,6 +108,7 @@
     </div>
   </main>
 </div>
+<div id="callbar" role="dialog" aria-live="polite"><div class="cn" id="cn"></div><div class="cs" id="cs"></div><div class="cb" id="cbtn"></div></div>
 <div id="toast" role="alert"></div>
 
 <script>
@@ -194,9 +200,14 @@
     if (m.reply_to) { const src = msgData.get(m.reply_to); w.appendChild(el("div", "rep", src ? (src.sender ? src.sender + ": " : "") + (src.text || src.summary).slice(0, 80) : "↩ Trả lời tin trước")); }
     const f = m.file;
     if (f && f.id && m.kind === "photo") { const i = el("img", "pic"); i.alt = "Ảnh"; blobUrl(f.id).then((u) => { i.src = u; i.onclick = () => window.open(u, "_blank"); }).catch(() => { i.replaceWith(el("div", "txt", m.summary)); }); w.appendChild(i); }
-    else if (f && f.id && (m.kind === "voice" || m.kind === "audio")) { const a = el("audio"); a.controls = true; a.preload = "none"; a.addEventListener("play", () => { if (!a.src) blobUrl(f.id).then((u) => { a.src = u; a.play(); }).catch(() => toast("Chưa tải được âm thanh")); }, { once: true });
-      w.appendChild(el("div", "txt", (m.kind === "voice" ? "🎤 " : "🎵 ") + (f.name || "Âm thanh") + (f.duration ? " · " + f.duration + " giây" : ""))); w.appendChild(a); }
-    else if (f && f.id && (m.kind === "video" || m.kind === "animation" || m.kind === "video_note")) { const v = el("video"); v.controls = true; v.preload = "none"; v.addEventListener("play", () => { if (!v.src) blobUrl(f.id).then((u) => { v.src = u; v.play(); }).catch(() => toast("Chưa tải được video")); }, { once: true }); w.appendChild(el("div", "txt", "🎬 Video" + (f.size ? " · " + fileSize(f.size) : ""))); w.appendChild(v); }
+    else if (f && f.id && (m.kind === "voice" || m.kind === "audio" || m.kind === "video" || m.kind === "animation" || m.kind === "video_note")) {
+      const isVid = !(m.kind === "voice" || m.kind === "audio");
+      const label = isVid ? "🎬 Video" + (f.size ? " · " + fileSize(f.size) : "") : (m.kind === "voice" ? "🎤 " : "🎵 ") + (f.name || "Âm thanh") + (f.duration ? " · " + f.duration + " giây" : "");
+      const row = el("div", "lazy"); const b = el("button", "", "▶ " + (isVid ? "Xem" : "Nghe")); row.appendChild(b); row.appendChild(el("span", "", label));
+      b.addEventListener("click", () => { b.disabled = true; b.textContent = "Đang tải…";
+        blobUrl(f.id).then((u) => { const mEl = el(isVid ? "video" : "audio"); mEl.controls = true; mEl.autoplay = true; mEl.src = u; if (isVid) mEl.playsInline = true; row.replaceWith(mEl); })
+          .catch(() => { b.disabled = false; b.textContent = "▶ Thử lại"; toast("Chưa tải được tệp (còn đang tải về gateway?)"); }); });
+      w.appendChild(row); }
     else if (f && f.id && m.kind === "document") { const a = el("a", "", "📎 " + (f.name || "Tệp") + (f.size ? " (" + fileSize(f.size) + ")" : "")); a.href = "#"; a.addEventListener("click", (e) => { e.preventDefault(); blobUrl(f.id).then((u) => { const d = document.createElement("a"); d.href = u; d.download = f.name || "tep"; d.click(); }).catch(() => toast("Chưa tải được tệp")); }); w.appendChild(a); }
     else if (m.kind !== "text") w.appendChild(el("div", "txt", m.summary));
     if (m.text) { const t = el("div", "txt"); linkify(t, m.text); w.appendChild(t); }
@@ -231,7 +242,7 @@
   async function openChat(c) {
     cur = c.id; curKind = c.kind; replyTo = 0; $("reply").style.display = "none";
     $("app").classList.add("chatting"); $("gate").hidden = true; $("placeholder").hidden = true; $("head").hidden = false; $("msgs").hidden = false; $("typing").hidden = false; $("composer").hidden = false;
-    $("title").textContent = c.title; renderList(chats.length ? chats : [c], false);
+    $("title").textContent = c.title; $("call-a").hidden = $("call-v").hidden = c.kind !== "private"; renderList(chats.length ? chats : [c], false);
     const box = $("msgs"); box.textContent = ""; rendered.clear(); msgData.clear(); lastDay = null;
     try {
       const r = await api("GET", "/api/chats/" + c.id + "/messages?limit=40"); const msgs = r.messages || [];
@@ -306,6 +317,7 @@
     } else if (it.type === "chat") scheduleChats();
     else if (it.type === "send_ok") { if (it.chat_id === cur) { removeMsg(it.old_id); if (it.message) appendMessages([it.message], false); } scheduleChats(); }
     else if (it.type === "send_failed") { toast("Gửi không được: " + it.error); const n = rendered.get(it.old_id); if (n) { n.style.opacity = ".5"; n.title = "Gửi không được: " + it.error; } }
+    else if (it.type === "call") onCallEvent(it);
     else if (it.type === "deleted" && it.chat_id === cur) it.ids.forEach(removeMsg);
     else if (it.type === "message_changed" && it.chat_id === cur) { reloadSoon(); }
     else if (it.type === "typing" && it.chat_id === cur) { $("typing").textContent = it.action === "chatActionCancel" ? "" : "đang gõ…"; clearTimeout(typingTimer); typingTimer = setTimeout(() => { $("typing").textContent = ""; }, 5000); }
@@ -329,6 +341,50 @@
   }
   $("t-chats").addEventListener("click", () => showTab("chats")); $("t-contacts").addEventListener("click", () => showTab("contacts"));
   $("back").addEventListener("click", () => { $("app").classList.remove("chatting"); cur = null; renderList(chats, false); });
+
+  // ---- cuộc gọi thoại / video --------------------------------------------------------------------------
+  let callId = null, callPoll = null, callName = "";
+  const CALL_TEXT = { dialing: "Đang gọi…", ringing: "Đang đổ chuông…", connecting: "Đang kết nối…", active: "Đang trong cuộc gọi", ended: "Đã kết thúc" };
+  function mmss(sec) { sec = Math.max(0, Math.round(sec)); return String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0"); }
+  function renderCall(info) {
+    const bar = $("callbar"); bar.style.display = "block";
+    $("cn").textContent = (info.video ? "🎥 " : "📞 ") + callName;
+    let st = CALL_TEXT[info.state] || info.state;
+    if (info.state === "active") st += " · " + mmss(info.seconds) + (info.emojis && info.emojis.length ? " · " + info.emojis.join("") : "");
+    if (info.state === "ringing" && !info.outgoing) st = "Cuộc gọi đến…";
+    if (info.error) st += " · " + info.error;
+    $("cs").textContent = st;
+    const box = $("cbtn"); box.textContent = "";
+    const btn = (label, cls, fn) => { const b = el("button", cls, label); b.addEventListener("click", fn); box.appendChild(b); };
+    if (info.state === "ended") { setTimeout(() => { if (callId === info.id) hideCall(); }, 3000); return; }
+    if (info.state === "ringing" && !info.outgoing) btn("Nghe", "green", () => callAct("accept"));
+    btn(info.state === "ringing" && !info.outgoing ? "Từ chối" : "Cúp máy", "red", () => callAct("hangup"));
+  }
+  function hideCall() { $("callbar").style.display = "none"; clearInterval(callPoll); callPoll = null; callId = null; }
+  async function callAct(what) { if (!callId) return; try { renderCall(await api("POST", "/api/live/" + what, { id: callId })); } catch (e) { toast(e.message); } }
+  function watchCall() {
+    clearInterval(callPoll);
+    callPoll = setInterval(async () => {
+      if (!callId) return clearInterval(callPoll);
+      try { const r = await api("GET", "/api/live/calls"); const c = (r.calls || []).find((x) => x.id === callId); if (c) renderCall(c); }
+      catch (e) { /* mạng chập chờn: thử lại ở nhịp sau */ }
+    }, 1500);
+  }
+  async function startCall(video) {
+    const c = chats.find((x) => x.id === cur);
+    if (!c || c.kind !== "private" || !c.user_id) { toast("Chỉ gọi được ở hội thoại riêng tư."); return; }
+    try { const r = await api("POST", "/api/live/call", { user_id: c.user_id, video: !!video }); callId = r.id; callName = c.title; renderCall(r); watchCall(); }
+    catch (e) { toast(e.message); }
+  }
+  $("call-a").addEventListener("click", () => startCall(false));
+  $("call-v").addEventListener("click", () => startCall(true));
+  function onCallEvent(it) {
+    const c = it.call; if (!c) return;
+    if (it.event === "incoming" && !callId) {
+      const who = chats.find((x) => x.user_id === c.user_id); callId = c.id; callName = who ? who.title : "Người gọi"; renderCall(c); watchCall();
+      if (window.Notification && Notification.permission === "granted") new Notification("Cuộc gọi đến", { body: callName });
+    }
+  }
 
   // ---- khởi động ------------------------------------------------------------------------------------
   function showGate(msg) { $("placeholder").hidden = true; $("gate").hidden = false; $("msgs").hidden = $("composer").hidden = $("head").hidden = $("typing").hidden = true; $("gate-msg").textContent = msg || ""; }
