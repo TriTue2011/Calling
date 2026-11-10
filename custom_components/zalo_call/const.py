@@ -34,4 +34,6 @@ CONF_AUTO_VIDEO_DELAY = "auto_video_delay"   # giay cho truoc khi tu dong y (0 =
 MAX_AUTO_VIDEO_DELAY = 120
 STORAGE_VERSION = 1
 NONE_LABEL = "Không"
+TEST_SOURCE = "test"                       # camera «test»: app Zalo tự tạo hình kiểm tra (các ô màu + đồng hồ) thay vì đọc camera
+TEST_LABEL = "Hình kiểm tra (test)"
 MIC_URL_LABEL = "URL (ô Mic URL)"

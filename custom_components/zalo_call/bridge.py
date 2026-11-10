@@ -29,7 +29,7 @@ from .bridge_core import (PushPolicy, audio_out_url, dahua_mic_url, device_of_ur
                           entity_of_label, explicit_off, host_of, intercom_url,
                           localize_url, mic_format_for_url, pick_devices, r1_mic_url,
                           valid_url)
-from .const import CONF_HA_URL
+from .const import CONF_HA_URL, TEST_SOURCE
 from .devices import DeviceDefaults
 
 _LOGGER = logging.getLogger(__name__)
@@ -166,7 +166,10 @@ class CallAudioBridge:
         echo_guard ("true"/"false") (rong = khong dung)."""
         mic_url, mic_fmt = await self.async_mic_source(devices)
         cam_id = entity_of_label(devices.get("camera", ""))
-        cam_url = await self.async_camera_url(cam_id) if cam_id else ""
+        if cam_id == TEST_SOURCE:
+            cam_url = TEST_SOURCE                      # hình kiểm tra: app tự tạo, không cần camera nào
+        else:
+            cam_url = await self.async_camera_url(cam_id) if cam_id else ""
         spk_id = entity_of_label(devices.get("speaker", ""))
         spk_url = await self.async_speaker_sink(spk_id, echo_mode)
         mic_id = entity_of_label(devices.get("mic", ""))

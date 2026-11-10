@@ -23,7 +23,7 @@ import subprocess
 import threading
 import time
 
-from . import call_audio
+from . import call_audio, ffmpeg_log
 
 RMS_THRESHOLD = 180.0       # duoi muc nay coi la im lang (nen cua luong Opus/DTX)
 HOLD_SECONDS = 0.5          # het tieng that van chan mic them chung nay (duoi vong phong)
@@ -80,7 +80,9 @@ def build_ffmpeg_args(url, ffmpeg="ffmpeg"):
 
 class AudioSink:
     def __init__(self, engine, url, guard=None, popen=None, clock=time.monotonic,
-                 sleep=time.sleep):
+                 sleep=time.sleep, log=None):
+        self._log = log
+        self._tail = None
         self._engine = engine
         self._args = build_ffmpeg_args(url)
         self.target = url               # de nhan ra cung dich (KHONG ghi ra log/trang thai: co khoa)
@@ -100,8 +102,9 @@ class AudioSink:
         if shutil.which(self._args[0]) is None and self._popen is subprocess.Popen:
             raise RuntimeError("ffmpeg: khong co trong may")
         self._proc = self._popen(self._args, stdin=subprocess.PIPE,
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                  bufsize=0)
+        self._tail = ffmpeg_log.StderrTail(self._proc)
         self.started_at = time.time()
         self.alive = True
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -129,6 +132,15 @@ class AudioSink:
         finally:
             self.alive = False
             self._kill()
+            if self._log is not None and not self._stop.is_set():
+                try:
+                    self._log("loa ffmpeg thoat ngoai y muon rc=%s frames=%d err=%s"
+                              % (self._proc.poll(), self.frames, self.stderr_tail() or "-"))
+                except Exception:  # noqa: BLE001 - ghi log khong duoc lam hong luong
+                    pass
+
+    def stderr_tail(self):
+        return self._tail.text() if self._tail is not None else ""
 
     def _kill(self):
         proc = self._proc
@@ -153,6 +165,7 @@ class AudioSink:
     def status(self):
         return {"alive": self.alive, "frames": self.frames, "errors": self.errors,
                 "last_error": self.last_error,
+                "ffmpeg_err": self.stderr_tail(),
                 "echo_guard": self._guard is not None,
                 "mic_suppressed": self._guard.suppressed if self._guard else 0,
                 "seconds": (round(time.time() - self.started_at, 1)

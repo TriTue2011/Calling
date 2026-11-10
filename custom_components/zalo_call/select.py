@@ -15,7 +15,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .bridge_core import entity_of_label, label
-from .const import CONF_AI_AGENT, CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL
+from .const import (CONF_AI_AGENT, CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL, TEST_LABEL,
+                    TEST_SOURCE)
 from .entity import ZaloCallEntity
 
 REFRESH = timedelta(minutes=1)
@@ -31,7 +32,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                      "mdi:microphone", ("camera", "assist_satellite"),
                      extra=(MIC_URL_LABEL,)),
         DeviceSelect(hass, entry, rt, "camera", "Camera mặc định",
-                     "mdi:cctv", ("camera",)),
+                     "mdi:cctv", ("camera",), extra=(TEST_LABEL,)),
         EchoGuardSelect(entry, rt),
         DeviceSelect(hass, entry, rt, CONF_AI_AGENT,
                      "Trợ lý hội thoại cho AI (Không = mặc định)", "mdi:forum",
@@ -73,6 +74,8 @@ class DeviceSelect(ZaloCallEntity, SelectEntity):
                 and not self._rt.defaults.get("mic"):
             return MIC_URL_LABEL
         value = str(self._rt.defaults.get(self._key) or "")
+        if self._key == "camera" and value == TEST_SOURCE:
+            return TEST_LABEL
         return self._label_of(entity_of_label(value)) if value else NONE_LABEL
 
     async def async_select_option(self, option: str) -> None:
@@ -80,6 +83,8 @@ class DeviceSelect(ZaloCallEntity, SelectEntity):
             patch = {self._key: ""}
             if self._key == "mic":
                 patch["mic_url"] = ""
+        elif option == TEST_LABEL and self._key == "camera":
+            patch = {self._key: TEST_SOURCE}
         elif option == MIC_URL_LABEL:
             patch = {"mic": ""}
         else:

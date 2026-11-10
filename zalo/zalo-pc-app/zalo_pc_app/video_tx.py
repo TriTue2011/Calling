@@ -19,6 +19,8 @@ import subprocess
 import threading
 import time
 
+from . import ffmpeg_log
+
 
 def _nal_types(buf):
     """Tap kieu NAL trong mot khung Annex-B (sau moi ma 00 00 01)."""
@@ -95,7 +97,9 @@ def build_ffmpeg_args(source, width=640, height=360, fps=15, bitrate_kbps=300,
 
 class VideoSender:
     def __init__(self, send_frame, source="test", width=640, height=360,
-                 fps=15, bitrate_kbps=300, gop_seconds=1.0, popen=None):
+                 fps=15, bitrate_kbps=300, gop_seconds=1.0, popen=None, log=None):
+        self._log = log                # log(msg): ghi khi ffmpeg thoat (kem vai dong loi cuoi, da che khoa)
+        self._tail = None
         self._send = send_frame
         self._args = build_ffmpeg_args(source, width, height, fps,
                                        bitrate_kbps, gop_seconds)
@@ -115,7 +119,8 @@ class VideoSender:
         if shutil.which(self._args[0]) is None and self._popen is subprocess.Popen:
             raise RuntimeError("ffmpeg: khong co trong may")
         self._proc = self._popen(self._args, stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, bufsize=0)
+                                 stderr=subprocess.PIPE, bufsize=0)
+        self._tail = ffmpeg_log.StderrTail(self._proc)
         self.started_at = time.time()
         self.alive = True
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -142,6 +147,16 @@ class VideoSender:
         finally:
             self.alive = False
             self._kill()
+            if self._log is not None and not self._stop.is_set():
+                try:
+                    rc = self._proc.poll()
+                    self._log("video ffmpeg thoat ngoai y muon rc=%s frames=%d keys=%d err=%s"
+                              % (rc, self.frames, self.keys, self.stderr_tail() or "-"))
+                except Exception:  # noqa: BLE001 - ghi log khong duoc lam hong luong
+                    pass
+
+    def stderr_tail(self):
+        return self._tail.text() if self._tail is not None else ""
 
     def _kill(self):
         proc = self._proc
@@ -161,5 +176,6 @@ class VideoSender:
         return {"alive": self.alive, "frames": self.frames, "keys": self.keys,
                 "skipped_before_key": self.skipped, "errors": self.errors,
                 "last_error": self.last_error,
+                "ffmpeg_err": self.stderr_tail(),
                 "seconds": (round(time.time() - self.started_at, 1)
                             if self.started_at else 0)}

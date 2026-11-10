@@ -20,6 +20,8 @@ import subprocess
 import threading
 import time
 
+from . import ffmpeg_log
+
 FRAME_BYTES = 640           # 20 ms PCM16 mono 16 kHz
 FRAME_SECONDS = 0.02
 MAX_BACKLOG = 10            # > 200 ms ton dong thi bo khung cu (giu do tre thap)
@@ -54,9 +56,11 @@ def build_ffmpeg_args(source, fmt="auto", ffmpeg="ffmpeg"):
 
 class AudioSender:
     def __init__(self, send_pcm, source="test", fmt="auto", popen=None,
-                 clock=time.monotonic, sleep=time.sleep, gate=None):
+                 clock=time.monotonic, sleep=time.sleep, gate=None, log=None):
         if fmt not in FORMATS:
             raise ValueError("fmt khong hop le: %r" % (fmt,))
+        self._log = log
+        self._tail = None
         self._send = send_pcm
         self._gate = gate               # gate() True = bo khung nay (chong vong)
         self._args = build_ffmpeg_args(source, fmt)
@@ -79,7 +83,8 @@ class AudioSender:
         if shutil.which(self._args[0]) is None and self._popen is subprocess.Popen:
             raise RuntimeError("ffmpeg: khong co trong may")
         self._proc = self._popen(self._args, stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, bufsize=0)
+                                 stderr=subprocess.PIPE, bufsize=0)
+        self._tail = ffmpeg_log.StderrTail(self._proc)
         self.started_at = time.time()
         self.alive = True
         self._threads = [threading.Thread(target=self._read, daemon=True),
@@ -108,6 +113,15 @@ class AudioSender:
             with self._cv:
                 self._cv.notify_all()
             self._kill()
+            if self._log is not None and not self._stop.is_set():
+                try:
+                    self._log("mic ffmpeg thoat ngoai y muon rc=%s frames=%d err=%s"
+                              % (self._proc.poll(), self.frames, self.stderr_tail() or "-"))
+                except Exception:  # noqa: BLE001 - ghi log khong duoc lam hong luong
+                    pass
+
+    def stderr_tail(self):
+        return self._tail.text() if self._tail is not None else ""
 
     def _pace(self):
         due = None
@@ -157,5 +171,6 @@ class AudioSender:
         return {"alive": self.alive, "frames": self.frames,
                 "dropped": self.dropped, "gated": self.gated, "errors": self.errors,
                 "last_error": self.last_error,
+                "ffmpeg_err": self.stderr_tail(),
                 "seconds": (round(time.time() - self.started_at, 1)
                             if self.started_at else 0)}

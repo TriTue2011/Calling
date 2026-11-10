@@ -957,7 +957,7 @@ def _start_speaker(call_id, url):
     if old is not None and old.alive and getattr(old, "target", None) == url:
         return old
     _stop_speaker(call_id)
-    sink = audio_rx_mod.AudioSink(engine, url, guard=_guard_for_call(call_id))
+    sink = audio_rx_mod.AudioSink(engine, url, guard=_guard_for_call(call_id), log=_log_call)
     sink.start()
     SPEAKER_SINKS[str(call_id)] = sink
     _log_call("speaker sink start call_id=%s echo_guard=%s"
@@ -1024,7 +1024,7 @@ def _start_mic(call_id, source, fmt="auto"):
     _stop_mic(call_id)
     guard = _guard_for_call(call_id)
     sender = audio_tx_mod.AudioSender(transport.send_pcm, source=source, fmt=fmt,
-                                      gate=guard.blocked if guard else None)
+                                      gate=guard.blocked if guard else None, log=_log_call)
     sender.start()
     AUDIO_SENDERS[str(call_id)] = sender
     _log_call("mic start call_id=%s source=%s" % (
@@ -1043,7 +1043,7 @@ def _start_video(call_id, source, params=None):
     sender = video_tx_mod.VideoSender(
         transport.send_video_frame, source=source or "test",
         width=int(cfg["width"]), height=int(cfg["height"]),
-        fps=int(cfg["fps"]), bitrate_kbps=int(cfg["bitrate_kbps"]))
+        fps=int(cfg["fps"]), bitrate_kbps=int(cfg["bitrate_kbps"]), log=_log_call)
     sender.start()
     VIDEO_SENDERS[str(call_id)] = sender
     _send_camera_state_async(call_id, _thread_of_call(call_id), True)

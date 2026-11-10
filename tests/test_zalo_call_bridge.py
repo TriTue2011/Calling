@@ -493,3 +493,17 @@ if __name__ == "__main__":
             fn()
             print("PASS", name)
     print("ALL BRIDGE TESTS PASSED")
+
+
+def test_camera_test_gui_hinh_kiem_tra_cho_app_khong_can_camera():
+    """Camera mặc định «Hình kiểm tra»: app nhận camera_url=test (tự tạo hình), không phân giải thực thể nào; camera trống thì KHÔNG gửi hình."""
+    async def run():
+        hass, api, dd, br = _make({"camera": "test"})
+        assert await br.async_call_fields(None) == {"camera_url": "test"}
+        res = await br.async_resolve(br.devices_for(None))
+        assert res["camera_url"] == "test"
+        f = await br.async_call_fields({"camera": "camera.cam1"})        # ghi đè bằng camera thật vẫn được
+        assert f["camera_url"] == "rtsp://u:p@cam.local/stream"
+        hass, api, dd, br = _make({})
+        assert await br.async_call_fields(None) == {}                      # không đặt camera = app không gửi hình nào
+    asyncio.run(run())
