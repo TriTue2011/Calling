@@ -196,6 +196,35 @@ def test_call_fields_and_start_use_sink_not_play_media():
     asyncio.run(run())
 
 
+def test_push_policy_retries_after_failure_and_recovery():
+    p = core.PushPolicy()
+    assert p.poll(True) is True               # chua dua duoc lan nao -> dua
+    p.pushed(False)
+    assert p.poll(True) is True               # lan truoc loi -> thu lai o lan hoi ke tiep
+    p.pushed(True)
+    assert p.poll(True) is False and p.poll(True) is False   # on dinh -> khong dua lai
+    assert p.poll(False) is False             # app mat ket noi: chua dua duoc
+    assert p.poll(False) is False
+    assert p.poll(True) is True               # app song lai -> dua lai (app co the vua khoi dong)
+    assert p.poll(True) is False              # chi MOT lan sau moi lan song lai
+
+
+def test_failed_push_is_recorded_and_not_concurrent():
+    async def run():
+        hass, api, dd, br = _make({"speaker": "", "mic": ""})
+        api.fail_devices_set = True
+        await br.async_push_defaults()
+        assert br.policy.pushed_ok is False
+        api.fail_devices_set = False
+        await br.async_push_defaults()
+        assert br.policy.pushed_ok is True
+        br._pushing = True                    # dang day dang do -> lan goi them bi bo qua
+        n = len(api.pushed)
+        await br.async_push_defaults()
+        assert len(api.pushed) == n
+    asyncio.run(run())
+
+
 def test_localize_url_rewrites_only_loopback():
     f = core.localize_url
     assert f("rtsp://u:p@localhost:8554/phong-khach", "172.16.10.200") == \
@@ -233,7 +262,11 @@ class FakeApi:
     async def call_media_status(self, call_id):
         return {"audio_token": self.token} if self.token else {}
 
+    fail_devices_set = False
+
     async def devices_set(self, patch):
+        if self.fail_devices_set:
+            raise sys.modules["zalo_call.api"].ZaloCallError("app tat")
         self.pushed.append(patch)
         return {"ok": True}
 

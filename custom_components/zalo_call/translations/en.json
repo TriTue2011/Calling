@@ -9,6 +9,22 @@
           "username": "Username",
           "password": "Password"
         }
+      },
+      "reauth_confirm": {
+        "title": "Re-enter the Zalo PC app password",
+        "description": "The app at {url} rejected the login (the password may have just been changed). Enter the current password for {username}.",
+        "data": {
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Change the Zalo PC app connection",
+        "description": "Edit the address or account; default devices and other settings are kept.",
+        "data": {
+          "url": "App address",
+          "username": "Username",
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -16,7 +32,9 @@
       "invalid_auth": "Wrong app username or password."
     },
     "abort": {
-      "already_configured": "This app is already added."
+      "already_configured": "This app is already added.",
+      "reauth_successful": "Password updated; reconnected.",
+      "reconfigure_successful": "App connection updated."
     }
   },
   "options": {

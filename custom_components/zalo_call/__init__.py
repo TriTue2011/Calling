@@ -69,13 +69,21 @@ class ZaloCallCoordinator(DataUpdateCoordinator[dict]):
         super().__init__(hass, _LOGGER, name=DOMAIN, config_entry=entry,
                          update_interval=timedelta(seconds=SCAN_INTERVAL_SECONDS))
         self.api = api
+        self.bridge: CallAudioBridge | None = None   # gan sau khi tao (de day lai mac dinh)
 
     async def _async_update_data(self) -> dict:
         try:
             status = await self.api.status()
             calls = await self.api.calls()
+        except ZaloCallAuthError as err:
+            # Doi mat khau trong WebUI app: dung hoi, de HA mo luong nhap lai mat khau.
+            raise ConfigEntryAuthFailed(str(err)) from err
         except ZaloCallError as err:
+            if self.bridge is not None:
+                self.bridge.policy.poll(False)
             raise UpdateFailed(str(err)) from err
+        if self.bridge is not None and self.bridge.policy.poll(True):
+            self.hass.async_create_task(self.bridge.async_push_defaults())
         return {"status": status, "calls": calls}
 
 
@@ -102,6 +110,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     defaults = DeviceDefaults(hass, entry.entry_id)
     await defaults.async_load(entry.options)
     bridge = CallAudioBridge(hass, entry, api, defaults)
+    coordinator.bridge = bridge
     hass.data[DOMAIN][entry.entry_id] = ZaloCallData(api, coordinator, bridge,
                                                      defaults)
 

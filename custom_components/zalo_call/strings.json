@@ -4,14 +4,38 @@
       "user": {
         "title": "Kết nối app Zalo PC",
         "description": "Nhập địa chỉ và tài khoản của container zalo-pc-app.",
-        "data": {"url": "Địa chỉ app", "username": "Tên đăng nhập", "password": "Mật khẩu"}
+        "data": {
+          "url": "Địa chỉ app",
+          "username": "Tên đăng nhập",
+          "password": "Mật khẩu"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Nhập lại mật khẩu app Zalo PC",
+        "description": "App {url} từ chối đăng nhập (có thể mật khẩu vừa được đổi). Nhập mật khẩu hiện tại của tài khoản {username}.",
+        "data": {
+          "password": "Mật khẩu"
+        }
+      },
+      "reconfigure": {
+        "title": "Đổi kết nối app Zalo PC",
+        "description": "Sửa địa chỉ hoặc tài khoản; thiết bị mặc định và các cài đặt khác được giữ nguyên.",
+        "data": {
+          "url": "Địa chỉ app",
+          "username": "Tên đăng nhập",
+          "password": "Mật khẩu"
+        }
       }
     },
     "error": {
       "cannot_connect": "Không gọi được tới app. Kiểm tra địa chỉ và cổng 8080.",
       "invalid_auth": "Sai tên đăng nhập hoặc mật khẩu của app."
     },
-    "abort": {"already_configured": "App này đã được thêm."}
+    "abort": {
+      "already_configured": "App này đã được thêm.",
+      "reauth_successful": "Đã cập nhật mật khẩu, kết nối lại thành công.",
+      "reconfigure_successful": "Đã cập nhật kết nối app."
+    }
   },
   "options": {
     "step": {

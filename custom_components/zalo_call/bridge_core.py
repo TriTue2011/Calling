@@ -147,5 +147,26 @@ def echo_guard_on(mode: str, same_device: bool) -> bool:
     return bool(same_device)
 
 
+class PushPolicy:
+    """Khi nao phai dua lai thiet bi mac dinh cho app: chua dua duoc lan nao / lan truoc loi,
+    hoac app vua song lai sau khi mat ket noi (khoi dong lai, doi mang)."""
+
+    def __init__(self) -> None:
+        self.pushed_ok = False
+        self._down = False
+
+    def poll(self, ok: bool) -> bool:
+        """Goi sau MOI lan hoi app (ok = hoi duoc). True = nen dua lai mac dinh ngay."""
+        if not ok:
+            self._down = True
+            return False
+        need = self._down or not self.pushed_ok
+        self._down = False
+        return need
+
+    def pushed(self, ok: bool) -> None:
+        self.pushed_ok = bool(ok)
+
+
 def audio_out_url(base: str, token: str) -> str:
     return "%s/api/call/audio/out/%s" % (base.rstrip("/"), token)

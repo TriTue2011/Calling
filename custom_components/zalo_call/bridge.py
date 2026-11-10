@@ -25,7 +25,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .api import ZaloCallApi, ZaloCallError
-from .bridge_core import (audio_out_url, dahua_mic_url, device_of_url, echo_guard_on,
+from .bridge_core import (PushPolicy, audio_out_url, dahua_mic_url, device_of_url, echo_guard_on,
                           entity_of_label, explicit_off, host_of, intercom_url,
                           localize_url, mic_format_for_url, pick_devices, r1_mic_url,
                           valid_url)
@@ -48,6 +48,8 @@ class CallAudioBridge:
         self.hass, self.entry, self.api, self.defaults = hass, entry, api, defaults
         self._pending: dict[str, tuple[float, dict]] = {}
         self._running: dict[str, _Running] = {}
+        self.policy = PushPolicy()
+        self._pushing = False
 
     # -- thiet bi cua mot cuoc goi -----------------------------------------
     def remember(self, call_id: Any, override: dict[str, Any]) -> None:
@@ -195,7 +197,17 @@ class CallAudioBridge:
 
     async def async_push_defaults(self) -> None:
         """Dua mac dinh da phan giai cho app (WebUI hien thong nhat; cuoc goi nghe may
-        ngoai HA, hoac ben kia xin len video, cung dung dung nguon)."""
+        ngoai HA, hoac ben kia xin len video, cung dung dung nguon). Loi thi KHONG bo: coordinator
+        goi lai o lan hoi app thanh cong ke tiep (PushPolicy)."""
+        if self._pushing:
+            return
+        self._pushing = True
+        try:
+            await self._async_push()
+        finally:
+            self._pushing = False
+
+    async def _async_push(self) -> None:
         res = await self.async_resolve(self.devices_for(),
                                        str(self.defaults.get("echo_guard") or "auto"))
         try:
@@ -207,7 +219,10 @@ class CallAudioBridge:
                 "auto_video_on_request": bool(self.defaults.get("auto_video")),
                 "auto_video_delay": int(self.defaults.get("auto_video_delay") or 0)})
         except ZaloCallError as err:
-            _LOGGER.warning("Khong dua duoc thiet bi mac dinh cho app: %s", err)
+            self.policy.pushed(False)
+            _LOGGER.warning("Khong dua duoc thiet bi mac dinh cho app (se thu lai): %s", err)
+        else:
+            self.policy.pushed(True)
 
     # -- loa -----------------------------------------------------------------
     async def start(self, call_id: Any) -> dict[str, str]:
