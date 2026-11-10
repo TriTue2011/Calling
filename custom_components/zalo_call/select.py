@@ -10,7 +10,7 @@ from datetime import timedelta
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -97,8 +97,13 @@ class DeviceSelect(ZaloCallEntity, SelectEntity):
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(self._rt.defaults.add_listener(self.async_write_ha_state))
-        self.async_on_remove(async_track_time_interval(
-            self.hass, lambda _now: self.async_write_ha_state(), REFRESH))
+        @callback
+        def _lam_moi(_now) -> None:
+            # PHẢI là @callback: hàm thường bị HA chạy ở luồng nền, và async_write_ha_state
+            # gọi từ luồng ngoài vòng lặp thì HA báo lỗi mỗi phút (đo 10/11/2026).
+            self.async_write_ha_state()
+
+        self.async_on_remove(async_track_time_interval(self.hass, _lam_moi, REFRESH))
 
 
 ECHO_LABELS = {"auto": "Tự động (chỉ khi mic và loa cùng thiết bị)",

@@ -487,13 +487,6 @@ def test_speaker_start_stop_and_harmless_cases():
     asyncio.run(run())
 
 
-if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_"):
-            fn()
-            print("PASS", name)
-    print("ALL BRIDGE TESTS PASSED")
-
 
 def test_camera_test_gui_hinh_kiem_tra_cho_app_khong_can_camera():
     """Camera mặc định «Hình kiểm tra»: app nhận camera_url=test (tự tạo hình), không phân giải thực thể nào; camera trống thì KHÔNG gửi hình."""
@@ -507,3 +500,32 @@ def test_camera_test_gui_hinh_kiem_tra_cho_app_khong_can_camera():
         hass, api, dd, br = _make({})
         assert await br.async_call_fields(None) == {}                      # không đặt camera = app không gửi hình nào
     asyncio.run(run())
+
+
+def test_lich_cap_nhat_trang_thai_phai_la_callback():
+    """HA chạy hàm thường ở luồng nền; async_write_ha_state từ đó gây lỗi mỗi phút (10/11/2026).
+    Chặn lớp lỗi: không được truyền lambda gọi async_write_ha_state cho async_track_*."""
+    import ast
+    d = os.path.join(os.path.dirname(__file__), "..", "custom_components", "zalo_call")
+    bad = []
+    for fn in sorted(os.listdir(d)):
+        if not fn.endswith(".py"):
+            continue
+        tree = ast.parse(open(os.path.join(d, fn), encoding="utf-8").read())
+        for call in ast.walk(tree):
+            name = getattr(call.func, "id", getattr(call.func, "attr", "")) if isinstance(call, ast.Call) else ""
+            if not name.startswith("async_track_"):
+                continue
+            for arg in call.args:
+                if isinstance(arg, ast.Lambda) and any(
+                        getattr(n, "attr", "") == "async_write_ha_state" for n in ast.walk(arg)):
+                    bad.append("%s:%d" % (fn, arg.lineno))
+    assert not bad, "lambda gọi async_write_ha_state sẽ chạy ở luồng nền: %s" % bad
+
+
+if __name__ == "__main__":
+    for name, fn in list(globals().items()):
+        if name.startswith("test_"):
+            fn()
+            print("PASS", name)
+    print("ALL BRIDGE TESTS PASSED")
