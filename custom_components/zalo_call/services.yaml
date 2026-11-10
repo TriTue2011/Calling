@@ -151,6 +151,125 @@ send_message:
       required: false
       selector:
         boolean: null
+    zalo_emoji:
+      name: 'Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để chèn
+        mã tương ứng vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji.'
+      description: 'Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để
+        chèn mã tương ứng vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji.'
+      required: false
+      selector:
+        select:
+          options:
+          - value: afraid
+            label: afraid
+          - value: angry
+            label: angry
+          - value: angry_face
+            label: angry_face
+          - value: anguish
+            label: anguish
+          - value: bad
+            label: bad
+          - value: beer
+            label: beer
+          - value: big_laugh
+            label: big_laugh
+          - value: big_smile
+            label: big_smile
+          - value: birthday
+            label: birthday
+          - value: bomb
+            label: bomb
+          - value: broken_heart
+            label: broken_heart
+          - value: bye
+            label: bye
+          - value: confused
+            label: confused
+          - value: cool
+            label: cool
+          - value: cry
+            label: cry
+          - value: dig
+            label: dig
+          - value: dislike
+            label: dislike
+          - value: embarrassed
+            label: embarrassed
+          - value: f_chair
+            label: f_chair
+          - value: fade
+            label: fade
+          - value: haha
+            label: haha
+          - value: handclap
+            label: handclap
+          - value: heart
+            label: heart
+          - value: kiss
+            label: kiss
+          - value: l_chair
+            label: l_chair
+          - value: like
+            label: like
+          - value: love
+            label: love
+          - value: love_you
+            label: love_you
+          - value: nerd
+            label: nerd
+          - value: neutral
+            label: neutral
+          - value: 'no'
+            label: 'no'
+          - value: ok
+            label: ok
+          - value: peace
+            label: peace
+          - value: pray
+            label: pray
+          - value: punch
+            label: punch
+          - value: r_chair
+            label: r_chair
+          - value: rich
+            label: rich
+          - value: rose
+            label: rose
+          - value: sad
+            label: sad
+          - value: sad2
+            label: sad2
+          - value: sad_face
+            label: sad_face
+          - value: share
+            label: share
+          - value: shit
+            label: shit
+          - value: silent
+            label: silent
+          - value: sleepy
+            label: sleepy
+          - value: sun
+            label: sun
+          - value: sunglasses
+            label: sunglasses
+          - value: surprise
+            label: surprise
+          - value: tears_of_joy
+            label: tears_of_joy
+          - value: thanks
+            label: thanks
+          - value: very_sad
+            label: very_sad
+          - value: wink
+            label: wink
+          - value: wipe
+            label: wipe
+          - value: wow
+            label: wow
+          custom_value: false
+          mode: dropdown
 send_file:
   name: send_file
   description: Gửi một file bất kỳ qua URL hoặc từ đường dẫn cục bộ.
@@ -239,7 +358,7 @@ get_user_info:
       name: UserId
       description: User ID
       required: true
-      selector: &id006
+      selector: &id007
         text: {}
       example: '987654321'
       default: ''
@@ -603,7 +722,7 @@ send_sticker:
     sticker_id:
       name: Sticker ID
       description: ID số của sticker (zca-js)
-      required: true
+      required: false
       selector:
         text: null
       example: 1234
@@ -619,6 +738,24 @@ send_sticker:
       required: false
       selector:
         text: null
+    keyword:
+      name: Từ khoá sticker
+      description: 'Gõ từ khoá (ví dụ: cảm ơn, haha, yêu) — tự tìm sticker rồi gửi; dùng thay cho Sticker
+        ID / Cate ID.'
+      required: false
+      selector: &id005
+        text: null
+      example: /qm1
+    pick:
+      name: Chọn kết quả
+      description: first = kết quả đầu (mặc định), random = chọn ngẫu nhiên trong các kết quả.
+      required: false
+      selector:
+        select:
+          options:
+          - first
+          - random
+          mode: dropdown
 undo_message:
   name: Thu hồi tin nhắn
   description: Thu hồi tin nhắn đã gửi
@@ -644,7 +781,7 @@ undo_message:
       name: ID tin nhắn
       description: ID của tin nhắn cần thu hồi
       required: true
-      selector: &id005
+      selector: &id006
         text: null
       example: msg123456
     cli_msg_id:
@@ -925,7 +1062,7 @@ get_group_chat_history:
       name: Số tin (tối đa 1000)
       description: Số lượng tin nhắn muốn lấy (mặc định 50, tối đa 1000)
       required: false
-      selector: &id011
+      selector: &id012
         number:
           min: 1
           max: 1000
@@ -1087,7 +1224,7 @@ join_group:
       name: Link mời
       description: Link mời tham gia nhóm
       required: true
-      selector: &id013
+      selector: &id014
         text: null
       example: https://zalo.me/g/abcxyz
 leave_group:
@@ -1175,7 +1312,7 @@ update_settings:
       name: Trạng thái (1=bật, 0=tắt)
       description: Trạng thái
       required: true
-      selector: &id015
+      selector: &id016
         select:
           options:
           - label: Bật
@@ -1243,7 +1380,7 @@ set_pinned_conversation:
       name: Ghim (true/false)
       description: Ghim hay bỏ ghim
       required: true
-      selector: &id009
+      selector: &id010
         boolean: null
 get_unread_mark:
   name: Xem hội thoại chưa đọc
@@ -1952,7 +2089,7 @@ get_poll_detail:
       name: ID bình chọn
       description: ID số của cuộc bình chọn (zca-js)
       required: true
-      selector: &id007
+      selector: &id008
         text: null
       example: 123456789
 lock_poll:
@@ -2078,8 +2215,7 @@ add_quick_message:
       name: Từ khóa
       description: Từ khóa để gọi tin nhắn nhanh
       required: true
-      selector: &id016
-        text: null
+      selector: *id005
       example: /qm1
     title:
       name: Nội dung
@@ -2184,7 +2320,7 @@ get_avatar_list:
       name: Trang
       description: Trang dữ liệu cần lấy
       required: false
-      selector: &id012
+      selector: &id013
         number:
           min: 1
       example: '1'
@@ -2252,7 +2388,7 @@ quote_message:
       name: ID tin nhắn
       description: ID của tin nhắn cần thu hồi
       required: true
-      selector: *id005
+      selector: *id006
       example: msg123456
     text:
       name: Nội dung trích dẫn
@@ -2357,7 +2493,7 @@ reject_friend_request:
       name: UserId
       description: User ID
       required: true
-      selector: *id006
+      selector: *id007
       example: '987654321'
       default: ''
 get_group_link:
@@ -2406,7 +2542,7 @@ vote_poll:
       name: ID bình chọn
       description: ID số của cuộc bình chọn (zca-js)
       required: true
-      selector: *id007
+      selector: *id008
       example: 123456789
     option_ids:
       name: ID lựa chọn (cách nhau bằng dấu phẩy)
@@ -2544,7 +2680,7 @@ update_lang:
       name: language
       description: language to update (VI, EN) (UpdateLangAvailableLanguages)
       required: false
-      selector: &id008
+      selector: &id009
         text: null
       example: vi
 get_block_sharing_conversations:
@@ -2670,7 +2806,7 @@ get_suggested_conversations:
       name: language
       description: Ngôn ngữ hiển thị (mặc định theo `ctx.language` hoặc `"vi"`) (string)
       required: false
-      selector: *id008
+      selector: *id009
       example: vi
     params:
       name: params
@@ -2784,7 +2920,7 @@ send_bank_card:
       name: type
       description: The type of thread to send the bank card to (ThreadType)
       required: false
-      selector: &id010
+      selector: &id011
         select:
           options:
           - label: User
@@ -2832,7 +2968,7 @@ set_pinned_conversations:
       name: pinned
       description: Should pin conversations (boolean)
       required: true
-      selector: *id009
+      selector: *id010
     threadId:
       name: threadId
       description: The ID(s) of the thread (string | string[])
@@ -2843,7 +2979,7 @@ set_pinned_conversations:
       name: type
       description: Type of thread, default User (ThreadType)
       required: false
-      selector: *id010
+      selector: *id011
       example: 0
       default: 0
     params:
@@ -2879,7 +3015,7 @@ translate_message:
       name: type
       description: type (number)
       required: false
-      selector: *id010
+      selector: *id011
       example: 0
       default: 0
     srcLang:
@@ -2936,7 +3072,7 @@ translate_message_auto:
       name: type
       description: type (number)
       required: false
-      selector: *id010
+      selector: *id011
       example: 0
       default: 0
     srcLang:
@@ -2986,7 +3122,7 @@ translate_message_suggest:
       name: type
       description: type (number)
       required: false
-      selector: *id010
+      selector: *id011
       example: 0
       default: 0
     srcLang:
@@ -3163,7 +3299,7 @@ update_translate_setting:
       name: type
       description: type (number)
       required: true
-      selector: *id010
+      selector: *id011
       example: 0
       default: 0
     settings:
@@ -3373,7 +3509,7 @@ get_group_cloud_message_jump:
       name: count
       description: Số lượng tin nhắn ngữ cảnh cần tải (mặc định `20`) (number)
       required: false
-      selector: *id011
+      selector: *id012
       example: 50
       default: 50
     msgJump:
@@ -3416,7 +3552,7 @@ get_group_cloud_message_path:
       name: count
       description: count (number)
       required: false
-      selector: *id011
+      selector: *id012
       example: 50
       default: 50
     reverse:
@@ -3494,7 +3630,7 @@ get_group_invite_box_list:
       name: page
       description: page (number)
       required: false
-      selector: *id012
+      selector: *id013
       example: '1'
       default: '1'
     invPerPage:
@@ -3525,7 +3661,7 @@ get_group_link_info:
       name: link
       description: link (string)
       required: true
-      selector: *id013
+      selector: *id014
       example: https://zalo.me/g/abcxyz
     memberPage:
       name: memberPage
@@ -3645,7 +3781,7 @@ get_quota_community:
       name: language
       description: 'Ngôn ngữ thông báo (mặc định: `"vi"`) (string)'
       required: false
-      selector: *id008
+      selector: *id009
       example: vi
     params:
       name: params
@@ -3822,7 +3958,7 @@ update_group_settings:
       name: options
       description: Options (UpdateGroupSettingsOptions)
       required: true
-      selector: &id014
+      selector: &id015
         object: null
       example: '{"voice": "nova"}'
     groupId:
@@ -3893,14 +4029,14 @@ get_alias_list:
       name: count
       description: 'Page size (default: 100) (number)'
       required: false
-      selector: *id011
+      selector: *id012
       example: 50
       default: 50
     page:
       name: page
       description: 'Page number (default: 1) (number)'
       required: false
-      selector: *id012
+      selector: *id013
       example: '1'
       default: '1'
 get_alias_list_v2:
@@ -3913,14 +4049,14 @@ get_alias_list_v2:
       name: page
       description: 'Trang cần lấy (mặc định: 1) (number)'
       required: false
-      selector: *id012
+      selector: *id013
       example: '1'
       default: '1'
     count:
       name: count
       description: 'Số lượng mục mỗi trang (mặc định: 100) (number)'
       required: false
-      selector: *id011
+      selector: *id012
       example: 50
       default: 50
 get_block_friends:
@@ -3933,14 +4069,14 @@ get_block_friends:
       name: page
       description: 'Trang cần lấy (mặc định: 1) (number)'
       required: false
-      selector: *id012
+      selector: *id013
       example: '1'
       default: '1'
     count:
       name: count
       description: 'Số lượng mỗi trang (mặc định: 50) (number)'
       required: false
-      selector: *id011
+      selector: *id012
       example: 50
       default: 50
     avatarSize:
@@ -4039,7 +4175,7 @@ get_friends_emoji_status:
       name: page
       description: page (number)
       required: false
-      selector: *id012
+      selector: *id013
       example: '1'
       default: '1'
 get_last_read_contact_tab:
@@ -4150,7 +4286,7 @@ remove_friend_recommendation_v2:
       name: type
       description: Loại gợi ý (mặc định `0`) (number)
       required: false
-      selector: *id010
+      selector: *id011
       example: 0
       default: 0
     confirm:
@@ -4198,7 +4334,7 @@ verify_friend:
       name: options
       description: Tùy chọn truy vấn (VerifyFriendOptions)
       required: false
-      selector: *id014
+      selector: *id015
       example: '{"voice": "nova"}'
     params:
       name: params
@@ -4405,7 +4541,7 @@ push_profile_verification_message:
       name: type
       description: type (number)
       required: false
-      selector: *id010
+      selector: *id011
       example: 0
       default: 0
     params:
@@ -4452,7 +4588,7 @@ update_profile_bio:
       name: status
       description: status for update bio (string)
       required: true
-      selector: *id015
+      selector: *id016
 update_profile_mode:
   name: updateProfileMode
   description: updateProfileMode — Cập nhật chế độ hồ sơ người dùng (command 11865)
@@ -5259,7 +5395,7 @@ get_sticker_suggestion:
       name: options
       description: Từ khóa và tùy chọn kèm theo (`gif`, `guggy`) (GetStickerSuggestionOptions | string)
       required: true
-      selector: *id014
+      selector: *id015
       example: '{"voice": "nova"}'
     params:
       name: params
@@ -5298,7 +5434,7 @@ search_gifs:
       name: keyword
       description: Từ khóa tìm kiếm (string)
       required: true
-      selector: *id016
+      selector: *id005
       example: /qm1
     offset:
       name: offset
@@ -5321,7 +5457,7 @@ search_guggy_gifs:
       name: keyword
       description: Từ khóa tìm kiếm (string)
       required: true
-      selector: *id016
+      selector: *id005
       example: /qm1
     limit:
       name: limit
@@ -5338,7 +5474,7 @@ search_sticker:
       name: keyword
       description: Keyword to search stickers (string)
       required: true
-      selector: *id016
+      selector: *id005
       example: /qm1
     limit:
       name: limit
@@ -5397,7 +5533,7 @@ add_poll_options:
       name: options
       description: options (AddPollOptionsOption[])
       required: true
-      selector: *id014
+      selector: *id015
       example: '{"voice": "nova"}'
     votedOptionIds:
       name: votedOptionIds
@@ -5414,7 +5550,7 @@ create_note:
       name: options
       description: note options (CreateNoteOptions)
       required: true
-      selector: *id014
+      selector: *id015
       example: '{"voice": "nova"}'
     groupId:
       name: groupId
@@ -5473,7 +5609,7 @@ create_todo:
       name: status
       description: status (number)
       required: false
-      selector: *id015
+      selector: *id016
     schedule:
       name: schedule
       description: schedule (unknown)
@@ -5541,7 +5677,7 @@ edit_note:
       name: options
       description: Options for editing the note (EditNoteOptions)
       required: true
-      selector: *id014
+      selector: *id015
       example: '{"voice": "nova"}'
     groupId:
       name: groupId
@@ -5617,7 +5753,7 @@ get_todo_list:
       name: type
       description: type (number)
       required: false
-      selector: *id010
+      selector: *id011
       example: 0
       default: 0
     params:
@@ -5676,7 +5812,7 @@ pin_board_topic:
       name: type
       description: 'Loại chủ đề (ví dụ: ghi chú, bình chọn, nhắc hẹn) (number)'
       required: true
-      selector: *id010
+      selector: *id011
       example: 0
       default: 0
     params:
@@ -5893,7 +6029,7 @@ update_todo:
       name: status
       description: status (number)
       required: false
-      selector: *id015
+      selector: *id016
     schedule:
       name: schedule
       description: schedule (unknown)
@@ -5927,7 +6063,7 @@ update_todo_status:
       name: status
       description: 'Trạng thái mới (ví dụ: đang thực hiện, hoàn thành) (number)'
       required: true
-      selector: *id015
+      selector: *id016
 verify_todo:
   name: verifyTodo
   description: verifyTodo — Kiểm tra tính đồng bộ của danh sách công việc trong Zalo To-Do (command 12603)
@@ -6324,7 +6460,7 @@ get_catalog_list:
       name: page
       description: 'Page number (default: 0) (number)'
       required: false
-      selector: *id012
+      selector: *id013
       example: '1'
       default: '1'
     params:
@@ -6355,7 +6491,7 @@ get_list_bank_account:
       name: page
       description: 'Page number (default: 0) (number)'
       required: false
-      selector: *id012
+      selector: *id013
       example: '1'
       default: '1'
     limit:
@@ -6410,7 +6546,7 @@ get_product_catalog_list:
       name: page
       description: 'Page number (default: 0) (number)'
       required: false
-      selector: *id012
+      selector: *id013
       example: '1'
       default: '1'
 get_product_detail:

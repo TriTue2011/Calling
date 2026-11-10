@@ -67,6 +67,10 @@ class FakeZaloApp:
             return web.json_response({"devices": {}})
         if p.startswith("/api/thread/"):
             return web.json_response({"ok": True, "data": {"msgId": "8474"}, "message": {"id": "1", "client_id": "1", "text": (body or {}).get("message", "")}})
+        if p == "/api/svc/search_sticker":
+            kw = (body or {}).get("keyword")
+            data = [] if kw == "khong-co" else [{"sticker_id": 111, "cate_id": 10, "type": 7}, {"sticker_id": 222, "cate_id": 20, "type": 7}]
+            return web.json_response({"ok": True, "action": "search_sticker", "data": data})
         if p.startswith("/api/svc/"):
             return web.json_response({"ok": True, "action": p.rsplit("/", 1)[1], "data": {"status": 0}})
         return web.json_response({})
@@ -232,3 +236,20 @@ async def test_reaction_icon_picker_lists_heart_for_the_service(hass, setup, app
     await call(hass, "add_reaction", {"thread_id": THREAD, "type": "user", "icon": "heart", "msg_id": "1", "cli_msg_id": "2"})
     j = app.last("/api/svc/add_reaction")["json"]
     assert j["icon"] == "heart" and "r_icon" not in j and "r_type" not in j, j
+
+
+async def test_send_sticker_by_keyword_searches_then_sends_and_still_accepts_explicit_ids(hass, setup, app):
+    await call(hass, "send_sticker", {"thread_id": THREAD, "type": "user", "keyword": "cảm ơn"})
+    assert app.last("/api/svc/search_sticker")["json"] == {"keyword": "cảm ơn", "limit": 20}
+    j = app.last("/api/svc/send_sticker")["json"]
+    assert j["sticker_id"] == 111 and j["cate_id"] == 10 and j["sticker_type"] == 7 and "keyword" not in j and "pick" not in j, j
+    await call(hass, "send_sticker", {"thread_id": THREAD, "type": "user", "keyword": "haha", "pick": "random"})
+    assert app.last("/api/svc/send_sticker")["json"]["sticker_id"] in (111, 222)
+    n = len([r for r in app.requests if "search_sticker" in r["path"]])
+    await call(hass, "send_sticker", {"thread_id": THREAD, "type": "user", "sticker_id": 5, "cate_id": 6, "sticker_type": 7})
+    assert len([r for r in app.requests if "search_sticker" in r["path"]]) == n, "có sticker_id thì không tìm kiếm"
+    assert app.last("/api/svc/send_sticker")["json"]["sticker_id"] == 5
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "send_sticker", {"thread_id": THREAD, "type": "user", "keyword": "khong-co"})
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "send_sticker", {"thread_id": THREAD, "type": "user"})

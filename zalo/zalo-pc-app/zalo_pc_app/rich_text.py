@@ -273,6 +273,18 @@ def normalize_emoji(value):
     return v
 
 
+def zalo_emoji_code(name) -> str | None:
+    """Ten emoji Zalo (bang 54 bieu tuong cua reaction: heart, haha, wow, cry...) -> ma chu ma Zalo hien thanh anh trong khung chat
+    (``/-heart``, ``:>``, ``;xx``...). Rong -> None; ten la -> ValueError kem danh sach."""
+    v = str(name or "").strip().lower()
+    if not v:
+        return None
+    from . import services
+    if v not in services.REACTION_ICONS:
+        raise ValueError("zalo_emoji phai la mot ten trong bang: " + ", ".join(sorted(services.REACTION_ICONS)))
+    return services.REACTION_ICONS[v][1]
+
+
 def _add_prefix(line: str, emoji: str) -> str:
     """Chèn emoji vào đầu dòng, SAU dấu tiêu đề / danh sách để kiểu dòng vẫn nhận ra."""
     m = _LINE_MARK.match(line)
@@ -310,7 +322,7 @@ def normalize_emphasis(value):
     return v
 
 
-def render(text: str, fmt: str = "plain", emphasis=None, styles=None, emoji=None, auto_emoji=False):
+def render(text: str, fmt: str = "plain", emphasis=None, styles=None, emoji=None, auto_emoji=False, zalo_emoji=None):
     """Đầu vào của tầng gửi tin. Trả ``(chữ_gửi_đi, danh_sách_style)``.
 
     * ``fmt="markdown"``: đổi markdown/thẻ thành style (bỏ các dấu định dạng khỏi chữ).
@@ -321,8 +333,9 @@ def render(text: str, fmt: str = "plain", emphasis=None, styles=None, emoji=None
     """
     text = str(text)
     prefix = normalize_emoji(emoji)
+    zcode = zalo_emoji_code(zalo_emoji)
     if styles:
-        if fmt == "markdown" or emphasis or prefix or auto_emoji:
+        if fmt == "markdown" or emphasis or prefix or zcode or auto_emoji:
             raise ValueError("styles tự tính không dùng chung với format=markdown, auto_emphasis, emoji hay auto_emoji "
                              "(chữ bị đổi thì khoảng tự tính không còn khớp)")
         return text, validate_styles(text, styles)
@@ -332,6 +345,8 @@ def render(text: str, fmt: str = "plain", emphasis=None, styles=None, emoji=None
         text = expand_shortcodes(text)
     if auto_emoji:
         text = auto_emoji_text(text)
+    if zcode:
+        prefix = (zcode + " " + prefix) if prefix else zcode
     if prefix:
         first, _, rest = text.partition("\n")
         text = _add_prefix(first, prefix) + ("\n" + rest if rest else "")

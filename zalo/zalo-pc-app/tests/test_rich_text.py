@@ -143,6 +143,15 @@ class RichTextTests(unittest.TestCase):
         self.assertTrue(all(R.EMOJI[k] for k in R.EMOJI))
         self.assertEqual(R.normalize_emoji("nhietdo"), R.normalize_emoji("temp"))
 
+    def test_zalo_emoji_prefix_uses_the_reaction_table_codes(self):
+        self.assertEqual(R.render("Xin chào", zalo_emoji="heart")[0], "/-heart Xin chào")
+        self.assertEqual(R.render("Xin chào", zalo_emoji="haha", emoji="ok")[0], ":> ✅ Xin chào")
+        self.assertEqual(R.render("a", zalo_emoji="")[0], "a")
+        with self.assertRaises(ValueError):
+            R.render("a", zalo_emoji="khong-co")
+        with self.assertRaises(ValueError):
+            R.render("a", styles=[{"start": 0, "len": 1, "st": "b"}], zalo_emoji="heart")
+
 
 if __name__ == "__main__":
     unittest.main()

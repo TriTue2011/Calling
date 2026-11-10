@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import random
 import os
 from typing import Any, Callable
 
@@ -92,7 +93,7 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
     if name == "send_message":
         return await api.thread_send(ttype, tid, str(d["message"]), d.get("format"),
                                      d.get("auto_emphasis"), d.get("emoji"),
-                                     d.get("auto_emoji"))
+                                     d.get("auto_emoji"), d.get("zalo_emoji"))
     if name == "send_link":
         return await api.thread_sendlink(ttype, tid, str(d["link"]),
                                          str(d.get("message") or ""))
@@ -143,11 +144,30 @@ async def _do_acct(hass, rt, api: ZaloCallApi, e: dict, d: dict) -> Any:
         "%s không áp dụng: app Zalo PC dùng một tài khoản và không có proxy" % name)
 
 
+async def _sticker_by_keyword(api: ZaloCallApi, d: dict) -> dict:
+    """send_sticker: co sticker_id thi gui thang; khong thi bat buoc co keyword -> search_sticker roi chon (first | random)."""
+    if d.get("sticker_id"):
+        return {k: v for k, v in d.items() if k not in ("keyword", "pick")}
+    kw = str(d.get("keyword") or "").strip()
+    if not kw:
+        raise ServiceValidationError("send_sticker cần sticker_id (kèm cate_id) hoặc keyword")
+    found = await api.svc("search_sticker", {"keyword": kw, "limit": 20})
+    found = [x for x in (found if isinstance(found, list) else []) if isinstance(x, dict) and x.get("sticker_id")]
+    if not found:
+        raise ServiceValidationError("Không tìm thấy sticker nào cho từ khoá %r" % kw)
+    pick = random.choice(found) if d.get("pick") == "random" else found[0]
+    out = {k: v for k, v in d.items() if k not in ("keyword", "pick")}
+    out.update(sticker_id=pick["sticker_id"], cate_id=pick.get("cate_id"), sticker_type=pick.get("type"))
+    return {k: v for k, v in out.items() if v is not None}
+
+
 def _make_handler(hass: HomeAssistant, e: dict) -> Callable:
     async def handler(call: ServiceCall) -> dict:
         rt, api = _api(hass, call)
         d = {k: v for k, v in call.data.items() if k != "entry_id"}
         try:
+            if e["name"] == "send_sticker":
+                d = await _sticker_by_keyword(api, d)
             if e["kind"] in ("svc", "zca"):     # zca: app tu chuyen sang bo goi chung
                 res = await api.svc(e["action"], d)
             elif e["kind"] == "chat":

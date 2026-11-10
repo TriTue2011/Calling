@@ -35,7 +35,9 @@ CHAT_FIELDS = {
         ("emoji", "Emoji chèn vào đầu tin: chọn trong bảng hoặc gõ emoji bất kỳ (🎉). Mã :ten: trong chữ (ví dụ :ok:) "
                   "cũng được đổi thành emoji", False),
         ("auto_emoji", "Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ, cửa, đèn…). "
-                       "Bật = true; để trống = tắt", False)],
+                       "Bật = true; để trống = tắt", False),
+        ("zalo_emoji", "Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để chèn mã tương ứng "
+                       "vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji.", False)],
     "send_file": [("file", "Đường dẫn tệp trong HA hoặc URL", True)],
     "send_image": [("file", "Ảnh (đường dẫn trong HA hoặc URL)", True)],
     "send_image_to_user": [("file", "Ảnh (đường dẫn hoặc URL)", True)],
@@ -80,9 +82,11 @@ def _reaction_options():
 SELECTOR_OVERRIDES = {
     ("send_message", "emoji"): {"select": {"options": _emoji_options(), "custom_value": True, "mode": "dropdown"}},
     ("send_message", "auto_emoji"): {"boolean": None},
+    ("send_message", "zalo_emoji"): {"select": {"options": _reaction_options(), "custom_value": False, "mode": "dropdown"}},
     ("send_message", "format"): {"select": {"options": ["plain", "markdown"], "mode": "dropdown"}},
     ("send_message", "auto_emphasis"): {"select": {"options": ["red", "orange", "yellow", "green"], "custom_value": True,
                                                   "mode": "dropdown"}},
+    ("send_sticker", "pick"): {"select": {"options": ["first", "random"], "mode": "dropdown"}},
     ("add_reaction", "icon"): {"select": {"options": _reaction_options(), "custom_value": True, "mode": "dropdown"}},
 }
 
@@ -121,8 +125,16 @@ def _lookup(svc, key, meta):
     return {}
 
 
+_FIELD_TEXT = {
+    ("send_sticker", "keyword"): "Gõ từ khoá (ví dụ: cảm ơn, haha, yêu) — tự tìm sticker rồi gửi; dùng thay cho Sticker ID / Cate ID.",
+    ("send_sticker", "pick"): "first = kết quả đầu (mặc định), random = chọn ngẫu nhiên trong các kết quả.",
+}
+
+
 def _field_entry(svc, f, meta):
     m = dict(_lookup(svc, f["key"], meta))
+    if (svc, f["key"]) in _FIELD_TEXT:
+        m["description"] = _FIELD_TEXT[(svc, f["key"])]
     if f.get("description"):
         m["description"] = f["description"]
     if "selector" in f:
@@ -207,6 +219,14 @@ def main():
                                for k, l, r in fields]})
     out.sort(key=lambda x: x["no"])
     assert len(out) == 96, len(out)
+    # Gui sticker theo TU KHOA: tich hop HA tim (search_sticker) roi gui, nen sticker_id khong con bat buoc.
+    for e in out:
+        if e["name"] == "send_sticker":
+            for f in e["fields"]:
+                if f["key"] == "sticker_id":
+                    f["required"] = False
+            e["fields"] += [{"key": "keyword", "label": "Từ khoá sticker", "required": False},
+                            {"key": "pick", "label": "Chọn kết quả", "required": False}]
     # Op co that trong app nhung nam ngoai 96 dich vu zalobot: van la service HA.
     have = {e["name"] for e in out} | {e["action"] for e in out if e["action"]}
     for action, spec in S.OPS.items():

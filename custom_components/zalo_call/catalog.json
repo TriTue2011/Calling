@@ -33,6 +33,11 @@
     "key": "auto_emoji",
     "label": "Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ, cửa, đèn…). Bật = true; để trống = tắt",
     "required": false
+   },
+   {
+    "key": "zalo_emoji",
+    "label": "Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để chèn mã tương ứng vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji.",
+    "required": false
    }
   ]
  },
@@ -445,7 +450,7 @@
    {
     "key": "sticker_id",
     "label": "Sticker ID",
-    "required": true
+    "required": false
    },
    {
     "key": "cate_id",
@@ -455,6 +460,16 @@
    {
     "key": "sticker_type",
     "label": "Type",
+    "required": false
+   },
+   {
+    "key": "keyword",
+    "label": "Từ khoá sticker",
+    "required": false
+   },
+   {
+    "key": "pick",
+    "label": "Chọn kết quả",
     "required": false
    }
   ]
