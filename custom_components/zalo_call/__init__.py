@@ -34,9 +34,6 @@ from .call_voice import CallVoice, on_call_state
 from .devices import DeviceDefaults
 from .llm_api import async_register_llm_api
 from .const import (
-    CONF_AI_CALL,
-    CONF_AI_CALL_GREETING,
-    CONF_AI_CALL_HANDOVER,
     CONF_HA_URL,
     CONF_PASSWORD,
     CONF_URL,
@@ -50,8 +47,7 @@ from .const import (
 from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor", "binary_sensor", "select", "text", "switch", "button",
-             "number"]
+PLATFORMS = ["sensor", "binary_sensor", "select", "text", "switch", "button"]
 WEBHOOK_KINDS = ("message", "group_event", "reaction", "call")
 # Trang thai ket thuc: dung cau noi am thanh (loa/mic) cua cuoc goi do.
 TERMINAL_STATES = ("ended", "no_answer", "declined", "missed", "rejected",
@@ -142,9 +138,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await _async_call_state(hass_, bridge, payload)
             state = derive_state(payload)
             if state is not None:
-                on_call_state(hass_, hass_.data[DOMAIN][entry.entry_id], state, payload.get("call_id"), TERMINAL_STATES,
-                              bool(defaults.get(CONF_AI_CALL)), str(defaults.get(CONF_AI_CALL_GREETING) or ""),
-                              str(payload.get("answer_source") or ""), str(defaults.get(CONF_AI_CALL_HANDOVER) or ""), payload.get("thread_id"))
+                on_call_state(hass_, hass_.data[DOMAIN][entry.entry_id], state, payload.get("call_id"), TERMINAL_STATES, payload)
         elif kind == "message":
             hass_.async_create_task(async_handle_message(hass_, entry, payload))
         return web.Response(status=200)

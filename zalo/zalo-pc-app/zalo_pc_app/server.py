@@ -1020,7 +1020,7 @@ def _reject_signals(sess, caller_id, call_id):
 
 def _answer_incoming(sess, body, source="api"):
     """Nghe may mot cuoc goi 1-1 DEN (ta la ben nhan) -> dict {"ok", ...}. Dung chung cho POST /api/call/answer va
-    tu nghe may (`auto_answer`). Loi o buoc bao hieu tra {"ok": False, "error": ...}; nguoi goi tu bat ngoai le khac."""
+    tu nghe may do HA quyet theo quy tac. Loi o buoc bao hieu tra {"ok": False, "error": ...}; nguoi goi tu bat ngoai le khac."""
     # Answer an INCOMING call (we are the callee). zca-js
     # acceptIncomingCall: ringring 11302 (unless the
     # call_event handler already sent it) -> requestVoiceCall
@@ -2246,7 +2246,8 @@ class AppState:
                   "senderName": msg.get("sender_name") or (
                       msg.get("raw") if isinstance(msg.get("raw"), dict)
                       else {}).get("dName") or "",
-                  "isStranger": self.is_stranger(thread_type, thread_id)}
+                  "isStranger": self.is_stranger(thread_type, thread_id),
+                  "contactStatus": self.contact_status(thread_type, thread_id)}
             if msg.get("kind") == "voice" and msg.get("file_url") and not msg.get("is_self"):
                 ev["voiceUrl"] = str(msg["file_url"])          # tin thoai den: HA tu goi voice_to_text voi URL nay (Zalo STT)
             webhooks_mod.dispatch_message(self.webhook_dispatcher, ev, account_id)
@@ -2437,8 +2438,9 @@ class AppState:
         thread.start()
         webhooks_mod.dispatch_call_event(
             STATE.webhook_dispatcher, entry,
-            (STATE.session or {}).get("uid", ""))
-        self._maybe_auto_answer(call_id, caller_id)
+            (STATE.session or {}).get("uid", ""),
+            extra={"contact_status": self.contact_status("user", caller_id),       # friend / stranger / unknown (khong doan)
+                   "call_type_raw": event.get("call_type")})                      # 0 thoai / 1 video theo zca-js (CHUA kiem tren cuoc goi that)
 
     def _reject_busy(self, call_id, caller_id, peer):
         """Co cuoc goi DEN khi ta dang ban (dang noi hoac dang goi di): tu choi cuoc MOI (cancel + endcall), giu nguyen cuoc
@@ -2453,48 +2455,6 @@ class AppState:
             webhooks_mod.dispatch_call_event(STATE.webhook_dispatcher, entry, (sess or {}).get("uid", ""))
         except Exception:  # noqa: BLE001
             pass
-
-    def _maybe_auto_answer(self, call_id, caller_id):
-        """Tu nghe may cuoc goi 1-1 den neu `auto_answer` bat VA nguoi goi nam trong `auto_answer_from` (danh sach trong =
-        khong ai: nghe may la mo mic nha cho nguoi goi). Sau `auto_answer_delay` giay (bo dem) neu cuoc goi con "incoming"
-        (chua ai nghe, chua bi cup)."""
-        try:
-            cfg = _devices_for_call(call_id)
-            if not cfg.get("auto_answer"):
-                return
-            allowed = devices_mod.parse_id_list(cfg.get("auto_answer_from"))
-            if str(caller_id) not in allowed:
-                _log_call("auto answer call_id=%s bo qua (nguoi goi khong nam trong danh sach tu nghe)" % call_id)
-                return
-            delay = int(cfg.get("auto_answer_delay") or 0)
-        except Exception as exc:  # noqa: BLE001 - cai dat hong khong duoc lam hong cuoc goi den
-            _log_call("auto answer call_id=%s loi cai dat: %s" % (call_id, str(exc)[:80]))
-            return
-
-        def go():
-            try:
-                live = next((c for c in STATE.calls.snapshot()["calls"]
-                             if str(c["call_id"]) == str(call_id)), None)
-                if live is None or live["status"] != "incoming":
-                    _log_call("auto answer call_id=%s bo qua (cuoc goi khong con cho nghe)" % call_id)
-                    return
-                sess = STATE.session
-                if not sess:
-                    _log_call("auto answer call_id=%s bo qua (chua dang nhap)" % call_id)
-                    return
-                res = _answer_incoming(sess, {"call_id": call_id}, source="auto")
-                _log_call("auto answer call_id=%s ok=%s%s" % (call_id, res.get("ok"),
-                          "" if res.get("ok") else " error=" + str(res.get("error"))[:80]))
-            except Exception as exc:  # noqa: BLE001
-                _log_call("auto answer call_id=%s loi: %s" % (call_id, str(exc)[:80]))
-
-        if delay <= 0:
-            threading.Thread(target=go, daemon=True).start()
-        else:
-            _log_call("auto answer call_id=%s se nghe may sau %ds" % (call_id, delay))
-            timer = threading.Timer(delay, go)
-            timer.daemon = True
-            timer.start()
 
     def _on_incoming_call_ended(self, event, act):
         """Caller ket thuc truoc khi ta tra loi (cancel/end), hoac
@@ -3106,6 +3066,17 @@ class AppState:
             return None
         rows = (cache.get("friends") or {}).get("rows") or []
         return {str(r["id"]) for r in rows if isinstance(r, dict) and r.get("id")}
+
+    def contact_status(self, thread_type, thread_id):
+        """"group" | "friend" | "stranger" | "unknown" (chua tai duoc danh ba: KHONG doan — HA coi la khong biet va dong cua)."""
+        if thread_type == "group":
+            return "group"
+        ids = self._friend_ids()
+        if ids is None:
+            return "unknown"
+        if str(thread_id) == str((self.session or {}).get("uid", "")):
+            return "friend"
+        return "friend" if str(thread_id) in ids else "stranger"
 
     def is_stranger(self, thread_type, thread_id):
         """Nguoi lap tin 1-1 khong co trong danh ba (chi biet khi da tai danh ba)."""

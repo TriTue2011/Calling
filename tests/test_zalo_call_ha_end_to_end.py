@@ -34,6 +34,9 @@ DOMAIN = "zalo_call"
 THREAD = "6643404425553198601"
 
 
+RULE_TRUSTED = {"reply_ai": True, "agent": "conversation.test", "trusted": True}      # quy tắc tối thiểu cho các test trợ lý trả lời
+
+
 class FakeZaloApp:
     def __init__(self):
         self.requests: list[dict] = []
@@ -195,9 +198,9 @@ async def test_ai_reply_is_formatted_as_markdown_by_default_and_follows_the_new_
     from custom_components.zalo_call import ai as ai_mod
     ai_mod.MIN_INTERVAL = 0
     rt = hass.data[DOMAIN][setup.entry_id]
-    await rt.defaults.async_set(ai_enabled=True)
+    await rt.defaults.async_set()
     event = {"content": "trời nay sao", "thread_id": THREAD, "thread_type": "user", "is_self": False}
-    await async_ai_reply(hass, setup, event)
+    await async_ai_reply(hass, setup, event, RULE_TRUSTED)
     assert fake_agent and app.last("/send")["json"] == {"type": "user", "message": "**Nhiệt độ** 29°C\n- Cửa mở lúc 15:30", "format": "markdown"}, \
         "mặc định: markdown (hết dấu ** thô), không tự đổi màu/emoji"
     # bật qua đúng các thực thể trên thiết bị (như người dùng bấm trong giao diện)
@@ -207,25 +210,35 @@ async def test_ai_reply_is_formatted_as_markdown_by_default_and_follows_the_new_
     assert sel and sw and fmt, "thiếu thực thể điều khiển AI: %s %s %s" % (sel, sw, fmt)
     await hass.services.async_call("select", "select_option", {"entity_id": sel, "option": "orange"}, blocking=True)
     await hass.services.async_call("switch", "turn_on", {"entity_id": sw}, blocking=True)
-    await async_ai_reply(hass, setup, event)
+    await async_ai_reply(hass, setup, event, RULE_TRUSTED)
     # emoji bật + AI tự định dạng trong cùng lượt (có **) → không chồng auto_emoji của quy tắc cứng
     assert app.last("/send")["json"] == {"type": "user", "message": "**Nhiệt độ** 29°C\n- Cửa mở lúc 15:30", "format": "markdown",
                                          "auto_emphasis": "orange"}
     await hass.services.async_call("select", "select_option", {"entity_id": fmt, "option": "plain"}, blocking=True)
     await hass.services.async_call("select", "select_option", {"entity_id": sel, "option": "off"}, blocking=True)
     await hass.services.async_call("switch", "turn_off", {"entity_id": sw}, blocking=True)
-    await async_ai_reply(hass, setup, event)
+    await async_ai_reply(hass, setup, event, RULE_TRUSTED)
     assert app.last("/send")["json"] == {"type": "user", "message": "**Nhiệt độ** 29°C\n- Cửa mở lúc 15:30", "format": "plain"}
 
 
-async def test_ai_does_not_reply_to_groups_or_own_messages(hass, setup, app, fake_agent):
-    from custom_components.zalo_call.ai import async_ai_reply
+async def test_messages_follow_rules_no_rule_means_nothing_group_rule_replies_in_the_group_own_messages_ignored(hass, setup, app, fake_agent):
+    from custom_components.zalo_call import ai as ai_mod
+    ai_mod.MIN_INTERVAL = 0
     rt = hass.data[DOMAIN][setup.entry_id]
-    await rt.defaults.async_set(ai_enabled=True)
+    group = {"content": "x", "thread_id": "9", "thread_type": "group", "is_self": False, "contact_status": "group"}
+    own = {"content": "x", "thread_id": THREAD, "thread_type": "user", "is_self": True, "contact_status": "friend"}
+    user = {"content": "x", "thread_id": THREAD, "thread_type": "user", "is_self": False, "contact_status": "friend"}
     n = len(app.requests)
-    await async_ai_reply(hass, setup, {"content": "x", "thread_id": "9", "thread_type": "group", "is_self": False})
-    await async_ai_reply(hass, setup, {"content": "x", "thread_id": THREAD, "thread_type": "user", "is_self": True})
+    for ev in (group, own, user):                               # KHÔNG CÓ QUY TẮC: không trợ lý, không gửi gì
+        await ai_mod.async_handle_message(hass, setup, ev)
     assert not fake_agent and len(app.requests) == n
+    rules = {"threads": {}, "groups": {"reply_ai": True, "agent": "conversation.x", "trusted": True}, "contacts": {}, "strangers": {}}
+    await rt.defaults.async_set(rules=rules)
+    await ai_mod.async_handle_message(hass, setup, own)         # tin tự gửi: bỏ qua dù có quy tắc
+    await ai_mod.async_handle_message(hass, setup, user)        # người quen: chỉ có quy tắc nhóm -> vẫn không làm gì
+    assert not fake_agent
+    await ai_mod.async_handle_message(hass, setup, group)       # nhóm: trả lời vào NHÓM
+    assert fake_agent and app.last("/api/thread/9/send")["json"]["type"] == "group", app.requests[-1]
 
 
 async def test_send_voice_service_posts_the_audio_file_as_multipart_to_the_app(hass, setup, app, tmp_path):
@@ -308,9 +321,9 @@ async def test_ai_reply_uses_the_device_text_style_defaults(hass, setup, app, fa
     from custom_components.zalo_call.ai import async_ai_reply
     from custom_components.zalo_call import ai as ai_mod
     ai_mod.MIN_INTERVAL = 0
-    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(ai_enabled=True)
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set()
     await _select(hass, setup, "text_bold", "auto")
-    await async_ai_reply(hass, setup, {"content": "hi", "thread_id": THREAD, "thread_type": "user", "is_self": False})
+    await async_ai_reply(hass, setup, {"content": "hi", "thread_id": THREAD, "thread_type": "user", "is_self": False}, RULE_TRUSTED)
     j = app.last("/send")["json"]
     assert j["format"] == "markdown" and j["style"]["bold"] == "off", j            # AI đã tự định dạng trong cùng lượt (có **) → bỏ quy tắc cứng của mục auto
     assert "[Chỉ dẫn định dạng" in fake_agent[-1]["text"] and len(fake_agent) == 1, "nhúng chỉ dẫn vào CHÍNH lượt hỏi, không gọi thêm"
@@ -344,16 +357,16 @@ async def test_ai_reply_follows_the_auto_emoji_switch(hass, setup, app, fake_age
     from custom_components.zalo_call.ai import async_ai_reply
     from custom_components.zalo_call import ai as ai_mod
     ai_mod.MIN_INTERVAL = 0
-    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(ai_enabled=True, text_auto_emoji=True)
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(text_auto_emoji=True)
     fake_agent.reply = "Cảnh báo cửa mở"                      # trợ lý không tự thêm emoji → quy tắc tức thì ở app lo
-    await async_ai_reply(hass, setup, {"content": "hi", "thread_id": THREAD, "thread_type": "user", "is_self": False})
+    await async_ai_reply(hass, setup, {"content": "hi", "thread_id": THREAD, "thread_type": "user", "is_self": False}, RULE_TRUSTED)
     assert app.last("/send")["json"]["auto_emoji"] is True
 
 
 async def _ai_event(hass, setup):
     from custom_components.zalo_call import ai as ai_mod
     ai_mod.MIN_INTERVAL = 0
-    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(ai_enabled=True)
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set()
     return {"content": "hi", "thread_id": THREAD, "thread_type": "user", "is_self": False}
 
 
@@ -362,7 +375,7 @@ async def test_ai_reply_inline_hint_when_the_agent_formats_it_no_extra_call_and_
     ev = await _ai_event(hass, setup)
     await hass.data[DOMAIN][setup.entry_id].defaults.async_set(text_heading="auto", text_color="auto", text_auto_emoji=True)
     fake_agent.reply = "🚨 **Cảnh báo** cửa mở"
-    await async_ai_reply(hass, setup, ev)
+    await async_ai_reply(hass, setup, ev, RULE_TRUSTED)
     assert len(fake_agent) == 1 and "BỘ ĐỊNH DẠNG" not in fake_agent[0]["text"] and "[Chỉ dẫn định dạng" in fake_agent[0]["text"]
     j = app.last("/send")["json"]
     assert j["format"] == "markdown" and j["style"]["heading"] == "off" and j["style"]["color"] == "off" and "auto_emoji" not in j and "ai_markup" not in j, j
@@ -373,7 +386,7 @@ async def test_ai_reply_when_the_agent_ignores_the_hint_falls_back_to_instant_ru
     ev = await _ai_event(hass, setup)
     await hass.data[DOMAIN][setup.entry_id].defaults.async_set(text_color="auto", text_auto_emoji=True)
     fake_agent.reply = "Nhiệt độ 29 độ"                         # không dấu định dạng, không emoji
-    await async_ai_reply(hass, setup, ev)
+    await async_ai_reply(hass, setup, ev, RULE_TRUSTED)
     assert len(fake_agent) == 1, "không gọi thêm lần nào (nhanh)"
     j = app.last("/send")["json"]
     assert j["style"]["color"] == "auto" and j["auto_emoji"] is True and "ai_markup" not in j, j
@@ -383,7 +396,7 @@ async def test_ai_reply_inline_can_be_switched_off(hass, setup, app, fake_agent)
     from custom_components.zalo_call.ai import async_ai_reply
     ev = await _ai_event(hass, setup)
     await hass.data[DOMAIN][setup.entry_id].defaults.async_set(text_color="auto", text_ai_inline=False)
-    await async_ai_reply(hass, setup, ev)
+    await async_ai_reply(hass, setup, ev, RULE_TRUSTED)
     assert "[Chỉ dẫn định dạng" not in fake_agent[0]["text"]
 
 

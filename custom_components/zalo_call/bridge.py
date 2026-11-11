@@ -227,10 +227,7 @@ class CallAudioBridge:
             "echo_guard": res["echo_guard"] == "true",
             "auto_mic": bool(self.defaults.get("auto_mic")),
             "auto_video_on_request": bool(self.defaults.get("auto_video")),
-            "auto_video_delay": int(self.defaults.get("auto_video_delay") or 0),
-            "auto_answer": bool(self.defaults.get("auto_answer")),
-            "auto_answer_delay": int(self.defaults.get("auto_answer_delay") or 0),
-            "auto_answer_from": str(self.defaults.get("auto_answer_from") or "")}
+            "auto_video_delay": int(self.defaults.get("auto_video_delay") or 0)}
         # Thiet bi DA CHON nhung chua phan giai duoc (camera chua nap xong luc HA khoi dong: «Camera not found»):
         # KHONG gui rong de ghi de gia tri dang dung cua app (do 10/11/2026: HA khoi dong lai lam camera mac dinh cua
         # app ve trong). Bo truong do khoi goi (app giu gia tri cu) va danh dau chua xong de coordinator tu thu lai.

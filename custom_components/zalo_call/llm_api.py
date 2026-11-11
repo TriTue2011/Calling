@@ -130,13 +130,14 @@ class FindPersonTool(_Tool):
 class CallTool(_Tool):
     name = "goi_dien"
     description = ("Gọi điện Zalo cho một người (tên hoặc id). thong_bao: câu đọc ngay khi họ nghe máy rồi cúp. "
-                   "ai=true: sau đó trợ lý nói chuyện tiếp. chuyen_may_khi: điều kiện để trợ lý tự chuyển sang trực tiếp.")
+                   "ai=true: sau đó trợ lý nói chuyện tiếp (cần pipeline hoặc quy tắc cho người đó). chuyen_may_khi: khi nào chuyển sang trực tiếp.")
     parameters = vol.Schema({
         vol.Required("nguoi", description="Tên hoặc id Zalo"): str,
         vol.Optional("loai", description="thoai (mặc định) hoặc video"): vol.In(["thoai", "video"]),
         vol.Optional("thong_bao", description="Câu đọc khi họ nghe máy"): str,
         vol.Optional("ai", description="Trợ lý tiếp tục nói chuyện sau thông báo"): bool,
         vol.Optional("chuyen_may_khi", description="Khi nào chuyển sang nói chuyện trực tiếp"): str,
+        vol.Optional("pipeline", description="Assist pipeline cho AI (bắt buộc nếu ai=true và người đó chưa có quy tắc)"): str,
     })
 
     async def run(self, hass, rt, args, llm_context):
@@ -151,6 +152,8 @@ class CallTool(_Tool):
             data["ai"] = True
         if args.get("chuyen_may_khi"):
             data["handover_rule"] = args["chuyen_may_khi"]
+        if args.get("pipeline"):
+            data["pipeline"] = args["pipeline"]
         await hass.services.async_call(DOMAIN, "make_call", data, blocking=True, return_response=True)
         return {"da_lam": "dang_goi", "nguoi": person["name"]}
 

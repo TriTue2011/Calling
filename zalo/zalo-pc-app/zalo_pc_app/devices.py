@@ -22,21 +22,8 @@ DEFAULTS = {
     "auto_mic": True,           # tu phat mic khi cuoc goi duoc nghe may
     "auto_video_on_request": True,   # dien thoai xin len video: dong y + phat camera
     "auto_video_delay": 0,           # giay cho truoc khi tu dong y (0 = ngay)
-    "auto_answer": False,            # cuoc goi 1-1 DEN tu nguoi trong `auto_answer_from`: tu nghe may
-    "auto_answer_delay": 3,          # giay cho truoc khi tu nghe may (bo dem; 0 = ngay)
-    "auto_answer_from": "",          # ID Zalo duoc tu nghe, cach nhau dau phay. TRONG = khong ai (an toan: nghe may la mo mic nha)
 }
 MAX_AUTO_VIDEO_DELAY = 120
-MAX_AUTO_ANSWER_DELAY = 120
-_ID_LIST = re.compile(r"^[0-9]+(,[0-9]+)*$")
-
-
-def parse_id_list(text):
-    """\"123, 456\" -> ['123', '456']; bo khoang trang va muc rong. Muc khong phai so -> ValueError."""
-    ids = [p.strip() for p in str(text or "").replace(";", ",").replace("\n", ",").split(",") if p.strip()]
-    if ids and not _ID_LIST.match(",".join(ids)):
-        raise ValueError("auto_answer_from chi gom ID Zalo (so), cach nhau dau phay")
-    return ids
 MIC_FORMATS = ("auto", "s16le16k")
 _URL_OK = re.compile(r"^(rtsps?|https?|rtmps?)://\S+$")
 _HTTP_OK = re.compile(r"^https?://\S+$")
@@ -106,19 +93,9 @@ class DeviceStore:
             data["mic_format"] = patch["mic_format"]
         elif "mic_format" in patch:
             bad("mic_format khong hop le")
-        for key in ("auto_mic", "auto_video_on_request", "auto_answer"):
+        for key in ("auto_mic", "auto_video_on_request"):
             if key in patch:
                 data[key] = bool(patch[key])
-        if "auto_answer_delay" in patch:
-            try:
-                data["auto_answer_delay"] = max(0, min(MAX_AUTO_ANSWER_DELAY, int(patch["auto_answer_delay"])))
-            except (TypeError, ValueError):
-                bad("auto_answer_delay khong hop le")
-        if "auto_answer_from" in patch:
-            try:
-                data["auto_answer_from"] = ",".join(parse_id_list(patch["auto_answer_from"]))
-            except ValueError as exc:
-                bad(str(exc))
         if "auto_video_delay" in patch:
             try:
                 data["auto_video_delay"] = max(

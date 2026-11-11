@@ -44,6 +44,17 @@ def test_incoming_voice_event_carries_kind_and_voice_url_and_calls_no_stt():
         sv.services_mod.handle_svc = real
 
 
+def test_message_webhook_carries_contact_status_unknown_when_contacts_not_loaded():
+    state, sent = _state()
+    for ids, expect in ((None, "unknown"), ({"20001"}, "friend"), ({"999"}, "stranger")):
+        state._friend_ids = lambda ids=ids: ids
+        state._on_sync_message("user", "20001", {"id": "t" + expect, "sender_id": "20001", "text": "Chào", "kind": "text", "time": 1, "is_self": False})
+        _wait(sent, len(sent) + 1)
+    state._on_sync_message("group", "30001", {"id": "g1", "sender_id": "20001", "text": "Chào nhóm", "kind": "text", "time": 2, "is_self": False})
+    _wait(sent, 4)
+    assert [p["contact_status"] for p in sent] == ["unknown", "friend", "stranger", "group"], [p.get("contact_status") for p in sent]
+
+
 def test_own_voice_and_text_messages():
     state, sent = _state()
     state._on_sync_message("user", "20001", dict(VOICE, id="own", is_self=True, direction="out"))      # tin tự gửi: không đẩy

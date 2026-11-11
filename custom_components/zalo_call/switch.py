@@ -7,33 +7,16 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, CONF_AI_ENABLED, CONF_AI_CALL, CONF_AI_VOICE_REPLY, CONF_AUTO_VOICE_TEXT, CONF_AUTO_ANSWER, CONF_AUTO_MIC, CONF_AUTO_VIDEO, DOMAIN
+from .const import CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN
 from .entity import ZaloCallEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             add: AddEntitiesCallback) -> None:
     rt = hass.data[DOMAIN][entry.entry_id]
-    add([AutoSwitch(entry, rt, CONF_AUTO_MIC, "Tự phát mic khi nghe máy",
-                    "mdi:microphone-settings"),
-         AutoSwitch(entry, rt, CONF_AUTO_VIDEO,
-                    "Tự đồng ý khi bên kia xin gọi video", "mdi:video-switch"),
-         AutoSwitch(entry, rt, CONF_AUTO_ANSWER, "Tự nghe máy khi có người gọi đến (theo danh sách ID)",
-                    "mdi:phone-incoming"),
-         AutoSwitch(entry, rt, CONF_AI_CALL, "AI nghe và trả lời bằng giọng nói trong cuộc gọi đến",
-                    "mdi:phone-message", push=False),
-         AutoSwitch(entry, rt, CONF_AUTO_VOICE_TEXT, "Tin thoại Zalo đến: tự chuyển thành chữ (Zalo STT)",
-                    "mdi:text-to-speech", push=False),
-         AutoSwitch(entry, rt, CONF_AI_VOICE_REPLY, "AI trả lời bằng tin thoại khi nhận tin thoại",
-                    "mdi:voice", push=False),
-         AutoSwitch(entry, rt, CONF_AI_ENABLED, "AI tự trả lời tin nhắn 1-1",
-                    "mdi:robot-happy", push=False),
-         AutoSwitch(entry, rt, CONF_TEXT_AUTO_EMOJI, "Chữ: tự thêm emoji (auto)",
-                    "mdi:emoticon-happy-outline", push=False),
-         AutoSwitch(entry, rt, CONF_TEXT_AI_INLINE, "Chữ: AI trả lời tự định dạng trong cùng lượt (không chậm thêm)",
-                    "mdi:flash", push=False),
-         AutoSwitch(entry, rt, CONF_TEXT_AI_SMART, "Chữ: dùng AI đánh giá khi gửi send_message (thêm vài giây)",
-                    "mdi:brain", push=False)])
+    add([AutoSwitch(entry, rt, CONF_TEXT_AUTO_EMOJI, "Chữ: tự thêm emoji", "mdi:emoticon-happy-outline", push=False),
+         AutoSwitch(entry, rt, CONF_TEXT_AI_INLINE, "Chữ: AI tự định dạng", "mdi:flash", push=False),
+         AutoSwitch(entry, rt, CONF_TEXT_AI_SMART, "Chữ: AI đánh giá", "mdi:brain", push=False)])
 
 
 class AutoSwitch(ZaloCallEntity, SwitchEntity):

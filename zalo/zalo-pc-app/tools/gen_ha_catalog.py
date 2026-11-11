@@ -429,17 +429,16 @@ EXTRA_YAML = '''make_call:
       description: Ngôn ngữ cho STT/TTS (ví dụ vi). Bỏ trống = của pipeline / HA.
       selector:
         text:
-    assist_device:
-      name: Thiết bị Assist (dùng STT/TTS/trợ lý của nó)
-      description: Chọn thiết bị Assist như Assist Cam hay Assist R1 — cuộc gọi dùng pipeline (STT, TTS, trợ lý) đã cấu hình sẵn cho thiết bị đó, và đọc thông báo bằng giọng của nó. Bỏ trống = ô «AI trong cuộc gọi - dùng Assist của thiết bị» trên thiết bị, rồi đến pipeline ưu tiên.
+    pipeline:
+      name: Assist pipeline (STT, TTS, trợ lý)
+      description: Pipeline cho AI trong cuộc gọi này. ai=true bắt buộc có pipeline hoặc agent (hoặc quy tắc cho threadID) — không tự dùng pipeline ưu tiên vì nó có quyền thiết bị nhà.
       selector:
-        entity:
-          domain: assist_satellite
-    pipeline_id:
-      name: Assist pipeline
-      description: Id pipeline dùng cho AI trong cuộc gọi. Bỏ trống = pipeline mặc định.
+        assist_pipeline:
+    agent:
+      name: Trợ lý hội thoại (agent)
+      description: Dùng riêng trợ lý này thay trợ lý của pipeline (nên là trợ lý KHÔNG có quyền thiết bị khi người gọi là người lạ).
       selector:
-        text:
+        conversation_agent:
 answer_call:
   name: Nghe máy
   description: Nghe cuộc gọi đến (nối loa/mic đã chọn).
@@ -531,17 +530,16 @@ answer_call:
       description: Ngôn ngữ cho STT/TTS (ví dụ vi). Bỏ trống = của pipeline / HA.
       selector:
         text:
-    assist_device:
-      name: Thiết bị Assist (dùng STT/TTS/trợ lý của nó)
-      description: Chọn thiết bị Assist như Assist Cam hay Assist R1 — cuộc gọi dùng pipeline (STT, TTS, trợ lý) đã cấu hình sẵn cho thiết bị đó, và đọc thông báo bằng giọng của nó. Bỏ trống = ô «AI trong cuộc gọi - dùng Assist của thiết bị» trên thiết bị, rồi đến pipeline ưu tiên.
+    pipeline:
+      name: Assist pipeline (STT, TTS, trợ lý)
+      description: Pipeline cho AI trong cuộc gọi này. ai=true bắt buộc có pipeline hoặc agent (hoặc quy tắc cho threadID) — không tự dùng pipeline ưu tiên vì nó có quyền thiết bị nhà.
       selector:
-        entity:
-          domain: assist_satellite
-    pipeline_id:
-      name: Assist pipeline
-      description: Id pipeline dùng cho AI trong cuộc gọi. Bỏ trống = pipeline mặc định.
+        assist_pipeline:
+    agent:
+      name: Trợ lý hội thoại (agent)
+      description: Dùng riêng trợ lý này thay trợ lý của pipeline (nên là trợ lý KHÔNG có quyền thiết bị khi người gọi là người lạ).
       selector:
-        text:
+        conversation_agent:
 reject_call:
   name: Từ chối cuộc gọi đến
   description: Từ chối cuộc gọi đang đổ chuông.
@@ -708,25 +706,6 @@ set_default_devices:
           max: 120
           mode: box
           unit_of_measurement: s
-    auto_answer:
-      name: Tự nghe máy khi có người gọi đến
-      description: Bật thì cuộc gọi 1-1 đến từ ID nằm trong «Tự nghe máy chỉ với các ID Zalo này» sẽ được tự nghe sau bộ đếm.
-      selector:
-        boolean:
-    auto_answer_delay:
-      name: Chờ trước khi tự nghe máy (giây)
-      description: Bộ đếm tự nghe máy (0 = nghe ngay). Người gọi cúp trước hạn thì không nghe.
-      selector:
-        number:
-          min: 0
-          max: 120
-          mode: box
-          unit_of_measurement: s
-    auto_answer_from:
-      name: Chỉ tự nghe máy với các ID Zalo này
-      description: ID Zalo cách nhau dấu phẩy. Để trống = không ai được tự nghe (nghe máy là mở mic nhà cho người gọi).
-      selector:
-        text:
     call_volume:
       name: Âm lượng cuộc gọi mặc định
       description: 1-100 % — âm lượng loa đặt khi nghe máy rồi trả lại khi cuộc gọi kết thúc; 0 = giữ nguyên âm lượng loa.
@@ -778,6 +757,180 @@ take_over_call:
       description: Bỏ trống = cuộc gọi đang nói hiện tại.
       selector:
         text:
+set_rule:
+  name: Đặt quy tắc cuộc gọi đến / tin nhắn
+  description: >-
+    Quy tắc xử lý theo threadID (người hoặc nhóm), theo người trong danh bạ, theo người lạ hoặc theo mọi nhóm. KHÔNG CÓ QUY TẮC = KHÔNG LÀM GÌ
+    (chỉ đổ chuông, tin nhắn không đi đâu). Quy tắc theo threadID thay hẳn quy tắc nhóm. Chưa biết quen hay lạ (danh bạ lỗi) thì chỉ quy tắc
+    theo threadID được áp. Trường nào không nêu thì giữ như cũ; quy tắc mới mặc định TẮT hết, không nối thiết bị nhà.
+  fields:
+    scope:
+      name: Áp cho
+      description: thread = một threadID (cần thread_id) | groups = mọi nhóm | contacts = người trong danh bạ | strangers = người lạ.
+      required: true
+      selector:
+        select:
+          options:
+          - thread
+          - groups
+          - contacts
+          - strangers
+    thread_id:
+      name: ThreadID (gõ tay)
+      description: ID Zalo của người hoặc nhóm (chỉ khi scope = thread). Lấy danh sách bằng dịch vụ list_contacts.
+      example: "6643404425553198601"
+      selector:
+        text:
+    name:
+      name: Tên ghi chú
+      description: Tên ghi chú cho quy tắc.
+      selector:
+        text:
+    answer:
+      name: Tự nghe máy
+      description: Cuộc gọi 1-1 đến từ người thuộc quy tắc này sẽ được tự nghe sau thời gian chờ.
+      selector:
+        boolean:
+    answer_delay:
+      name: Chờ bao lâu rồi nghe máy (giây)
+      description: 0-120. Người gọi cúp trước khi hết giờ thì không nghe.
+      default: 3
+      selector:
+        number:
+          min: 0
+          max: 120
+          mode: box
+          unit_of_measurement: s
+    call_types:
+      name: Loại cuộc gọi được nghe
+      description: voice, video hoặc cả hai (nhận video CHƯA kiểm trên cuộc gọi thật).
+      default:
+      - voice
+      - video
+      selector:
+        select:
+          multiple: true
+          options:
+          - voice
+          - video
+    ai:
+      name: Dùng AI trong cuộc gọi
+      description: Sau khi nghe máy, AI nghe và trả lời bằng giọng nói (STT, trợ lý, TTS). Cần chọn pipeline hoặc agent.
+      selector:
+        boolean:
+    pipeline:
+      name: Assist pipeline (STT, TTS, trợ lý)
+      description: Chọn từ danh sách pipeline của HA.
+      selector:
+        assist_pipeline:
+    agent:
+      name: Trợ lý hội thoại (agent)
+      description: Dùng riêng trợ lý này thay trợ lý của pipeline (nên là trợ lý KHÔNG có quyền thiết bị với người lạ).
+      selector:
+        conversation_agent:
+    greeting:
+      name: Câu chào đầu cuộc gọi
+      description: Câu AI nói đầu cuộc gọi đến (trống = câu mặc định).
+      selector:
+        text:
+    handover_rule:
+      name: AI tự chuyển sang trực tiếp khi…
+      description: Điều kiện riêng, ngoài các trường hợp mặc định (muốn gặp người nhà, khẩn cấp, AI không giúp được).
+      selector:
+        text:
+    trusted:
+      name: Người tin cậy
+      description: Tin cậy thì AI không bị dặn kiểu «người gọi/nhắn chưa xác thực».
+      selector:
+        boolean:
+    reply_ai:
+      name: AI trả lời tin nhắn
+      description: AI trả lời tin chữ (và tin thoại nếu voice_text) của người/nhóm này. Cần chọn pipeline hoặc agent.
+      selector:
+        boolean:
+    voice_text:
+      name: Tin thoại thành chữ (Zalo STT)
+      description: Tin thoại 1-1 được Zalo STT chuyển thành chữ và bắn sự kiện zalo_call_voice_text.
+      selector:
+        boolean:
+    home_devices:
+      name: Nối thiết bị nhà
+      description: Mặc định TẮT - cuộc gọi do quy tắc nghe máy không nối mic/loa/camera nhà (người lạ không nghe được phòng nhà). Bật thì dùng các thiết bị bên dưới (trống = mặc định của set_default_devices).
+      selector:
+        boolean:
+    speaker:
+      name: Loa
+      description: media_player phát tiếng người gọi (trống = mặc định của set_default_devices).
+      selector:
+        entity:
+          domain: media_player
+    mic:
+      name: Mic
+      description: Camera hoặc vệ tinh Assist lấy tiếng gửi cho người gọi (trống = mặc định).
+      selector:
+        entity:
+          domain:
+          - camera
+          - assist_satellite
+    mic_url:
+      name: Mic từ URL
+      description: Gõ tay nếu mic không có trong danh sách (rtsp/http/rtmp).
+      selector:
+        text:
+    camera:
+      name: Camera
+      description: Camera phát hình khi cuộc gọi video (trống = mặc định).
+      selector:
+        entity:
+          domain: camera
+    volume:
+      name: Âm lượng loa (%)
+      description: 0 = giữ nguyên.
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: slider
+          unit_of_measurement: '%'
+    echo_guard:
+      name: Chống vọng
+      description: Chống vọng khi mic và loa cùng thiết bị.
+      selector:
+        select:
+          options:
+          - auto
+          - 'on'
+          - duplex
+          - 'off'
+remove_rule:
+  name: Xoá quy tắc
+  description: Xoá quy tắc của một threadID hoặc của một nhóm (groups / contacts / strangers). Người đó quay về «không làm gì».
+  fields:
+    scope:
+      name: Áp cho
+      description: thread / groups / contacts / strangers.
+      required: true
+      selector:
+        select:
+          options:
+          - thread
+          - groups
+          - contacts
+          - strangers
+    thread_id:
+      name: ThreadID (gõ tay)
+      description: Tuỳ chọn.
+      selector:
+        text:
+list_rules:
+  name: Xem các quy tắc
+  description: Trả về mọi quy tắc đang đặt (theo threadID, nhóm, danh bạ, người lạ).
+list_contacts:
+  name: Xem danh bạ Zalo
+  description: Trả về bạn bè và nhóm (id, tên) của tài khoản trong app, để lấy threadID cho set_rule.
+get_default_devices:
+  name: Xem mic/loa/camera mặc định
+  description: Trả về cài đặt thiết bị mặc định hiện tại (đặt bằng set_default_devices).
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.

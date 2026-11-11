@@ -130,6 +130,59 @@ def test_stale_answered_record_without_media_does_not_block_new_incoming():
     _run(mock, check)
 
 
+def test_incoming_call_webhook_carries_contact_status_and_call_type_and_never_guesses():
+    """HA ap quy tac theo nguoi quen/nguoi la: app bao friend/stranger va "unknown" khi chua tai duoc danh ba (HA dong cua, khong doan)."""
+    mock = _mock()
+
+    def check(base, mock, endpoints):
+        state = app_server.STATE
+        sent = _capture_call_webhooks(state)
+        for ids, expect, cid in ((None, "unknown", CALL_ID_IN), ({"20001"}, "friend", CALL_ID_IN2), ({"999"}, "stranger", CALL_ID_IN2 + 10)):
+            state._friend_ids = lambda ids=ids: ids
+            before = len(sent)
+            state._on_ctrl_call_event(_event(cid))
+            deadline = time.time() + 5
+            while time.time() < deadline and not [p for p in sent[before:] if p.get("type") == "call.incoming" and p.get("call_id") == str(cid)]:
+                time.sleep(0.05)
+            inc = [p for p in sent[before:] if p.get("type") == "call.incoming" and p.get("call_id") == str(cid)]
+            assert inc and inc[0]["contact_status"] == expect, (expect, sent[before:])
+            assert "call_type_raw" in inc[0] and inc[0]["call_type_raw"] == 0, inc[0]            # 0 = thoai (theo zca-js)
+            state._on_ctrl_call_event(_parsed_event({"act": "cancel", "callId": cid, "uidN": "20001"}))   # cup de cuoc ke tiep khong bi coi la ban
+
+    _run(mock, check)
+
+
+def test_answer_with_off_overrides_never_starts_default_mic_speaker_or_camera_even_on_video_request():
+    """BAT BIEN RIENG TU: HA nghe may theo quy tac gui mic_url/speaker_url/camera_url = "off" -> app KHONG tu phat mic/hinh mac dinh
+    (nguoi la khong nghe duoc phong nha), ke ca khi ben kia xin len video. Doi chung: khong "off" thi mic/hinh mac dinh duoc phat."""
+    mock = _mock()
+    real_mic, real_vid = app_server._start_mic, app_server._start_video
+    started = []
+    app_server._start_mic = lambda cid, src, fmt="auto", loop=True: started.append(("mic", str(cid), src))
+    app_server._start_video = lambda cid, src, params=None: started.append(("cam", str(cid), src))
+
+    def check(base, mock, endpoints):
+        st, body = _api(base, "POST", "/api/settings/devices", {"mic_url": "test", "camera_url": "test", "auto_mic": True,
+                                                                "auto_video_on_request": True})
+        assert body["ok"], body
+        for cid, answer_body, expect_started in ((CALL_ID_IN, {"mic_url": "off", "speaker_url": "off", "camera_url": "off"}, False),
+                                                 (CALL_ID_IN2, {}, True)):
+            started.clear()
+            app_server.STATE._on_ctrl_call_event(_event(cid, caller="20003"))
+            assert _wait_active(base, cid, "incoming") is not None
+            _wait_steps(mock, cid, ["ringring"])
+            assert _api(base, "POST", "/api/call/answer", dict(answer_body, call_id=cid))[1]["ok"] is True
+            app_server.STATE._on_video_request({"call_id": cid, "act": "audio_to_video", "data": {"params": {"status": 1}}})
+            time.sleep(0.6)
+            assert bool(started) is expect_started, (answer_body, started)
+            _api(base, "POST", "/api/call/end", {"call_id": cid})
+
+    try:
+        _run(mock, check)
+    finally:
+        app_server._start_mic, app_server._start_video = real_mic, real_vid
+
+
 def test_two_incoming_before_answering_newer_supersedes():
     mock = _mock()
 

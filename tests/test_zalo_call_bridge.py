@@ -229,14 +229,33 @@ def test_legacy_gear_options_import_without_overwriting_device_values():
     async def run():
         hass = FakeHass()
         key = "zalo_call.devices.e1"
-        H["saved"] = {key: {"speaker": "media_player.x", "ai_agent": "conversation.mine"}}   # kho da co
+        H["saved"] = {key: {"speaker": "media_player.x"}}   # kho da co
         dd = devices_mod.DeviceDefaults(hass, "e1")
-        await dd.async_load({"ha_url": "http://ha:8123/", "ai_enabled": True,
-                             "ai_threads": "1, 2", "ai_agent": "conversation.cu"})
+        await dd.async_load({"ha_url": "http://ha:8123/", "speaker": "media_player.cu"})
         assert dd.get("ha_url") == "http://ha:8123"              # bo dau / cuoi
-        assert dd.get("ai_enabled") is True and dd.get("ai_threads") == "1, 2"
-        assert dd.get("ai_agent") == "conversation.mine"         # da dat tren thiet bi: khong ghi de
+        assert dd.get("speaker") == "media_player.x"             # da dat: khong ghi de
         assert H["saved"][key]["ha_url"] == "http://ha:8123"     # da luu: lan sau khong doc lai options
+    asyncio.run(run())
+
+
+def test_old_ai_threads_migrate_to_thread_rules_and_empty_means_closed():
+    """Ban cu: AI tra loi moi nguoi trong `ai_threads`. Nay la quy tac theo threadID; `ai_threads` TRONG (cu = moi nguoi) KHONG duoc mo cua."""
+    async def run():
+        hass = FakeHass()
+        key = "zalo_call.devices.e2"
+        H["saved"] = {key: {"ai_enabled": True, "ai_threads": "111, 222, abc", "ai_agent": "Tro ly · conversation.mine"}}
+        dd = devices_mod.DeviceDefaults(hass, "e2")
+        await dd.async_load()
+        rules = dd.get("rules")
+        assert sorted(rules["threads"]) == ["111", "222"], rules
+        r = rules["threads"]["111"]
+        assert r["reply_ai"] is True and r["agent"] == "conversation.mine" and r["answer"] is False and r["home_devices"] is False, r
+        assert not rules["contacts"] and not rules["strangers"] and not rules["groups"]       # khong tu mo cua cho nguoi la/danh ba
+        H["saved"] = {"zalo_call.devices.e3": {"ai_enabled": True, "ai_threads": "", "ai_agent": "conversation.mine"}}
+        d3 = devices_mod.DeviceDefaults(hass, "e3")
+        await d3.async_load()
+        assert not any(d3.get("rules").values()), d3.get("rules")                              # trong = khong chuyen
+        assert not any(devices_mod.DeviceDefaults(hass, "e4").get("rules").values())           # moi ban sao co dict quy tac rieng
     asyncio.run(run())
 
 
@@ -454,8 +473,7 @@ def test_push_defaults_to_app_with_resolved_urls():
         assert api.pushed == [{"mic_url": "rtsp://u:p@cam.local/stream", "mic_format": "auto",
                                "camera_url": "rtsp://cam2.local/s", "speaker_url": "",
                                "echo_guard": False, "auto_mic": False,
-                               "auto_video_on_request": True, "auto_video_delay": 0,
-                               "auto_answer": False, "auto_answer_delay": 3, "auto_answer_from": ""}]
+                               "auto_video_on_request": True, "auto_video_delay": 0}]
         # camera khong co stream -> day rong (app khong tu phat hinh)
         H["urls"]["camera.cam2"] = "rtsp://u:p@localhost:8554/cam2-sub"        # go2rtc cua HA
         await br.async_push_defaults()

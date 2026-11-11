@@ -15,20 +15,19 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .bridge_core import entity_of_label, label
-from .const import (CONF_AI_CALL_DEVICE, CONF_AI_CALL_AGENT, CONF_AI_CALL_AGENT_TRUSTED, CONF_TEXT_AI_AGENT, TEXT_STYLE_KEYS, AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL, TEST_LABEL,
-                    TEST_SOURCE)
+from .const import (AI_EMPHASIS, AI_FORMATS, CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_TEXT_AI_AGENT, DOMAIN, NONE_LABEL, TEXT_STYLE_KEYS)
 from .entity import ZaloCallEntity
 
 REFRESH = timedelta(minutes=1)
 # Kiểu chữ mặc định cho mọi tin tích hợp gửi (dịch vụ send_message ghi đè từng tin); mỗi ô có «auto» (tự theo nội dung chữ).
 _TEXT_STYLE_SELECTS = (
-    ("text_size", "Chữ: cỡ chữ (off / small / big / auto)", "mdi:format-size"),
-    ("text_color", "Chữ: màu chữ (off / auto / red / orange / yellow / green)", "mdi:palette"),
-    ("text_bold", "Chữ: in đậm (off / on / auto)", "mdi:format-bold"),
-    ("text_italic", "Chữ: in nghiêng (off / on / auto)", "mdi:format-italic"),
-    ("text_underline", "Chữ: gạch chân (off / on / auto)", "mdi:format-underline"),
-    ("text_heading", "Chữ: tiêu đề dòng đầu (off / on / auto)", "mdi:format-header-1"),
-    ("text_auto_color", "Chữ: màu dùng cho chế độ auto", "mdi:invert-colors"),
+    ("text_size", "Chữ: cỡ chữ", "mdi:format-size"),
+    ("text_color", "Chữ: màu chữ", "mdi:palette"),
+    ("text_bold", "Chữ: in đậm", "mdi:format-bold"),
+    ("text_italic", "Chữ: in nghiêng", "mdi:format-italic"),
+    ("text_underline", "Chữ: gạch chân", "mdi:format-underline"),
+    ("text_heading", "Chữ: tiêu đề", "mdi:format-header-1"),
+    ("text_auto_color", "Chữ: màu cho auto", "mdi:invert-colors"),
 )
 
 
@@ -36,33 +35,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             add: AddEntitiesCallback) -> None:
     rt = hass.data[DOMAIN][entry.entry_id]
     add([
-        DeviceSelect(hass, entry, rt, "speaker", "Loa mặc định",
-                     "mdi:speaker", ("media_player",)),
-        DeviceSelect(hass, entry, rt, "mic", "Mic mặc định",
-                     "mdi:microphone", ("camera", "assist_satellite"),
-                     extra=(MIC_URL_LABEL,)),
-        DeviceSelect(hass, entry, rt, "camera", "Camera mặc định",
-                     "mdi:cctv", ("camera",), extra=(TEST_LABEL,)),
-        EchoGuardSelect(entry, rt),
-        DeviceSelect(hass, entry, rt, CONF_AI_AGENT,
-                     "Trợ lý hội thoại cho AI (Không = mặc định)", "mdi:forum",
-                     ("conversation",), push=False),
-        DeviceSelect(hass, entry, rt, CONF_TEXT_AI_AGENT,
-                     "Chữ: trợ lý AI dùng cho chế độ auto (Không = trợ lý của AI trả lời)", "mdi:forum-outline",
-                     ("conversation",), push=False),
-        DeviceSelect(hass, entry, rt, CONF_AI_CALL_DEVICE,
-                     "AI trong cuộc gọi: dùng Assist của thiết bị (STT, TTS, trợ lý có sẵn — như Assist Cam, Assist R1)", "mdi:microphone-message",
-                     ("assist_satellite",), push=False),
-        DeviceSelect(hass, entry, rt, CONF_AI_CALL_AGENT,
-                     "AI trong cuộc gọi: trợ lý RIÊNG cho người gọi chưa tin cậy (chọn trợ lý KHÔNG có quyền thiết bị)", "mdi:shield-account",
-                     ("conversation",), push=False),
-        DeviceSelect(hass, entry, rt, CONF_AI_CALL_AGENT_TRUSTED,
-                     "AI trong cuộc gọi: trợ lý cho người tin cậy (Không = dùng trợ lý ở trên)", "mdi:account-check",
-                     ("conversation",), push=False),
-        AiOptionSelect(entry, rt, CONF_AI_FORMAT, "AI: định dạng chữ trả lời (markdown = hết dấu ** thô)",
-                       "mdi:format-text", AI_FORMATS),
-        AiOptionSelect(entry, rt, CONF_AI_EMPHASIS, "AI: tự nhấn mạnh số và chữ đậm bằng màu (off = tắt)",
-                       "mdi:palette", AI_EMPHASIS),
+        DeviceSelect(hass, entry, rt, CONF_TEXT_AI_AGENT, "Chữ: trợ lý auto", "mdi:forum-outline", ("conversation",), push=False),
+        AiOptionSelect(entry, rt, CONF_AI_FORMAT, "AI: định dạng chữ", "mdi:format-text", AI_FORMATS),
+        AiOptionSelect(entry, rt, CONF_AI_EMPHASIS, "AI: nhấn mạnh số", "mdi:palette", AI_EMPHASIS),
         *[AiOptionSelect(entry, rt, key, name, icon, TEXT_STYLE_KEYS[key][1]) for key, name, icon in _TEXT_STYLE_SELECTS],
     ])
 
@@ -97,29 +72,13 @@ class DeviceSelect(ZaloCallEntity, SelectEntity):
 
     @property
     def current_option(self) -> str:
-        if self._key == "mic" and self._rt.defaults.get("mic_url") \
-                and not self._rt.defaults.get("mic"):
-            return MIC_URL_LABEL
         value = str(self._rt.defaults.get(self._key) or "")
-        if self._key == "camera" and value == TEST_SOURCE:
-            return TEST_LABEL
         return self._label_of(entity_of_label(value)) if value else NONE_LABEL
 
     async def async_select_option(self, option: str) -> None:
-        if option == NONE_LABEL:
-            patch = {self._key: ""}
-            if self._key == "mic":
-                patch["mic_url"] = ""
-        elif option == TEST_LABEL and self._key == "camera":
-            patch = {self._key: TEST_SOURCE}
-        elif option == MIC_URL_LABEL:
-            patch = {"mic": ""}
-        else:
-            patch = {self._key: entity_of_label(option)}
-            if self._key == "mic":
-                patch["mic_url"] = ""
+        patch = {self._key: "" if option == NONE_LABEL else entity_of_label(option)}
         await self._rt.defaults.async_set(**patch)
-        if self._push:                       # trợ lý AI chỉ dùng trong HA, không cần báo app
+        if self._push:
             await self._rt.bridge.async_push_defaults()
 
     async def async_added_to_hass(self) -> None:
@@ -131,38 +90,6 @@ class DeviceSelect(ZaloCallEntity, SelectEntity):
             self.async_write_ha_state()
 
         self.async_on_remove(async_track_time_interval(self.hass, _lam_moi, REFRESH))
-
-
-ECHO_LABELS = {"auto": "Tự động (chỉ khi mic và loa cùng thiết bị)",
-               "on": "Luôn bật (chặn mic khi loa đang phát)",
-               "duplex": "Song công (nói chen được, dùng khử vọng của loa R1)",
-               "off": "Tắt"}
-
-
-class EchoGuardSelect(ZaloCallEntity, SelectEntity):
-    """Chống vọng: tạm ngừng gửi mic khi loa đang phát tiếng bên kia (nửa song công)."""
-    _attr_entity_category = EntityCategory.CONFIG
-    _attr_name = "Chống vọng"
-    _attr_icon = "mdi:ear-hearing-off"
-    _attr_options = list(ECHO_LABELS.values())
-
-    def __init__(self, entry: ConfigEntry, rt) -> None:
-        super().__init__(entry, CONF_ECHO_GUARD)
-        self._rt = rt
-
-    @property
-    def current_option(self) -> str:
-        return ECHO_LABELS.get(str(self._rt.defaults.get(CONF_ECHO_GUARD) or "auto"),
-                               ECHO_LABELS["auto"])
-
-    async def async_select_option(self, option: str) -> None:
-        mode = next((k for k, v in ECHO_LABELS.items() if v == option), "auto")
-        assert mode in ECHO_MODES
-        await self._rt.defaults.async_set(**{CONF_ECHO_GUARD: mode})
-        await self._rt.bridge.async_push_defaults()
-
-    async def async_added_to_hass(self) -> None:
-        self.async_on_remove(self._rt.defaults.add_listener(self.async_write_ha_state))
 
 
 class AiOptionSelect(ZaloCallEntity, SelectEntity):

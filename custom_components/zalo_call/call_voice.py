@@ -20,11 +20,11 @@ from typing import Any, AsyncIterator
 
 import aiohttp
 from homeassistant.core import Context, HomeAssistant
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
-from .bridge_core import entity_of_label
-from .const import CONF_AI_CALL_AGENT, CONF_AI_CALL_AGENT_TRUSTED, CONF_AI_CALL_DEVICE, CONF_AI_CALL_TRUSTED
+from .rules import get_rules, resolve as resolve_rule
 from .styler import _speech
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,35 +54,18 @@ PUBLIC_HINT = ("Người gọi CHƯA được xác thực: không tiết lộ b�
 
 def phone_hint(handover_rule: str = "", trusted: bool = False) -> str:
     """Gợi ý cho trợ lý: nói chuyện qua điện thoại + phạm vi (người chưa tin cậy) + khi nào tự chuyển sang trực tiếp.
-    Đây chỉ là lớp MỀM; giới hạn thật nằm ở trợ lý được chọn cho cuộc gọi (không có quyền thiết bị) — xem pick_agent."""
+    Đây chỉ là lớp MỀM; giới hạn thật nằm ở trợ lý được chọn cho cuộc gọi (không có quyền thiết bị) — xem rules.py."""
     rule = (" Điều kiện chuyển máy riêng: %s." % handover_rule.strip().rstrip(".")) if handover_rule and handover_rule.strip() else ""
     return PHONE_HINT + ("" if trusted else " " + PUBLIC_HINT) + " " + HANDOVER_HINT + rule
 
 
-def pipeline_for_satellite(hass: HomeAssistant, entity_id: str) -> str | None:
-    """Id Assist pipeline mà một thiết bị Assist (assist_satellite: R1, camera…) đang dùng — để AI trong cuộc gọi dùng đúng STT/TTS/trợ lý
-    đã cấu hình sẵn cho thiết bị đó. Tra qua ô chọn pipeline cùng thiết bị (có tuỳ chọn «preferred»); không thấy / «preferred» thì None
-    (= pipeline ưu tiên của HA)."""
+def pipeline_agent(hass: HomeAssistant, pipeline_id: str | None) -> str:
+    """Trợ lý hội thoại (entity) của một Assist pipeline; "" nếu không lấy được."""
     from homeassistant.components.assist_pipeline import pipeline as pipeline_mod
-    from homeassistant.helpers import entity_registry as er
-
-    entity_id = entity_of_label(entity_id or "")
-    if not entity_id:
-        return None
-    reg = er.async_get(hass)
-    ent = reg.async_get(entity_id)
-    if ent is None or not ent.device_id:
-        return None
-    for e in er.async_entries_for_device(reg, ent.device_id):
-        st = hass.states.get(e.entity_id) if e.domain == "select" else None
-        if st is None or "preferred" not in (st.attributes.get("options") or []):
-            continue
-        if st.state in ("preferred", "unknown", "unavailable", ""):
-            return None
-        for p in pipeline_mod.async_get_pipelines(hass):
-            if p.name == st.state:
-                return p.id
-    return None
+    try:
+        return str(pipeline_mod.async_get_pipeline(hass, pipeline_id).conversation_engine or "")
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def pipeline_tts(hass: HomeAssistant, pipeline_id: str | None) -> tuple[str | None, str | None, dict | None]:
@@ -94,15 +77,6 @@ def pipeline_tts(hass: HomeAssistant, pipeline_id: str | None) -> tuple[str | No
     except Exception:  # noqa: BLE001 - không có pipeline: dùng TTS mặc định
         return None, None, None
     return pl.tts_engine, pl.tts_language, ({"voice": pl.tts_voice} if pl.tts_voice else None)
-
-
-def pick_agent(defaults: Any, thread_id: Any) -> tuple[str, bool]:
-    """(trợ lý hội thoại cho cuộc gọi, người gọi có tin cậy không). Tin cậy = ID nằm trong danh sách; trợ lý tin cậy trống thì dùng trợ lý
-    thường. Trợ lý trống = dùng trợ lý của pipeline (giới hạn chỉ còn là lời dặn)."""
-    trusted_ids = {p.strip() for p in str(defaults.get(CONF_AI_CALL_TRUSTED) or "").split(",") if p.strip()}
-    trusted = str(thread_id or "") in trusted_ids
-    key = CONF_AI_CALL_AGENT_TRUSTED if trusted and defaults.get(CONF_AI_CALL_AGENT_TRUSTED) else CONF_AI_CALL_AGENT
-    return entity_of_label(str(defaults.get(key) or "")), trusted
 
 
 @dataclass
@@ -118,13 +92,16 @@ class Plan:
     greeting: str = ""           # AI nói trước khi chưa có `message` (cuộc gọi đến)
     handover_rule: str = ""      # điều kiện riêng để AI tự chuyển sang trực tiếp (ngoài các điều kiện chung)
     agent_id: str = ""           # trợ lý hội thoại RIÊNG cho cuộc gọi (trống = trợ lý của pipeline)
-    trusted: bool = False        # người gọi nằm trong danh sách tin cậy
+    trusted: bool = False        # người gọi tin cậy (không dặn kiểu «chưa xác thực»)
+    home_devices: bool = True    # cho phép nối thiết bị nhà khi chuyển máy/kết thúc (cuộc gọi do quy tắc: theo quy tắc, mặc định KHÔNG)
 
 
 @dataclass
 class CallVoice:
     plans: dict[str, Plan] = field(default_factory=dict)
     incoming: set[str] = field(default_factory=set)
+    scheduled: set[str] = field(default_factory=set)            # call_id đã lên lịch nghe máy theo quy tắc (mỗi cuộc một lần)
+    timers: dict[str, Any] = field(default_factory=dict)        # call_id -> hàm huỷ lịch
     tasks: dict[str, asyncio.Task] = field(default_factory=dict)
     ai_running: list[str] = field(default_factory=list)          # cuộc gọi đang có vòng AI (mới nhất ở cuối)
     handover: dict[str, str] = field(default_factory=dict)       # call_id -> lý do: AI xin chuyển sang trực tiếp (qua công cụ LLM)
@@ -141,6 +118,9 @@ class CallVoice:
         for task in list(self.tasks.values()):
             task.cancel()
         self.tasks.clear()
+        for cancel in list(self.timers.values()):
+            cancel()
+        self.timers.clear()
 
 
 def plan_from_service(data: dict[str, Any]) -> Plan | None:
@@ -153,7 +133,7 @@ def plan_from_service(data: dict[str, Any]) -> Plan | None:
     hangup = data["hangup_after"] if "hangup_after" in data else True
     return Plan(message=message, repeat=max(1, min(3, int(data.get("repeat") or 1))), ai=ai, hangup=bool(hangup),
                 engine=data.get("tts_engine") or None, language=data.get("language") or None,
-                pipeline_id=data.get("pipeline_id") or None, greeting=str(data.get("greeting") or "").strip(),
+                pipeline_id=data.get("pipeline_id") or data.get("pipeline") or None, agent_id=data.get("agent") or "", greeting=str(data.get("greeting") or "").strip(),
                 handover_rule=str(data.get("handover_rule") or "").strip())
 
 
@@ -401,14 +381,16 @@ async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> N
             res = await async_run_ai(hass, api, call_id, plan, rt.voice)
             handed = bool(res.get("handover"))
             if handed:
-                # AI quyết định chuyển: trả mic nhà (loa/mic đã nối từ lúc nghe máy), KHÔNG cúp máy, báo HA để automation xử lý.
-                await _restore_mic(api, call_id)
-                hass.bus.async_fire("zalo_call_ai_handover", {"call_id": call_id, "heard": res.get("heard", "")})
+                # AI quyết định chuyển: KHÔNG cúp máy, báo HA để automation xử lý. Chỉ nối mic nhà khi quy tắc cho phép thiết bị nhà.
+                if plan.home_devices:
+                    await _restore_mic(api, call_id)
+                hass.bus.async_fire("zalo_call_ai_handover", {"call_id": call_id, "heard": res.get("heard", ""),
+                                                              "home_devices": plan.home_devices})
         if handed:
             pass
         elif plan.hangup:
             await api.call_end(call_id)
-        else:
+        elif plan.home_devices:
             await _restore_mic(api, call_id)
     except asyncio.CancelledError:
         raise
@@ -439,22 +421,92 @@ async def async_take_over(rt: Any, call_id: str | None = None) -> dict[str, Any]
     return {"call_id": cid, "ai_was_running": was_ai}
 
 
-def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, terminal: tuple, ai_incoming: bool,
-                  greeting: str, answer_source: str = "", handover_rule: str = "", thread_id: Any = None) -> None:
-    """Gọi từ webhook cuộc gọi. ai_incoming: công tắc «AI trong cuộc gọi» — chỉ áp cho cuộc gọi ĐẾN do app TỰ NGHE MÁY
-    (answer_source == "auto"); người thật nghe máy (answer_call, R1…) thì AI không chen vào, trừ khi answer_call có ai=true."""
+def _devices_override(rule: dict[str, Any]) -> dict[str, Any]:
+    """Thiết bị nhà cho cuộc gọi do quy tắc nghe máy. Mặc định TẮT cả mic/loa/camera ("" = chủ động không dùng → app nhận «off»)."""
+    if not rule.get("home_devices"):
+        return {"speaker": "", "mic": "", "mic_url": "", "camera": ""}
+    override = {k: rule[k] for k in ("speaker", "mic", "mic_url", "camera") if rule.get(k)}
+    if rule.get("volume"):
+        override["volume"] = rule["volume"]
+    return override
+
+
+def _plan_from_rule(rule: dict[str, Any]) -> Plan | None:
+    if not rule.get("ai"):
+        return None
+    return Plan(ai=True, hangup=True, pipeline_id=rule.get("pipeline") or None, agent_id=rule.get("agent") or "",
+                greeting=rule.get("greeting") or DEFAULT_GREETING, handover_rule=rule.get("handover_rule") or "",
+                trusted=bool(rule.get("trusted")), home_devices=bool(rule.get("home_devices")))
+
+
+async def _answer_by_rule(hass: HomeAssistant, rt: Any, call_id: str, rule: dict[str, Any]) -> None:
+    """Hết giờ chờ: hỏi lại app xem cuộc gọi còn đang đổ chuông không (người gọi có thể đã cúp), rồi nghe máy theo quy tắc."""
+    api: ZaloCallApi = rt.api
+    voice: CallVoice = rt.voice
+    try:
+        if await _call_status(api, call_id) != "incoming":
+            return
+        override = _devices_override(rule)
+        rt.bridge.remember(call_id, override)
+        fields = await rt.bridge.async_call_fields(override)
+        plan = _plan_from_rule(rule)
+        if plan is not None:
+            voice.plans[call_id] = plan               # đăng ký TRƯỚC khi nghe: webhook «đã nghe máy» có thể đến ngay
+        try:
+            res = await api.call_answer(call_id, fields)
+        except ZaloCallError:
+            voice.plans.pop(call_id, None)
+            raise
+        if not (res or {}).get("ok", True):
+            voice.plans.pop(call_id, None)
+            _LOGGER.warning("Không nghe máy được cuộc gọi %s: %s", call_id, (res or {}).get("error"))
+    except asyncio.CancelledError:
+        raise
+    except ZaloCallError as err:
+        _LOGGER.warning("Nghe máy theo quy tắc cuộc gọi %s lỗi: %s", call_id, err)
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Nghe máy theo quy tắc cuộc gọi %s lỗi", call_id)
+
+
+def schedule_answer(hass: HomeAssistant, rt: Any, payload: dict[str, Any]) -> bool:
+    """Cuộc gọi 1-1 ĐẾN: áp quy tắc (theo threadID, rồi danh bạ/người lạ). Không có quy tắc, hoặc quy tắc không cho nghe loại cuộc gọi
+    này, hoặc không biết người gọi quen hay lạ → KHÔNG làm gì (chỉ đổ chuông). True nếu đã lên lịch nghe."""
+    cid = str(payload.get("call_id"))
+    rule = resolve_rule(get_rules(rt.defaults), payload.get("thread_id"), "user", payload.get("contact_status"))
+    if not rule or not rule.get("answer"):
+        return False
+    ctype = "video" if str(payload.get("call_type_raw")) == "1" else "voice"        # 0 thoại / 1 video theo zca-js (chưa kiểm cuộc thật)
+    if ctype not in rule.get("call_types", ()):
+        return False
+    voice: CallVoice = rt.voice
+    if cid in voice.scheduled:
+        return False                                     # webhook «incoming» đến hai lần: chỉ một lịch
+    voice.scheduled.add(cid)
+
+    async def _go(_now: Any) -> None:
+        voice.timers.pop(cid, None)
+        await _answer_by_rule(hass, rt, cid, rule)
+
+    voice.timers[cid] = async_call_later(hass, int(rule.get("answer_delay", 0)), _go)
+    return True
+
+
+def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, terminal: tuple, payload: dict[str, Any] | None = None) -> None:
+    """Gọi từ webhook cuộc gọi: «incoming» → áp quy tắc nghe máy; «answered» → chạy kế hoạch (thông báo/AI); kết thúc → dọn lịch/kế hoạch."""
     cid = str(call_id)
     voice: CallVoice = rt.voice
     if state == "incoming":
         voice.incoming.add(cid)
+        schedule_answer(hass, rt, payload or {"call_id": cid})
     elif state == "answered":
         plan = voice.plans.pop(cid, None)
-        if plan is None and ai_incoming and cid in voice.incoming and answer_source == "auto":
-            agent, trusted = pick_agent(rt.defaults, thread_id)
-            plan = Plan(pipeline_id=pipeline_for_satellite(hass, str(rt.defaults.get(CONF_AI_CALL_DEVICE) or "")) or None, ai=True, hangup=True, greeting=greeting or DEFAULT_GREETING, handover_rule=handover_rule, agent_id=agent, trusted=trusted)
         if plan is not None and cid not in voice.tasks:
             voice.tasks[cid] = hass.async_create_task(_run_plan(hass, rt, cid, plan))
     elif state in terminal:
+        cancel = voice.timers.pop(cid, None)
+        if cancel:
+            cancel()
+        voice.scheduled.discard(cid)
         voice.plans.pop(cid, None)
         voice.incoming.discard(cid)
         task = voice.tasks.pop(cid, None)

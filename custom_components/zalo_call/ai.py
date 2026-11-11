@@ -16,10 +16,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .api import ZaloCallError
-from .call_voice import async_tts_audio, pipeline_for_satellite, pipeline_tts
+from .call_voice import PUBLIC_HINT, async_tts_audio, pipeline_agent, pipeline_tts
+from .rules import get_rules, resolve as resolve_rule
 from .styler import _speech, async_markup_for, auto_aspects, autos_off, build_inline_hint, looks_marked
-from .const import (CONF_AI_AGENT, CONF_AI_CALL_DEVICE, CONF_AI_VOICE_REPLY, CONF_AUTO_VOICE_TEXT, CONF_TEXT_AUTO_EMOJI, CONF_AI_EMPHASIS, CONF_AI_ENABLED, CONF_AI_FORMAT, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_AI_THREADS,
-                    DOMAIN)
+from .const import CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 MIN_INTERVAL = 2.0        # giây giữa hai lượt trả lời cùng một người
@@ -37,11 +37,18 @@ _MD = re.compile(r"[*_#`>~]+")
 
 
 async def async_handle_message(hass: HomeAssistant, entry: ConfigEntry, event: dict) -> None:
-    """Tin nhắn đến từ webhook. Tin THOẠI 1-1 (kind voice + voice_url, chưa có chữ): Zalo STT (dịch vụ voice_to_text của app) chuyển thành
-    chữ, bắn sự kiện zalo_call_voice_text cho automation rồi cho AI trả lời (bằng tin thoại nếu bật). Tin chữ đi thẳng tới AI."""
+    """Tin nhắn đến từ webhook, xử lý THEO QUY TẮC (dịch vụ set_rule). Không có quy tắc (hoặc không biết người gửi quen/lạ) = không làm gì:
+    không STT, không AI, không gửi gì. Tin thoại 1-1: quy tắc `voice_text` thì Zalo STT chuyển thành chữ (bắn zalo_call_voice_text); quy tắc
+    `reply_ai` thì AI (pipeline/agent trong quy tắc) trả lời, bằng tin thoại nếu tin đến là tin thoại."""
     rt = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    if rt is not None and str(event.get("kind") or "") == "voice" and event.get("voice_url") and not event.get("content") \
-            and not event.get("is_self") and not _is_group(event.get("thread_type")) and rt.defaults.get(CONF_AUTO_VOICE_TEXT):
+    if rt is None or event.get("is_self"):
+        return
+    rule = resolve_rule(get_rules(rt.defaults), event.get("thread_id"), event.get("thread_type"), event.get("contact_status"))
+    if rule is None:
+        return
+    if str(event.get("kind") or "") == "voice" and event.get("voice_url") and not event.get("content"):
+        if _is_group(event.get("thread_type")) or not rule.get("voice_text"):
+            return
         try:
             res = await rt.api.voice_to_text(str(event["voice_url"]), 25)
         except ZaloCallError as err:
@@ -54,18 +61,19 @@ async def async_handle_message(hass: HomeAssistant, entry: ConfigEntry, event: d
         hass.bus.async_fire("zalo_call_voice_text", {"thread_id": event.get("thread_id"), "sender_id": event.get("sender_id"),
                                                     "message_id": event.get("message_id"), "text": text})
         event = dict(event, content=text, from_voice=True)
-    await async_ai_reply(hass, entry, event)
+    if rule.get("reply_ai") and event.get("content"):
+        await async_ai_reply(hass, entry, event, rule)
 
 
-async def _async_voice_reply(hass: HomeAssistant, rt, thread_id: str, reply: str) -> bool:
+async def _async_voice_reply(hass: HomeAssistant, rt, thread_id: str, reply: str, rule: dict, thread_type: str) -> bool:
     """Trả lời bằng TIN THOẠI: TTS (giọng của Assist pipeline của thiết bị đã chọn, không thì pipeline ưu tiên) rồi gửi tin thoại.
     False nếu không làm được (nguời gọi sẽ gửi chữ thay thế)."""
     try:
-        pid = pipeline_for_satellite(hass, str(rt.defaults.get(CONF_AI_CALL_DEVICE) or "")) or None
+        pid = rule.get("pipeline") or None
         engine, language, options = pipeline_tts(hass, pid)
         speech = _MD.sub("", reply).strip()
         ext, data = await async_tts_audio(hass, speech, engine, language, options)
-        await rt.api.thread_sendvoice("user", thread_id, "tra_loi." + (ext or "mp3"), data, _MIME.get(ext or "mp3", "application/octet-stream"))
+        await rt.api.thread_sendvoice(thread_type, thread_id, "tra_loi." + (ext or "mp3"), data, _MIME.get(ext or "mp3", "application/octet-stream"))
         return True
     except Exception as err:  # noqa: BLE001 - TTS/gửi lỗi thì gửi chữ
         _LOGGER.warning("AI không trả lời bằng tin thoại được (%s), gửi chữ", err)
@@ -73,22 +81,16 @@ async def _async_voice_reply(hass: HomeAssistant, rt, thread_id: str, reply: str
 
 
 async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
-                         event: dict) -> None:
+                         event: dict, rule: dict) -> None:
     rt = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     if rt is None:
         return
     d = rt.defaults
-    if not d.get(CONF_AI_ENABLED):
-        return
     text = str(event.get("content") or "").strip()
     thread_id = str(event.get("thread_id") or "")
-    if not text or not thread_id or event.get("is_self") \
-            or _is_group(event.get("thread_type")):
+    if not text or not thread_id or event.get("is_self"):
         return
-    allow = [t.strip() for t in str(d.get(CONF_AI_THREADS) or "").split(",")
-             if t.strip()]
-    if allow and thread_id not in allow:
-        return
+    thread_type = "group" if _is_group(event.get("thread_type")) else "user"
     lock = _locks.setdefault(thread_id, asyncio.Lock())
     async with lock:
         wait = MIN_INTERVAL - (time.monotonic() - _last.get(thread_id, 0.0))
@@ -101,14 +103,17 @@ async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
         # Nhanh nhất: nhúng chỉ dẫn định dạng VÀO CHÍNH lượt hỏi, trợ lý vừa trả lời vừa tự định dạng/chọn emoji, không gọi thêm lần nào.
         data = {"text": text + ("\n\n" + build_inline_hint(aspects) if inline else ""), "conversation_id": "zalo_call_" + thread_id,
                 "language": hass.config.language}
-        if d.get(CONF_AI_AGENT):
-            data["agent_id"] = d.get(CONF_AI_AGENT)
+        agent = rule.get("agent") or pipeline_agent(hass, rule.get("pipeline") or None)      # trợ lý trong quy tắc (hoặc của pipeline)
+        if agent:
+            data["agent_id"] = agent
+        if not rule.get("trusted"):                                                           # lời dặn mềm: người gửi chưa xác thực
+            data["text"] += "\n\n(" + PUBLIC_HINT + ")"
         try:
             resp = await hass.services.async_call(
                 "conversation", "process", data, blocking=True,
                 return_response=True)
             reply = _speech(resp)
-            if reply and from_voice and d.get(CONF_AI_VOICE_REPLY) and await _async_voice_reply(hass, rt, thread_id, reply[:MAX_REPLY]):
+            if reply and from_voice and await _async_voice_reply(hass, rt, thread_id, reply[:MAX_REPLY], rule, thread_type):
                 return
             if reply:
                 emphasis = d.get(CONF_AI_EMPHASIS)
@@ -122,7 +127,7 @@ async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
                     markup = await async_markup_for(hass, d, text, style, auto_emoji)
                 # còn lại: các mục auto dùng quy tắc cứng (tức thì) ở app
                 await rt.api.thread_send(
-                    "user", thread_id, text, fmt,
+                    thread_type, thread_id, text, fmt,
                     None if emphasis in (None, "", "off") else emphasis,
                     None, auto_emoji, None, style, markup)
         except ZaloCallError as err:

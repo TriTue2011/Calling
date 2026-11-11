@@ -2675,9 +2675,6 @@ async function loadDevices() {
     $("dev-bitrate").value = v.bitrate_kbps || 300;
     $("dev-auto-video").checked = !!d.auto_video_on_request;
     $("dev-auto-delay").value = d.auto_video_delay || 0;
-    $("dev-auto-answer").checked = !!d.auto_answer;
-    $("dev-answer-delay").value = d.auto_answer_delay || 0;
-    $("dev-answer-from").value = d.auto_answer_from || "";
     $("devices-note").textContent = "";
   } catch (e) {
     $("devices-note").textContent = "Không tải được cài đặt: " + (e.message || e);
@@ -2695,9 +2692,6 @@ async function saveDevices(ev) {
       camera_url: $("dev-camera-url").value.trim(),
       auto_video_on_request: $("dev-auto-video").checked,
       auto_video_delay: +$("dev-auto-delay").value || 0,
-      auto_answer: $("dev-auto-answer").checked,
-      auto_answer_delay: +$("dev-answer-delay").value || 0,
-      auto_answer_from: $("dev-answer-from").value.trim(),
       video: { width: +$("dev-width").value, height: +$("dev-height").value,
                fps: +$("dev-fps").value, bitrate_kbps: +$("dev-bitrate").value },
     });

@@ -249,7 +249,7 @@ def build_call_event(call_entry, account_id):
     if status == "error":
         payload["detail"] = call_entry.get("detail", "") or ""
     if status == "answered":
-        # api = nguoi/automation goi answer; auto = app tu nghe may (auto_answer); media = thay RTP; sync = ben kia nghe may.
+        # api = nguoi/automation (HA) goi answer; media = thay RTP dau tien; sync = ben kia nghe may.
         payload["answer_source"] = str(call_entry.get("answer_source", "") or "")
     if status == "ended":
         # Ly do ket thuc that (user_end / ring_timeout / peer_declined /
@@ -296,6 +296,8 @@ def build_message_event(msg, account_id):
         "received_at": round(time.time(), 3),
         "is_stranger": bool(msg.get("isStranger", msg.get("is_stranger", False))),
     })
+    if msg.get("contactStatus"):
+        payload["contact_status"] = str(msg["contactStatus"])      # group / friend / stranger / unknown (chua tai duoc danh ba)
     if msg.get("kind"):
         payload["kind"] = str(msg["kind"])                         # text / voice / photo / file / system
     if msg.get("voiceUrl"):
@@ -492,13 +494,15 @@ def dispatch_voice2text(dispatcher, ev, account_id):
     return dispatcher.dispatch("message", build_voice2text_event(ev, account_id))
 
 
-def dispatch_call_event(dispatcher, call_entry, account_id):
+def dispatch_call_event(dispatcher, call_entry, account_id, extra=None):
     """Call event from a call_log record (sent/answered/error/ended).
     Fires NOW — the app itself is the source, no sync channel needed."""
     if dispatcher is None or not call_entry:
         return False
-    return dispatcher.dispatch(
-        "call", build_call_event(call_entry, account_id))
+    payload = build_call_event(call_entry, account_id)
+    if extra:
+        payload.update({k: v for k, v in extra.items() if v is not None and v != ""})
+    return dispatcher.dispatch("call", payload)
 
 
 def dispatch_message(dispatcher, msg, account_id):
