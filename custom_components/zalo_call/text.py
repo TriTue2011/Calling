@@ -9,7 +9,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .bridge_core import valid_url
-from .const import CONF_AI_CALL_GREETING, CONF_AI_CALL_HANDOVER, CONF_AI_THREADS, CONF_AUTO_ANSWER_FROM, CONF_HA_URL, DOMAIN
+from .const import CONF_AI_CALL_GREETING, CONF_AI_CALL_HANDOVER, CONF_AI_CALL_TRUSTED, CONF_AI_THREADS, CONF_AUTO_ANSWER_FROM, CONF_HA_URL, DOMAIN
 from .entity import ZaloCallEntity
 
 
@@ -17,7 +17,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             add: AddEntitiesCallback) -> None:
     rt = hass.data[DOMAIN][entry.entry_id]
     add([MicUrlText(entry, rt), HaUrlText(entry, rt), AiThreadsText(entry, rt), AutoAnswerFromText(entry, rt),
-         AiCallGreetingText(entry, rt), AiCallHandoverText(entry, rt)])
+         AiCallGreetingText(entry, rt), AiCallHandoverText(entry, rt), AiCallTrustedText(entry, rt)])
 
 
 class MicUrlText(ZaloCallEntity, TextEntity):
@@ -128,3 +128,16 @@ class AiCallHandoverText(_PlainText):
 
     async def async_set_value(self, value: str) -> None:
         await self._rt.defaults.async_set(**{self._key: value.strip()})
+
+
+class AiCallTrustedText(_PlainText):
+    """ID Zalo của người tin cậy (gia đình): dùng «trợ lý cho người tin cậy». Giọng nói không xác thực được ai, nên đừng cấp quyền nguy hiểm."""
+
+    def __init__(self, entry: ConfigEntry, rt) -> None:
+        super().__init__(entry, rt, CONF_AI_CALL_TRUSTED, "AI trong cuộc gọi: ID Zalo tin cậy (cách nhau dấu phẩy)", "mdi:account-lock")
+
+    async def async_set_value(self, value: str) -> None:
+        ids = [p.strip() for p in value.replace(";", ",").split(",") if p.strip()]
+        if not all(p.isdigit() for p in ids):
+            raise ServiceValidationError("Chỉ nhập ID Zalo (số), cách nhau dấu phẩy")
+        await self._rt.defaults.async_set(**{self._key: ",".join(ids)})

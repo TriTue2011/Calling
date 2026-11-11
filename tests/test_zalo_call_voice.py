@@ -57,7 +57,7 @@ class FakeApi:
 
 
 def _rt(api):
-    return SimpleNamespace(api=api, voice=cv.CallVoice())
+    return SimpleNamespace(api=api, voice=cv.CallVoice(), defaults=_Defaults())
 
 
 @pytest.fixture(autouse=True)
@@ -162,7 +162,7 @@ class FakePipelineModule:
     async def run(self, hass, *, context, event_callback, stt_metadata, stt_stream, pipeline_id=None,
                   conversation_id=None, end_stage=None, audio_settings=None, conversation_extra_system_prompt=None, **kw):
         from homeassistant.components.assist_pipeline import pipeline as pl
-        assert end_stage == pl.PipelineStage.INTENT                     # TTS do call_voice tự làm bằng giọng của pipeline
+        assert end_stage in (pl.PipelineStage.INTENT, pl.PipelineStage.STT)   # TTS do call_voice tự làm bằng giọng của pipeline
         assert "điện thoại" in (conversation_extra_system_prompt or "")  # nhắc trợ lý đang nói qua điện thoại
         assert cv.HANDOVER_MARK in conversation_extra_system_prompt       # và cách tự chuyển sang trực tiếp
         self.convs.append(conversation_id)
@@ -508,3 +508,88 @@ async def test_ai_loop_handover_through_llm_tool(hass, monkeypatch):
     res = await cv.async_run_ai(hass, api, "77", cv.Plan(ai=True), voice)
     assert res["handover"] is True and [s[2].decode() for s in api.said] == ["TTS:Mình chuyển máy ngay"]
     assert voice.ai_running == [] and voice.handover == {} and voice.call_context_ids == set()      # dọn sạch
+
+
+# ---- Phạm vi theo người gọi: trợ lý RIÊNG (giới hạn thật) + lời dặn mềm ---------------------------------------------------
+class _Defaults(dict):
+    def get(self, k, d=None):
+        return dict.get(self, k, d)
+
+
+def test_pick_agent_tiers_by_caller():
+    d = _Defaults(ai_call_agent="conversation.le_tan", ai_call_agent_trusted="conversation.nguoi_nha", ai_call_trusted="111, 222")
+    assert cv.pick_agent(d, "999") == ("conversation.le_tan", False)             # người lạ (kể cả người trong danh bạ nhưng không tin cậy)
+    assert cv.pick_agent(d, "111") == ("conversation.nguoi_nha", True)           # người tin cậy
+    d2 = _Defaults(ai_call_agent="conversation.le_tan", ai_call_trusted="111")   # tin cậy nhưng chưa chọn trợ lý riêng cho họ
+    assert cv.pick_agent(d2, "111") == ("conversation.le_tan", True)
+    assert cv.pick_agent(_Defaults(), "111") == ("", False)                      # chưa cấu hình: dùng trợ lý của pipeline
+
+
+def test_public_scope_hint_only_for_untrusted_callers():
+    assert cv.PUBLIC_HINT in cv.phone_hint("", trusted=False)
+    assert cv.PUBLIC_HINT not in cv.phone_hint("", trusted=True)
+    assert cv.HANDOVER_MARK in cv.phone_hint("", trusted=True)
+
+
+async def test_incoming_ai_picks_agent_by_caller_tier(hass, monkeypatch):
+    seen = []
+
+    async def fake_ai(hass_, api, call_id, plan, voice=None):
+        seen.append((call_id, plan.agent_id, plan.trusted))
+        return {"handover": False, "heard": ""}
+    monkeypatch.setattr(cv, "async_run_ai", fake_ai)
+    for cid, caller in (("71", "999"), ("72", "111")):
+        rt = _rt(FakeApi())
+        rt.defaults = _Defaults(ai_call_agent="conversation.le_tan", ai_call_agent_trusted="conversation.nguoi_nha", ai_call_trusted="111")
+        cv.on_call_state(hass, rt, "incoming", cid, TERMINAL, True, "", "", "", caller)
+        cv.on_call_state(hass, rt, "answered", cid, TERMINAL, True, "", "auto", "", caller)
+        for _ in range(60):
+            if len(seen) and seen[-1][0] == cid:
+                break
+            await asyncio.sleep(0.02)
+    assert seen == [("71", "conversation.le_tan", False), ("72", "conversation.nguoi_nha", True)], seen
+
+
+async def test_dedicated_agent_gets_the_question_pipeline_only_does_stt(hass, monkeypatch):
+    """Có trợ lý riêng: pipeline dừng ở STT (không đi qua trợ lý của pipeline), câu hỏi tới ĐÚNG trợ lý được chọn."""
+    from homeassistant.components import assist_pipeline
+    from homeassistant.components.assist_pipeline import pipeline as pl
+    from homeassistant.core import SupportsResponse
+    from pytest_homeassistant_custom_component.common import async_mock_service
+    stages = []
+
+    async def run(hass_, *, context, event_callback, stt_metadata, stt_stream, end_stage=None, conversation_extra_system_prompt=None, **kw):
+        stages.append(end_stage)
+        async for _c in stt_stream:
+            break
+        event_callback(pl.PipelineEvent(pl.PipelineEventType.STT_END, {"stt_output": {"text": "đèn phòng khách đang bật không"}}))
+    monkeypatch.setattr(assist_pipeline, "async_pipeline_from_audio_stream", run)
+    monkeypatch.setattr(pl, "async_get_pipeline", lambda hass_, pid=None: SimpleNamespace(
+        stt_language="vi", tts_engine=None, tts_language=None, tts_voice=None))
+    calls = async_mock_service(hass, "conversation", "process", response={"conversation_id": "c9", "response": {"speech": {"plain": {"speech": "Mình không có thông tin đó ạ"}}}},
+                               supports_response=SupportsResponse.OPTIONAL)
+
+    class L:
+        def __init__(self, *a):
+            self.muted = self.ended = False
+
+        def start(self):
+            pass
+
+        def drain(self):
+            pass
+
+        def stop(self):
+            pass
+
+        async def chunks(self):
+            while True:
+                yield b"\x00" * 3200
+                await asyncio.sleep(0)
+    monkeypatch.setattr(cv, "_Listener", L)
+    api = FakeApi(statuses=["answered", "ended"])
+    await cv.async_run_ai(hass, api, "77", cv.Plan(ai=True, agent_id="conversation.le_tan", trusted=False))
+    assert stages and all(s == pl.PipelineStage.STT for s in stages)
+    assert len(calls) == 1 and calls[0].data["agent_id"] == "conversation.le_tan"
+    assert "đèn phòng khách đang bật không" in calls[0].data["text"] and cv.PUBLIC_HINT in calls[0].data["text"]
+    assert [s[2].decode() for s in api.said] == ["TTS:Mình không có thông tin đó ạ"]

@@ -144,7 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if state is not None:
                 on_call_state(hass_, hass_.data[DOMAIN][entry.entry_id], state, payload.get("call_id"), TERMINAL_STATES,
                               bool(defaults.get(CONF_AI_CALL)), str(defaults.get(CONF_AI_CALL_GREETING) or ""),
-                              str(payload.get("answer_source") or ""), str(defaults.get(CONF_AI_CALL_HANDOVER) or ""))
+                              str(payload.get("answer_source") or ""), str(defaults.get(CONF_AI_CALL_HANDOVER) or ""), payload.get("thread_id"))
         elif kind == "message":
             hass_.async_create_task(async_ai_reply(hass_, entry, payload))
         return web.Response(status=200)

@@ -237,6 +237,16 @@ Tên được tìm trong danh bạ Zalo không cần dấu; có nhiều người
 
 **An toàn:** trong cuộc gọi do AI giữ (người bên ngoài đang nói), trợ lý chỉ thấy **một** công cụ là «chuyển sang trực tiếp». Người lạ nói qua điện thoại không sai khiến được AI gọi điện, nhắn tin hay cúp máy khác. Công cụ «chuyển sang trực tiếp» cũng là cách AI tự chuyển (ngoài dấu `[[CHUYEN_MAY]]`), nên không cần dặn thêm.
 
+## Phạm vi dữ liệu của AI khi người ngoài gọi vào
+
+Giọng nói **không xác thực được ai**, và dặn trong prompt chỉ là lớp mềm (người gọi có thể nói khéo để lách). Giới hạn thật nằm ở **trợ lý được dùng cho cuộc gọi**, vì quyền xem/điều khiển thiết bị là quyền của trợ lý đó:
+
+1. **Tạo một trợ lý hội thoại riêng cho điện thoại** (ví dụ thêm một mục OpenAI/Ollama thứ hai tên «Lễ tân») và **đừng tích «Assist»** cho nó (không quyền thiết bị, không đọc trạng thái nhà). Trên thiết bị Zalo Call chọn nó ở ô **«AI trong cuộc gọi: trợ lý RIÊNG cho người gọi chưa tin cậy»**. Pipeline chỉ nghe (STT) rồi câu hỏi đi thẳng tới trợ lý này; nó chỉ biết những gì bạn cho vào prompt của chính nó (ví dụ giờ giấc, lời nhắn) và công cụ «chuyển sang trực tiếp».
+2. **Người tin cậy (gia đình):** điền ID Zalo vào **«AI trong cuộc gọi: ID Zalo tin cậy»** và (tuỳ chọn) chọn **«trợ lý cho người tin cậy»** (ví dụ trợ lý có Assist để hỏi trạng thái nhà). Người **trong danh bạ nhưng không có trong danh sách này vẫn là người chưa tin cậy**: danh bạ không phải ranh giới bảo mật. Vì giọng nói có thể bị nhái hoặc điện thoại bị mượn, **đừng cấp cho trợ lý này quyền khoá cửa, bếp, bình nóng lạnh.**
+3. **Chưa chọn trợ lý riêng:** AI dùng trợ lý của Assist pipeline và chỉ còn **lời dặn mềm** («người gọi chưa được xác thực: không tiết lộ thông tin gia đình/thiết bị, chỉ ghi nhận lời nhắn»). Cách này **không đảm bảo** nếu trợ lý đó có quyền thiết bị — hãy làm bước 1 trước khi bật «AI nghe và trả lời trong cuộc gọi đến».
+
+Ngoài ra, trong cuộc gọi do AI giữ, LLM API «Zalo Call» chỉ để lộ công cụ «chuyển sang trực tiếp» (không thể gọi điện, nhắn tin hay cúp máy khác).
+
 ## Bảng các trường hợp cuộc gọi
 
 **Gọi đi** (tài khoản Zalo của app gọi cho người khác, `make_call`):

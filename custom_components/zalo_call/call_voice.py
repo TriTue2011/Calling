@@ -23,6 +23,9 @@ from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
+from .bridge_core import entity_of_label
+from .const import CONF_AI_CALL_AGENT, CONF_AI_CALL_AGENT_TRUSTED, CONF_AI_CALL_TRUSTED
+from .styler import _speech
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,10 +48,24 @@ HANDOVER_HINT = ("Khi người gọi muốn nói chuyện với người trong n
                  " (dấu này sẽ không được đọc ra). Sau dấu đó cuộc gọi được nối trực tiếp với thiết bị trong nhà.")
 
 
-def phone_hint(handover_rule: str = "") -> str:
-    """Gợi ý cho trợ lý: nói chuyện qua điện thoại + khi nào tự chuyển sang trực tiếp (handover_rule: điều kiện riêng)."""
+PUBLIC_HINT = ("Người gọi CHƯA được xác thực: không tiết lộ bất kỳ thông tin nào về gia đình, thiết bị, lịch sinh hoạt hay vị trí; không điều "
+               "khiển thiết bị. Chỉ chào hỏi, ghi nhận lời nhắn và chuyển máy khi cần.")
+
+
+def phone_hint(handover_rule: str = "", trusted: bool = False) -> str:
+    """Gợi ý cho trợ lý: nói chuyện qua điện thoại + phạm vi (người chưa tin cậy) + khi nào tự chuyển sang trực tiếp.
+    Đây chỉ là lớp MỀM; giới hạn thật nằm ở trợ lý được chọn cho cuộc gọi (không có quyền thiết bị) — xem pick_agent."""
     rule = (" Điều kiện chuyển máy riêng: %s." % handover_rule.strip().rstrip(".")) if handover_rule and handover_rule.strip() else ""
-    return PHONE_HINT + " " + HANDOVER_HINT + rule
+    return PHONE_HINT + ("" if trusted else " " + PUBLIC_HINT) + " " + HANDOVER_HINT + rule
+
+
+def pick_agent(defaults: Any, thread_id: Any) -> tuple[str, bool]:
+    """(trợ lý hội thoại cho cuộc gọi, người gọi có tin cậy không). Tin cậy = ID nằm trong danh sách; trợ lý tin cậy trống thì dùng trợ lý
+    thường. Trợ lý trống = dùng trợ lý của pipeline (giới hạn chỉ còn là lời dặn)."""
+    trusted_ids = {p.strip() for p in str(defaults.get(CONF_AI_CALL_TRUSTED) or "").split(",") if p.strip()}
+    trusted = str(thread_id or "") in trusted_ids
+    key = CONF_AI_CALL_AGENT_TRUSTED if trusted and defaults.get(CONF_AI_CALL_AGENT_TRUSTED) else CONF_AI_CALL_AGENT
+    return entity_of_label(str(defaults.get(key) or "")), trusted
 
 
 @dataclass
@@ -63,6 +80,8 @@ class Plan:
     pipeline_id: str | None = None
     greeting: str = ""           # AI nói trước khi chưa có `message` (cuộc gọi đến)
     handover_rule: str = ""      # điều kiện riêng để AI tự chuyển sang trực tiếp (ngoài các điều kiện chung)
+    agent_id: str = ""           # trợ lý hội thoại RIÊNG cho cuộc gọi (trống = trợ lý của pipeline)
+    trusted: bool = False        # người gọi nằm trong danh sách tin cậy
 
 
 @dataclass
@@ -214,7 +233,7 @@ class _Listener:
 
 async def _one_turn(hass: HomeAssistant, listener: _Listener, pipeline_id: str | None, language: str,
                     conversation_id: str | None, hint: str = PHONE_HINT,
-                    context: Context | None = None) -> tuple[str, str, str | None]:
+                    context: Context | None = None, agent_id: str = "") -> tuple[str, str, str | None]:
     """Nghe một câu → (chữ người gọi nói, câu trả lời của trợ lý, conversation_id). Không nghe ra chữ thì chữ = ""."""
     from homeassistant.components import assist_pipeline, stt          # nạp muộn: chỉ cần khi bật AI trong cuộc gọi
     from homeassistant.components.assist_pipeline import pipeline as pipeline_mod
@@ -244,12 +263,21 @@ async def _one_turn(hass: HomeAssistant, listener: _Listener, pipeline_id: str |
             await assist_pipeline.async_pipeline_from_audio_stream(
                 hass, context=context or Context(), event_callback=on_event, stt_metadata=meta, stt_stream=stream,
                 pipeline_id=pipeline_id, conversation_id=conversation_id,
-                end_stage=pipeline_mod.PipelineStage.INTENT,
+                # Có trợ lý riêng: pipeline chỉ làm STT, câu hỏi đi thẳng tới TRỢ LÝ ĐÓ (quyền của nó mới là giới hạn thật).
+                end_stage=pipeline_mod.PipelineStage.STT if agent_id else pipeline_mod.PipelineStage.INTENT,
                 audio_settings=pipeline_mod.AudioSettings(is_vad_enabled=True, silence_seconds=0.8), **extra)
     except (asyncio.TimeoutError, TimeoutError):
         pass
     finally:
         await stream.aclose()
+    if agent_id and got["text"]:
+        resp = await hass.services.async_call(
+            "conversation", "process",
+            {"text": "%s\n\n(%s)" % (got["text"], hint), "language": language, "agent_id": agent_id,
+             **({"conversation_id": got["conv"]} if got["conv"] else {})},
+            blocking=True, return_response=True, context=context or Context())
+        got["reply"] = _speech(resp)
+        got["conv"] = (resp or {}).get("conversation_id") or got["conv"]
     return got["text"], got["reply"], got["conv"]
 
 
@@ -271,7 +299,7 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
     listener = _Listener(hass, "%s/api/call/audio/tap/%s" % (api.url, token))
     listener.start()
     start, conv, idle, turns = time.monotonic(), None, 0, 0
-    hint, handover, heard = phone_hint(plan.handover_rule), False, ""
+    hint, handover, heard = phone_hint(plan.handover_rule, plan.trusted), False, ""
     context = Context()                           # lượt AI trong cuộc gọi có Context riêng: LLM API nhận ra để chỉ cho công cụ chuyển máy
     if voice is not None:
         voice.call_context_ids.add(context.id)
@@ -285,7 +313,7 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
         while turns < MAX_TURNS and time.monotonic() - start < MAX_CALL_S and not listener.ended:
             if await _call_status(api, call_id) != "answered":
                 break
-            text, reply, conv = await _one_turn(hass, listener, plan.pipeline_id, language, conv, hint, context)
+            text, reply, conv = await _one_turn(hass, listener, plan.pipeline_id, language, conv, hint, context, plan.agent_id)
             turns += 1
             if not text:
                 idle += 1
@@ -371,7 +399,7 @@ async def async_take_over(rt: Any, call_id: str | None = None) -> dict[str, Any]
 
 
 def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, terminal: tuple, ai_incoming: bool,
-                  greeting: str, answer_source: str = "", handover_rule: str = "") -> None:
+                  greeting: str, answer_source: str = "", handover_rule: str = "", thread_id: Any = None) -> None:
     """Gọi từ webhook cuộc gọi. ai_incoming: công tắc «AI trong cuộc gọi» — chỉ áp cho cuộc gọi ĐẾN do app TỰ NGHE MÁY
     (answer_source == "auto"); người thật nghe máy (answer_call, R1…) thì AI không chen vào, trừ khi answer_call có ai=true."""
     cid = str(call_id)
@@ -381,7 +409,8 @@ def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, termin
     elif state == "answered":
         plan = voice.plans.pop(cid, None)
         if plan is None and ai_incoming and cid in voice.incoming and answer_source == "auto":
-            plan = Plan(ai=True, hangup=True, greeting=greeting or DEFAULT_GREETING, handover_rule=handover_rule)
+            agent, trusted = pick_agent(rt.defaults, thread_id)
+            plan = Plan(ai=True, hangup=True, greeting=greeting or DEFAULT_GREETING, handover_rule=handover_rule, agent_id=agent, trusted=trusted)
         if plan is not None and cid not in voice.tasks:
             voice.tasks[cid] = hass.async_create_task(_run_plan(hass, rt, cid, plan))
     elif state in terminal:

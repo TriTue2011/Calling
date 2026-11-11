@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .bridge_core import entity_of_label, label
-from .const import (CONF_TEXT_AI_AGENT, TEXT_STYLE_KEYS, AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL, TEST_LABEL,
+from .const import (CONF_AI_CALL_AGENT, CONF_AI_CALL_AGENT_TRUSTED, CONF_TEXT_AI_AGENT, TEXT_STYLE_KEYS, AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL, TEST_LABEL,
                     TEST_SOURCE)
 from .entity import ZaloCallEntity
 
@@ -49,6 +49,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                      ("conversation",), push=False),
         DeviceSelect(hass, entry, rt, CONF_TEXT_AI_AGENT,
                      "Chữ: trợ lý AI dùng cho chế độ auto (Không = trợ lý của AI trả lời)", "mdi:forum-outline",
+                     ("conversation",), push=False),
+        DeviceSelect(hass, entry, rt, CONF_AI_CALL_AGENT,
+                     "AI trong cuộc gọi: trợ lý RIÊNG cho người gọi chưa tin cậy (chọn trợ lý KHÔNG có quyền thiết bị)", "mdi:shield-account",
+                     ("conversation",), push=False),
+        DeviceSelect(hass, entry, rt, CONF_AI_CALL_AGENT_TRUSTED,
+                     "AI trong cuộc gọi: trợ lý cho người tin cậy (Không = dùng trợ lý ở trên)", "mdi:account-check",
                      ("conversation",), push=False),
         AiOptionSelect(entry, rt, CONF_AI_FORMAT, "AI: định dạng chữ trả lời (markdown = hết dấu ** thô)",
                        "mdi:format-text", AI_FORMATS),
