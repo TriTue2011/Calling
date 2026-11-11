@@ -29,7 +29,7 @@ if _REPO_CC not in [os.path.abspath(p) for p in custom_components.__path__]:
 from aiohttp import web  # noqa: E402
 from custom_components.zalo_call import call_voice as cv  # noqa: E402
 from custom_components.zalo_call import rules as R  # noqa: E402
-from homeassistant.exceptions import ServiceValidationError  # noqa: E402
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError  # noqa: E402
 from test_zalo_call_ha_end_to_end import DOMAIN, THREAD, FakeZaloApp, fake_agent, setup  # noqa: E402,F401
 
 TERMINAL = ("ended", "no_answer", "declined", "missed", "rejected", "error")
@@ -1105,4 +1105,14 @@ async def test_accept_video_service_needs_a_live_call_or_call_id_and_sends_camer
     assert r == {"call_id": "555", "accepted": True, "camera": False} and accepts() == [{"call_id": "555", "action": "start", "target": "accept_video"}]
     await hass.services.async_call(DOMAIN, "accept_video", {"call_id": "555", "camera": "camera.phong_khach"}, blocking=True, return_response=True)
     assert accepts()[1]["camera_url"] == "rtsp://cam.local/live"
+
+
+async def test_say_in_call_speaks_on_the_given_call_and_refuses_when_no_call_is_live(hass, setup, app):
+    says = lambda: [r for r in app.requests if r["path"] == "/api/call/say"]   # noqa: E731
+    r = await hass.services.async_call(DOMAIN, "say_in_call", {"call_id": "555", "message": "Xin chào", "wait": False}, blocking=True, return_response=True)
+    assert r == {"call_id": "555"} and len(says()) == 1, (r, app.requests)
+    n = len(says())
+    with pytest.raises(HomeAssistantError):                                                    # không nêu call_id mà cũng không có cuộc gọi nào đang nói
+        await hass.services.async_call(DOMAIN, "say_in_call", {"message": "Xin chào", "wait": False}, blocking=True, return_response=True)
+    assert len(says()) == n
 
