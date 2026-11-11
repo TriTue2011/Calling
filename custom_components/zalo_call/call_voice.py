@@ -25,6 +25,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
+from .bridge_core import candidates, entity_of_label
 from .rules import CONNECT_PARTS, get_rules, parse_connect, resolve as resolve_rule
 from .styler import _speech
 
@@ -514,12 +515,19 @@ async def _wait_player_idle(hass: HomeAssistant, entity_id: str, start_timeout: 
         await asyncio.sleep(POLL_S)
 
 
+def announce_targets(rule: dict[str, Any]) -> list[str]:
+    """Các loa báo cuộc gọi đến: `announce_to` có thể là NHIỀU loa cách nhau dấu phẩy (nhà có nhiều loa R1): báo ra TẤT CẢ."""
+    return [entity_of_label(c) for c in candidates(rule.get("announce_to"))]
+
+
 async def _announce_once(hass: HomeAssistant, rule: dict[str, Any], payload: dict[str, Any]) -> bool:
     engine, language, options = pipeline_tts(hass, rule.get("pipeline") or None)
     if not engine:
         _LOGGER.warning("Thông báo cuộc gọi đến: chưa có giọng đọc (TTS) - chọn pipeline trong quy tắc")
         return False
-    data: dict[str, Any] = {"entity_id": engine, "media_player_entity_id": rule["announce_to"], "message": announce_text(rule, payload)}
+    targets = announce_targets(rule)
+    data: dict[str, Any] = {"entity_id": engine, "media_player_entity_id": targets if len(targets) > 1 else (targets[0] if targets else rule["announce_to"]),
+                            "message": announce_text(rule, payload)}
     if language:
         data["language"] = language
     if options:
@@ -544,22 +552,27 @@ async def async_announce_incoming(hass: HomeAssistant, rt: Any, payload: dict[st
     if not rule or not rule.get("announce") or not rule.get("announce_to"):
         return False
     cid = str(payload.get("call_id"))
-    player = rule["announce_to"]
-    old_level = None
+    players = announce_targets(rule)
+    old_levels: dict[str, Any] = {}
     level = int(rule.get("announce_volume") or 0)
-    if level > 0:                                                 # đặt âm lượng riêng cho tiếng báo (nhớ mức cũ để trả lại nếu không ai nghe)
-        old_level = getattr(hass.states.get(player), "attributes", {}).get("volume_level")
-        try:
-            await hass.services.async_call("media_player", "volume_set", {"entity_id": player, "volume_level": level / 100}, blocking=True)
-        except Exception:  # noqa: BLE001 - loa không đặt được âm lượng thì vẫn báo
-            _LOGGER.warning("Không đặt được âm lượng báo cuộc gọi cho %s", player, exc_info=True)
-            old_level = None
+    if level > 0:                                                 # đặt âm lượng riêng cho tiếng báo (nhớ mức cũ từng loa để trả lại nếu không ai nghe)
+        for player in players:
+            prev = getattr(hass.states.get(player), "attributes", {}).get("volume_level")
+            try:
+                await hass.services.async_call("media_player", "volume_set", {"entity_id": player, "volume_level": level / 100}, blocking=True)
+                if prev is not None:
+                    old_levels[player] = prev
+            except Exception:  # noqa: BLE001 - loa không đặt được âm lượng thì vẫn báo
+                _LOGGER.warning("Không đặt được âm lượng báo cuộc gọi cho %s", player, exc_info=True)
+
+    async def _wait_all() -> None:
+        await asyncio.gather(*(_wait_player_idle(hass, p) for p in players))
     try:
         if not await _announce_once(hass, rule, payload):
             return False
         gap = int(rule.get("announce_repeat") or 0)
         for _ in range(MAX_ANNOUNCE_LOOPS if gap > 0 else 0):
-            await _wait_player_idle(hass, player)
+            await _wait_all()
             await asyncio.sleep(gap)
             if cid not in rt.voice.incoming:
                 break
@@ -567,12 +580,13 @@ async def async_announce_incoming(hass: HomeAssistant, rt: Any, payload: dict[st
                 break
         else:
             if gap <= 0:
-                await _wait_player_idle(hass, player)             # báo một lần: chờ đọc xong rồi mới trả âm lượng
+                await _wait_all()                                 # báo một lần: chờ đọc xong rồi mới trả âm lượng
         return True
     finally:
-        if old_level is not None and cid not in rt.voice.answered_ids:     # không ai nghe: trả loa về mức cũ (nghe rồi thì cuộc gọi tự đặt âm lượng)
-            with contextlib.suppress(Exception):
-                await hass.services.async_call("media_player", "volume_set", {"entity_id": player, "volume_level": old_level}, blocking=True)
+        if old_levels and cid not in rt.voice.answered_ids:        # không ai nghe: trả các loa về mức cũ (nghe rồi thì cuộc gọi tự đặt âm lượng)
+            for player, prev in old_levels.items():
+                with contextlib.suppress(Exception):
+                    await hass.services.async_call("media_player", "volume_set", {"entity_id": player, "volume_level": prev}, blocking=True)
 
 
 async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> None:

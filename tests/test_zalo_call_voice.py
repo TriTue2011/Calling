@@ -1256,3 +1256,31 @@ async def test_device_fallback_list_in_a_rule_uses_the_next_device_when_the_firs
     hass.states.async_set("assist_satellite.r1", "unavailable")
     assert rt.bridge.devices_for({"mic": rule["mic"]})["mic"] == "camera.pk"
 
+
+async def test_incoming_call_is_announced_on_every_listed_speaker_with_volume_per_speaker(hass, setup, app, hass_client_no_auth, monkeypatch):
+    a, b = "media_player.r1_phong_khach", "media_player.r1_phong_ngu"
+    hass.states.async_set(a, "idle", {"volume_level": 0.2})
+    hass.states.async_set(b, "idle", {"volume_level": 0.7})
+    spoken, vols = [], []
+
+    async def fake_speak(call):
+        spoken.append(call.data["media_player_entity_id"])
+        for p in call.data["media_player_entity_id"] if isinstance(call.data["media_player_entity_id"], list) else [call.data["media_player_entity_id"]]:
+            hass.states.async_set(p, "playing", {"volume_level": 0.4})
+
+            async def xong(p=p):
+                await asyncio.sleep(0.2)
+                hass.states.async_set(p, "idle", {"volume_level": 0.4})
+            hass.async_create_task(xong())
+    hass.services.async_register("tts", "speak", fake_speak)
+    hass.services.async_register("media_player", "volume_set", lambda c: vols.append((c.data["entity_id"], c.data["volume_level"])))
+    monkeypatch.setattr(cv, "pipeline_tts", lambda hass_, pid: ("tts.chatgpt", "vi", None))
+    await _set_rule(hass, scope="contacts", answer=False, announce=True, announce_to=f"{a},{b}", announce_volume=40)
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="m1", peer="Đại ca"))
+    await asyncio.sleep(0.8)
+    await _webhook(hass, hass_client_no_auth, {"event": "call", "status": "ended", "call_id": "m1", "thread_id": THREAD, "end_reason": "peer_ended"})
+    await hass.async_block_till_done()
+    assert spoken == [[a, b]], spoken                                                                  # một lệnh phát tới CẢ HAI loa
+    assert sorted(v for v in vols if v[1] == 0.4) == [(a, 0.4), (b, 0.4)], vols                       # âm lượng báo đặt cho từng loa
+    assert sorted(v for v in vols if v[1] != 0.4) == [(a, 0.2), (b, 0.7)], vols                       # không ai nghe: mỗi loa về đúng mức cũ của nó
+

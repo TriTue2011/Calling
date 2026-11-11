@@ -56,6 +56,8 @@ Thay vì gõ mã Zalo, hãy **chọn người và nhóm từ danh bạ**: *Cài 
 
 **Đường dự phòng thiết bị:** ô loa / mic / camera (ở quy tắc, dịch vụ gọi và blueprint) nhận **nhiều thực thể theo thứ tự ưu tiên** (dịch vụ: các thực thể cách nhau dấu phẩy, ví dụ `media_player.r1_loa,media_player.cam_phong_khach_speaker`). Khi nối, app lấy **thiết bị còn hoạt động đầu tiên** (thực thể tồn tại và không `unavailable`/`unknown`); thiết bị chính sống lại thì lần gọi sau dùng lại thiết bị chính.
 
+**Nhiều loa R1:** `announce_to` nhận nhiều loa (cách nhau dấu phẩy): cuộc gọi đến được báo ra TẤT CẢ các loa, âm lượng báo đặt và trả lại cho từng loa. Muốn loa nào được nhấn nút thì nghe máy bằng loa và mic của chính loa đó, dùng blueprint «Nút cho cuộc gọi đến» với trigger nút của mọi loa và để ô Loa/Mic trống (nó tự lấy từ thiết bị của nút). Tự nghe máy sau N giây (không ai nhấn) thì dùng loa đầu danh sách còn hoạt động.
+
 | Thuộc tính của thực thể | Ý nghĩa |
 |---|---|
 | `thread_id` | Mã Zalo của người hoặc nhóm, truyền thẳng vào `send_message`, `make_call`, `alert_call` |
