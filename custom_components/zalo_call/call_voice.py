@@ -119,6 +119,7 @@ class Plan:
 class CallVoice:
     plans: dict[str, Plan] = field(default_factory=dict)
     incoming: set[str] = field(default_factory=set)
+    announce_tasks: dict[str, asyncio.Task] = field(default_factory=dict)   # call_id -> vòng báo (và báo lại) ra loa; huỷ khi nghe máy/kết thúc
     announced: set[str] = field(default_factory=set)             # call_id đã phát thông báo «có cuộc gọi» ra loa (mỗi cuộc một lần)
     scheduled: set[str] = field(default_factory=set)            # call_id đã lên lịch nghe máy theo quy tắc (mỗi cuộc một lần)
     timers: dict[str, Any] = field(default_factory=dict)        # call_id -> hàm huỷ lịch
@@ -499,13 +500,19 @@ def announce_text(rule: dict[str, Any], payload: dict[str, Any]) -> str:
     return str(rule.get("announce_text") or DEFAULT_ANNOUNCE).format_map(_Safe(loai=kind, ten=name))
 
 
-async def async_announce_incoming(hass: HomeAssistant, rt: Any, payload: dict[str, Any]) -> bool:
-    """Cuộc gọi ĐẾN: nếu quy tắc của người đó bật `announce` (và chọn loa `announce_to`) thì đọc thông báo ra loa đó, để người trong nhà biết có
-    người gọi. Không có quy tắc/không bật = im lặng. Giọng đọc = của pipeline trong quy tắc (không có thì pipeline ưu tiên, chỉ lấy giọng).
-    Trả về True nếu đã gửi lệnh phát."""
-    rule = resolve_rule(get_rules(rt.defaults), payload.get("thread_id"), "user", payload.get("contact_status"))
-    if not rule or not rule.get("announce") or not rule.get("announce_to"):
-        return False
+async def _wait_player_idle(hass: HomeAssistant, entity_id: str, start_timeout: float = 3.0, end_timeout: float = 45.0) -> None:
+    """Chờ loa đọc xong: đợi nó bắt đầu phát (tối đa start_timeout; tin ngắn có thể đã xong) rồi đợi hết phát (tối đa end_timeout)."""
+    loop = asyncio.get_running_loop()
+    busy = ("playing", "buffering")
+    t = loop.time()
+    while loop.time() - t < start_timeout and getattr(hass.states.get(entity_id), "state", None) not in busy:
+        await asyncio.sleep(POLL_S)
+    t = loop.time()
+    while loop.time() - t < end_timeout and getattr(hass.states.get(entity_id), "state", None) in busy:
+        await asyncio.sleep(POLL_S)
+
+
+async def _announce_once(hass: HomeAssistant, rule: dict[str, Any], payload: dict[str, Any]) -> bool:
     engine, language, options = pipeline_tts(hass, rule.get("pipeline") or None)
     if not engine:
         _LOGGER.warning("Thông báo cuộc gọi đến: chưa có giọng đọc (TTS) - chọn pipeline trong quy tắc")
@@ -520,6 +527,31 @@ async def async_announce_incoming(hass: HomeAssistant, rt: Any, payload: dict[st
     except Exception:  # noqa: BLE001 - lỗi loa/TTS không được làm hỏng việc nghe máy
         _LOGGER.warning("Không phát được thông báo cuộc gọi đến ra %s", rule["announce_to"], exc_info=True)
         return False
+    return True
+
+
+MAX_ANNOUNCE_LOOPS = 20          # chốt an toàn: một cuộc gọi không bị báo quá chừng này lần
+
+
+async def async_announce_incoming(hass: HomeAssistant, rt: Any, payload: dict[str, Any]) -> bool:
+    """Cuộc gọi ĐẾN: nếu quy tắc của người đó bật `announce` (và chọn loa `announce_to`) thì đọc thông báo ra loa đó, để người trong nhà biết ai
+    gọi. Có `announce_repeat` (giây) thì đọc xong chờ chừng đó rồi đọc lại, tới khi cuộc gọi được nghe hoặc kết thúc (vòng này bị huỷ lúc đó).
+    Không có quy tắc/không bật = im lặng. Giọng đọc = của pipeline trong quy tắc (không có thì pipeline ưu tiên, chưa có thì không đọc).
+    Trả về True nếu đã gửi lệnh phát."""
+    rule = resolve_rule(get_rules(rt.defaults), payload.get("thread_id"), "user", payload.get("contact_status"))
+    if not rule or not rule.get("announce") or not rule.get("announce_to"):
+        return False
+    if not await _announce_once(hass, rule, payload):
+        return False
+    gap = int(rule.get("announce_repeat") or 0)
+    cid = str(payload.get("call_id"))
+    for _ in range(MAX_ANNOUNCE_LOOPS if gap > 0 else 0):
+        await _wait_player_idle(hass, rule["announce_to"])
+        await asyncio.sleep(gap)
+        if cid not in rt.voice.incoming:
+            break
+        if not await _announce_once(hass, rule, payload):
+            break
     return True
 
 
@@ -685,6 +717,12 @@ def schedule_answer(hass: HomeAssistant, rt: Any, payload: dict[str, Any]) -> bo
     return True
 
 
+def _stop_announce(voice: "CallVoice", cid: str) -> None:
+    task = voice.announce_tasks.pop(cid, None)
+    if task is not None and not task.done():
+        task.cancel()
+
+
 def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, terminal: tuple, payload: dict[str, Any] | None = None) -> None:
     """Gọi từ webhook cuộc gọi: «incoming» → áp quy tắc nghe máy; «answered» → chạy kế hoạch (thông báo/AI); kết thúc → dọn lịch/kế hoạch."""
     cid = str(call_id)
@@ -693,15 +731,17 @@ def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, termin
         voice.incoming.add(cid)
         if cid not in voice.announced:                          # webhook «incoming» có thể đến hai lần: thông báo một lần
             voice.announced.add(cid)
-            hass.async_create_task(async_announce_incoming(hass, rt, payload or {"call_id": cid}))
+            voice.announce_tasks[cid] = hass.async_create_task(async_announce_incoming(hass, rt, payload or {"call_id": cid}))
         schedule_answer(hass, rt, payload or {"call_id": cid})
     elif state == "video_request":
         hass.async_create_task(async_handle_video_request(hass, rt, payload or {"call_id": cid}))
     elif state == "answered":
+        _stop_announce(voice, cid)                              # đã có người nghe: thôi báo ra loa
         plan = voice.plans.pop(cid, None)
         if plan is not None and cid not in voice.tasks:
             voice.tasks[cid] = hass.async_create_task(_run_plan(hass, rt, cid, plan))
     elif state in terminal:
+        _stop_announce(voice, cid)
         cancel = voice.timers.pop(cid, None)
         if cancel:
             cancel()

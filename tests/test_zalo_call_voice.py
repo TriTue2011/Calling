@@ -1116,3 +1116,49 @@ async def test_say_in_call_speaks_on_the_given_call_and_refuses_when_no_call_is_
         await hass.services.async_call(DOMAIN, "say_in_call", {"message": "Xin chào", "wait": False}, blocking=True, return_response=True)
     assert len(says()) == n
 
+
+async def test_announce_repeat_says_it_again_after_each_tts_finishes_until_answered_or_ended(hass, setup, app, hass_client_no_auth, monkeypatch):
+    mp = "media_player.loa_phong_khach"
+    hass.states.async_set(mp, "idle")
+    spoken = []                                                      # (thời điểm, câu): mỗi lần loa phát 0,3 giây rồi rảnh
+    loop = asyncio.get_running_loop()
+
+    async def fake_speak(call):
+        spoken.append((loop.time(), call.data["message"]))
+        hass.states.async_set(mp, "playing")
+
+        async def xong():
+            await asyncio.sleep(0.3)
+            hass.states.async_set(mp, "idle")
+        hass.async_create_task(xong())
+    hass.services.async_register("tts", "speak", fake_speak)
+    monkeypatch.setattr(cv, "pipeline_tts", lambda hass_, pid: ("tts.chatgpt", "vi", None))
+    with pytest.raises(vol.Invalid):
+        await _set_rule(hass, scope="contacts", announce=True, announce_to=mp, announce_repeat=61)       # quá 60 giây
+    await _set_rule(hass, scope="contacts", answer=False, announce=True, announce_to=mp, announce_repeat=1)
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="r1", peer="Đại ca"))
+    await asyncio.sleep(3.2)
+    n = len(spoken)
+    assert n >= 3 and {m for _, m in spoken} == {"Có cuộc gọi thoại từ Đại ca."}, spoken
+    gaps = [b[0] - a[0] for a, b in zip(spoken, spoken[1:])]
+    assert all(g >= 1.25 for g in gaps), gaps                          # 0,3 giây đọc + 1 giây chờ: báo lại SAU KHI đọc xong, không chồng lên nhau
+    await _webhook(hass, hass_client_no_auth, {"event": "call", "status": "answered", "call_id": "r1", "thread_id": THREAD})
+    await hass.async_block_till_done()
+    n = len(spoken)
+    await asyncio.sleep(2.0)
+    assert len(spoken) == n, spoken                                    # có người nghe máy: thôi báo
+    # Kết thúc trước khi nghe máy cũng thôi báo; không đặt announce_repeat thì chỉ báo một lần
+    spoken.clear()
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="r2", peer="Đại ca"))
+    await asyncio.sleep(1.0)
+    await _webhook(hass, hass_client_no_auth, {"event": "call", "status": "ended", "call_id": "r2", "thread_id": THREAD, "end_reason": "peer_ended"})
+    await hass.async_block_till_done()
+    n = len(spoken)
+    await asyncio.sleep(2.0)
+    assert len(spoken) == n >= 1, spoken
+    spoken.clear()
+    await _set_rule(hass, scope="contacts", announce_repeat=0)
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="r3", peer="Đại ca"))
+    await asyncio.sleep(2.5)
+    assert len(spoken) == 1, spoken
+

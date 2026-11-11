@@ -120,7 +120,7 @@ def test_sink_writes_frames_in_order_and_feeds_guard():
     assert proc.stdin.closed
 
 
-def test_mic_sender_is_gated_by_guard_but_keeps_pace():
+def test_mic_sender_gated_by_guard_sends_silence_frames_not_gaps_and_never_the_real_audio():
     sent, blocked = [], [False]
     frames = b"".join(bytes([i]) * 640 for i in range(1, 9))
 
@@ -137,10 +137,11 @@ def test_mic_sender_is_gated_by_guard_but_keeps_pace():
 
     s = audio_tx.AudioSender(sent.append, popen=lambda *a, **k: P(), sleep=lambda x: None,
                              gate=lambda: blocked[0])
-    blocked[0] = True                              # loa dang phat: moi khung bi bo
+    blocked[0] = True                              # loa dang phat: tieng mic bi chan nhung luong khung van lien tuc (khung im lang)
     s.start()
     time.sleep(0.4)
-    assert sent == [] and s.status()["gated"] >= 1
+    assert sent and all(f == bytes(640) for f in sent), sent[:2]      # toan khung im lang, khong lot tieng that
+    assert s.status()["gated"] >= 1
     s.stop()
 
 

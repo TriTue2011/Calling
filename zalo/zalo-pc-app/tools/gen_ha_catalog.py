@@ -930,6 +930,14 @@ set_rule:
       description: Câu đọc ra loa; có thể dùng {ten} (tên người gọi) và {loai} (thoại hoặc video). Bỏ trống = «Có cuộc gọi {loai} từ {ten}.»
       selector:
         text:
+    announce_repeat:
+      name: Báo lại sau
+      description: Báo lại sau khi đọc xong.
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: giây
     connect_now:
       name: Nối ngay
       description: Nối ngay khi người nhận nghe máy.

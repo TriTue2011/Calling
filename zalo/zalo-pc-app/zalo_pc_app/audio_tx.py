@@ -145,9 +145,10 @@ class AudioSender:
             elif due > now:
                 self._sleep(due - now)
             due += FRAME_SECONDS
-            if self._gate is not None and self._gate():
-                self.gated += 1                  # loa dang phat: khong gui mic (giu nhip)
-                continue
+            gated = self._gate is not None and self._gate()
+            if gated:
+                self.gated += 1                  # loa dang phat: KHONG gui tieng mic, nhung van gui khung im lang de luong RTP lien tuc
+                frame = bytes(len(frame))        # (bo han khung thi ben kia thay mat goi: Zalo bao «ket noi khong on dinh»)
             try:
                 self._send(frame)
                 self.frames += 1

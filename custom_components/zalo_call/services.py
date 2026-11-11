@@ -23,7 +23,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
 from .call_voice import DEFAULT_GREETING, HELD_DEVICES, Plan, async_accept_video, explicit_devices, async_say, async_take_over, devices_for_mode, plan_from_service
-from .rules import CALL_TYPES, CONNECT, CONNECT_PARTS, VIDEO_REQUEST, ECHO as RULE_ECHO, parse_connect, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
+from .rules import CALL_TYPES, CONNECT, CONNECT_PARTS, MAX_ANNOUNCE_REPEAT, VIDEO_REQUEST, ECHO as RULE_ECHO, parse_connect, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
 
@@ -317,7 +317,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return next((p.name for p in pipeline_mod.async_get_pipelines(hass) if p.id == pid), pid)
 
     _RULE_FIELDS = ("name", "answer", "answer_delay", "call_types", "ai", "pipeline", "agent", "greeting", "handover_rule", "trusted",
-                    "reply_ai", "voice_text", "announce", "announce_to", "announce_text", "connect", "connect_now", "video_request", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
+                    "reply_ai", "voice_text", "announce", "announce_to", "announce_text", "announce_repeat", "connect", "connect_now", "video_request", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
 
     def _rules_copy(rt) -> dict:
         r = get_rules(rt.defaults)
@@ -667,6 +667,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
                    vol.Optional("announce"): cv.boolean,
                    vol.Optional("announce_to"): cv.string,
                    vol.Optional("announce_text"): cv.string,
+                   vol.Optional("announce_repeat"): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_ANNOUNCE_REPEAT)),
                    vol.Optional("connect"): vol.All(cv.ensure_list, [vol.In(list(CONNECT))]),
                    vol.Optional("connect_now"): vol.All(cv.ensure_list, [vol.In(list(CONNECT))]),
                    vol.Optional("video_request"): vol.In(list(VIDEO_REQUEST)),

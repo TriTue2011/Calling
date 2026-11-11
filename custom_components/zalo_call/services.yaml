@@ -7644,6 +7644,15 @@ set_rule:
         gọi {loai} từ {ten}.»
       selector:
         text: null
+    announce_repeat:
+      name: Báo lại sau mỗi (giây)
+      description: Đọc xong thông báo thì chờ chừng này giây rồi đọc lại, cứ thế tới khi có người nghe
+        máy hoặc cuộc gọi kết thúc. 0 = chỉ báo một lần.
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: giây
     connect_now:
       name: Thiết bị nhà dùng NGAY khi người nhận nghe máy
       description: Tích ô nào thì thứ đó bật ngay khi người nhận nghe máy, không chờ người nhà nói trực
