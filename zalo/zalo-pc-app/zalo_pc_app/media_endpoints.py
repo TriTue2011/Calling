@@ -1291,8 +1291,12 @@ class MediaEndpoints:
                  encode_frame=None, decode_frame=None,
                  selection_timeout=5.0, transport_factory=None,
                  on_first_media=None, advertise_srtp_key=False,
-                 extend_profile="pc"):
+                 extend_profile="pc", is_caller=True):
         """Media fields for one outgoing call's request step (11301).
+
+        `is_caller=False` khi NGHE MÁY cuộc gọi đến: InitZRTP gửi lệnh 12 (callee) thay vì 11 (caller) và gói P2P mang role 1. Engine
+        zcall-native (chạy thật với điện thoại) phân biệt hai lệnh này; gửi 11 khi nghe máy làm relay có hai bên «gọi» và không có
+        bên nghe máy để nối với điện thoại (đo 11/11/2026: 0 gói tiếng từ điện thoại về qua relay).
 
         Returns {"rtcp_address", "rtp_address", "rtp_source",
         "session", "extend_data", "codec", "transport",
@@ -1516,7 +1520,7 @@ class MediaEndpoints:
             protect_rtp=protect_rtp, unprotect_rtp=unprotect_rtp,
             protect_video_rtp=protect_video_rtp,
             encode_frame=encode_frame, decode_frame=decode_frame,
-            call_session=call_session,
+            call_session=call_session, is_caller=is_caller,
             **({"call_counter": call_counter}
                if call_counter is not None else {}))
         factory = transport_factory or self._transport_factory

@@ -334,6 +334,16 @@ def test_incoming_call_binds_to_every_caller_candidate_answers_kind2_and_pongs_t
         peer_sock.close()
 
 
+def test_callee_config_registers_as_callee_with_relay_and_p2p_role_one():
+    base = dict(relays=[ut.RelayServer("127.0.0.1", 1, "127.0.0.1", 2)], token=TOKEN_RAW, local_session=SSRC, peer_session=PEER_SSRC,
+                call_id=1, callee_id="1", call_type=1, call_session=CALL_SESSION, protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
+    caller = ut.TransportConfig(**base)
+    callee = ut.TransportConfig(is_caller=False, **base)
+    assert (caller.is_caller, caller.call_counter) == (True, 11)             # InitZRTP lệnh 11 = bên gọi (mặc định, cuộc gọi đi)
+    assert (callee.is_caller, callee.call_counter) == (False, 12)            # lệnh 12 = bên nghe máy
+    assert ut.Udp4200Transport(callee)._role_byte() == 0x01 and ut.Udp4200Transport(caller)._role_byte() == 0x00
+
+
 def main():
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_")]

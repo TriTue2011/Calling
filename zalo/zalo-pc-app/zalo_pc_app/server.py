@@ -1185,7 +1185,8 @@ def _answer_incoming(sess, body, source="api"):
                     # Hồ sơ extendData như cuộc gọi đi ("native" = engine zcall-native chạy thật với điện thoại). Trước đây đường nghe máy
                     # KHÔNG truyền nên rơi về "pc" cũ (newZrtc 0, platform 3): điện thoại coi ta là bản cũ -> «kết nối không ổn định» và
                     # «phiên bản chưa hỗ trợ chuyển video».
-                    extend_profile=_extend_profile_for_call(body), **hooks)
+                    extend_profile=_extend_profile_for_call(body),
+                    is_caller=False, **hooks)
                 _log_call("answer relay call_id=%s source=%s"
                           % (call_id, _vname))
                 break
