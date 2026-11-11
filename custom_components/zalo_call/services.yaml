@@ -7023,15 +7023,21 @@ make_call:
           domain: camera
     connect:
       name: Nối thiết bị nhà khi chuyển máy
-      description: never = không nối gì. voice = chỉ loa + mic. always = nối cả camera (thoại thì nâng
-        lên video). Bỏ trống = theo quy tắc của threadID (set_rule); không có quy tắc thì voice nếu lời
-        gọi nêu thiết bị, không thì never.
+      description: Phần nối khi chuyển máy (chọn nhiều) - mic, speaker, camera ghép bất kỳ, hoặc voice
+        = mic + loa, always = cả ba, ai = AI chọn voice hay camera (với cảnh báo thì là voice), never
+        = không nối. Bỏ trống = theo thiết bị lời gọi đã nêu, không nêu thì theo quy tắc của threadID,
+        không có thì không nối.
       selector:
         select:
           options:
           - never
           - voice
           - always
+          - ai
+          - mic
+          - speaker
+          - camera
+          multiple: true
     message:
       name: Thông báo bằng giọng nói
       description: Câu đọc (TTS của HA) ngay khi cuộc gọi được nghe máy. Bỏ trống = không đọc.
@@ -7146,15 +7152,21 @@ answer_call:
           domain: camera
     connect:
       name: Nối thiết bị nhà khi chuyển máy
-      description: never = không nối gì. voice = chỉ loa + mic. always = nối cả camera (thoại thì nâng
-        lên video). Bỏ trống = theo quy tắc của threadID (set_rule); không có quy tắc thì voice nếu lời
-        gọi nêu thiết bị, không thì never.
+      description: Phần nối khi chuyển máy (chọn nhiều) - mic, speaker, camera ghép bất kỳ, hoặc voice
+        = mic + loa, always = cả ba, ai = AI chọn voice hay camera (với cảnh báo thì là voice), never
+        = không nối. Bỏ trống = theo thiết bị lời gọi đã nêu, không nêu thì theo quy tắc của threadID,
+        không có thì không nối.
       selector:
         select:
           options:
           - never
           - voice
           - always
+          - ai
+          - mic
+          - speaker
+          - camera
+          multiple: true
     message:
       name: Thông báo bằng giọng nói
       description: Câu đọc (TTS của HA) ngay khi cuộc gọi được nghe máy. Bỏ trống = không đọc.
@@ -7560,17 +7572,22 @@ set_rule:
         boolean: null
     connect:
       name: Nối thiết bị nhà
-      description: never = không nối gì (mặc định, người lạ không nghe/thấy được nhà). voice = khi chuyển
-        máy chỉ nối loa + mic đã chọn bên dưới. always = nối luôn cả camera (cuộc thoại thì nâng lên video).
-        Chỉ nối thứ ĐÃ CHỌN, chỉ KHI CHUYỂN MÁY (AI giữ máy thì chưa nối); ô trống là không nối, không
-        rơi về mặc định.
-      default: never
+      description: Chọn phần nối khi chuyển máy (chọn nhiều, ghép bất kỳ, thoại hay video đều áp) - mic,
+        speaker (loa), camera; hoặc lối tắt voice = mic + loa, always = cả ba, ai = AI tự chọn voice hay
+        camera lúc chuyển máy. Bỏ trống hoặc never = không nối gì (mặc định, người lạ không nghe/thấy
+        được nhà). Chỉ nối thứ ĐÃ CHỌN ở các ô bên dưới, chỉ KHI CHUYỂN MÁY (AI giữ máy thì chưa nối),
+        ô trống là không nối. Thoại mà có camera thì nâng lên video.
       selector:
         select:
           options:
           - never
           - voice
           - always
+          - ai
+          - mic
+          - speaker
+          - camera
+          multiple: true
     speaker:
       name: Loa
       description: media_player phát tiếng người gọi (trống = mặc định của set_default_devices).
@@ -7728,15 +7745,21 @@ alert_call:
           domain: camera
     connect:
       name: Nối thiết bị nhà khi chuyển máy
-      description: never = không nối gì. voice = chỉ loa + mic. always = nối cả camera (thoại thì nâng
-        lên video). Bỏ trống = theo quy tắc của threadID (set_rule); không có quy tắc thì voice nếu lời
-        gọi nêu thiết bị, không thì never.
+      description: Phần nối khi chuyển máy (chọn nhiều) - mic, speaker, camera ghép bất kỳ, hoặc voice
+        = mic + loa, always = cả ba, ai = AI chọn voice hay camera (với cảnh báo thì là voice), never
+        = không nối. Bỏ trống = theo thiết bị lời gọi đã nêu, không nêu thì theo quy tắc của threadID,
+        không có thì không nối.
       selector:
         select:
           options:
           - never
           - voice
           - always
+          - ai
+          - mic
+          - speaker
+          - camera
+          multiple: true
     volume:
       name: Âm lượng loa trong cuộc gọi
       description: 1-100 % đặt khi nối loa, trả lại mức cũ khi cúp. Bỏ trống = của quy tắc.

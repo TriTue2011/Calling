@@ -219,10 +219,12 @@ class TransferTool(_Tool):
     name = "chuyen_sang_truc_tiep"
     description = ("Chuyển cuộc gọi đang do AI giữ sang nói chuyện TRỰC TIẾP với người trong nhà (nối mic/loa nhà, AI dừng, không cúp máy). "
                    "Dùng khi khẩn cấp, người gọi muốn gặp người nhà hoặc bạn không giúp được.")
-    parameters = vol.Schema({vol.Optional("ly_do", description="Lý do ngắn gọn"): str})
+    parameters = vol.Schema({vol.Optional("ly_do", description="Lý do ngắn gọn"): str,
+                             vol.Optional("noi", description="voice = chỉ nối loa và mic; camera = nối cả camera (khẩn cấp cần xem hình). "
+                                                              "Chỉ có tác dụng khi cuộc gọi cho AI chọn; mặc định voice"): vol.In(["voice", "camera"])})
 
     async def run(self, hass, rt, args, llm_context):
-        if not rt.voice.request_handover(args.get("ly_do", "")):
+        if not rt.voice.request_handover(args.get("ly_do", ""), args.get("noi", "")):
             return {"loi": "Không có cuộc gọi nào đang do AI giữ."}
         return {"da_lam": "se_chuyen_may_ngay_sau_cau_tra_loi_nay"}
 

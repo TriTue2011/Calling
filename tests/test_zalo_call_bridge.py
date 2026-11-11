@@ -249,7 +249,7 @@ def test_old_ai_threads_migrate_to_thread_rules_and_empty_means_closed():
         rules = dd.get("rules")
         assert sorted(rules["threads"]) == ["111", "222"], rules
         r = rules["threads"]["111"]
-        assert r["reply_ai"] is True and r["agent"] == "conversation.mine" and r["answer"] is False and r["connect"] == "never", r
+        assert r["reply_ai"] is True and r["agent"] == "conversation.mine" and r["answer"] is False and r["connect"] == [], r
         assert not rules["contacts"] and not rules["strangers"] and not rules["groups"]       # khong tu mo cua cho nguoi la/danh ba
         H["saved"] = {"zalo_call.devices.e3": {"ai_enabled": True, "ai_threads": "", "ai_agent": "conversation.mine"}}
         d3 = devices_mod.DeviceDefaults(hass, "e3")

@@ -24,7 +24,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
-from .rules import get_rules, resolve as resolve_rule
+from .rules import CONNECT_PARTS, get_rules, parse_connect, resolve as resolve_rule
 from .styler import _speech
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,7 +44,11 @@ PHONE_HINT = ("Bạn đang nói chuyện qua điện thoại bằng giọng nói
 HANDOVER_MARK = "[[CHUYEN_MAY]]"
 # Mô hình hay làm rơi ngoặc vuông hoặc đổi "_" thành khoảng trắng (đo thật 11/11: "… ạ. CHUYEN MAY" → không bắt được, lại bị đọc to). Nên nhận: có ngoặc
 # (không phân biệt hoa thường, 1-2 ngoặc) HOẶC không ngoặc nhưng VIẾT HOA nguyên cụm, đứng riêng (lời thường có dấu tiếng Việt không bao giờ khớp).
-HANDOVER_RE = re.compile(r"\[{1,2}\s*(?i:CHUYEN[_\s]?MAY)\s*\]{1,2}|(?<![A-Za-z])CHUYEN[_\s]?MAY(?![A-Za-z])")
+HANDOVER_RE = re.compile(r"\[{1,2}\s*(?i:CHUYEN[_\s]?MAY)(?:\s*[:=]\s*(?i:VOICE|CAMERA))?\s*\]{1,2}|(?<![A-Za-z])CHUYEN[_\s]?MAY(?:\s*[:=]\s*(?:VOICE|CAMERA))?(?![A-Za-z])")
+# Chế độ connect "ai": AI kèm lựa chọn sau dấu (VOICE = chỉ loa+mic; CAMERA = nối cả camera); không kèm thì VOICE (kín hơn).
+HANDOVER_CHOICE_RE = re.compile(r"CHUYEN[_\s]?MAY\s*[:=]\s*(VOICE|CAMERA)", re.IGNORECASE)
+CONNECT_HINT = (" Khi chuyển máy hãy chọn cách nối: [[CHUYEN_MAY:VOICE]] nếu chỉ cần nói chuyện (nối loa và mic nhà), [[CHUYEN_MAY:CAMERA]] nếu cần "
+                "xem hình ngay (khẩn cấp, có người ngã, cháy, người lạ trong nhà...). Chỉ nối được thiết bị đã được cài sẵn.")
 HANDOVER_HINT = ("Khi người gọi muốn nói chuyện với người trong nhà, khi có việc khẩn cấp hoặc nguy hiểm, hoặc khi bạn không giúp "
                  "được, hãy nói ngắn gọn rằng bạn sẽ chuyển máy rồi kết thúc câu trả lời bằng đúng dấu " + HANDOVER_MARK +
                  " (dấu này sẽ không được đọc ra). Sau dấu đó cuộc gọi được nối trực tiếp với thiết bị trong nhà.")
@@ -54,11 +58,11 @@ PUBLIC_HINT = ("Người gọi CHƯA được xác thực: không tiết lộ b�
                "khiển thiết bị. Chỉ chào hỏi, ghi nhận lời nhắn và chuyển máy khi cần.")
 
 
-def phone_hint(handover_rule: str = "", trusted: bool = False) -> str:
+def phone_hint(handover_rule: str = "", trusted: bool = False, connect_ai: bool = False) -> str:
     """Gợi ý cho trợ lý: nói chuyện qua điện thoại + phạm vi (người chưa tin cậy) + khi nào tự chuyển sang trực tiếp.
     Đây chỉ là lớp MỀM; giới hạn thật nằm ở trợ lý được chọn cho cuộc gọi (không có quyền thiết bị) — xem rules.py."""
     rule = (" Điều kiện chuyển máy riêng: %s." % handover_rule.strip().rstrip(".")) if handover_rule and handover_rule.strip() else ""
-    return PHONE_HINT + ("" if trusted else " " + PUBLIC_HINT) + " " + HANDOVER_HINT + rule
+    return PHONE_HINT + ("" if trusted else " " + PUBLIC_HINT) + " " + HANDOVER_HINT + (CONNECT_HINT if connect_ai else "") + rule
 
 
 def pipeline_agent(hass: HomeAssistant, pipeline_id: str | None) -> str:
@@ -99,6 +103,7 @@ class Plan:
     video: bool = False          # cuộc gọi video: chuyển máy mới bật camera (thoại thì không)
     # Thiết bị nhà sẽ nối KHI CHUYỂN MÁY (speaker/mic/mic_url/camera/volume), chỉ gồm thứ ĐÃ CÀI trong dịch vụ. Trống = KHÔNG nối gì, kể cả khi AI muốn.
     connect: dict = field(default_factory=dict)
+    connect_ai: bool = False     # connect: ai - AI chọn voice/camera lúc chuyển máy (connect chứa TẤT CẢ thiết bị được phép)
 
 
 @dataclass
@@ -112,11 +117,15 @@ class CallVoice:
     handover: dict[str, str] = field(default_factory=dict)       # call_id -> lý do: AI xin chuyển sang trực tiếp (qua công cụ LLM)
     call_context_ids: set[str] = field(default_factory=set)      # id Context của các lượt AI trong cuộc gọi (để LLM API nhận ra)
 
-    def request_handover(self, reason: str = "") -> bool:
+    handover_connect: dict[str, str] = field(default_factory=dict)   # call_id -> "voice"|"camera": AI chọn cách nối (connect: ai)
+
+    def request_handover(self, reason: str = "", connect: str = "") -> bool:
         """Công cụ LLM `chuyen_sang_truc_tiep`: đánh dấu cuộc gọi AI mới nhất cần chuyển trực tiếp. False nếu không có AI nào đang giữ."""
         if not self.ai_running:
             return False
         self.handover[self.ai_running[-1]] = reason or "ai"
+        if connect in ("voice", "camera"):
+            self.handover_connect[self.ai_running[-1]] = connect
         return True
 
     def cancel_all(self) -> None:
@@ -180,13 +189,16 @@ HELD_DEVICES: dict[str, str] = {"speaker": "", "mic": "", "mic_url": "", "camera
 _DEVICE_KEYS = ("speaker", "mic", "mic_url", "camera")
 
 
-def devices_for_mode(devices: dict[str, Any], mode: str) -> dict[str, Any]:
-    """Thiết bị sẽ nối theo chế độ `connect`: never = không gì; voice = loa + mic (bỏ camera); always = tất cả (kể cả camera)."""
-    if mode not in ("voice", "always"):
-        return {}
-    out = {k: v for k, v in devices.items() if v not in (None, "")}
-    if mode == "voice":
-        out.pop("camera", None)
+_PART_KEYS = {"mic": ("mic", "mic_url"), "speaker": ("speaker", "volume"), "camera": ("camera",)}
+
+
+def devices_for_mode(devices: dict[str, Any], mode: Any) -> dict[str, Any]:
+    """Thiết bị sẽ nối theo `connect` (chuỗi hay danh sách, xem rules.parse_connect): chỉ những PHẦN được chọn (mic / speaker / camera, ghép bất kỳ),
+    và chỉ thiết bị ĐÃ cài. ["ai"] = tập được phép là tất cả (lúc chuyển máy AI chọn voice hay camera trong đó). Không có gì để nối thì {}."""
+    parts = parse_connect(mode)
+    if parts == ["ai"]:
+        parts = list(CONNECT_PARTS)
+    out = {k: devices[k] for p in parts for k in _PART_KEYS[p] if devices.get(k) not in (None, "")}
     return out if any(k in out for k in _DEVICE_KEYS) else {}
 
 
@@ -195,7 +207,7 @@ def rule_devices(rule: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {k: rule[k] for k in _DEVICE_KEYS if rule.get(k)}
     if out and rule.get("volume"):
         out["volume"] = rule["volume"]
-    return devices_for_mode(out, rule.get("connect") or "never")
+    return devices_for_mode(out, rule.get("connect"))
 
 
 def explicit_devices(connect: dict[str, Any]) -> dict[str, Any]:
@@ -371,7 +383,7 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
     listener = _Listener(hass, "%s/api/call/audio/tap/%s" % (api.url, token))
     listener.start()
     start, conv, idle, turns = time.monotonic(), None, 0, 0
-    hint, handover, heard = phone_hint(plan.handover_rule, plan.trusted), False, ""
+    hint, handover, heard, choice = phone_hint(plan.handover_rule, plan.trusted, plan.connect_ai), False, "", ""
     context = Context()                           # lượt AI trong cuộc gọi có Context riêng: LLM API nhận ra để chỉ cho công cụ chuyển máy
     if voice is not None:
         voice.call_context_ids.add(context.id)
@@ -395,9 +407,12 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
             idle = 0
             heard = text
             if HANDOVER_RE.search(reply):                 # AI tự quyết chuyển sang trực tiếp: đọc nốt câu (không có dấu) rồi dừng
+                m = HANDOVER_CHOICE_RE.search(reply)
+                choice = m.group(1).lower() if m else ""
                 reply, handover = HANDOVER_RE.sub("", reply).strip(), True
             if voice is not None and call_id in voice.handover:      # hoặc AI gọi công cụ chuyen_sang_truc_tiep
                 handover = True
+                choice = choice or voice.handover_connect.get(call_id, "")
             if reply:
                 listener.muted = True
                 try:
@@ -408,7 +423,7 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
             if handover:
                 break
         _LOGGER.debug("AI trong cuộc gọi %s xong sau %d lượt (chuyển máy: %s)", call_id, turns, handover)
-        return {"handover": handover, "heard": heard}
+        return {"handover": handover, "heard": heard, "connect": choice}
     finally:
         listener.stop()
         if voice is not None:
@@ -416,6 +431,7 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
             if call_id in voice.ai_running:
                 voice.ai_running.remove(call_id)
             voice.handover.pop(call_id, None)
+            voice.handover_connect.pop(call_id, None)
 
 
 # -- Vòng đời: chạy kế hoạch khi cuộc gọi được nghe máy ---------------------------------------------------------------
@@ -431,17 +447,20 @@ async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> N
             await async_say(hass, api, call_id, plan.message, engine, language, options=options)
             if i + 1 < plan.repeat:
                 await asyncio.sleep(1.0)
-        handed, reason, heard = False, "", ""
+        handed, reason, heard, choice = False, "", "", ""
         if plan.alert:
             handed, reason = True, "alert"                  # cảnh báo: đọc xong là nối thẳng, không hỏi
         elif plan.ai:
             res = await async_run_ai(hass, api, call_id, plan, rt.voice)
-            handed, reason, heard = bool(res.get("handover")), "ai", res.get("heard", "")
+            handed, reason, heard, choice = bool(res.get("handover")), "ai", res.get("heard", ""), res.get("connect", "")
         if handed:
             # Chuyển trực tiếp: KHÔNG cúp máy, nối thiết bị đã cài (không cài = không nối), báo HA để automation xử lý.
-            connected = await async_connect_devices(rt, call_id, plan.connect, plan.video)
+            connect = plan.connect
+            if plan.connect_ai:                              # AI chọn: CAMERA = cả camera, còn lại (hoặc không chọn) = chỉ loa + mic
+                connect = devices_for_mode(plan.connect, "always" if choice == "camera" else "voice")
+            connected = await async_connect_devices(rt, call_id, connect, plan.video)
             if connected or not plan.alert:
-                hass.bus.async_fire("zalo_call_ai_handover", {"call_id": call_id, "heard": heard, "reason": reason, "connected": connected})
+                hass.bus.async_fire("zalo_call_ai_handover", {"call_id": call_id, "heard": heard, "reason": reason, "connected": connected, "camera": bool(connected and connect.get("camera"))})
             else:
                 handed = False                              # cảnh báo mà chưa cài thiết bị nào: chỉ là thông báo, theo hangup_after
         if handed:
@@ -475,7 +494,8 @@ async def async_take_over(rt: Any, call_id: str | None = None) -> dict[str, Any]
     was_ai = task is not None
     if task is not None:
         task.cancel()
-    if not (plan is not None and await async_connect_devices(rt, cid, plan.connect, plan.video)):
+    manual = devices_for_mode(plan.connect, "voice") if plan is not None and plan.connect_ai else (plan.connect if plan is not None else {})
+    if not (plan is not None and await async_connect_devices(rt, cid, manual, plan.video)):
         await _restore_mic(api, cid)                  # không có thiết bị cài sẵn cho cuộc này: người bấm tiếp quản thì dùng mic mặc định
     return {"call_id": cid, "ai_was_running": was_ai}
 
@@ -485,7 +505,7 @@ def _devices_override(rule: dict[str, Any]) -> dict[str, Any]:
     quy tắc đã cài theo `connect`, không rơi về mặc định; không cài = tắt hết."""
     if rule.get("ai"):
         return dict(HELD_DEVICES)
-    connect = rule_devices(rule)
+    connect = rule_devices({**rule, "connect": "voice"} if parse_connect(rule.get("connect")) == ["ai"] else rule)     # không có AI để chọn: "ai" = voice
     return explicit_devices(connect) if connect else dict(HELD_DEVICES)
 
 
@@ -494,7 +514,8 @@ def _plan_from_rule(rule: dict[str, Any], video: bool = False) -> Plan | None:
         return None
     return Plan(ai=True, hangup=True, pipeline_id=rule.get("pipeline") or None, agent_id=rule.get("agent") or "",
                 greeting=rule.get("greeting") or DEFAULT_GREETING, handover_rule=rule.get("handover_rule") or "",
-                trusted=bool(rule.get("trusted")), video=video, connect=rule_devices(rule))
+                trusted=bool(rule.get("trusted")), video=video, connect=rule_devices(rule),
+                connect_ai=parse_connect(rule.get("connect")) == ["ai"])
 
 
 async def _answer_by_rule(hass: HomeAssistant, rt: Any, call_id: str, rule: dict[str, Any], video: bool = False) -> None:
