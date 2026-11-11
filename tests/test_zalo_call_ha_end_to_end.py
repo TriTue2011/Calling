@@ -169,16 +169,25 @@ async def test_home_assistant_sees_the_pickers_in_the_service_descriptions(hass,
     assert len(icons) >= 50 and {"like", "heart", "haha", "wow", "cry", "angry"} <= set(icons)
 
 
+class _Agent(list):
+    """Trợ lý hội thoại giả: ghi lại mọi lượt gọi; ``reply`` cho lượt trả lời, ``styler_reply`` cho lượt định dạng riêng, ``fail`` để mô phỏng lỗi."""
+    reply = "**Nhiệt độ** 29°C\n- Cửa mở lúc 15:30"
+    styler_reply = None
+    fail = False
+
+
 @pytest.fixture
 def fake_agent(hass):
-    """Trợ lý hội thoại giả: trả về markdown như các mô hình AI thường làm."""
-    calls = []
+    agent = _Agent()
 
     async def process(call: ServiceCall):
-        calls.append(call.data)
-        return {"response": {"speech": {"plain": {"speech": "**Nhiệt độ** 29°C\n- Cửa mở lúc 15:30"}}}}
+        agent.append(call.data)
+        if agent.fail:
+            raise RuntimeError("agent hỏng")
+        out = agent.styler_reply if "BỘ ĐỊNH DẠNG" in call.data["text"] else agent.reply
+        return {"response": {"speech": {"plain": {"speech": out}}}}
     hass.services.async_register("conversation", "process", process, supports_response=SupportsResponse.ONLY)
-    return calls
+    return agent
 
 
 async def test_ai_reply_is_formatted_as_markdown_by_default_and_follows_the_new_switches(hass, setup, app, fake_agent):
@@ -199,8 +208,9 @@ async def test_ai_reply_is_formatted_as_markdown_by_default_and_follows_the_new_
     await hass.services.async_call("select", "select_option", {"entity_id": sel, "option": "orange"}, blocking=True)
     await hass.services.async_call("switch", "turn_on", {"entity_id": sw}, blocking=True)
     await async_ai_reply(hass, setup, event)
+    # emoji bật + AI tự định dạng trong cùng lượt (có **) → không chồng auto_emoji của quy tắc cứng
     assert app.last("/send")["json"] == {"type": "user", "message": "**Nhiệt độ** 29°C\n- Cửa mở lúc 15:30", "format": "markdown",
-                                         "auto_emphasis": "orange", "auto_emoji": True}
+                                         "auto_emphasis": "orange"}
     await hass.services.async_call("select", "select_option", {"entity_id": fmt, "option": "plain"}, blocking=True)
     await hass.services.async_call("select", "select_option", {"entity_id": sel, "option": "off"}, blocking=True)
     await hass.services.async_call("switch", "turn_off", {"entity_id": sw}, blocking=True)
@@ -302,7 +312,8 @@ async def test_ai_reply_uses_the_device_text_style_defaults(hass, setup, app, fa
     await _select(hass, setup, "text_bold", "auto")
     await async_ai_reply(hass, setup, {"content": "hi", "thread_id": THREAD, "thread_type": "user", "is_self": False})
     j = app.last("/send")["json"]
-    assert j["format"] == "markdown" and j["style"]["bold"] == "auto", j
+    assert j["format"] == "markdown" and j["style"]["bold"] == "off", j            # AI đã tự định dạng trong cùng lượt (có **) → bỏ quy tắc cứng của mục auto
+    assert "[Chỉ dẫn định dạng" in fake_agent[-1]["text"] and len(fake_agent) == 1, "nhúng chỉ dẫn vào CHÍNH lượt hỏi, không gọi thêm"
 
 
 async def test_picker_lists_for_the_text_style_fields_in_the_service_description(hass, setup):
@@ -334,5 +345,86 @@ async def test_ai_reply_follows_the_auto_emoji_switch(hass, setup, app, fake_age
     from custom_components.zalo_call import ai as ai_mod
     ai_mod.MIN_INTERVAL = 0
     await hass.data[DOMAIN][setup.entry_id].defaults.async_set(ai_enabled=True, text_auto_emoji=True)
+    fake_agent.reply = "Cảnh báo cửa mở"                      # trợ lý không tự thêm emoji → quy tắc tức thì ở app lo
     await async_ai_reply(hass, setup, {"content": "hi", "thread_id": THREAD, "thread_type": "user", "is_self": False})
     assert app.last("/send")["json"]["auto_emoji"] is True
+
+
+async def _ai_event(hass, setup):
+    from custom_components.zalo_call import ai as ai_mod
+    ai_mod.MIN_INTERVAL = 0
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(ai_enabled=True)
+    return {"content": "hi", "thread_id": THREAD, "thread_type": "user", "is_self": False}
+
+
+async def test_ai_reply_inline_hint_when_the_agent_formats_it_no_extra_call_and_no_double_styling(hass, setup, app, fake_agent):
+    from custom_components.zalo_call.ai import async_ai_reply
+    ev = await _ai_event(hass, setup)
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(text_heading="auto", text_color="auto", text_auto_emoji=True)
+    fake_agent.reply = "🚨 **Cảnh báo** cửa mở"
+    await async_ai_reply(hass, setup, ev)
+    assert len(fake_agent) == 1 and "BỘ ĐỊNH DẠNG" not in fake_agent[0]["text"] and "[Chỉ dẫn định dạng" in fake_agent[0]["text"]
+    j = app.last("/send")["json"]
+    assert j["format"] == "markdown" and j["style"]["heading"] == "off" and j["style"]["color"] == "off" and "auto_emoji" not in j and "ai_markup" not in j, j
+
+
+async def test_ai_reply_when_the_agent_ignores_the_hint_falls_back_to_instant_rules(hass, setup, app, fake_agent):
+    from custom_components.zalo_call.ai import async_ai_reply
+    ev = await _ai_event(hass, setup)
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(text_color="auto", text_auto_emoji=True)
+    fake_agent.reply = "Nhiệt độ 29 độ"                         # không dấu định dạng, không emoji
+    await async_ai_reply(hass, setup, ev)
+    assert len(fake_agent) == 1, "không gọi thêm lần nào (nhanh)"
+    j = app.last("/send")["json"]
+    assert j["style"]["color"] == "auto" and j["auto_emoji"] is True and "ai_markup" not in j, j
+
+
+async def test_ai_reply_inline_can_be_switched_off(hass, setup, app, fake_agent):
+    from custom_components.zalo_call.ai import async_ai_reply
+    ev = await _ai_event(hass, setup)
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(text_color="auto", text_ai_inline=False)
+    await async_ai_reply(hass, setup, ev)
+    assert "[Chỉ dẫn định dạng" not in fake_agent[0]["text"]
+
+
+async def test_send_message_auto_uses_instant_rules_without_calling_the_agent_by_default(hass, setup, app, fake_agent):
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(text_heading="auto")
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "Báo cáo nhà hôm nay\nNhiệt độ 29°C trong phòng khách"})
+    assert not fake_agent, "mặc định không gọi AI (không chậm thêm)"
+    j = app.last("/send")["json"]
+    assert j["style"]["heading"] == "auto" and "ai_markup" not in j, j
+
+
+async def test_send_message_ai_style_asks_the_agent_once_and_passes_its_markup(hass, setup, app, fake_agent):
+    text = "Cảnh báo: cửa chính mở lúc 15:30"
+    fake_agent.styler_reply = "```\n🚨 **Cảnh báo:** {red}cửa chính mở{/} lúc 15:30\n```"
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": text, "text_color": "auto", "auto_emoji": True, "ai_style": True})
+    assert len(fake_agent) == 1 and "BỘ ĐỊNH DẠNG" in fake_agent[0]["text"] and text in fake_agent[0]["text"]
+    assert "emoji" in fake_agent[0]["text"] and "{red}" in fake_agent[0]["text"]
+    assert fake_agent[0]["conversation_id"].startswith("zalo_call_style_")
+    j = app.last("/send")["json"]
+    assert j["ai_markup"] == "🚨 **Cảnh báo:** {red}cửa chính mở{/} lúc 15:30" and j["message"] == text and "ai_style" not in j, j
+    # công tắc trên thiết bị bật = mặc định, trường ai_style=false ghi đè
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(text_ai_smart=True)
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": text, "text_color": "auto", "ai_style": False})
+    assert len(fake_agent) == 1 and "ai_markup" not in app.last("/send")["json"]
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": text, "text_color": "auto"})
+    assert len(fake_agent) == 2, "công tắc bật: dùng AI khi không có trường ghi đè"
+
+
+async def test_send_message_ai_style_skips_short_texts_and_survives_agent_failure(hass, setup, app, fake_agent):
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "Xong rồi", "text_color": "auto", "ai_style": True})
+    assert not fake_agent, "tin ngắn: khỏi nhờ AI (nhanh hơn)"
+    fake_agent.fail = True
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "Cảnh báo: cửa chính mở lúc 15:30", "text_color": "auto", "ai_style": True})
+    j = app.last("/send")["json"]
+    assert j["message"].startswith("Cảnh báo") and "ai_markup" not in j and j["style"]["color"] == "auto", "agent lỗi: vẫn gửi, dùng quy tắc tức thì"
+
+
+async def test_ai_style_prompt_only_lists_the_aspects_set_to_auto():
+    from custom_components.zalo_call import styler
+    p = styler.build_prompt("x", ["color", "emoji"])
+    assert "{red}" in p and "emoji Unicode" in p and "**chữ đậm**" not in p and "__chữ gạch chân__" not in p
+    assert styler.auto_aspects({"color": "auto", "bold": "on", "heading": "auto"}, True) == ["heading", "color", "emoji"]
+    assert styler.auto_aspects({"color": "red"}, False) == []
+    assert styler.looks_marked("**a**") and styler.looks_marked("🚨 x") and not styler.looks_marked("a thường")

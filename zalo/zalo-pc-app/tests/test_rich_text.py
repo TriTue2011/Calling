@@ -217,6 +217,26 @@ class RichTextTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             R.render("abc", styles=[{"start": 0, "len": 1, "st": "b"}], style={"bold": "on"})
 
+    # ---- «auto» theo ngữ cảnh: đánh dấu do AI đề xuất ----
+    def test_ai_markup_accepted_only_when_the_original_text_is_unchanged(self):
+        o = "Cảnh báo: cửa chính mở lúc 15:30"
+        self.assertTrue(R.ai_markup_accepted(o, "🚨 **Cảnh báo:** {red}cửa chính mở{/} lúc 15:30"))
+        self.assertTrue(R.ai_markup_accepted(o, o + " ✅"))                                  # chỉ thêm emoji cuối
+        for bad in ("Cảnh báo: cửa chính đóng lúc 15:30", "# Cảnh báo\ncửa chính mở lúc 15:30", "", None, "x" * 500):
+            self.assertFalse(R.ai_markup_accepted(o, bad), bad)
+
+    def test_ai_markup_with_markdown_original_compares_after_stripping_both(self):
+        self.assertTrue(R.ai_markup_accepted("**Nhiệt độ** 29°C", "🌡️ **Nhiệt độ** {red}29°C{/}", original_markdown=True))
+        self.assertFalse(R.ai_markup_accepted("**Nhiệt độ** 29°C", "Nhiệt độ 30°C", original_markdown=True))
+
+    def test_use_ai_markup_turns_off_auto_items_but_keeps_fixed_ones(self):
+        ok, text, fmt, st, emo = R.use_ai_markup("Cửa mở lúc 15:30", "{red}Cửa mở{/} lúc 15:30", {"bold": "on", "color": "auto", "heading": "auto"}, True)
+        self.assertTrue(ok)
+        self.assertEqual((text, fmt, emo), ("{red}Cửa mở{/} lúc 15:30", "markdown", False))
+        self.assertEqual((st["bold"], st["color"], st["heading"]), ("on", "off", "off"))
+        ok, text, fmt, st, emo = R.use_ai_markup("Cửa mở", "Cửa đóng", {"color": "auto"}, True)
+        self.assertEqual((ok, text, fmt, st, emo), (False, "Cửa mở", "plain", {"color": "auto"}, True))    # bỏ: dùng quy tắc cứng
+
 
 if __name__ == "__main__":
     unittest.main()

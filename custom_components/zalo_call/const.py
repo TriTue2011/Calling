@@ -13,6 +13,9 @@ CONF_AI_ENABLED = "ai_enabled"    # tu tra loi tin nhan 1-1 bang tro ly AI
 CONF_AI_AGENT = "ai_agent"        # agent hoi thoai (de trong = mac dinh)
 CONF_AI_FORMAT = "ai_format"        # định dạng chữ của trả lời AI: plain | markdown (AI hay trả **đậm**, danh sách…)
 CONF_AI_EMPHASIS = "ai_emphasis"    # tự nhấn mạnh số và chữ đậm bằng màu: off | red | orange | yellow | green
+CONF_TEXT_AI_AGENT = "text_ai_agent"        # trợ lý hội thoại dùng cho chế độ auto (trống = trợ lý của AI tự trả lời, rồi trợ lý mặc định)
+CONF_TEXT_AI_INLINE = "text_ai_inline"    # công tắc: AI tự trả lời định dạng NGAY TRONG lượt trả lời (nhúng chỉ dẫn, không gọi thêm); mặc định bật
+CONF_TEXT_AI_SMART = "text_ai_smart"      # công tắc: send_message dùng AI đánh giá ngữ cảnh cho các mục auto (thêm vài giây); mặc định tắt
 CONF_TEXT_AUTO_EMOJI = "text_auto_emoji"   # công tắc: tự thêm emoji hợp ngữ cảnh vào đầu từng dòng của MỌI tin tích hợp gửi (send_message, AI); bật/tắt
 AI_FORMATS = ("plain", "markdown")
 # Kiểu chữ mặc định cho MỌI tin tích hợp gửi (send_message, trả lời AI); send_message ghi đè từng tin. Mỗi mục có chế độ «auto».

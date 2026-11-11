@@ -42,6 +42,7 @@ CHAT_FIELDS = {
         ("italic", "In nghiêng: off, on, auto (đoạn trong \"…\" hoặc (…)). Bỏ trống = theo mặc định", False),
         ("underline", "Gạch chân: off, on, auto (liên kết, email). Bỏ trống = theo mặc định", False),
         ("heading", "Tiêu đề: off, on (dòng đầu), auto (dòng đầu ngắn của tin nhiều dòng; dòng kết thúc «:» thành đề mục). Bỏ trống = theo mặc định", False),
+        ("ai_style", "true = nhờ trợ lý AI đánh giá ngữ cảnh cho các mục auto của tin này (thêm vài giây; quá 8 giây thì dùng quy tắc tức thì); false = quy tắc tức thì; bỏ trống = theo công tắc «Chữ: dùng AI đánh giá…» trên thiết bị", False),
         ("auto_color", "Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow, green. Bỏ trống = theo mặc định", False),
         ("zalo_emoji", "Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để chèn mã tương ứng "
                        "vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji.", False)],
@@ -95,6 +96,7 @@ SELECTOR_OVERRIDES = {
     ("send_message", "italic"): {"select": {"options": ["off", "on", "auto"], "mode": "dropdown"}},
     ("send_message", "underline"): {"select": {"options": ["off", "on", "auto"], "mode": "dropdown"}},
     ("send_message", "heading"): {"select": {"options": ["off", "on", "auto"], "mode": "dropdown"}},
+    ("send_message", "ai_style"): {"boolean": None},
     ("send_message", "auto_color"): {"select": {"options": ["red", "orange", "yellow", "green"], "mode": "dropdown"}},
     ("send_message", "zalo_emoji"): {"select": {"options": _reaction_options(), "custom_value": False, "mode": "dropdown"}},
     ("send_message", "format"): {"select": {"options": ["plain", "markdown"], "mode": "dropdown"}},

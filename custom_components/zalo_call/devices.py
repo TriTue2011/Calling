@@ -11,7 +11,7 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .const import (TEXT_STYLE_KEYS, AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_TEXT_AUTO_EMOJI, CONF_AI_EMPHASIS, CONF_AI_ENABLED,
+from .const import (TEXT_STYLE_KEYS, AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_TEXT_AI_AGENT, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, CONF_AI_EMPHASIS, CONF_AI_ENABLED,
                     CONF_AI_FORMAT, CONF_AI_THREADS, CONF_AUTO_MIC,
                     CONF_AUTO_VIDEO, CONF_AUTO_VIDEO_DELAY, CONF_CALL_VOLUME, CONF_CAMERA,
                     CONF_ECHO_GUARD, CONF_HA_URL, CONF_MIC, CONF_MIC_URL, CONF_SPEAKER, DOMAIN,
@@ -25,9 +25,9 @@ DEFAULTS: dict[str, Any] = {"speaker": "", "mic": "", "mic_url": "",
                             CONF_HA_URL: "", CONF_AI_ENABLED: False,
                             CONF_AI_AGENT: "", CONF_AI_THREADS: "",
                             CONF_AI_FORMAT: "markdown", CONF_AI_EMPHASIS: "off",
-                            CONF_TEXT_AUTO_EMOJI: False,
+                            CONF_TEXT_AUTO_EMOJI: False, CONF_TEXT_AI_AGENT: "", CONF_TEXT_AI_INLINE: True, CONF_TEXT_AI_SMART: False,
                             **{k: ("red" if k == "text_auto_color" else "off") for k in TEXT_STYLE_KEYS}}
-_TEXT_KEYS = ("speaker", "mic", "mic_url", "camera", CONF_HA_URL, CONF_AI_AGENT,
+_TEXT_KEYS = ("speaker", "mic", "mic_url", "camera", CONF_HA_URL, CONF_AI_AGENT, CONF_TEXT_AI_AGENT,
               CONF_AI_THREADS)
 # Giá trị từng nằm trong tuỳ chọn (bánh răng): lần đầu có thì nhập sang, rồi không đọc lại.
 _LEGACY = {"speaker": CONF_SPEAKER, "mic": CONF_MIC, "mic_url": CONF_MIC_URL,
@@ -61,7 +61,7 @@ class DeviceDefaults:
                 self.data[key] = str(patch[key] or "").strip()
         if CONF_HA_URL in patch:
             self.data[CONF_HA_URL] = self.data[CONF_HA_URL].rstrip("/")
-        for key in (CONF_AUTO_MIC, CONF_AUTO_VIDEO, CONF_AI_ENABLED, CONF_TEXT_AUTO_EMOJI):
+        for key in (CONF_AUTO_MIC, CONF_AUTO_VIDEO, CONF_AI_ENABLED, CONF_TEXT_AUTO_EMOJI, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART):
             if key in patch:
                 self.data[key] = bool(patch[key])
         for key, (_, options, _) in TEXT_STYLE_KEYS.items():

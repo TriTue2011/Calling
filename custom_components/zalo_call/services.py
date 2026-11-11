@@ -22,7 +22,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .const import CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
+from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
+from .styler import async_markup_for
 
 MAX_FILE = 100 * 1024 * 1024
 _ANY = cv.match_all
@@ -93,7 +94,7 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
     if name == "send_message":
         return await api.thread_send(ttype, tid, str(d["message"]), d.get("format"),
                                      d.get("auto_emphasis"), d.get("emoji"),
-                                     d.get("auto_emoji"), d.get("zalo_emoji"), d.get("style"))
+                                     d.get("auto_emoji"), d.get("zalo_emoji"), d.get("style"), d.get("ai_markup"))
     if name == "send_link":
         return await api.thread_sendlink(ttype, tid, str(d["link"]),
                                          str(d.get("message") or ""))
@@ -190,6 +191,13 @@ def _make_handler(hass: HomeAssistant, e: dict) -> Callable:
                 d = await _sticker_by_keyword(api, d)
             if e["name"] == "send_message":
                 d = _with_text_style(rt, d)
+                # «auto» theo ngữ cảnh: có mục auto/emoji thì nhờ trợ lý đánh dấu; app chỉ nhận khi chữ không đổi (không thì dùng quy tắc cứng).
+                smart = d.pop("ai_style", None)
+                smart = bool(rt.defaults.get(CONF_TEXT_AI_SMART)) if smart in (None, "") else (str(smart).strip().lower() not in ("false", "0", "off", "no"))
+                if smart and str(d.get("format") or "plain") in ("plain", "markdown") and not d.get("emoji") and not d.get("zalo_emoji"):
+                    markup = await async_markup_for(hass, rt.defaults, str(d.get("message") or ""), d.get("style"), d.get("auto_emoji"))
+                    if markup:
+                        d["ai_markup"] = markup
             if e["kind"] in ("svc", "zca"):     # zca: app tu chuyen sang bo goi chung
                 res = await api.svc(e["action"], d)
             elif e["kind"] == "chat":

@@ -15,7 +15,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .api import ZaloCallError
-from .const import (CONF_AI_AGENT, CONF_TEXT_AUTO_EMOJI, CONF_AI_EMPHASIS, CONF_AI_ENABLED, CONF_AI_FORMAT, CONF_AI_THREADS,
+from .styler import _speech, async_markup_for, auto_aspects, autos_off, build_inline_hint, looks_marked
+from .const import (CONF_AI_AGENT, CONF_TEXT_AUTO_EMOJI, CONF_AI_EMPHASIS, CONF_AI_ENABLED, CONF_AI_FORMAT, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_AI_THREADS,
                     DOMAIN)
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,13 +28,6 @@ _last: dict[str, float] = {}
 
 def _is_group(thread_type) -> bool:
     return str(thread_type).lower() in ("1", "group")
-
-
-def _speech(resp: dict) -> str:
-    try:
-        return resp["response"]["speech"]["plain"]["speech"].strip()
-    except (KeyError, TypeError, AttributeError):
-        return ""
 
 
 async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
@@ -58,7 +52,11 @@ async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
         wait = MIN_INTERVAL - (time.monotonic() - _last.get(thread_id, 0.0))
         if wait > 0:
             await asyncio.sleep(wait)
-        data = {"text": text, "conversation_id": "zalo_call_" + thread_id,
+        style, auto_emoji = d.text_style(), bool(d.get(CONF_TEXT_AUTO_EMOJI))
+        aspects = auto_aspects(style, auto_emoji)
+        inline = bool(aspects) and bool(d.get(CONF_TEXT_AI_INLINE))
+        # Nhanh nhất: nhúng chỉ dẫn định dạng VÀO CHÍNH lượt hỏi, trợ lý vừa trả lời vừa tự định dạng/chọn emoji, không gọi thêm lần nào.
+        data = {"text": text + ("\n\n" + build_inline_hint(aspects) if inline else ""), "conversation_id": "zalo_call_" + thread_id,
                 "language": hass.config.language}
         if d.get(CONF_AI_AGENT):
             data["agent_id"] = d.get(CONF_AI_AGENT)
@@ -69,10 +67,19 @@ async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
             reply = _speech(resp)
             if reply:
                 emphasis = d.get(CONF_AI_EMPHASIS)
+                text = reply[:MAX_REPLY]
+                fmt, markup = d.get(CONF_AI_FORMAT) or "plain", None
+                if inline and looks_marked(text):
+                    # Trợ lý đã tự định dạng trong cùng lượt: dùng luôn (markdown), không áp quy tắc cứng chồng lên các mục auto.
+                    fmt, style, auto_emoji = "markdown", autos_off(style), False
+                elif aspects and d.get(CONF_TEXT_AI_SMART):
+                    # Chưa định dạng và bật «dùng AI đánh giá»: gọi thêm một lần (tối đa vài giây); app chỉ nhận khi chữ không đổi.
+                    markup = await async_markup_for(hass, d, text, style, auto_emoji)
+                # còn lại: các mục auto dùng quy tắc cứng (tức thì) ở app
                 await rt.api.thread_send(
-                    "user", thread_id, reply[:MAX_REPLY], d.get(CONF_AI_FORMAT) or "plain",
+                    "user", thread_id, text, fmt,
                     None if emphasis in (None, "", "off") else emphasis,
-                    None, bool(d.get(CONF_TEXT_AUTO_EMOJI)), None, d.text_style())
+                    None, auto_emoji, None, style, markup)
         except ZaloCallError as err:
             _LOGGER.warning("AI không gửi được trả lời cho %s: %s", thread_id, err)
         except Exception:  # noqa: BLE001 - agent lỗi không được làm sập webhook

@@ -3699,9 +3699,22 @@ class Handler(BaseHTTPRequestHandler):
                 fmt = str(body.get("format") or "plain").strip().lower()
                 auto_emoji = str(body.get("auto_emoji") or "").strip().lower() \
                     not in ("", "0", "false", "off", "no", "none")
+                style_in, ai_used = body.get("style"), False
+                if body.get("ai_markup") and fmt in ("plain", "markdown") \
+                        and not body.get("styles"):
+                    # «auto» theo ngu canh: AI (qua tich hop HA) da danh dau
+                    # dinh dang + emoji; chi nhan khi chu goc khong bi doi.
+                    try:
+                        ai_used, raw_msg, fmt, style_in, auto_emoji = \
+                            rich_text.use_ai_markup(
+                                raw_msg, body.get("ai_markup"), style_in,
+                                auto_emoji, fmt == "markdown")
+                    except ValueError as exc:
+                        return self._send_json({"error": str(exc)},
+                                               status=400)
                 if fmt != "plain" or body.get("auto_emphasis") \
                         or body.get("styles") or body.get("emoji") \
-                        or body.get("zalo_emoji") or body.get("style") \
+                        or body.get("zalo_emoji") or style_in \
                         or auto_emoji:
                     # Dinh dang chu: markdown nhe / tu nhan manh so bang mau /
                     # styles tu tinh (rich_text.py). Sai tham so -> 400 ro rang,
@@ -3713,7 +3726,7 @@ class Handler(BaseHTTPRequestHandler):
                                 body.get("auto_emphasis")),
                             body.get("styles"), body.get("emoji"),
                             auto_emoji, body.get("zalo_emoji"),
-                            body.get("style"))
+                            style_in)
                     except ValueError as exc:
                         return self._send_json({"error": str(exc)},
                                                status=400)
@@ -3736,7 +3749,8 @@ class Handler(BaseHTTPRequestHandler):
                 STATE.message_store.record(thread_type, thread_id,
                                            local)
                 return self._send_json({"ok": True, "data": res["data"],
-                                        "message": local})
+                                        "message": local,
+                                        "ai_style": ai_used})
             if action == "sendlink":
                 link = (body.get("link") or "").strip()
                 if not link:

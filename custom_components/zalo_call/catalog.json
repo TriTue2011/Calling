@@ -65,6 +65,11 @@
     "required": false
    },
    {
+    "key": "ai_style",
+    "label": "true = nhờ trợ lý AI đánh giá ngữ cảnh cho các mục auto của tin này (thêm vài giây; quá 8 giây thì dùng quy tắc tức thì); false = quy tắc tức thì; bỏ trống = theo công tắc «Chữ: dùng AI đánh giá…» trên thiết bị",
+    "required": false
+   },
+   {
     "key": "auto_color",
     "label": "Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow, green. Bỏ trống = theo mặc định",
     "required": false

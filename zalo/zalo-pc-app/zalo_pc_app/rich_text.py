@@ -450,6 +450,33 @@ def apply_style(plain: str, marks: list, style: dict) -> list:
     return [frozenset(m) for m in marks]
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# «auto» THEO NGỮ CẢNH: tích hợp HA nhờ trợ lý hội thoại (AI) đọc tin rồi đánh dấu định dạng + emoji cho hợp nghĩa, gửi sang app dưới dạng
+# ``ai_markup`` (cùng cú pháp markdown/thẻ màu của from_markdown). App KHÔNG tin mù: chỉ nhận khi chữ gốc không bị đổi (AI chỉ được thêm
+# định dạng và emoji); sai thì bỏ ``ai_markup`` và dùng quy tắc cứng ở trên cho các mục auto.
+def _skeleton(text: str) -> str:
+    """Chữ để so sánh: bỏ khoảng trắng và mọi ký tự emoji/ký hiệu (>= U+2190), kể cả bộ chọn kiểu và ZWJ."""
+    return "".join(ch for ch in text if not ch.isspace() and ord(ch) < 0x2190)
+
+
+def ai_markup_accepted(original: str, ai_markup, original_markdown: bool = False) -> bool:
+    """original_markdown: tin gốc đã là markdown (vd. trả lời AI có sẵn **đậm**): so chữ SAU khi bỏ dấu của cả hai bên."""
+    if not isinstance(ai_markup, str) or not ai_markup.strip() or len(ai_markup) > 4 * len(original) + 400:
+        return False
+    base = from_markdown(str(original))[0] if original_markdown else str(original)
+    return _skeleton(from_markdown(ai_markup)[0]) == _skeleton(base)
+
+
+def use_ai_markup(original: str, ai_markup, style, auto_emoji, original_markdown: bool = False):
+    """Trả (dùng_được, chữ, format, style, auto_emoji). Dùng được thì AI đã lo các mục auto và emoji nên bỏ chúng khỏi quy tắc cứng;
+    các mục cố định (on/off/màu/cỡ cụ thể) vẫn áp như cũ."""
+    st = normalize_style(style)
+    if not ai_markup_accepted(original, ai_markup, original_markdown):
+        return False, original, "markdown" if original_markdown else "plain", style, auto_emoji
+    st = {k: ("off" if v == "auto" else v) for k, v in st.items()}
+    return True, ai_markup, "markdown", st, False
+
+
 def render(text: str, fmt: str = "plain", emphasis=None, styles=None, emoji=None, auto_emoji=False, zalo_emoji=None, style=None):
     """Đầu vào của tầng gửi tin. Trả ``(chữ_gửi_đi, danh_sách_style)``.
 

@@ -229,6 +229,16 @@ send_message:
           - 'on'
           - auto
           mode: dropdown
+    ai_style:
+      name: 'true = nhờ trợ lý AI đánh giá ngữ cảnh cho các mục auto của tin này (thêm vài giây; quá 8
+        giây thì dùng quy tắc tức thì); false = quy tắc tức thì; bỏ trống = theo công tắc «Chữ: dùng AI
+        đánh giá…» trên thiết bị'
+      description: 'true = nhờ trợ lý AI đánh giá ngữ cảnh cho các mục auto của tin này (thêm vài giây;
+        quá 8 giây thì dùng quy tắc tức thì); false = quy tắc tức thì; bỏ trống = theo công tắc «Chữ:
+        dùng AI đánh giá…» trên thiết bị'
+      required: false
+      selector:
+        boolean: null
     auto_color:
       name: 'Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow, green. Bỏ trống = theo mặc định'
       description: 'Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow, green. Bỏ trống = theo

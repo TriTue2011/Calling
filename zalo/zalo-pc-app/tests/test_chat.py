@@ -556,6 +556,16 @@ def test_server_thread_routes():
             assert got[-1][2] == [{"start": 0, "len": 7, "st": "f_18,b"}, {"start": 17, "len": 3, "st": "c_db342e,b"}], got[-1]
             status, body = api_json("POST", "/api/thread/20001/send", {"type": "user", "message": "x", "style": {"size": "huge"}})
             assert status == 400 and "size" in body["error"], (status, body)
+            status, body = api_json("POST", "/api/thread/20001/send", {
+                "type": "user", "message": "Canh bao: cua mo luc 15:30", "style": {"color": "auto", "heading": "auto"},
+                "ai_markup": "!! **Canh bao:** {red}cua mo{/} luc 15:30".replace("!! ", "")})
+            assert status == 200 and body["ai_style"] is True and got[-1][1] == "Canh bao: cua mo luc 15:30", (status, body, got[-1])
+            assert got[-1][2] == [{"start": 0, "len": 9, "st": "b"}, {"start": 10, "len": 6, "st": "c_db342e"}], got[-1]
+            status, body = api_json("POST", "/api/thread/20001/send", {
+                "type": "user", "message": "Canh bao: cua mo luc 15:30", "style": {"color": "auto"},
+                "ai_markup": "Canh bao: cua DONG luc 15:30"})
+            assert status == 200 and body["ai_style"] is False, "AI doi chu -> bo, dung quy tac cung"
+            assert got[-1][1] == "Canh bao: cua mo luc 15:30" and got[-1][2] == [{"start": 21, "len": 5, "st": "c_db342e"}], got[-1]
             n = len(got)
             for bad in ({"message": "abc", "styles": [{"start": 0, "len": 3, "st": "f_20"}]},
                         {"message": "abc", "format": "html"},
