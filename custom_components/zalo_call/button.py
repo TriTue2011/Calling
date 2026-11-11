@@ -9,6 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .api import ZaloCallError
 from .bridge_core import entity_of_label
+from .call_voice import async_take_over
 from .const import DOMAIN
 from .entity import ZaloCallEntity
 
@@ -20,7 +21,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                     "mdi:video-plus"),
          CallButton(entry, rt, "stop_video", "Tắt hình", "mdi:video-off"),
          CallButton(entry, rt, "stop_mic", "Tắt mic cuộc gọi",
-                    "mdi:microphone-off")])
+                    "mdi:microphone-off"),
+         CallButton(entry, rt, "take_over", "Tiếp quản cuộc gọi (dừng AI, nối mic nhà)",
+                    "mdi:phone-in-talk")])
 
 
 class CallButton(ZaloCallEntity, ButtonEntity):
@@ -40,6 +43,8 @@ class CallButton(ZaloCallEntity, ButtonEntity):
                     if url:
                         body["camera_url"] = url
                 await api.upgrade_video(body)
+            elif self._key == "take_over":
+                await async_take_over(self._rt)
             elif self._key == "stop_video":
                 await api.media_control({"action": "stop", "target": "video"})
             else:

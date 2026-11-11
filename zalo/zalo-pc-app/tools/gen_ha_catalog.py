@@ -747,6 +747,15 @@ say_in_call:
       default: true
       selector:
         boolean:
+take_over_call:
+  name: Tiếp quản cuộc gọi
+  description: Người thật tiếp quản cuộc gọi đang do AI hoặc thông báo giữ - dừng AI và trả mic nhà về nguồn mặc định (loa/mic nhà đã nối từ lúc nghe máy).
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống = cuộc gọi đang nói hiện tại.
+      selector:
+        text:
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.

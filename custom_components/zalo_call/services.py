@@ -22,7 +22,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .call_voice import async_say, plan_from_service
+from .call_voice import async_say, async_take_over, plan_from_service
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
 
@@ -267,6 +267,14 @@ async def async_register_services(hass: HomeAssistant) -> None:
         _register_voice_plan(rt, (res or {}).get("call_id") or call.data.get("call_id"), call.data)
         return {"result": res}
 
+    async def take_over_call(call: ServiceCall) -> dict:
+        """Tiếp quản cuộc gọi đang do AI/thông báo giữ: dừng AI, trả mic nhà về."""
+        rt, _ = _api(hass, call)
+        try:
+            return await async_take_over(rt, call.data.get("call_id"))
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+
     async def say_in_call(call: ServiceCall) -> dict:
         """Đọc (TTS) một câu lên cuộc gọi đang nói."""
         rt, api = _api(hass, call)
@@ -441,6 +449,10 @@ async def async_register_services(hass: HomeAssistant) -> None:
              vol.Optional("tts_engine"): cv.entity_id,
              vol.Optional("language"): cv.string,
              vol.Optional("pipeline_id"): cv.string}
+    hass.services.async_register(
+        DOMAIN, "take_over_call", take_over_call,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("call_id"): vol.Any(int, cv.string)}),
+        supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, "say_in_call", say_in_call,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string,

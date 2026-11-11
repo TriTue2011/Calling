@@ -314,3 +314,40 @@ async def test_new_call_settings_are_entities_and_push_to_app(hass, setup, app):
     assert rt.defaults.get("auto_answer_from") == "6643404425553198601,123"
     with pytest.raises(Exception):
         await hass.services.async_call("text", "set_value", {"entity_id": tx, "value": "abc"}, blocking=True)
+
+
+async def test_take_over_stops_ai_and_restores_house_mic(hass, monkeypatch):
+    """Tự nghe máy + AI, rồi người thật tiếp quản: AI dừng (không cúp máy), mic nhà được trả về."""
+    started = asyncio.Event()
+
+    async def long_ai(hass_, api, call_id, plan):
+        started.set()
+        await asyncio.sleep(60)
+    monkeypatch.setattr(cv, "async_run_ai", long_ai)
+
+    class Api(FakeApi):
+        def __init__(self):
+            super().__init__()
+            self.media = []
+
+        async def media_control(self, body):
+            self.media.append(body)
+            return {"mic": {"alive": False}}
+    api = Api()
+    rt = _rt(api)
+    cv.on_call_state(hass, rt, "incoming", 77, TERMINAL, True, "")
+    cv.on_call_state(hass, rt, "answered", 77, TERMINAL, True, "", "auto")
+    await asyncio.wait_for(started.wait(), 5)
+    assert "77" in rt.voice.tasks
+    res = await cv.async_take_over(rt, "77")
+    assert res == {"call_id": "77", "ai_was_running": True}
+    await asyncio.sleep(0.05)
+    assert "77" not in rt.voice.tasks and api.ended == []                      # AI dừng, KHÔNG cúp máy
+    assert {"call_id": "77", "action": "start", "target": "mic"} in api.media        # mic nhà trả về
+    res2 = await cv.async_take_over(rt, "77")                                  # không còn AI: vốn đã trực tiếp
+    assert res2["ai_was_running"] is False
+    api.calls_n = 0
+    api2 = Api()
+    with pytest.raises(cv.ZaloCallError):
+        api2._statuses = ["ended"]
+        await cv.async_take_over(_rt(api2), None)                              # không có cuộc nào đang nói

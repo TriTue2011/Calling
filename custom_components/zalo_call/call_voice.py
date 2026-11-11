@@ -298,6 +298,25 @@ async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> N
         rt.voice.tasks.pop(call_id, None)
 
 
+async def async_take_over(rt: Any, call_id: str | None = None) -> dict[str, Any]:
+    """Người thật tiếp quản cuộc gọi đang do AI/thông báo giữ: dừng kế hoạch giọng nói, trả mic về nguồn mặc định (loa/mic nhà
+    đã nối từ lúc nghe máy). call_id trống = cuộc gọi đang nói. Không có AI đang chạy thì cuộc gọi vốn đã trực tiếp."""
+    api: ZaloCallApi = rt.api
+    if call_id in (None, ""):
+        active = (await api.calls() or {}).get("active")
+        if not active or active.get("status") != "answered":
+            raise ZaloCallError("Không có cuộc gọi nào đang nói")
+        call_id = active["call_id"]
+    cid = str(call_id)
+    rt.voice.plans.pop(cid, None)
+    task = rt.voice.tasks.pop(cid, None)
+    was_ai = task is not None
+    if task is not None:
+        task.cancel()
+    await _restore_mic(api, cid)
+    return {"call_id": cid, "ai_was_running": was_ai}
+
+
 def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, terminal: tuple, ai_incoming: bool,
                   greeting: str, answer_source: str = "") -> None:
     """Gọi từ webhook cuộc gọi. ai_incoming: công tắc «AI trong cuộc gọi» — chỉ áp cho cuộc gọi ĐẾN do app TỰ NGHE MÁY

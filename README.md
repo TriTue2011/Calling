@@ -223,6 +223,39 @@ Cần Assist pipeline có STT, TTS và trợ lý hội thoại. **Lưu ý an to�
 
 **Các trường hợp nhận cuộc gọi đã xử lý:** sự kiện `request` lặp lại cùng `call_id` chỉ tính một lần (trước đây có thể làm cuộc đang nói bị đặt lại thành «đang chuông»); có cuộc gọi thứ hai đến khi đang nói hoặc đang gọi đi thì **từ chối cuộc mới** (không đè cuộc đang sống), ghi `busy_rejected` và vẫn báo HA như cuộc nhỡ.
 
+## Bảng các trường hợp cuộc gọi
+
+**Gọi đi** (tài khoản Zalo của app gọi cho người khác, `make_call`):
+
+| Trường hợp | Điều xảy ra |
+|---|---|
+| Người nhận nghe máy | state `answered`: loa/mic nhà nối ngay; có `message` thì đọc rồi cúp; có `ai` thì AI nói chuyện |
+| Người nhận từ chối | state `declined` |
+| Không ai nghe (hết giờ đổ chuông) | state `no_answer`, app tự huỷ cuộc gọi |
+| Bạn huỷ khi đang đổ chuông / cúp khi đang nói | `end_call` → `ended` (`user_end`) |
+| Người nhận cúp giữa chừng | `ended` (`peer_ended`) |
+| Người nhận xin chuyển sang video | tự đồng ý sau bộ đếm nếu bật «Tự đồng ý khi bên kia xin gọi video» |
+| Đúng lúc đó người nhận gọi lại cho bạn | cuộc gọi đến bị từ chối vì đang bận, cuộc gọi đi giữ nguyên |
+| Zalo từ chối yêu cầu gọi | state `error` kèm lý do |
+
+**Gọi đến** (người khác gọi vào tài khoản Zalo của app):
+
+| Trường hợp | Điều xảy ra |
+|---|---|
+| Mặc định (không bật tự nghe) | đổ chuông, state `incoming`; bạn `answer_call` hoặc `reject_call`; người gọi cúp thì `missed` |
+| Bật tự nghe, người gọi có trong danh sách | sau bộ đếm tự nghe, `answer_source = auto`, loa/mic nhà nối trực tiếp |
+| Bật tự nghe, người gọi KHÔNG có trong danh sách | đổ chuông như mặc định |
+| Người gọi cúp trước khi hết bộ đếm | `missed`, không nghe |
+| Tự nghe + công tắc «AI trong cuộc gọi đến» | AI chào, nghe, trả lời; kết thúc khi người gọi cúp, im lặng 2 lượt hoặc 10 phút (rồi cúp máy) |
+| Có cuộc thứ hai đến khi đang nói / đang gọi đi | từ chối cuộc mới (`busy_rejected`), cuộc đang sống giữ nguyên, vẫn báo HA như cuộc nhỡ |
+| Zalo gửi lại sự kiện cuộc gọi đến | bỏ qua (mỗi cuộc chỉ xử lý một lần) |
+| Hai cuộc đến liên tiếp, chưa nghe cuộc nào | cuộc mới thay cuộc cũ |
+| Cuộc gọi nhóm đến, giữ máy (hold) | **chưa hỗ trợ** (chỉ ghi log) |
+
+**Tự nghe máy rồi muốn tự nói chuyện trực tiếp:**
+- Tự nghe **không AI**: cuộc gọi đã trực tiếp ngay (loa/mic nhà nối từ lúc nghe máy), không cần làm gì thêm.
+- Tự nghe **có AI**: bấm nút **«Tiếp quản cuộc gọi (dừng AI, nối mic nhà)»** trên thiết bị hoặc gọi `zalo_call.take_over_call`. AI dừng ngay (không cúp máy), mic nhà được trả về nguồn mặc định và cuộc gọi tiếp tục để bạn nói trực tiếp. Trong lúc AI nói chuyện, loa nhà vẫn phát tiếng người gọi nên bạn nghe được và biết lúc nào cần tiếp quản (ví dụ tạo automation gửi thông báo «AI đang nghe cuộc gọi từ X» kèm nút này).
+
 ## WebUI: mọi dịch vụ đều làm được trên tab «Dịch vụ»
 
 Tab **Dịch vụ** của WebUI liệt kê **toàn bộ** dịch vụ (dịch vụ gốc + các API mở rộng của zca-js, gom theo nhóm) và có ô **Tìm dịch vụ**. Chọn thread ở ô «Thread thao tác» rồi bấm **Chạy**:
