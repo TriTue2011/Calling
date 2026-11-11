@@ -936,3 +936,86 @@ async def test_incoming_call_announces_on_the_speaker_only_when_the_rule_turns_i
     await _webhook(hass, hass_client_no_auth, _incoming(status="stranger", call_id="a5"))
     await hass.async_block_till_done()
     assert spoken and spoken[0]["message"] == "Có cuộc gọi thoại từ người lạ."
+
+
+# ---------------------------------------------------------------- «nối ngay» (connect_now): vd. cam ngay, mic+loa khi người nhà nói -----------------
+async def test_connect_now_connects_camera_at_answer_and_the_rest_only_at_handover(hass, setup, app):
+    """Video + AI: cam nối NGAY lúc nghe máy (app nhận camera_url, loa/mic 'off'); khi người nhà nói trực tiếp mới nối mic+loa (không nối lại cam)."""
+    rt = hass.data[DOMAIN][setup.entry_id]
+
+    async def cam_url(entity_id):
+        return "rtsp://cam.local/live"
+    rt.bridge.async_camera_url = cam_url                                                              # camera thật không có trong môi trường test
+    await _set_rule(hass, scope="thread", thread_id=THREAD, name="Đại ca", ai=True, agent="conversation.x", speaker="media_player.r1_loa",
+                    mic="assist_satellite.r1", camera="camera.phong_khach")
+    await hass.services.async_call(DOMAIN, "make_call", {"thread_id": THREAD, "ai": True, "connect_now": ["camera"], "connect": ["mic", "speaker"]},
+                                   blocking=True, return_response=True)
+    req = [r for r in app.requests if r["path"] == "/api/call/request"][-1]["json"]
+    assert req["type"] == "video" and req["mic_url"] == OFF and req["speaker_url"] == OFF and req["camera_url"] == "rtsp://cam.local/live", req   # cam bật ngay, mic/loa chưa
+    plan = rt.voice.plans["555"]
+    assert set(plan.connect_now) == {"camera"} and set(plan.connect) == {"mic", "speaker"} and plan.video
+    # Lúc chuyển máy chỉ nối thêm mic+loa; cam đã nối sẵn thì không nối lại
+    api = FakeApi(statuses=["answered"])
+    rt2 = _rt(api)
+    await _ai_env_handover(hass, api, rt2, cv.Plan(ai=True, pipeline_id="pl", video=True, connect={"mic": "assist_satellite.r1", "speaker": "media_player.r1_loa"},
+                                                  connect_now={"camera": "camera.phong_khach"}))
+    ov = rt2.bridge.reconnected[0][1]
+    assert ov["mic"] == "assist_satellite.r1" and ov["speaker"] == "media_player.r1_loa" and ov["camera"] == "", ov
+    started = [m for m in api.media if m.get("action") == "start"][0]
+    assert started["camera_url"] == "off", started                                    # không khởi động lại cam đã nối
+
+
+async def _ai_env_handover(hass, api, rt, plan):
+    class _M:
+        pass
+    import types as _t
+    from homeassistant.components import assist_pipeline  # noqa: F401
+    old = cv.async_run_ai
+
+    async def fake(*a, **k):
+        return {"handover": True, "heard": "cần người nhà", "connect": "", "finished": False}
+    cv.async_run_ai = fake
+    try:
+        await cv._run_plan(hass, rt, "77", plan)
+        await hass.async_block_till_done()
+    finally:
+        cv.async_run_ai = old
+
+
+async def test_connect_now_rule_for_incoming_ai_call_and_camera_now_on_a_voice_call_upgrades_to_video(hass, setup, app, hass_client_no_auth, monkeypatch):
+    seen = []
+
+    async def cam_url(entity_id):
+        return "rtsp://cam.local/live"
+    hass.data[DOMAIN][setup.entry_id].bridge.async_camera_url = cam_url
+
+    async def fake_ai(hass_, api, call_id, plan, voice=None):
+        seen.append((dict(plan.connect_now), dict(plan.connect), plan.video))
+        return {"handover": False, "heard": "", "connect": "", "finished": False}
+    monkeypatch.setattr(cv, "async_run_ai", fake_ai)
+    await _set_rule(hass, scope="thread", thread_id=THREAD, answer=True, answer_delay=0, ai=True, agent="conversation.x", speaker="media_player.r1_loa",
+                    mic="assist_satellite.r1", camera="camera.phong_khach", connect=["mic", "speaker"], connect_now=["camera"])
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_type_raw=1))
+    body = (await _wait_answers(app, 1))[0]["json"]
+    assert body["camera_url"] == "rtsp://cam.local/live" and body["mic_url"] == OFF and body["speaker_url"] == OFF, body           # cam ngay, mic/loa chờ
+    await _webhook(hass, hass_client_no_auth, {"event": "call", "status": "answered", "call_id": "555", "thread_id": THREAD})
+    for _ in range(60):
+        if seen:
+            break
+        await asyncio.sleep(0.05)
+    assert seen == [({"camera": "camera.phong_khach"}, {"mic": "assist_satellite.r1", "speaker": "media_player.r1_loa"}, True)], seen
+
+
+async def test_connect_now_on_a_voice_call_upgrades_to_video_straight_away(hass):
+    api = FakeApi(statuses=["answered"])
+    rt = _rt(api)
+    await cv._run_plan(hass, rt, "77", cv.Plan(message="Xin chào", hangup=True, video=False, connect_now={"camera": "camera.pk"}))
+    assert getattr(api, "upgraded", []) and api.upgraded[0]["call_id"] == "77"
+
+
+def test_connect_now_rule_never_defaults_on_and_ai_choice_is_not_allowed_there():
+    assert R.normalize({})["connect_now"] == []
+    assert R.normalize({"connect_now": ["camera", "ai"]})["connect_now"] == ["camera"]               # «AI tự chọn» không có nghĩa ở nối ngay
+    assert cv.rule_devices_now({"camera": "camera.pk", "mic": "assist_satellite.r1", "connect_now": ["camera"]}) == {"camera": "camera.pk"}
+    assert cv.rule_devices_now({"camera": "camera.pk"}) == {}                                          # chưa tích: không nối ngay
+    assert cv.rule_devices_now({"connect_now": ["camera"]}) == {}                                      # tích mà chưa chọn camera: không nối

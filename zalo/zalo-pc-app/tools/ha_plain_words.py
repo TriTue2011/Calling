@@ -22,6 +22,12 @@ CONNECT_OPTIONS = [
     {"value": "ai", "label": "AI tự chọn trong các ô đã tích"},
 ]
 
+CONNECT_NOW = ("Thiết bị nhà dùng NGAY khi người nhận nghe máy",
+               "Tích ô nào thì thứ đó bật ngay khi người nhận nghe máy, không chờ người nhà nói trực tiếp (ví dụ tích Camera để người nhận thấy hình trong nhà "
+               "ngay, còn Mic và Loa chỉ bật khi người nhà nói). Tích Camera = cuộc gọi VIDEO. Không tích gì = chưa bật gì (mặc định). Chỉ bật được thiết "
+               "bị đã chọn ở các ô Loa, Mic, Camera.")
+CONNECT_NOW_OPTIONS = [o for o in CONNECT_OPTIONS if o["value"] != "ai"]
+
 PIPELINE = ("Trợ lý giọng nói (Assist)",
             "Bộ nghe - hiểu - nói của Home Assistant (Cài đặt, Trợ lý giọng nói). Khi cho AI nói chuyện, AI nghe người gọi, trả lời và đọc bằng giọng "
             "của bộ này. Bắt buộc chọn nếu cho AI nói chuyện (không tự dùng bộ ưu tiên vì nó có quyền điều khiển thiết bị trong nhà).")
@@ -58,6 +64,7 @@ COMMON_CALL_FIELDS = {
     "tts_engine": ("Giọng đọc riêng", "Chọn nếu muốn dùng giọng khác. Bỏ trống = giọng của Trợ lý giọng nói."),
     "language": ("Ngôn ngữ", "Ví dụ vi. Bỏ trống = theo Trợ lý giọng nói."),
     "connect": (CONNECT_NAME, CONNECT_HELP),
+    "connect_now": CONNECT_NOW,
 }
 
 SERVICES = {
@@ -120,6 +127,7 @@ RULE_FIELDS = {
     "volume": ("Âm lượng loa (%)", "Từ 0 đến 100. 0 = giữ nguyên."),
     "echo_guard": ("Chống vọng âm", "Tránh tiếng loa lọt ngược vào mic khi hai thứ cùng một thiết bị."),
     "connect": (CONNECT_NAME, CONNECT_HELP),
+    "connect_now": CONNECT_NOW,
     "handover_rule": HANDOVER, "pipeline": PIPELINE, "agent": AGENT,
 }
 RULE_SCOPE_OPTIONS = [
@@ -163,6 +171,10 @@ def apply(extra: dict) -> None:
         f = extra.get(svc, {}).get("fields", {})
         if "connect" in f:
             f["connect"]["selector"] = {"select": {"options": CONNECT_OPTIONS, "multiple": True}}
+    for svc in ("make_call", "answer_call", "set_rule"):
+        f = extra.get(svc, {}).get("fields", {})
+        if "connect_now" in f:
+            f["connect_now"]["selector"] = {"select": {"options": CONNECT_NOW_OPTIONS, "multiple": True}}
     f = extra.get("alert_call", {}).get("fields", {})
     if "after" in f:
         f["after"]["selector"] = {"select": {"options": AFTER_OPTIONS}}

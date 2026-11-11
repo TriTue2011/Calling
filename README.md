@@ -218,7 +218,7 @@ Mọi thứ đặt bằng **dịch vụ** (Công cụ nhà phát triển hoặc 
 |---|---|
 | Gọi điện đi, không điền gì thêm | Gọi thường. Người nhận nghe máy thì dùng thiết bị mặc định như trước. |
 | Gọi điện đi + **Nội dung đọc** | Người nhận nghe máy, hệ thống đọc rồi **tự cúp**. |
-| Gọi điện đi + **Cho AI nói chuyện** | AI chào trước (hoặc đọc nội dung), rồi nói chuyện. Thiết bị nhà **chưa bật**. |
+| Gọi điện đi + **Cho AI nói chuyện** | AI chào trước (hoặc đọc nội dung), rồi nói chuyện. Thiết bị nhà **chưa bật** (trừ thứ bạn tích ở ô «dùng NGAY khi người nhận nghe máy», ví dụ chỉ Camera). |
 | ...trong lúc AI nói chuyện, người gọi muốn gặp người nhà hoặc khẩn cấp | AI chuyển cho người nhà: cuộc gọi **không cúp**, thiết bị nhà bật theo ô «Thiết bị nhà dùng khi người nhà nói trực tiếp». |
 | ...người gọi nói «không cần gì nữa» / tạm biệt | AI chào lại rồi **tự cúp**. |
 | **Gọi cảnh báo** báo người ngã, trộm (không chọn gì thêm) | Đọc cảnh báo, rồi **dùng tất cả thiết bị nhà đã cài, gồm camera** (cuộc gọi là video). |
@@ -240,6 +240,8 @@ Có ở Gọi điện đi, Nghe máy, Gọi cảnh báo và quy tắc. **Tích �
 | Loa + Camera | Nghe người gọi và gửi hình, không gửi tiếng trong nhà |
 | Mic + Loa + Camera | Dùng cả ba |
 | **AI tự chọn** (kèm các ô muốn cho phép) | AI quyết dùng mic và loa, hay thêm camera (khẩn cấp cần xem hình), chỉ trong các ô đã tích |
+
+**Nối ngay hay chờ?** Ô này chỉ bật thiết bị **khi người nhà nói trực tiếp**. Muốn một thứ bật **ngay khi người nhận nghe máy** thì tích thêm ở ô **«Thiết bị nhà dùng NGAY khi người nhận nghe máy»** (`connect_now`, mặc định không tích gì). Ví dụ: tích Camera ở ô «ngay» và Mic + Loa ở ô «khi người nhà nói trực tiếp» thì người nhận thấy hình trong nhà từ đầu, còn tiếng trong nhà chỉ bật khi bạn hoặc AI chuyển cho người nhà.
 
 Muốn chọn **thiết bị nào** thì dùng các ô Loa, Mic, Camera. Gọi video mà không nêu `type`: tích Camera là gọi video, không tích là gọi thoại.
 

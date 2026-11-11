@@ -397,6 +397,13 @@ EXTRA_YAML = '''make_call:
           - value: ai
             label: AI tự chọn trong các ô đã tích
           multiple: true
+    connect_now:
+      name: Nối ngay
+      description: Nối ngay khi người nhận nghe máy.
+      selector:
+        select:
+          options: []
+          multiple: true
     message:
       name: Thông báo bằng giọng nói
       description: Câu đọc (TTS của HA) ngay khi cuộc gọi được nghe máy. Bỏ trống = không đọc.
@@ -512,6 +519,13 @@ answer_call:
             label: Camera - gửi hình (tích cái này là cuộc gọi VIDEO)
           - value: ai
             label: AI tự chọn trong các ô đã tích
+          multiple: true
+    connect_now:
+      name: Nối ngay
+      description: Nối ngay khi người nhận nghe máy.
+      selector:
+        select:
+          options: []
           multiple: true
     message:
       name: Thông báo bằng giọng nói
@@ -901,6 +915,13 @@ set_rule:
       description: Câu đọc ra loa; có thể dùng {ten} (tên người gọi) và {loai} (thoại hoặc video). Bỏ trống = «Có cuộc gọi {loai} từ {ten}.»
       selector:
         text:
+    connect_now:
+      name: Nối ngay
+      description: Nối ngay khi người nhận nghe máy.
+      selector:
+        select:
+          options: []
+          multiple: true
     connect:
       name: Nối thiết bị nhà khi chuyển sang trực tiếp
       description: Tích ô nào thì nối thứ đó (tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = dùng cả 3); không tích gì = không nối gì (mặc định, người lạ không nghe/thấy được nhà). Tích Camera thì đó là cuộc gọi VIDEO (cuộc thoại sẽ được nâng lên video). Tích «AI tự chọn» thì AI quyết nối mic+loa hay thêm camera, chỉ trong các ô đã tích. Chỉ nối thiết bị ĐÃ CHỌN ở các ô bên dưới, và chỉ KHI CHUYỂN MÁY (AI giữ máy thì chưa nối).

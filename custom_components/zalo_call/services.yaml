@@ -7027,15 +7027,31 @@ make_call:
         chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật.'
       selector:
         select:
-          options: &id019
-          - value: mic
+          options: &id022
+          - &id019
+            value: mic
             label: Mic - gửi tiếng trong nhà cho người gọi
-          - value: speaker
+          - &id020
+            value: speaker
             label: Loa - phát tiếng người gọi ra loa trong nhà
-          - value: camera
+          - &id021
+            value: camera
             label: Camera - gửi hình trong nhà (tích ô này là cuộc gọi VIDEO)
           - value: ai
             label: AI tự chọn trong các ô đã tích
+          multiple: true
+    connect_now:
+      name: Thiết bị nhà dùng NGAY khi người nhận nghe máy
+      description: Tích ô nào thì thứ đó bật ngay khi người nhận nghe máy, không chờ người nhà nói trực
+        tiếp (ví dụ tích Camera để người nhận thấy hình trong nhà ngay, còn Mic và Loa chỉ bật khi người
+        nhà nói). Tích Camera = cuộc gọi VIDEO. Không tích gì = chưa bật gì (mặc định). Chỉ bật được thiết
+        bị đã chọn ở các ô Loa, Mic, Camera.
+      selector:
+        select:
+          options: &id023
+          - *id019
+          - *id020
+          - *id021
           multiple: true
     message:
       name: Nội dung đọc khi người nhận nghe máy
@@ -7160,7 +7176,17 @@ answer_call:
         chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật.'
       selector:
         select:
-          options: *id019
+          options: *id022
+          multiple: true
+    connect_now:
+      name: Thiết bị nhà dùng NGAY khi người nhận nghe máy
+      description: Tích ô nào thì thứ đó bật ngay khi người nhận nghe máy, không chờ người nhà nói trực
+        tiếp (ví dụ tích Camera để người nhận thấy hình trong nhà ngay, còn Mic và Loa chỉ bật khi người
+        nhà nói). Tích Camera = cuộc gọi VIDEO. Không tích gì = chưa bật gì (mặc định). Chỉ bật được thiết
+        bị đã chọn ở các ô Loa, Mic, Camera.
+      selector:
+        select:
+          options: *id023
           multiple: true
     message:
       name: Nội dung đọc khi người nhận nghe máy
@@ -7481,7 +7507,7 @@ set_rule:
       required: true
       selector:
         select:
-          options: &id020
+          options: &id024
           - value: thread
             label: Một người hoặc một nhóm cụ thể
           - value: groups
@@ -7600,6 +7626,16 @@ set_rule:
         gọi {loai} từ {ten}.»
       selector:
         text: null
+    connect_now:
+      name: Thiết bị nhà dùng NGAY khi người nhận nghe máy
+      description: Tích ô nào thì thứ đó bật ngay khi người nhận nghe máy, không chờ người nhà nói trực
+        tiếp (ví dụ tích Camera để người nhận thấy hình trong nhà ngay, còn Mic và Loa chỉ bật khi người
+        nhà nói). Tích Camera = cuộc gọi VIDEO. Không tích gì = chưa bật gì (mặc định). Chỉ bật được thiết
+        bị đã chọn ở các ô Loa, Mic, Camera.
+      selector:
+        select:
+          options: *id023
+          multiple: true
     connect:
       name: Thiết bị nhà dùng khi người nhà nói trực tiếp
       description: 'Tích ô nào thì dùng thứ đó: tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = dùng cả 3.
@@ -7609,7 +7645,7 @@ set_rule:
         chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật.'
       selector:
         select:
-          options: *id019
+          options: *id022
           multiple: true
     speaker:
       name: Loa trong nhà
@@ -7669,7 +7705,7 @@ remove_rule:
       required: true
       selector:
         select:
-          options: *id020
+          options: *id024
     thread_id:
       name: Mã Zalo của người hoặc nhóm
       description: Chỉ cần khi chọn «Một người hoặc một nhóm cụ thể». Xem danh sách bằng dịch vụ «Xem
@@ -7784,7 +7820,7 @@ alert_call:
         thì».
       selector:
         select:
-          options: *id019
+          options: *id022
           multiple: true
     volume:
       name: Âm lượng loa (%)

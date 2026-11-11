@@ -8,6 +8,7 @@
   * Thiết bị nhà do ``connect`` quyết định, là các ô TÍCH: ``mic``, ``speaker``, ``camera`` (tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = dùng cả 3),
     không tích gì = không nối (mặc định). Tích camera = cuộc gọi VIDEO (thoại thì nâng lên video). Ô ``ai`` = AI tự chọn voice hay thêm camera lúc
     chuyển máy, chỉ trong các ô đã tích. Chỉ nối thứ ĐÃ CHỌN trong quy tắc, và chỉ KHI CHUYỂN MÁY.
+  * ``connect_now`` = các phần nối NGAY khi nghe máy (ví dụ chỉ camera); phần còn lại trong ``connect`` chờ tới khi người nhà nói trực tiếp.
   * ``announce: true`` (cần ``announce_to``): có cuộc gọi đến thì một loa trong nhà đọc thông báo cho người trong nhà biết. Mặc định TẮT.
   * ``ai: true`` bắt buộc có ``pipeline`` hoặc ``agent`` — không lặng lẽ rơi về pipeline ưu tiên (nó có quyền thiết bị nhà).
 """
@@ -58,7 +59,7 @@ RULES_KEY = "rules"
 DEFAULT_RULE: dict[str, Any] = {
     "name": "", "answer": False, "answer_delay": 3, "call_types": ["voice", "video"],
     "ai": False, "pipeline": "", "agent": "", "greeting": "", "handover_rule": "", "trusted": False,
-    "announce": False, "announce_to": "", "announce_text": "",
+    "announce": False, "announce_to": "", "announce_text": "", "connect_now": [],
     "reply_ai": False, "voice_text": False,
     "connect": [], "speaker": "", "mic": "", "mic_url": "", "camera": "", "volume": 0, "echo_guard": "auto",
 }
@@ -107,6 +108,8 @@ def normalize(data: dict[str, Any], old: dict[str, Any] | None = None) -> dict[s
         rule["call_types"] = types
     if data.get("connect") is not None:
         rule["connect"] = parse_connect(data["connect"])
+    if data.get("connect_now") is not None:                       # nối NGAY khi nghe máy: chỉ các phần đã tích (không có «AI tự chọn»)
+        rule["connect_now"] = [p for p in parse_connect(data["connect_now"]) if p != "ai"]
     if data.get("echo_guard") is not None:
         if data["echo_guard"] not in ECHO:
             raise RuleError("echo_guard chỉ gồm: %s" % ", ".join(ECHO))
