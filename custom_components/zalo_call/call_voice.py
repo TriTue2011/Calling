@@ -45,6 +45,12 @@ HANDOVER_MARK = "[[CHUYEN_MAY]]"
 # Mô hình hay làm rơi ngoặc vuông hoặc đổi "_" thành khoảng trắng (đo thật 11/11: "… ạ. CHUYEN MAY" → không bắt được, lại bị đọc to). Nên nhận: có ngoặc
 # (không phân biệt hoa thường, 1-2 ngoặc) HOẶC không ngoặc nhưng VIẾT HOA nguyên cụm, đứng riêng (lời thường có dấu tiếng Việt không bao giờ khớp).
 HANDOVER_RE = re.compile(r"\[{1,2}\s*(?i:CHUYEN[_\s]?MAY)(?:\s*[:=]\s*(?i:VOICE|CAMERA))?\s*\]{1,2}|(?<![A-Za-z])CHUYEN[_\s]?MAY(?:\s*[:=]\s*(?:VOICE|CAMERA))?(?![A-Za-z])")
+# Kết thúc cuộc trò chuyện: người gọi nói không cần gì nữa/tạm biệt thì AI chào ngắn rồi kết thúc bằng dấu này; vòng AI dừng và cuộc gọi được cúp
+# (đo thật 11/11: AI chào tạm biệt hai lần nhưng không có tín hiệu nên vòng AI vẫn chờ nghe, cuộc gọi mở mãi). Dung sai như dấu chuyển máy.
+END_MARK = "[[KET_THUC]]"
+END_RE = re.compile(r"\[{1,2}\s*(?i:KET[_\s]?THUC)\s*\]{1,2}|(?<![A-Za-z])KET[_\s]?THUC(?![A-Za-z])")
+END_HINT = (" Khi người gọi nói không cần gì nữa, cảm ơn, hoặc chào tạm biệt, hãy chào lại thật ngắn rồi kết thúc câu trả lời bằng đúng dấu " + END_MARK +
+            " (dấu này sẽ không được đọc ra); sau dấu đó cuộc gọi được cúp. Chưa xong việc thì KHÔNG dùng dấu này.")
 # Chế độ connect "ai": AI kèm lựa chọn sau dấu (VOICE = chỉ loa+mic; CAMERA = nối cả camera); không kèm thì VOICE (kín hơn).
 HANDOVER_CHOICE_RE = re.compile(r"CHUYEN[_\s]?MAY\s*[:=]\s*(VOICE|CAMERA)", re.IGNORECASE)
 CONNECT_HINT = (" Khi chuyển máy hãy chọn cách nối: [[CHUYEN_MAY:VOICE]] nếu chỉ cần nói chuyện (nối loa và mic nhà), [[CHUYEN_MAY:CAMERA]] nếu cần "
@@ -62,7 +68,7 @@ def phone_hint(handover_rule: str = "", trusted: bool = False, connect_ai: bool 
     """Gợi ý cho trợ lý: nói chuyện qua điện thoại + phạm vi (người chưa tin cậy) + khi nào tự chuyển sang trực tiếp.
     Đây chỉ là lớp MỀM; giới hạn thật nằm ở trợ lý được chọn cho cuộc gọi (không có quyền thiết bị) — xem rules.py."""
     rule = (" Điều kiện chuyển máy riêng: %s." % handover_rule.strip().rstrip(".")) if handover_rule and handover_rule.strip() else ""
-    return PHONE_HINT + ("" if trusted else " " + PUBLIC_HINT) + " " + HANDOVER_HINT + (CONNECT_HINT if connect_ai else "") + rule
+    return PHONE_HINT + ("" if trusted else " " + PUBLIC_HINT) + " " + HANDOVER_HINT + (CONNECT_HINT if connect_ai else "") + END_HINT + rule
 
 
 def pipeline_agent(hass: HomeAssistant, pipeline_id: str | None) -> str:
@@ -384,6 +390,7 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
     listener.start()
     start, conv, idle, turns = time.monotonic(), None, 0, 0
     hint, handover, heard, choice = phone_hint(plan.handover_rule, plan.trusted, plan.connect_ai), False, "", ""
+    finished = False
     context = Context()                           # lượt AI trong cuộc gọi có Context riêng: LLM API nhận ra để chỉ cho công cụ chuyển máy
     if voice is not None:
         voice.call_context_ids.add(context.id)
@@ -413,6 +420,8 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
             if voice is not None and call_id in voice.handover:      # hoặc AI gọi công cụ chuyen_sang_truc_tiep
                 handover = True
                 choice = choice or voice.handover_connect.get(call_id, "")
+            if END_RE.search(reply):                      # AI báo xong cuộc trò chuyện: đọc nốt lời chào (không có dấu) rồi dừng
+                reply, finished = END_RE.sub("", reply).strip(), not handover
             if reply:
                 listener.muted = True
                 try:
@@ -420,10 +429,10 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
                 finally:
                     listener.drain()
                     listener.muted = False
-            if handover:
+            if handover or finished:
                 break
-        _LOGGER.debug("AI trong cuộc gọi %s xong sau %d lượt (chuyển máy: %s)", call_id, turns, handover)
-        return {"handover": handover, "heard": heard, "connect": choice}
+        _LOGGER.debug("AI trong cuộc gọi %s xong sau %d lượt (chuyển máy: %s, AI báo xong: %s)", call_id, turns, handover, finished)
+        return {"handover": handover, "heard": heard, "connect": choice, "finished": finished}
     finally:
         listener.stop()
         if voice is not None:

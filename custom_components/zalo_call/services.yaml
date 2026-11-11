@@ -7745,10 +7745,10 @@ alert_call:
           domain: camera
     connect:
       name: Nối thiết bị nhà khi chuyển máy
-      description: Phần nối khi chuyển máy (chọn nhiều) - mic, speaker, camera ghép bất kỳ, hoặc voice
-        = mic + loa, always = cả ba, ai = AI chọn voice hay camera (với cảnh báo thì là voice), never
-        = không nối. Bỏ trống = theo thiết bị lời gọi đã nêu, không nêu thì theo quy tắc của threadID,
-        không có thì không nối.
+      description: Phần nối ngay sau khi đọc cảnh báo (chọn nhiều) - mic, speaker, camera ghép bất kỳ,
+        hoặc voice = mic + loa, always = cả ba, never = chỉ đọc rồi cúp. Bỏ trống = nối TẤT CẢ thiết bị
+        đã cài (lời gọi hoặc quy tắc của threadID) kể cả camera, vì báo động thì người nhận phải thấy
+        hiện trường; lời gọi nêu thiết bị nào thì nối thiết bị đó.
       selector:
         select:
           options:

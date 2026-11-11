@@ -244,7 +244,7 @@ async def test_ai_decides_handover_via_marker_speaks_clean_reply_and_stops(hass,
     fake = await _ai_env(monkeypatch, [("tôi cần gặp người trong nhà", "Mình chuyển máy cho người nhà nhé [[CHUYEN_MAY]]"), ("không bao giờ tới", "x")])
     api = FakeApi(statuses=["answered"])
     res = await cv.async_run_ai(hass, api, "77", cv.Plan(ai=True, pipeline_id="pl"))
-    assert res == {"handover": True, "heard": "tôi cần gặp người trong nhà", "connect": ""}
+    assert res == {"handover": True, "heard": "tôi cần gặp người trong nhà", "connect": "", "finished": False}
     assert [s[2].decode() for s in api.said] == ["TTS:Mình chuyển máy cho người nhà nhé"] and fake.turn == 1
 
 
@@ -757,7 +757,9 @@ async def test_connect_ai_in_services_alert_has_no_ai_to_choose_and_rule_ai_plan
     assert plan.connect_ai and plan.connect["camera"] == "camera.phong_khach"                     # AI được phép chọn trong tập này
     await hass.services.async_call(DOMAIN, "alert_call", {"thread_id": THREAD, "message": "Khói"}, blocking=True, return_response=True)
     plan = hass.data[DOMAIN][setup.entry_id].voice.plans["555"]
-    assert not plan.connect_ai and "camera" not in plan.connect and plan.connect["speaker"]      # cảnh báo không có AI chọn: voice
+    assert not plan.connect_ai and plan.connect == {"speaker": "media_player.r1_loa", "mic": "assist_satellite.r1", "camera": "camera.phong_khach"}   # cảnh báo mặc định: TẤT CẢ thiết bị đã cài, kể cả camera, dù quy tắc đang để ai
+    await hass.services.async_call(DOMAIN, "alert_call", {"thread_id": THREAD, "message": "Khói", "connect": "ai"}, blocking=True, return_response=True)
+    assert "camera" not in hass.data[DOMAIN][setup.entry_id].voice.plans["555"].connect          # nêu ai tường minh: cảnh báo không có AI chọn nên là voice
     await hass.services.async_call(DOMAIN, "make_call", {"thread_id": THREAD, "ai": True, "connect": "never"}, blocking=True, return_response=True)
     plan = hass.data[DOMAIN][setup.entry_id].voice.plans["555"]
     assert plan.connect == {} and not plan.connect_ai                                          # lời gọi cấm thắng quy tắc
@@ -800,3 +802,49 @@ async def test_camera_only_on_a_voice_call_upgrades_to_video_without_audio_devic
         assert bool(getattr(api, "upgraded", [])) is upgraded, (parts, getattr(api, "upgraded", None))
         ov = rt.bridge.reconnected[0][1]
         assert ov["camera"] == "" and (ov["mic"] == "") is ("mic" not in parts) and (ov["speaker"] == "") is ("speaker" not in parts), (parts, ov)
+
+
+async def test_ai_ends_the_conversation_and_hangs_up_when_the_caller_needs_nothing_more(hass, monkeypatch):
+    """Đo thật 11/11: AI chào tạm biệt nhưng không có tín hiệu kết thúc nên cuộc gọi mở mãi. [[KET_THUC]] (dung sai) → đọc nốt lời chào (không đọc dấu),
+    dừng vòng AI (không nghe thêm), cúp máy; không bắn sự kiện chuyển máy."""
+    events = []
+    hass.bus.async_listen("zalo_call_ai_handover", lambda e: events.append(dict(e.data)))
+    assert cv.END_MARK in cv.phone_hint("", True)
+    for bye in ("Vâng ạ, chào anh nhé [[KET_THUC]]", "Chào anh nhé [[ket thuc]]", "Em chào anh nhé. KET THUC", "Em chào anh nhé. KET_THUC"):
+        fake = await _ai_env(monkeypatch, [("bái bai không cần gì", bye), ("còn nữa không", "Không nghe thấy lẽ ra không được hỏi lượt này")])
+        api = FakeApi(statuses=["answered"])
+        res = await cv.async_run_ai(hass, api, "77", cv.Plan(ai=True, pipeline_id="pl", greeting=""), cv.CallVoice())
+        assert res["finished"] is True and res["handover"] is False, (bye, res)
+        said = [x[2].decode().upper() for x in api.said]
+        assert said and all("KET" not in x and "THUC" not in x for x in said), said                  # dấu không bị đọc ra
+        assert len(fake.calls) == 1 if hasattr(fake, "calls") else True                              # không nghe thêm lượt nào sau khi AI báo xong
+    for finished_by_marker in (True,):
+        await _ai_env(monkeypatch, [("tạm biệt nhé", "Chào anh nhé [[KET_THUC]]")])
+        api = FakeApi(statuses=["answered"])
+        await cv._run_plan(hass, _rt(api), "77", cv.Plan(ai=True, hangup=True, pipeline_id="pl"))
+        assert api.ended == ["77"] and events == []                                                  # cúp máy, không chuyển máy
+    await _ai_env(monkeypatch, [("tạm biệt nhé", "Chào anh nhé [[KET_THUC]]")])
+    api = FakeApi(statuses=["answered"])
+    await cv._run_plan(hass, _rt(api), "77", cv.Plan(ai=True, hangup=False, pipeline_id="pl"))
+    assert api.ended == []                                                                         # hangup_after: false thì giữ máy
+    # Cả chuyển máy lẫn kết thúc trong một câu: chuyển máy thắng (không cúp)
+    await _ai_env(monkeypatch, [("cần người nhà", "Em nối máy ạ [[CHUYEN_MAY]] [[KET_THUC]]")])
+    api = FakeApi(statuses=["answered"])
+    rt = _rt(api)
+    await cv._run_plan(hass, rt, "77", cv.Plan(ai=True, hangup=True, pipeline_id="pl", connect=dict(HOUSE)))
+    await hass.async_block_till_done()
+    assert api.ended == [] and events and events[-1]["reason"] == "ai"
+    for text in ("Em sẽ kết thúc phần này ạ", "Chào anh", "kết thúc"):
+        assert not cv.END_RE.search(text), text                                                      # lời thường (có dấu/không viết hoa) không khớp
+
+
+async def test_outgoing_ai_call_without_message_greets_first_instead_of_staying_silent(hass, setup, app):
+    """Đo thật 11/11: make_call ai:true không message → người nghe máy gặp im lặng 14 giây. AI phải chào trước (câu của quy tắc, không thì câu mặc định)."""
+    await _set_rule(hass, scope="thread", thread_id=THREAD, name="Đại ca", ai=True, agent="conversation.x", greeting="Chào anh, có chuyện gì ạ?")
+    await hass.services.async_call(DOMAIN, "make_call", {"thread_id": THREAD, "ai": True}, blocking=True, return_response=True)
+    assert hass.data[DOMAIN][setup.entry_id].voice.plans["555"].greeting == "Chào anh, có chuyện gì ạ?"
+    await _set_rule(hass, scope="thread", thread_id=THREAD, greeting="")
+    await hass.services.async_call(DOMAIN, "make_call", {"thread_id": THREAD, "ai": True}, blocking=True, return_response=True)
+    assert hass.data[DOMAIN][setup.entry_id].voice.plans["555"].greeting == cv.DEFAULT_GREETING
+    await hass.services.async_call(DOMAIN, "make_call", {"thread_id": THREAD, "ai": True, "message": "Báo bạn một việc"}, blocking=True, return_response=True)
+    assert hass.data[DOMAIN][setup.entry_id].voice.plans["555"].greeting == ""                       # có message thì đọc message, không chào thêm

@@ -245,13 +245,15 @@ action:
 ```
 
 ### Chuyển sang trực tiếp
+AI **tự kết thúc** cuộc gọi khi người gọi nói không cần gì nữa/tạm biệt (kết thúc câu bằng dấu `[[KET_THUC]]`, không đọc ra): đọc nốt lời chào rồi cúp máy (nếu `hangup_after` bật). Cuộc gọi đi `ai: true` không có `message` thì AI **chào trước** (câu `greeting` của quy tắc, không có thì câu mặc định).
+
 Trong cuộc gọi do AI giữ, AI tự chuyển sang trực tiếp khi khẩn cấp / người gọi muốn gặp người nhà / AI không giúp được (kết thúc câu bằng dấu `[[CHUYEN_MAY]]` — không đọc ra — hoặc công cụ «chuyển sang trực tiếp»). Khi đó AI dừng, cuộc gọi **không bị cúp**, HA bắn `zalo_call_ai_handover` (`call_id`, `heard`, `reason`, `connected`); loa/mic/camera chỉ được nối nếu `connect` có phần đó và đã chọn thiết bị; thêm `camera` = đã nối camera (`connected: false` = không có gì để nối). Bạn cũng có thể chủ động tiếp quản bằng nút hoặc dịch vụ `take_over_call`.
 
 ### Thông báo bằng giọng khi gọi đi
 `make_call` có `message` (đọc bằng TTS khi người nhận nghe máy, rồi cúp), `ai: true` (AI nói chuyện tiếp; cần `pipeline`/`agent` hoặc quy tắc của threadID đó). Cuộc gọi `ai: true` giữ máy: loa/mic/camera nhà **tắt** cho tới khi chuyển trực tiếp; thiết bị nối lúc đó là thứ nêu trong lời gọi hoặc của quy tắc threadID, không có thì không nối gì.
 
 ### Gọi cảnh báo: dịch vụ `alert_call` (tách riêng)
-`alert_call` chỉ để báo một cảnh báo: AI đọc `message` bằng giọng của `pipeline`, rồi **nối thẳng** loa/mic/camera đã cài, không hỏi, không trò chuyện (HA bắn `zalo_call_ai_handover` với `reason: alert`). Thiết bị lấy từ `speaker`/`mic`/`camera` trong lời gọi, hoặc của quy tắc threadID; `connect` ghi đè được ngay trong lời gọi. Chưa cài thiết bị nào thì chỉ đọc rồi cúp. `type: video` thì nối cả camera. Muốn AI hỏi đáp thì dùng `make_call` với `ai: true`.
+`alert_call` chỉ để báo một cảnh báo: AI đọc `message` bằng giọng của `pipeline`, rồi **nối thẳng** loa/mic/camera đã cài, không hỏi, không trò chuyện (HA bắn `zalo_call_ai_handover` với `reason: alert`). Không nêu `connect` thì nối **tất cả** thiết bị đã cài kể cả camera (báo động thì người nhận phải thấy hiện trường), bất kể quy tắc đang để chế độ nào cho cuộc gọi đến; nêu `connect` hoặc nêu thiết bị thì chỉ nối phần đó. Thiết bị lấy từ `speaker`/`mic`/`camera` trong lời gọi, hoặc của quy tắc threadID; `connect` ghi đè được ngay trong lời gọi. Chưa cài thiết bị nào thì chỉ đọc rồi cúp. `type: video` thì nối cả camera. Muốn AI hỏi đáp thì dùng `make_call` với `ai: true`.
 
 ```yaml
 service: zalo_call.alert_call

@@ -22,7 +22,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .call_voice import HELD_DEVICES, Plan, async_say, async_take_over, devices_for_mode, plan_from_service
+from .call_voice import DEFAULT_GREETING, HELD_DEVICES, Plan, async_say, async_take_over, devices_for_mode, plan_from_service
 from .rules import CALL_TYPES, CONNECT, CONNECT_PARTS, ECHO as RULE_ECHO, parse_connect, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
@@ -283,7 +283,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         pipeline = _pipeline_id_of(data["pipeline"]) if data.get("pipeline") else (rule.get("pipeline") or "")
         plan = Plan(message=str(data["message"]).strip(), repeat=int(data.get("repeat") or 1), alert=True, hangup=True,
                     engine=data.get("tts_engine") or None, language=data.get("language") or None, pipeline_id=pipeline or None,
-                    video=data.get("type") == "video", connect=_connect_for(data, rule, allow_ai=False)[0])
+                    video=data.get("type") == "video", connect=_connect_for(data, rule, allow_ai=False, alert=True)[0])
         if not plan.message:
             raise ServiceValidationError("message (nội dung cảnh báo) không được trống")
         rt.bridge.remember(None, dict(HELD_DEVICES))                  # lúc nghe máy mọi thiết bị nhà TẮT; chỉ nối sau khi đọc cảnh báo
@@ -427,10 +427,11 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return {"req_id": res.get("req_id"), "done": bool(res.get("done")),
                 "text": res.get("text", "")}
 
-    def _connect_for(data, rule, allow_ai: bool = True) -> tuple[dict, bool]:
+    def _connect_for(data, rule, allow_ai: bool = True, alert: bool = False) -> tuple[dict, bool]:
         """(thiết bị, AI chọn lúc chuyển máy). Phần nối (`connect`, chọn nhiều): của lời gọi; không nêu thì các phần ứng với thiết bị lời gọi
         đã nêu (nêu loa → nối loa...); không nêu gì thì của quy tắc threadID; không có thì không nối. Thiết bị: nêu trong lời gọi, không thì của
-        quy tắc. "ai" chỉ có nghĩa khi có AI trò chuyện (cuộc gọi cảnh báo không có AI để chọn → voice)."""
+        quy tắc. "ai" chỉ có nghĩa khi có AI trò chuyện (cuộc gọi cảnh báo không có AI để chọn → voice). Cảnh báo (alert) mà không nêu gì: nối TẤT CẢ
+        thiết bị đã cài kể cả camera (báo động thì người nhận phải thấy hiện trường), bất kể quy tắc đang để chế độ nào cho cuộc gọi đến."""
         explicit = {k: data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if data.get(k) not in (None, "")}
         rule = rule or {}
         if data.get("connect") is not None:
@@ -438,7 +439,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         elif explicit:
             parts = [p for p, keys in (("mic", ("mic", "mic_url")), ("speaker", ("speaker",)), ("camera", ("camera",))) if any(k in explicit for k in keys)]
         else:
-            parts = parse_connect(rule.get("connect"))
+            parts = list(CONNECT_PARTS) if alert else parse_connect(rule.get("connect"))
         if parts == ["ai"] and not allow_ai:
             parts = ["mic", "speaker"]
         source = explicit or {k: rule[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if rule.get(k)}
@@ -465,6 +466,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
             raise ServiceValidationError("ai: true cần chọn pipeline (Assist pipeline) hoặc agent (trợ lý), hoặc đặt quy tắc cho threadID này "
                                          "bằng set_rule — không tự dùng pipeline ưu tiên vì nó có quyền thiết bị nhà")
         plan.connect, plan.connect_ai = _connect_for(data, rule)
+        if not plan.message and not plan.greeting:           # gọi đi có AI mà không có thông báo: AI chào trước (không để người nghe máy gặp im lặng)
+            plan.greeting = (rule or {}).get("greeting") or DEFAULT_GREETING
         return plan
 
     def _register_voice_plan(rt, call_id, plan) -> None:
