@@ -13,6 +13,7 @@ import types
 from types import SimpleNamespace
 
 import pytest
+from homeassistant.helpers import entity_registry as er
 import voluptuous as vol
 
 pytest.importorskip("homeassistant")
@@ -1019,3 +1020,38 @@ def test_connect_now_rule_never_defaults_on_and_ai_choice_is_not_allowed_there()
     assert cv.rule_devices_now({"camera": "camera.pk", "mic": "assist_satellite.r1", "connect_now": ["camera"]}) == {"camera": "camera.pk"}
     assert cv.rule_devices_now({"camera": "camera.pk"}) == {}                                          # chưa tích: không nối ngay
     assert cv.rule_devices_now({"connect_now": ["camera"]}) == {}                                      # tích mà chưa chọn camera: không nối
+
+
+# ---------------------------------------------------------------- người nhận = thực thể notify chọn từ danh bạ -------------------------
+async def test_recipients_are_picked_from_the_contact_list_and_become_notify_entities(hass, setup, app):
+    """Tuỳ chọn «Người/nhóm nhận» liệt kê danh bạ để CHỌN (không gõ mã); mỗi người chọn thành notify.* có thread_id/type, gửi tin được, các quy tắc không mất."""
+    await _set_rule(hass, scope="thread", thread_id=THREAD, name="Đại ca", answer=True)               # kho quy tắc nằm ngoài entry.options: đổi tuỳ chọn không được xoá
+    res = await hass.config_entries.options.async_init(setup.entry_id)
+    assert res["type"] == "form" and res["step_id"] == "init"
+    with pytest.raises(Exception):                                                                      # mã không có trong danh bạ bị bộ chọn của HA từ chối
+        await hass.config_entries.options.async_configure(res["flow_id"], {"recipients": ["user:khong-co"]})
+    res = await hass.config_entries.options.async_init(setup.entry_id)
+    opts = res["data_schema"].schema["recipients"].config["options"]
+    assert {(o["value"], o["label"]) for o in opts} == {(f"user:{THREAD}", "Đại ca (bạn bè)"), ("user:111", "Đại Ngà (bạn bè)"),
+                                                          ("group:3133467193494275911", "AI học hỏi (nhóm)")}
+    res = await hass.config_entries.options.async_configure(res["flow_id"], {"recipients": [f"user:{THREAD}", "group:3133467193494275911"]})
+    assert res["type"] == "create_entry" and setup.options["recipients"] == [f"user:{THREAD}", "group:3133467193494275911"]
+    await hass.async_block_till_done()
+    reg = er.async_get(hass)
+    ids = sorted(e.entity_id for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify")
+    assert ids == ["notify.zalo_ai_hoc_hoi", "notify.zalo_dai_ca"], ids
+    st = hass.states.get("notify.zalo_dai_ca")
+    assert st.attributes["thread_id"] == THREAD and st.attributes["type"] == "user" and hass.states.get("notify.zalo_ai_hoc_hoi").attributes["type"] == "group"
+    app.requests.clear()
+    await hass.services.async_call("notify", "send_message", {"entity_id": "notify.zalo_dai_ca", "message": "Chào", "title": "Báo"}, blocking=True)
+    sent = [r for r in app.requests if THREAD in r["path"]]
+    assert sent and sent[-1]["json"]["message"] == "Báo\nChào" and sent[-1]["json"]["type"] == "user", app.requests
+    rules = await hass.services.async_call(DOMAIN, "list_rules", {}, blocking=True, return_response=True)
+    assert rules["threads"][THREAD]["answer"] is True                                                  # quy tắc còn nguyên sau khi đổi tuỳ chọn
+    # Bỏ chọn hết: thực thể notify biến mất
+    res = await hass.config_entries.options.async_init(setup.entry_id)
+    await hass.config_entries.options.async_configure(res["flow_id"], {"recipients": []})
+    await hass.async_block_till_done()
+    assert not [e for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify" and hass.states.get(e.entity_id)
+                and hass.states.get(e.entity_id).state != "unavailable"]
+

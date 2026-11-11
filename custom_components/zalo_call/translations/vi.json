@@ -36,5 +36,20 @@
       "reauth_successful": "Đã cập nhật mật khẩu, kết nối lại thành công.",
       "reconfigure_successful": "Đã cập nhật kết nối app."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Người/nhóm nhận tin và cuộc gọi",
+        "description": "Chọn từ danh bạ Zalo những người và nhóm bạn muốn dùng làm người nhận. Mỗi người được chọn trở thành một thực thể «notify» để chọn trong blueprint và tự động hoá (không cần gõ mã Zalo).",
+        "data": {
+          "recipients": "Người và nhóm nhận"
+        }
+      }
+    },
+    "abort": {
+      "cannot_connect": "Không tải được danh bạ từ app",
+      "not_loaded": "Tích hợp chưa nạp xong"
+    }
   }
 }

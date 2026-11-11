@@ -11,7 +11,9 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    OptionsFlow,
 )
+from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
@@ -48,6 +50,11 @@ async def _async_check(hass, url: str, username: str, password: str) -> str | No
 
 class ZaloCallConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return ZaloCallOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None
                               ) -> ConfigFlowResult:
@@ -125,3 +132,28 @@ class ZaloCallConfigFlow(ConfigFlow, domain=DOMAIN):
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
         })
         return self.async_show_form(step_id="reconfigure", data_schema=schema, errors=errors)
+
+
+class ZaloCallOptionsFlow(OptionsFlow):
+    """Chọn người/nhóm từ danh bạ làm người nhận: mỗi người được chọn thành một thực thể ``notify`` (xem notify.py)."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        rt = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if rt is None:
+            return self.async_abort(reason="not_loaded")
+        try:
+            data = await rt.api.contacts() or {}
+        except ZaloCallError:
+            return self.async_abort(reason="cannot_connect")
+        options = []
+        for part, kind, tag in (("friends", "user", "bạn bè"), ("groups", "group", "nhóm")):
+            for row in (data.get(part) or {}).get("rows", []):
+                options.append(selector.SelectOptionDict(value="%s:%s" % (kind, row.get("id")),
+                                                         label="%s (%s)" % (str(row.get("name") or row.get("id")), tag)))
+        valid = {o["value"] for o in options}
+        if user_input is not None:
+            return self.async_create_entry(data={**self.config_entry.options, "recipients": [v for v in user_input.get("recipients", []) if v in valid]})
+        current = [v for v in (self.config_entry.options.get("recipients") or []) if v in valid]
+        return self.async_show_form(step_id="init", data_schema=vol.Schema({
+            vol.Optional("recipients", default=current): selector.SelectSelector(selector.SelectSelectorConfig(
+                options=options, multiple=True, mode=selector.SelectSelectorMode.DROPDOWN, sort=True))}))

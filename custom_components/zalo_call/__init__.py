@@ -47,7 +47,7 @@ from .const import (
 from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor", "binary_sensor", "select", "text", "switch", "button"]
+PLATFORMS = ["sensor", "binary_sensor", "select", "text", "switch", "button", "notify"]
 WEBHOOK_KINDS = ("message", "group_event", "reaction", "call")
 # Trang thai ket thuc: dung cau noi am thanh (loa/mic) cua cuoc goi do.
 TERMINAL_STATES = ("ended", "no_answer", "declined", "missed", "rejected",
@@ -158,10 +158,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(defaults.add_listener(_on_defaults_changed))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Đổi danh sách người/nhóm nhận (tuỳ chọn) thì tải lại để thêm/bớt thực thể notify.
+    entry.async_on_unload(entry.add_update_listener(_async_reload_on_options))
     # Dua thiet bi mac dinh (da phan giai ra URL luong) cho app: WebUI hien thong nhat
     # va cuoc goi nghe may ngoai HA / ben kia xin len video cung dung dung nguon.
     hass.async_create_task(bridge.async_push_defaults())
     return True
+
+
+async def _async_reload_on_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

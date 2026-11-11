@@ -37,6 +37,7 @@ Hướng dẫn từng bước, cách cấu hình loa/mic/camera, gọi bằng se
 5. [Tin nhắn, tệp, ghi âm và định dạng chữ](#5-tin-nhắn-tệp-ghi-âm-và-định-dạng-chữ)
 6. [WebUI và bình chọn nhóm](#6-webui-và-bình-chọn-nhóm)
 7. [Danh mục MỌI dịch vụ](#7-danh-mục-mọi-dịch-vụ)
+8. [Blueprint mẫu: chọn từ danh sách, không gõ tay](#8-blueprint-mẫu-chọn-từ-danh-sách-không-gõ-tay)
 
 ## 1. Quy ước và nguyên tắc riêng tư
 
@@ -46,6 +47,28 @@ Từ ngữ dùng trong tài liệu:
 - **Thiết bị nhà** = loa, mic, camera trong nhà bạn.
 - **Người nhà nói trực tiếp** = người trong nhà tự nói chuyện với người gọi (sau khi AI chuyển cuộc gọi, hoặc bạn bấm nút).
 - **Trợ lý giọng nói (Assist)** = bộ nghe - hiểu - nói của Home Assistant (Cài đặt → Trợ lý giọng nói). AI dùng bộ này để nghe, trả lời và đọc.
+
+### Người nhận: chọn từ danh sách, không gõ mã (thực thể `notify`)
+
+Thay vì gõ mã Zalo, hãy **chọn người và nhóm từ danh bạ**: *Cài đặt → Thiết bị & dịch vụ → Zalo Call → ⚙️ Cấu hình → «Người và nhóm nhận»*. Mỗi người chọn xong thành một thực thể **`notify.zalo_<tên>`** để chọn trong blueprint và automation. Bỏ chọn thì thực thể biến mất.
+
+| Thuộc tính của thực thể | Ý nghĩa |
+|---|---|
+| `thread_id` | Mã Zalo của người hoặc nhóm, truyền thẳng vào `send_message`, `make_call`, `alert_call` |
+| `type` | `user` (người) hoặc `group` (nhóm). **Chỉ `user` gọi điện được** |
+| `loai` | «người» hoặc «nhóm» (để hiển thị) |
+
+```yaml
+# Dùng trong automation: mã Zalo lấy từ thực thể, không cần gõ
+- action: zalo_call.alert_call
+  data:
+    thread_id: "{{ state_attr('notify.zalo_dai_ca', 'thread_id') }}"
+    message: "Phát hiện có người ngã ở phòng khách"
+# Gửi chữ cho thực thể (chuẩn của Home Assistant)
+- action: notify.send_message
+  target: {entity_id: notify.zalo_dai_ca}
+  data: {title: "Báo", message: "Nhà đang mất điện"}
+```
 
 ### Nguyên tắc riêng tư (luôn đúng)
 1. **Chưa có quy tắc cho một người thì hệ thống không làm gì** với người đó: cuộc gọi chỉ đổ chuông, tin nhắn không đi đâu.
@@ -1316,6 +1339,18 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | [Chuyển giọng nói thành văn bản (Zalo AI)](docs/DICH-VU.md#voice_to_text) | `zalo_call.voice_to_text` | Gửi một tin nhắn thoại (URL tệp .aac/.mp3/.m4a trên máy chủ Zalo) cho Zalo AI và trả về văn bản. Chỉ dùng cho... |
 
 <!-- DICH-VU:CHI-MUC:END -->
+
+## 8. Blueprint mẫu: chọn từ danh sách, không gõ tay
+
+Năm mẫu automation dựng sẵn cho Zalo Call, nằm ở kho **[TriTue2011/Blueprint](https://github.com/TriTue2011/Blueprint)** (mô tả đầy đủ trong README của kho đó). Mọi thứ **chọn từ danh sách**: cảm biến, người nhận (thực thể `notify.zalo_...`), loa/mic/camera, câu có sẵn, kiểu chữ, ô tích thiết bị nhà. Cần Zalo Call từ bản `2026.11.11.2`.
+
+| Mẫu | Làm gì | Nhập |
+|---|---|---|
+| **Gọi cảnh báo khi cảm biến kích hoạt** | Có người/khói/rò nước/cửa mở/mất điện thì gọi cảnh báo, gọi **lần lượt** từng người cho tới khi có người nghe máy, nối thiết bị nhà | [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FTriTue2011%2FBlueprint%2Fmain%2Fzalo_call_alert_sensor.yaml) |
+| **Một nút bấm nghe máy, cúp máy hoặc gọi đi** | Cùng một nút: có cuộc gọi đến thì nghe, đang gọi thì cúp, rảnh thì gọi/cảnh báo/nhắn tin (hợp nút giữa loa R1) | [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FTriTue2011%2FBlueprint%2Fmain%2Fzalo_call_nut_bam.yaml) |
+| **Quy tắc cho cuộc gọi đến** | Báo ra loa, tự nghe máy, AI nói chuyện, thiết bị nhà dùng khi người nhà nói trực tiếp | [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FTriTue2011%2FBlueprint%2Fmain%2Fzalo_call_incoming_rule.yaml) |
+| **Messenger tuỳ biến** | Nhắn tin hoặc gọi khi thiết bị đổi trạng thái / vượt ngưỡng / báo cáo hằng ngày; kiểu chữ chọn từ danh sách | [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FTriTue2011%2FBlueprint%2Fmain%2Fzalo_call_messenger.yaml) |
+| **Gọi hoặc nhắn nhắc hẹn theo lịch** | Đúng giờ gọi đọc lời nhắc (thuốc, ngủ, thức dậy, ăn...) | [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FTriTue2011%2FBlueprint%2Fmain%2Fzalo_call_nhac_hen.yaml) |
 
 ## Kho này gồm
 

@@ -36,5 +36,20 @@
       "reauth_successful": "Password updated; reconnected.",
       "reconfigure_successful": "App connection updated."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Recipients for messages and calls",
+        "description": "Pick people and groups from your Zalo contacts to use as recipients. Each one becomes a notify entity you can choose in blueprints and automations (no typing Zalo ids).",
+        "data": {
+          "recipients": "Recipients"
+        }
+      }
+    },
+    "abort": {
+      "cannot_connect": "Cannot load contacts from the app",
+      "not_loaded": "Integration is not loaded yet"
+    }
   }
 }
