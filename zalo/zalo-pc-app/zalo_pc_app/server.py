@@ -933,6 +933,14 @@ def _log_media_stats(kind, call_id, obj):
         pass
 
 
+def _key_fp(key):
+    """Dấu vân tay ngắn của khoá SRTP (6 hex đầu SHA-1) để so khoá giữa hai nguồn trong nhật ký mà không lộ khoá."""
+    if not key:
+        return "none"
+    import hashlib
+    return hashlib.sha1(key if isinstance(key, (bytes, bytearray)) else str(key).encode()).hexdigest()[:6]
+
+
 def _stop_mic(call_id):
     sender = AUDIO_SENDERS.pop(str(call_id), None)
     if sender is not None:
@@ -1112,8 +1120,10 @@ def _answer_incoming(sess, body, source="api"):
         # su kien cuoc goi den, neu khong thi RTP tran.
         hooks = {}
         _in_key = _alloc.get("srtp_key")
+        _in_src = "alloc.srtp_key" if _in_key is not None else ""
         if _in_key is None:
             _in_key = _INCOMING_SRTP.pop(str(call_id), None)
+            _in_src = "event" if _in_key is not None else ""
         if _in_key is None:
             from . import srtp_pure as _srtp_pure
             _in_key = _srtp_pure.key_from_session(
@@ -1121,9 +1131,11 @@ def _answer_incoming(sess, body, source="api"):
         try:
             from . import pc_media
             hooks, _notes = pc_media.hooks_for_call(_in_key)
-            _log_call("answer media hooks call_id=%s srtp=%s opus=%s"
+            from . import srtp_pure as _sp2
+            _log_call("answer media hooks call_id=%s srtp=%s opus=%s key_src=%s key=%s alloc_session_key=%s"
                       % (call_id, _notes["srtp"],
-                         _notes["opus"][:90]))
+                         _notes["opus"][:90], _in_src or "alloc.session", _key_fp(_in_key),
+                         _key_fp(_sp2.key_from_session(_alloc.get("session")))))
         except Exception as exc:  # noqa: BLE001 - optional
             hooks = {}
             _log_call("answer media hooks failed call_id=%s: %s"
@@ -2465,6 +2477,8 @@ class AppState:
             "incoming_session_present": bool(event.get("session")),
             "incoming_rtp_present": bool(event.get("rtp_address")),
             "incoming_ringring_sent": False})
+        _log_call("incoming key call_id=%s explicit=%s session_in_event=%s key=%s"
+                  % (call_id, bool(_explicit_key), bool(event.get("session")), _key_fp(_key)))
         _log_call("incoming call_id=%s peer=%s thread=%s"
                   % (call_id, peer, caller_id))
         thread = threading.Thread(
