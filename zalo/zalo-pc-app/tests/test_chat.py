@@ -550,6 +550,12 @@ def test_server_thread_routes():
             status, body = api_json("POST", "/api/thread/30001/send", {
                 "type": "group", "message": "Xin chao", "styles": [{"start": 0, "len": 3, "st": "b"}]})
             assert status == 200 and got[-1][2] == [{"start": 0, "len": 3, "st": "b"}], got[-1]
+            status, body = api_json("POST", "/api/thread/20001/send", {
+                "type": "user", "message": "Bao cao\nNhiet do 29C", "style": {"heading": "auto", "color": "auto", "bold": "auto"}})
+            assert status == 200 and got[-1][1] == "Bao cao\nNhiet do 29C", (status, got[-1])
+            assert got[-1][2] == [{"start": 0, "len": 7, "st": "f_18,b"}, {"start": 17, "len": 3, "st": "c_db342e,b"}], got[-1]
+            status, body = api_json("POST", "/api/thread/20001/send", {"type": "user", "message": "x", "style": {"size": "huge"}})
+            assert status == 400 and "size" in body["error"], (status, body)
             n = len(got)
             for bad in ({"message": "abc", "styles": [{"start": 0, "len": 3, "st": "f_20"}]},
                         {"message": "abc", "format": "html"},

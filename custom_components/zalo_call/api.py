@@ -94,10 +94,13 @@ class ZaloCallApi:
                           auto_emphasis: Any = None,
                           emoji: str | None = None,
                           auto_emoji: Any = None,
-                          zalo_emoji: str | None = None) -> Any:
+                          zalo_emoji: str | None = None,
+                          style: dict | None = None) -> Any:
         body: dict[str, Any] = {"type": ttype, "message": message}
         if fmt:
             body["format"] = str(fmt)
+        if style:
+            body["style"] = dict(style)
         for key, val in (("auto_emphasis", auto_emphasis), ("emoji", emoji),
                          ("auto_emoji", auto_emoji), ("zalo_emoji", zalo_emoji)):
             if val not in (None, "", False):

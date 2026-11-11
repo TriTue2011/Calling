@@ -322,21 +322,151 @@ def normalize_emphasis(value):
     return v
 
 
-def render(text: str, fmt: str = "plain", emphasis=None, styles=None, emoji=None, auto_emoji=False, zalo_emoji=None):
+# ---------------------------------------------------------------------------------------------------------------------
+# Kiểu chữ MẶC ĐỊNH / theo từng tin: cỡ chữ, màu, đậm, nghiêng, gạch chân, tiêu đề — mỗi mục có chế độ «auto».
+# Quy tắc auto theo CÚ PHÁP của chữ (hình dạng), không theo danh sách từ khoá:
+#   đậm auto      con số (29°C, 75%, 15:30, 10/11)         | nghiêng auto   đoạn trong "…" “…” ‘…’ hoặc (…)
+#   gạch chân auto  liên kết http(s):// và địa chỉ email     | tiêu đề auto  dòng đầu của tin nhiều dòng, ngắn (≤ 60 ký tự), không kết thúc
+#                   bằng dấu câu (. ! ? … , ;); dòng ngắn kết thúc bằng «:» thành đề mục (đậm)
+#   cỡ chữ auto   tiêu đề → to, dòng nằm trọn trong ngoặc (…) → nhỏ  | màu auto  con số → màu «auto_color» (mặc định đỏ)
+# Chữ đã được đánh dấu tường minh (markdown, thẻ {red}…) luôn thắng: cỡ và màu mặc định không đè lên chỗ đã có cỡ/màu.
+STYLE_SIZE = ("off", "small", "big", "auto")
+STYLE_COLOR = ("off", "auto", "red", "orange", "yellow", "green")
+STYLE_TOGGLE = ("off", "on", "auto")
+STYLE_AUTO_COLOR = ("red", "orange", "yellow", "green")
+STYLE_DEFAULT = {"size": "off", "color": "off", "bold": "off", "italic": "off", "underline": "off", "heading": "off", "auto_color": "red"}
+_ON = {"on", "true", "1", "yes", "bat", "bật", "co", "có"}
+_OFF = {"", "off", "false", "0", "no", "none", "tat", "tắt", "khong", "không"}
+_AUTO = {"auto", "tu dong", "tự động"}
+_QUOTED = re.compile(r'"[^"\n]+"|“[^”\n]+”|‘[^’\n]+’|\([^()\n]+\)')
+_LINK = re.compile(r"https?://[^\s]+|[\w.+-]+@[\w-]+\.[\w.-]+")
+_HEADING_MAX = 60
+
+
+def _mode(key: str, value, allowed: tuple, extra: dict | None = None) -> str:
+    if value is None or value is False:
+        return "off"
+    if value is True:
+        return "on" if "on" in allowed else "auto"
+    v = str(value).strip().lower()
+    v = (extra or {}).get(v, v)
+    if v in _OFF:
+        return "off"
+    if v in _AUTO and "auto" in allowed:
+        return "auto"
+    if v in _ON and "on" in allowed:
+        return "on"
+    if v in allowed:
+        return v
+    raise ValueError("%s phải là một trong: %s" % (key, ", ".join(allowed)))
+
+
+def normalize_style(value) -> dict:
+    """Đổi giá trị (dict từ HA/JSON, thiếu khoá = tắt) thành dict đủ 7 khoá; giá trị lạ thì ValueError nêu các lựa chọn hợp lệ."""
+    if value in (None, "", False):
+        return dict(STYLE_DEFAULT)
+    if not isinstance(value, dict):
+        raise ValueError("style phải là một đối tượng {size, color, bold, italic, underline, heading, auto_color}")
+    unknown = set(value) - set(STYLE_DEFAULT)
+    if unknown:
+        raise ValueError("style không có khoá: %s" % ", ".join(sorted(unknown)))
+    vi_color = dict(_ALIASES)
+    out = {
+        "size": _mode("size", value.get("size"), STYLE_SIZE, {"nhỏ": "small", "nho": "small", "to": "big", "lớn": "big"}),
+        "color": _mode("color", value.get("color"), STYLE_COLOR, vi_color),
+        "bold": _mode("bold", value.get("bold"), STYLE_TOGGLE),
+        "italic": _mode("italic", value.get("italic"), STYLE_TOGGLE),
+        "underline": _mode("underline", value.get("underline"), STYLE_TOGGLE),
+        "heading": _mode("heading", value.get("heading"), STYLE_TOGGLE),
+    }
+    ac = value.get("auto_color")
+    out["auto_color"] = "red" if ac in (None, "", False) else _mode("auto_color", ac, STYLE_AUTO_COLOR, vi_color)
+    if out["auto_color"] == "off":
+        out["auto_color"] = "red"
+    return out
+
+
+def style_is_active(style: dict) -> bool:
+    return any(style[k] != "off" for k in ("size", "color", "bold", "italic", "underline", "heading"))
+
+
+def _heading_spans(plain: str, mode: str):
+    """[(bắt đầu, kết thúc, 'big'|'sub')] theo chế độ tiêu đề (on: dòng đầu có chữ; auto: xem quy tắc ở đầu mục)."""
+    lines, pos = [], 0
+    for ln in plain.split("\n"):
+        lines.append((pos, pos + len(ln), ln))
+        pos += len(ln) + 1
+    filled = [x for x in lines if x[2].strip()]
+    spans = []
+    if mode == "on" and filled:
+        spans.append((filled[0][0], filled[0][1], "big"))
+    elif mode == "auto" and len(filled) >= 2:
+        a, b, ln = filled[0]
+        s = ln.strip()
+        if len(s) <= _HEADING_MAX and not s.endswith((".", "!", "?", "…", ",", ";", ":")):
+            spans.append((a, b, "big"))
+        for a, b, ln in filled[1:]:
+            s = ln.strip()
+            if s.endswith(":") and len(s) <= _HEADING_MAX:
+                spans.append((a, b, "sub"))
+    return spans
+
+
+def apply_style(plain: str, marks: list, style: dict) -> list:
+    """Áp kiểu chữ mặc định/auto lên mark từng ký tự (marks cùng độ dài plain). Không đè chỗ đã có màu/cỡ tường minh."""
+    marks = [set(m) for m in marks]
+    n = len(plain)
+
+    def add(a: int, b: int, *tokens, skip_prefix: str = ""):
+        for k in range(a, min(b, n)):
+            if plain[k] == "\n":
+                continue
+            if skip_prefix and any(t.startswith(skip_prefix) for t in marks[k]):
+                continue
+            marks[k].update(tokens)
+
+    for a, b, kind in _heading_spans(plain, style["heading"]):         # 1) tiêu đề trước (to + đậm; đề mục phụ chỉ đậm)
+        add(a, b, "b", *(("f_18",) if kind == "big" else ()), skip_prefix="f_" if kind == "big" else "")
+    if style["size"] in ("small", "big"):                                # 2) cỡ chữ
+        add(0, n, SIZES[style["size"]], skip_prefix="f_")
+    elif style["size"] == "auto":
+        pos = 0
+        for ln in plain.split("\n"):
+            s = ln.strip()
+            if len(s) > 2 and s.startswith("(") and s.endswith(")"):
+                add(pos, pos + len(ln), SIZES["small"], skip_prefix="f_")
+            pos += len(ln) + 1
+    if style["color"] in COLORS:                                         # 3) màu
+        add(0, n, COLORS[style["color"]], skip_prefix="c_")
+    elif style["color"] == "auto":
+        for m in _NUMBER.finditer(plain):
+            add(m.start(), m.end(), COLORS[style["auto_color"]], skip_prefix="c_")
+    for key, token, rx in (("bold", "b", _NUMBER), ("italic", "i", _QUOTED), ("underline", "u", _LINK)):   # 4) đậm / nghiêng / gạch chân
+        if style[key] == "on":
+            add(0, n, token)
+        elif style[key] == "auto":
+            for m in rx.finditer(plain):
+                add(m.start(), m.end(), token)
+    return [frozenset(m) for m in marks]
+
+
+def render(text: str, fmt: str = "plain", emphasis=None, styles=None, emoji=None, auto_emoji=False, zalo_emoji=None, style=None):
     """Đầu vào của tầng gửi tin. Trả ``(chữ_gửi_đi, danh_sách_style)``.
 
     * ``fmt="markdown"``: đổi markdown/thẻ thành style (bỏ các dấu định dạng khỏi chữ).
     * ``emphasis``: ``True`` hoặc tên màu (red/orange/yellow/green hay đỏ/cam/vàng/xanh) -> tự nhấn mạnh số và chữ đậm.
     * ``emoji``: emoji (hoặc tên trong bảng EMOJI) chèn vào đầu tin; ``auto_emoji``: tự thêm emoji hợp ngữ cảnh ở đầu từng dòng;
       mã ``:ten:`` trong chữ được đổi thành emoji khi dùng markdown, emoji hoặc auto_emoji.
+    * ``style``: kiểu chữ mặc định/auto (cỡ, màu, đậm, nghiêng, gạch chân, tiêu đề) — xem normalize_style / apply_style.
     * ``styles``: style tự tính (chỉ dùng được với fmt="plain" và không có emphasis, vì chữ phải giữ nguyên để khoảng khớp).
     """
     text = str(text)
+    st = normalize_style(style)
     prefix = normalize_emoji(emoji)
     zcode = zalo_emoji_code(zalo_emoji)
     if styles:
-        if fmt == "markdown" or emphasis or prefix or zcode or auto_emoji:
-            raise ValueError("styles tự tính không dùng chung với format=markdown, auto_emphasis, emoji hay auto_emoji "
+        if fmt == "markdown" or emphasis or prefix or zcode or auto_emoji or style_is_active(st):
+            raise ValueError("styles tự tính không dùng chung với format=markdown, style, auto_emphasis, emoji hay auto_emoji "
                              "(chữ bị đổi thì khoảng tự tính không còn khớp)")
         return text, validate_styles(text, styles)
     if fmt not in ("plain", "markdown", "", None):
@@ -356,4 +486,6 @@ def render(text: str, fmt: str = "plain", emphasis=None, styles=None, emoji=None
         plain, chars, marks, line_styles = text, list(text), [frozenset()] * len(text), []
     if emphasis:
         marks = auto_emphasis(plain, chars, marks, normalize_emphasis(emphasis) or "red")
+    if style_is_active(st):
+        marks = apply_style(plain, marks, st)
     return plain, validate_styles(plain, _runs(chars, marks) + line_styles)

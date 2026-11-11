@@ -3701,7 +3701,8 @@ class Handler(BaseHTTPRequestHandler):
                     not in ("", "0", "false", "off", "no", "none")
                 if fmt != "plain" or body.get("auto_emphasis") \
                         or body.get("styles") or body.get("emoji") \
-                        or body.get("zalo_emoji") or auto_emoji:
+                        or body.get("zalo_emoji") or body.get("style") \
+                        or auto_emoji:
                     # Dinh dang chu: markdown nhe / tu nhan manh so bang mau /
                     # styles tu tinh (rich_text.py). Sai tham so -> 400 ro rang,
                     # khong gui mu (Zalo im lang bo qua ma style la).
@@ -3711,7 +3712,8 @@ class Handler(BaseHTTPRequestHandler):
                             rich_text.normalize_emphasis(
                                 body.get("auto_emphasis")),
                             body.get("styles"), body.get("emoji"),
-                            auto_emoji, body.get("zalo_emoji"))
+                            auto_emoji, body.get("zalo_emoji"),
+                            body.get("style"))
                     except ValueError as exc:
                         return self._send_json({"error": str(exc)},
                                                status=400)

@@ -35,6 +35,41 @@
     "required": false
    },
    {
+    "key": "font_size",
+    "label": "Cỡ chữ cho tin này (ghi đè mặc định trên thiết bị): off, small, big hoặc auto (tiêu đề to, dòng trong ngoặc nhỏ). Bỏ trống = theo mặc định",
+    "required": false
+   },
+   {
+    "key": "text_color",
+    "label": "Màu chữ cho tin này: off, auto (con số), red, orange, yellow, green. Bỏ trống = theo mặc định",
+    "required": false
+   },
+   {
+    "key": "bold",
+    "label": "In đậm: off, on, auto (con số). Bỏ trống = theo mặc định",
+    "required": false
+   },
+   {
+    "key": "italic",
+    "label": "In nghiêng: off, on, auto (đoạn trong \"…\" hoặc (…)). Bỏ trống = theo mặc định",
+    "required": false
+   },
+   {
+    "key": "underline",
+    "label": "Gạch chân: off, on, auto (liên kết, email). Bỏ trống = theo mặc định",
+    "required": false
+   },
+   {
+    "key": "heading",
+    "label": "Tiêu đề: off, on (dòng đầu), auto (dòng đầu ngắn của tin nhiều dòng; dòng kết thúc «:» thành đề mục). Bỏ trống = theo mặc định",
+    "required": false
+   },
+   {
+    "key": "auto_color",
+    "label": "Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow, green. Bỏ trống = theo mặc định",
+    "required": false
+   },
+   {
     "key": "zalo_emoji",
     "label": "Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để chèn mã tương ứng vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji.",
     "required": false

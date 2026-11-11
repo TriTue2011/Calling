@@ -11,7 +11,7 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .const import (AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_AI_EMOJI, CONF_AI_EMPHASIS, CONF_AI_ENABLED,
+from .const import (TEXT_STYLE_KEYS, AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_AI_EMOJI, CONF_AI_EMPHASIS, CONF_AI_ENABLED,
                     CONF_AI_FORMAT, CONF_AI_THREADS, CONF_AUTO_MIC,
                     CONF_AUTO_VIDEO, CONF_AUTO_VIDEO_DELAY, CONF_CALL_VOLUME, CONF_CAMERA,
                     CONF_ECHO_GUARD, CONF_HA_URL, CONF_MIC, CONF_MIC_URL, CONF_SPEAKER, DOMAIN,
@@ -25,7 +25,8 @@ DEFAULTS: dict[str, Any] = {"speaker": "", "mic": "", "mic_url": "",
                             CONF_HA_URL: "", CONF_AI_ENABLED: False,
                             CONF_AI_AGENT: "", CONF_AI_THREADS: "",
                             CONF_AI_FORMAT: "markdown", CONF_AI_EMPHASIS: "off",
-                            CONF_AI_EMOJI: False}
+                            CONF_AI_EMOJI: False,
+                            **{k: ("red" if k == "text_auto_color" else "off") for k in TEXT_STYLE_KEYS}}
 _TEXT_KEYS = ("speaker", "mic", "mic_url", "camera", CONF_HA_URL, CONF_AI_AGENT,
               CONF_AI_THREADS)
 # Giá trị từng nằm trong tuỳ chọn (bánh răng): lần đầu có thì nhập sang, rồi không đọc lại.
@@ -63,6 +64,9 @@ class DeviceDefaults:
         for key in (CONF_AUTO_MIC, CONF_AUTO_VIDEO, CONF_AI_ENABLED, CONF_AI_EMOJI):
             if key in patch:
                 self.data[key] = bool(patch[key])
+        for key, (_, options, _) in TEXT_STYLE_KEYS.items():
+            if patch.get(key) in options:
+                self.data[key] = patch[key]
         if patch.get(CONF_AI_FORMAT) in AI_FORMATS:
             self.data[CONF_AI_FORMAT] = patch[CONF_AI_FORMAT]
         if patch.get(CONF_AI_EMPHASIS) in AI_EMPHASIS:
@@ -81,6 +85,11 @@ class DeviceDefaults:
                     0, min(MAX_AUTO_VIDEO_DELAY, int(patch[CONF_AUTO_VIDEO_DELAY])))
             except (TypeError, ValueError):
                 pass
+
+    def text_style(self) -> dict | None:
+        """Kiểu chữ mặc định trên thiết bị dạng gửi app ({size, color, bold, italic, underline, heading, auto_color}); None nếu mục nào cũng tắt."""
+        style = {name: self.get(key) for key, (name, _, _) in TEXT_STYLE_KEYS.items()}
+        return style if any(style[n] != "off" for n in ("size", "color", "bold", "italic", "underline", "heading")) else None
 
     def get(self, key: str) -> Any:
         return self.data.get(key, DEFAULTS.get(key))

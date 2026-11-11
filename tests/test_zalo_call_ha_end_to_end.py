@@ -253,3 +253,62 @@ async def test_send_sticker_by_keyword_searches_then_sends_and_still_accepts_exp
         await call(hass, "send_sticker", {"thread_id": THREAD, "type": "user", "keyword": "khong-co"})
     with pytest.raises(ServiceValidationError):
         await call(hass, "send_sticker", {"thread_id": THREAD, "type": "user"})
+
+
+async def _select(hass, entry, key, option):
+    ent = uid(hass, entry, "select", key)
+    assert ent, "thiếu ô chọn %s" % key
+    await hass.services.async_call("select", "select_option", {"entity_id": ent, "option": option}, blocking=True)
+
+
+async def test_text_style_defaults_live_on_the_device_and_apply_to_send_message(hass, setup, app):
+    keys = ("text_size", "text_color", "text_bold", "text_italic", "text_underline", "text_heading", "text_auto_color")
+    assert all(uid(hass, setup, "select", k) for k in keys), "đủ 7 ô cài đặt kiểu chữ trên thiết bị"
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "x"})
+    assert "style" not in app.last("/send")["json"], "mặc định đều off thì không gửi style"
+    await _select(hass, setup, "text_heading", "auto")
+    await _select(hass, setup, "text_color", "auto")
+    await _select(hass, setup, "text_auto_color", "orange")
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "Báo cáo\nNhiệt độ 29°C"})
+    assert app.last("/send")["json"]["style"] == {"size": "off", "color": "auto", "bold": "off", "italic": "off", "underline": "off",
+                                                  "heading": "auto", "auto_color": "orange"}, app.last("/send")["json"]
+
+
+async def test_send_message_fields_override_the_device_defaults_per_message(hass, setup, app):
+    await _select(hass, setup, "text_bold", "on")
+    await _select(hass, setup, "text_color", "red")
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "a", "bold": "off", "font_size": "big", "text_color": "auto", "auto_color": "green"})
+    st = app.last("/send")["json"]["style"]
+    assert st["bold"] == "off" and st["size"] == "big" and st["color"] == "auto" and st["auto_color"] == "green", st
+    j = app.last("/send")["json"]
+    assert not {"font_size", "text_color", "bold", "italic", "underline", "heading", "auto_color"} & set(j), "trường ghi đè không đi nguyên sang app: " + str(j)
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "b"})
+    st = app.last("/send")["json"]["style"]
+    assert st["bold"] == "on" and st["color"] == "red" and st["size"] == "off", st                  # tin sau lại theo mặc định
+
+
+async def test_send_message_rejects_a_bad_style_value_before_reaching_the_app(hass, setup, app):
+    n = len(app.requests)
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "x", "font_size": "huge"})
+    assert len(app.requests) == n
+
+
+async def test_ai_reply_uses_the_device_text_style_defaults(hass, setup, app, fake_agent):
+    from custom_components.zalo_call.ai import async_ai_reply
+    from custom_components.zalo_call import ai as ai_mod
+    ai_mod.MIN_INTERVAL = 0
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(ai_enabled=True)
+    await _select(hass, setup, "text_bold", "auto")
+    await async_ai_reply(hass, setup, {"content": "hi", "thread_id": THREAD, "thread_type": "user", "is_self": False})
+    j = app.last("/send")["json"]
+    assert j["format"] == "markdown" and j["style"]["bold"] == "auto", j
+
+
+async def test_picker_lists_for_the_text_style_fields_in_the_service_description(hass, setup):
+    f = (await async_get_all_descriptions(hass))[DOMAIN]["send_message"]["fields"]
+    assert f["font_size"]["selector"]["select"]["options"] == ["off", "small", "big", "auto"]
+    assert f["text_color"]["selector"]["select"]["options"] == ["off", "auto", "red", "orange", "yellow", "green"]
+    for k in ("bold", "italic", "underline", "heading"):
+        assert f[k]["selector"]["select"]["options"] == ["off", "on", "auto"], k
+    assert f["auto_color"]["selector"]["select"]["options"] == ["red", "orange", "yellow", "green"]

@@ -15,6 +15,23 @@ CONF_AI_FORMAT = "ai_format"        # định dạng chữ của trả lời AI:
 CONF_AI_EMPHASIS = "ai_emphasis"    # tự nhấn mạnh số và chữ đậm bằng màu: off | red | orange | yellow | green
 CONF_AI_EMOJI = "ai_emoji"          # tự thêm emoji hợp ngữ cảnh vào đầu từng dòng trả lời
 AI_FORMATS = ("plain", "markdown")
+# Kiểu chữ mặc định cho MỌI tin tích hợp gửi (send_message, trả lời AI); send_message ghi đè từng tin. Mỗi mục có chế độ «auto».
+CONF_TEXT_SIZE = "text_size"              # off | small | big | auto
+CONF_TEXT_COLOR = "text_color"            # off | auto | red | orange | yellow | green
+CONF_TEXT_BOLD = "text_bold"              # off | on | auto
+CONF_TEXT_ITALIC = "text_italic"
+CONF_TEXT_UNDERLINE = "text_underline"
+CONF_TEXT_HEADING = "text_heading"
+CONF_TEXT_AUTO_COLOR = "text_auto_color"  # màu dùng cho chế độ auto của «Màu chữ»: red | orange | yellow | green
+TEXT_SIZE_OPTIONS = ("off", "small", "big", "auto")
+TEXT_COLOR_OPTIONS = ("off", "auto", "red", "orange", "yellow", "green")
+TEXT_TOGGLE_OPTIONS = ("off", "on", "auto")
+TEXT_AUTO_COLOR_OPTIONS = ("red", "orange", "yellow", "green")
+# khoá mặc định trên thiết bị -> (khoá trong style gửi app, các giá trị hợp lệ, trường tương ứng của dịch vụ send_message)
+TEXT_STYLE_KEYS = {CONF_TEXT_SIZE: ("size", TEXT_SIZE_OPTIONS, "font_size"), CONF_TEXT_COLOR: ("color", TEXT_COLOR_OPTIONS, "text_color"),
+                   CONF_TEXT_BOLD: ("bold", TEXT_TOGGLE_OPTIONS, "bold"), CONF_TEXT_ITALIC: ("italic", TEXT_TOGGLE_OPTIONS, "italic"),
+                   CONF_TEXT_UNDERLINE: ("underline", TEXT_TOGGLE_OPTIONS, "underline"), CONF_TEXT_HEADING: ("heading", TEXT_TOGGLE_OPTIONS, "heading"),
+                   CONF_TEXT_AUTO_COLOR: ("auto_color", TEXT_AUTO_COLOR_OPTIONS, "auto_color")}
 AI_EMPHASIS = ("off", "red", "orange", "yellow", "green")
 CONF_AI_THREADS = "ai_threads"    # chi tra loi cac threadId nay (rong = moi 1-1)
 CONF_SPEAKER = "speaker"          # media_player phat tieng cuoc goi

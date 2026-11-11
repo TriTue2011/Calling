@@ -72,7 +72,7 @@ async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
                 await rt.api.thread_send(
                     "user", thread_id, reply[:MAX_REPLY], d.get(CONF_AI_FORMAT) or "plain",
                     None if emphasis in (None, "", "off") else emphasis,
-                    None, bool(d.get(CONF_AI_EMOJI)))
+                    None, bool(d.get(CONF_AI_EMOJI)), None, d.text_style())
         except ZaloCallError as err:
             _LOGGER.warning("AI không gửi được trả lời cho %s: %s", thread_id, err)
         except Exception:  # noqa: BLE001 - agent lỗi không được làm sập webhook

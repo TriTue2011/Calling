@@ -151,6 +151,95 @@ send_message:
       required: false
       selector:
         boolean: null
+    font_size:
+      name: 'Cỡ chữ cho tin này (ghi đè mặc định trên thiết bị): off, small, big hoặc auto (tiêu đề to,
+        dòng trong ngoặc nhỏ). Bỏ trống = theo mặc định'
+      description: 'Cỡ chữ cho tin này (ghi đè mặc định trên thiết bị): off, small, big hoặc auto (tiêu
+        đề to, dòng trong ngoặc nhỏ). Bỏ trống = theo mặc định'
+      required: false
+      selector:
+        select:
+          options:
+          - 'off'
+          - small
+          - big
+          - auto
+          mode: dropdown
+    text_color:
+      name: 'Màu chữ cho tin này: off, auto (con số), red, orange, yellow, green. Bỏ trống = theo mặc
+        định'
+      description: 'Màu chữ cho tin này: off, auto (con số), red, orange, yellow, green. Bỏ trống = theo
+        mặc định'
+      required: false
+      selector:
+        select:
+          options:
+          - 'off'
+          - auto
+          - red
+          - orange
+          - yellow
+          - green
+          mode: dropdown
+    bold:
+      name: 'In đậm: off, on, auto (con số). Bỏ trống = theo mặc định'
+      description: 'In đậm: off, on, auto (con số). Bỏ trống = theo mặc định'
+      required: false
+      selector:
+        select:
+          options:
+          - 'off'
+          - 'on'
+          - auto
+          mode: dropdown
+    italic:
+      name: 'In nghiêng: off, on, auto (đoạn trong "…" hoặc (…)). Bỏ trống = theo mặc định'
+      description: 'In nghiêng: off, on, auto (đoạn trong "…" hoặc (…)). Bỏ trống = theo mặc định'
+      required: false
+      selector:
+        select:
+          options:
+          - 'off'
+          - 'on'
+          - auto
+          mode: dropdown
+    underline:
+      name: 'Gạch chân: off, on, auto (liên kết, email). Bỏ trống = theo mặc định'
+      description: 'Gạch chân: off, on, auto (liên kết, email). Bỏ trống = theo mặc định'
+      required: false
+      selector:
+        select:
+          options:
+          - 'off'
+          - 'on'
+          - auto
+          mode: dropdown
+    heading:
+      name: 'Tiêu đề: off, on (dòng đầu), auto (dòng đầu ngắn của tin nhiều dòng; dòng kết thúc «:» thành
+        đề mục). Bỏ trống = theo mặc định'
+      description: 'Tiêu đề: off, on (dòng đầu), auto (dòng đầu ngắn của tin nhiều dòng; dòng kết thúc
+        «:» thành đề mục). Bỏ trống = theo mặc định'
+      required: false
+      selector:
+        select:
+          options:
+          - 'off'
+          - 'on'
+          - auto
+          mode: dropdown
+    auto_color:
+      name: 'Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow, green. Bỏ trống = theo mặc định'
+      description: 'Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow, green. Bỏ trống = theo
+        mặc định'
+      required: false
+      selector:
+        select:
+          options:
+          - red
+          - orange
+          - yellow
+          - green
+          mode: dropdown
     zalo_emoji:
       name: 'Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để chèn
         mã tương ứng vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji.'

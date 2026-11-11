@@ -36,6 +36,13 @@ CHAT_FIELDS = {
                   "cũng được đổi thành emoji", False),
         ("auto_emoji", "Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ, cửa, đèn…). "
                        "Bật = true; để trống = tắt", False),
+        ("font_size", "Cỡ chữ cho tin này (ghi đè mặc định trên thiết bị): off, small, big hoặc auto (tiêu đề to, dòng trong ngoặc nhỏ). Bỏ trống = theo mặc định", False),
+        ("text_color", "Màu chữ cho tin này: off, auto (con số), red, orange, yellow, green. Bỏ trống = theo mặc định", False),
+        ("bold", "In đậm: off, on, auto (con số). Bỏ trống = theo mặc định", False),
+        ("italic", "In nghiêng: off, on, auto (đoạn trong \"…\" hoặc (…)). Bỏ trống = theo mặc định", False),
+        ("underline", "Gạch chân: off, on, auto (liên kết, email). Bỏ trống = theo mặc định", False),
+        ("heading", "Tiêu đề: off, on (dòng đầu), auto (dòng đầu ngắn của tin nhiều dòng; dòng kết thúc «:» thành đề mục). Bỏ trống = theo mặc định", False),
+        ("auto_color", "Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow, green. Bỏ trống = theo mặc định", False),
         ("zalo_emoji", "Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để chèn mã tương ứng "
                        "vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji.", False)],
     "send_file": [("file", "Đường dẫn tệp trong HA hoặc URL", True)],
@@ -82,6 +89,13 @@ def _reaction_options():
 SELECTOR_OVERRIDES = {
     ("send_message", "emoji"): {"select": {"options": _emoji_options(), "custom_value": True, "mode": "dropdown"}},
     ("send_message", "auto_emoji"): {"boolean": None},
+    ("send_message", "font_size"): {"select": {"options": ["off", "small", "big", "auto"], "mode": "dropdown"}},
+    ("send_message", "text_color"): {"select": {"options": ["off", "auto", "red", "orange", "yellow", "green"], "mode": "dropdown"}},
+    ("send_message", "bold"): {"select": {"options": ["off", "on", "auto"], "mode": "dropdown"}},
+    ("send_message", "italic"): {"select": {"options": ["off", "on", "auto"], "mode": "dropdown"}},
+    ("send_message", "underline"): {"select": {"options": ["off", "on", "auto"], "mode": "dropdown"}},
+    ("send_message", "heading"): {"select": {"options": ["off", "on", "auto"], "mode": "dropdown"}},
+    ("send_message", "auto_color"): {"select": {"options": ["red", "orange", "yellow", "green"], "mode": "dropdown"}},
     ("send_message", "zalo_emoji"): {"select": {"options": _reaction_options(), "custom_value": False, "mode": "dropdown"}},
     ("send_message", "format"): {"select": {"options": ["plain", "markdown"], "mode": "dropdown"}},
     ("send_message", "auto_emphasis"): {"select": {"options": ["red", "orange", "yellow", "green"], "custom_value": True,

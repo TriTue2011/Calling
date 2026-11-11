@@ -15,11 +15,21 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .bridge_core import entity_of_label, label
-from .const import (AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL, TEST_LABEL,
+from .const import (TEXT_STYLE_KEYS, AI_EMPHASIS, AI_FORMATS, CONF_AI_AGENT, CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_ECHO_GUARD, DOMAIN, ECHO_MODES, MIC_URL_LABEL, NONE_LABEL, TEST_LABEL,
                     TEST_SOURCE)
 from .entity import ZaloCallEntity
 
 REFRESH = timedelta(minutes=1)
+# Kiểu chữ mặc định cho mọi tin tích hợp gửi (dịch vụ send_message ghi đè từng tin); mỗi ô có «auto» (tự theo nội dung chữ).
+_TEXT_STYLE_SELECTS = (
+    ("text_size", "Chữ: cỡ chữ (off / small / big / auto)", "mdi:format-size"),
+    ("text_color", "Chữ: màu chữ (off / auto / red / orange / yellow / green)", "mdi:palette"),
+    ("text_bold", "Chữ: in đậm (off / on / auto)", "mdi:format-bold"),
+    ("text_italic", "Chữ: in nghiêng (off / on / auto)", "mdi:format-italic"),
+    ("text_underline", "Chữ: gạch chân (off / on / auto)", "mdi:format-underline"),
+    ("text_heading", "Chữ: tiêu đề dòng đầu (off / on / auto)", "mdi:format-header-1"),
+    ("text_auto_color", "Chữ: màu dùng cho chế độ auto", "mdi:invert-colors"),
+)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
@@ -41,6 +51,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                        "mdi:format-text", AI_FORMATS),
         AiOptionSelect(entry, rt, CONF_AI_EMPHASIS, "AI: tự nhấn mạnh số và chữ đậm bằng màu (off = tắt)",
                        "mdi:palette", AI_EMPHASIS),
+        *[AiOptionSelect(entry, rt, key, name, icon, TEXT_STYLE_KEYS[key][1]) for key, name, icon in _TEXT_STYLE_SELECTS],
     ])
 
 

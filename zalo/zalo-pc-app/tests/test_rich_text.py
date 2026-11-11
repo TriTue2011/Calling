@@ -152,6 +152,71 @@ class RichTextTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             R.render("a", styles=[{"start": 0, "len": 1, "st": "b"}], zalo_emoji="heart")
 
+    # ---- kiểu chữ mặc định / auto ----
+    def test_normalize_style_accepts_aliases_and_rejects_unknown(self):
+        st = R.normalize_style({"size": "to", "color": "đỏ", "bold": True, "italic": "bật", "underline": "tự động", "heading": False})
+        self.assertEqual(st, {"size": "big", "color": "red", "bold": "on", "italic": "on", "underline": "auto", "heading": "off", "auto_color": "red"})
+        self.assertEqual(R.normalize_style(None), R.STYLE_DEFAULT)
+        for bad in ({"size": "huge"}, {"color": "tím"}, {"bold": "maybe"}, {"auto_color": "auto"}, {"khong_co": 1}, "x"):
+            with self.assertRaises(ValueError, msg=str(bad)):
+                R.normalize_style(bad)
+
+    def test_fixed_modes_apply_to_the_whole_message(self):
+        plain, st = R.render("Xin chào", style={"size": "big", "color": "green", "bold": "on", "italic": "on", "underline": "on"})
+        self.assertEqual(st, [{"start": 0, "len": 8, "st": "f_18,c_15a85f,b,i,u"}])
+        self.assertEqual(R.render("a", style={"size": "small"})[1], [{"start": 0, "len": 1, "st": "f_13"}])
+
+    def test_all_off_changes_nothing(self):
+        self.assertEqual(R.render("Xin chào 29°C", style={}), ("Xin chào 29°C", []))
+        self.assertEqual(R.render("Xin chào 29°C", style={"size": "off", "color": "off", "bold": "off"}), ("Xin chào 29°C", []))
+
+    def test_auto_bold_italic_underline_follow_syntax_not_keywords(self):
+        t = 'Nhiệt độ 29°C, xem https://example.com hoặc mail a@b.vn, "trích dẫn" và (phụ chú)'
+        plain, st = R.render(t, style={"bold": "auto", "italic": "auto", "underline": "auto"})
+        self.assertEqual(st_of(st, plain, "b"), ["29°C"])
+        self.assertEqual(st_of(st, plain, "i"), ['"trích dẫn"', "(phụ chú)"])
+        self.assertEqual(st_of(st, plain, "u"), ["https://example.com", "a@b.vn"])
+
+    def test_auto_color_numbers_use_auto_color_and_keep_explicit_colors(self):
+        plain, st = R.render("{green}ổn{/} 29°C 75%", "markdown", style={"color": "auto", "auto_color": "orange"})
+        self.assertEqual(st_of(st, plain, "c_15a85f"), ["ổn"])
+        self.assertEqual(st_of(st, plain, "c_f27806"), ["29°C", "75%"])
+
+    def test_fixed_color_and_size_do_not_override_explicit_markup(self):
+        plain, st = R.render("{red}đỏ{/} {big}to{/} thường", "markdown", style={"color": "green", "size": "small"})
+        self.assertEqual(st_of(st, plain, "c_db342e"), ["đỏ"])
+        self.assertEqual(st_of(st, plain, "c_15a85f"), [" ", "to", " thường"])       # màu mặc định phủ phần chưa có màu (cả khoảng trắng)
+        self.assertEqual(st_of(st, plain, "f_18"), ["to"])
+        self.assertEqual(st_of(st, plain, "f_13"), ["đỏ", " ", " thường"])             # cỡ mặc định không đè chỗ đã có cỡ
+
+    def test_heading_on_makes_first_line_big_bold(self):
+        plain, st = R.render("Báo cáo\nnội dung dài.", style={"heading": "on"})
+        self.assertEqual(st, [{"start": 0, "len": 7, "st": "f_18,b"}])
+        self.assertEqual(R.render("chỉ một dòng", style={"heading": "on"})[1], [{"start": 0, "len": 12, "st": "f_18,b"}])
+
+    def test_heading_auto_rules(self):
+        h = lambda t: st_of(R.render(t, style={"heading": "auto"})[1], R.render(t, style={"heading": "auto"})[0], "f_18")
+        self.assertEqual(h("Báo cáo hôm nay\nnội dung"), ["Báo cáo hôm nay"])
+        self.assertEqual(h("Một dòng thôi"), [])                              # tin một dòng không có tiêu đề
+        self.assertEqual(h("Xin chào anh.\nem gửi báo cáo"), [])            # dòng đầu kết thúc bằng dấu câu: không phải tiêu đề
+        self.assertEqual(h("x" * 61 + "\ny"), [])                             # quá dài
+        plain, st = R.render("Tiêu đề\nmở đầu\nChi tiết:\nmục", style={"heading": "auto"})
+        self.assertEqual(st_of(st, plain, "b"), ["Tiêu đề", "Chi tiết:"])      # đề mục phụ chỉ đậm
+        self.assertEqual(st_of(st, plain, "f_18"), ["Tiêu đề"])
+
+    def test_size_auto_small_parenthetical_lines_and_big_heading(self):
+        plain, st = R.render("Tiêu đề\nthân\n(ghi chú cuối)", style={"size": "auto", "heading": "auto"})
+        self.assertEqual(st_of(st, plain, "f_13"), ["(ghi chú cuối)"])
+        self.assertEqual(st_of(st, plain, "f_18"), ["Tiêu đề"])
+
+    def test_style_offsets_stay_utf16_correct_with_emoji(self):
+        plain, st = R.render("😀 Nhiệt độ 29°C", style={"bold": "auto"})
+        self.assertEqual(st, [{"start": 12, "len": 4, "st": "b"}])
+
+    def test_style_cannot_mix_with_self_computed_styles(self):
+        with self.assertRaises(ValueError):
+            R.render("abc", styles=[{"start": 0, "len": 1, "st": "b"}], style={"bold": "on"})
+
 
 if __name__ == "__main__":
     unittest.main()

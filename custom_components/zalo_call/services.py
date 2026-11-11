@@ -22,7 +22,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .const import DOMAIN, ECHO_MODES
+from .const import DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 
 MAX_FILE = 100 * 1024 * 1024
 _ANY = cv.match_all
@@ -93,7 +93,7 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
     if name == "send_message":
         return await api.thread_send(ttype, tid, str(d["message"]), d.get("format"),
                                      d.get("auto_emphasis"), d.get("emoji"),
-                                     d.get("auto_emoji"), d.get("zalo_emoji"))
+                                     d.get("auto_emoji"), d.get("zalo_emoji"), d.get("style"))
     if name == "send_link":
         return await api.thread_sendlink(ttype, tid, str(d["link"]),
                                          str(d.get("message") or ""))
@@ -161,6 +161,20 @@ async def _sticker_by_keyword(api: ZaloCallApi, d: dict) -> dict:
     return {k: v for k, v in out.items() if v is not None}
 
 
+def _with_text_style(rt, d: dict) -> dict:
+    """send_message: kiểu chữ = mặc định trên thiết bị, trường nào có trong lời gọi thì ghi đè mặc định. Chỉ gửi ``style`` khi có mục nào bật."""
+    out = {k: v for k, v in d.items() if k not in {f for _, _, f in TEXT_STYLE_KEYS.values()}}
+    style = {}
+    for key, (name, options, field) in TEXT_STYLE_KEYS.items():
+        val = d.get(field)
+        style[name] = str(val).strip().lower() if val not in (None, "") else rt.defaults.get(key)
+        if style[name] not in options:
+            raise ServiceValidationError("%s phải là một trong: %s" % (field, ", ".join(options)))
+    if any(style[n] != "off" for n in ("size", "color", "bold", "italic", "underline", "heading")):
+        out["style"] = style
+    return out
+
+
 def _make_handler(hass: HomeAssistant, e: dict) -> Callable:
     async def handler(call: ServiceCall) -> dict:
         rt, api = _api(hass, call)
@@ -168,6 +182,8 @@ def _make_handler(hass: HomeAssistant, e: dict) -> Callable:
         try:
             if e["name"] == "send_sticker":
                 d = await _sticker_by_keyword(api, d)
+            if e["name"] == "send_message":
+                d = _with_text_style(rt, d)
             if e["kind"] in ("svc", "zca"):     # zca: app tu chuyen sang bo goi chung
                 res = await api.svc(e["action"], d)
             elif e["kind"] == "chat":
