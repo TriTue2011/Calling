@@ -2477,6 +2477,26 @@ class AppState:
             "incoming_session_present": bool(event.get("session")),
             "incoming_rtp_present": bool(event.get("rtp_address")),
             "incoming_ringring_sent": False})
+        try:                               # điện thoại (bên gọi) khai gì: cắt ngắn chuỗi dài, che khoá/phiên/token (chỉ để chẩn đoán)
+            def _shrink(o, name=""):
+                if isinstance(o, dict):
+                    return {k: _shrink(v, k) for k, v in o.items()}
+                if isinstance(o, list):
+                    return [_shrink(v, name) for v in o[:6]]
+                if isinstance(o, str):
+                    if any(w in name.lower() for w in ("sess", "key", "token")):
+                        return "<%d ky tu>" % len(o)
+                    try:
+                        j = json.loads(o)
+                        if isinstance(j, (dict, list)):
+                            return _shrink(j, name)
+                    except ValueError:
+                        pass
+                    return o if len(o) <= 40 else o[:40] + "..."
+                return o
+            _log_call("incoming offer call_id=%s event=%s" % (call_id, json.dumps(_shrink({k: v for k, v in event.items() if k != "session"}), ensure_ascii=False)[:1500]))
+        except Exception:  # noqa: BLE001 - chỉ chẩn đoán
+            pass
         _log_call("incoming key call_id=%s explicit=%s session_in_event=%s key=%s"
                   % (call_id, bool(_explicit_key), bool(event.get("session")), _key_fp(_key)))
         _log_call("incoming call_id=%s peer=%s thread=%s"
