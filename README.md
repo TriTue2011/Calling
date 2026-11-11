@@ -54,6 +54,8 @@ Thay vì gõ mã Zalo, hãy **chọn người và nhóm từ danh bạ**: *Cài 
 
 **Mọi người và nhóm trong danh bạ đều tự có thực thể `notify` (ẩn khỏi bảng điều khiển)**, nên trong blueprint bạn chỉ cần gõ vài chữ của tên là ô chọn lọc ra danh sách, chọn xong là tự lấy threadID; tên trùng thì có thêm 4 số cuối mã để phân biệt. Danh sách làm mới mỗi giờ. Người **không có trong danh bạ** (người lạ) thì dán mã vào ô «Thêm người theo mã Zalo (threadID)» của blueprint. Ô «Người và nhóm nhận» ở trên chỉ để bỏ ẩn thực thể đó cho dễ thấy.
 
+**Đường dự phòng thiết bị:** ô loa / mic / camera (ở quy tắc, dịch vụ gọi và blueprint) nhận **nhiều thực thể theo thứ tự ưu tiên** (dịch vụ: các thực thể cách nhau dấu phẩy, ví dụ `media_player.r1_loa,media_player.cam_phong_khach_speaker`). Khi nối, app lấy **thiết bị còn hoạt động đầu tiên** (thực thể tồn tại và không `unavailable`/`unknown`); thiết bị chính sống lại thì lần gọi sau dùng lại thiết bị chính.
+
 | Thuộc tính của thực thể | Ý nghĩa |
 |---|---|
 | `thread_id` | Mã Zalo của người hoặc nhóm, truyền thẳng vào `send_message`, `make_call`, `alert_call` |

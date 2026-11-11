@@ -11,6 +11,7 @@ nen test duoc ngoai HA (tests/test_zalo_call_bridge.py).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any, Mapping
 from urllib.parse import quote, urlsplit, urlunsplit
 
@@ -44,19 +45,43 @@ def derive_state(payload: Mapping[str, Any]) -> str | None:
     return _STATUS_STATE.get(status)
 
 
+_ENTITY_RE = re.compile(r"[a-z_]+\.[a-z0-9_]+")
+
+
+def candidates(value: Any) -> list[str]:
+    """Thiet bi du phong: nhieu thuc the cach nhau bang dau phay theo thu tu uu tien («loa_chinh, loa_phu»). Chuoi khong phai danh sach
+    thuc the (URL, nhan co dau phay) thi la mot gia tri duy nhat."""
+    v = str(value or "").strip()
+    if "," not in v or "://" in v:
+        return [v] if v else []
+    parts = [p.strip() for p in v.split(",") if p.strip()]
+    return parts if parts and all(_ENTITY_RE.fullmatch(entity_of_label(p)) for p in parts) else [v]
+
+
+def first_alive(value: Any, alive: Callable[[str], bool] | None) -> str:
+    """Thiet bi con hoat dong DAU TIEN trong danh sach du phong; khong cai nao hoat dong thi lay cai dau (loi se hien khi noi nhu cu)."""
+    cands = candidates(value)
+    if len(cands) <= 1 or alive is None:
+        return cands[0] if cands else ""
+    return next((c for c in cands if alive(entity_of_label(c))), cands[0])
+
+
 def pick_devices(defaults: Mapping[str, Any],
-                 override: Mapping[str, Any] | None = None) -> dict[str, str]:
+                 override: Mapping[str, Any] | None = None,
+                 alive: Callable[[str], bool] | None = None) -> dict[str, str]:
     """Thiet bi cho mot cuoc goi: ghi de > mac dinh > khong co.
 
     Khoa vang hoac None -> dung mac dinh; chuoi RONG -> chu dong KHONG dung
-    thiet bi do cho cuoc goi nay."""
+    thiet bi do cho cuoc goi nay. Loa/mic/camera co the la DANH SACH du phong (cach nhau bang dau phay): lay cai con hoat dong dau tien
+    (`alive(entity_id)` False khi thuc the khong ton tai, unavailable hoac unknown)."""
     override = override or {}
     out: dict[str, str] = {}
     for key in DEVICE_KEYS:
         if key in override and override[key] is not None:
-            out[key] = str(override[key]).strip()
+            val = str(override[key]).strip()
         else:
-            out[key] = str(defaults.get(key) or "").strip()
+            val = str(defaults.get(key) or "").strip()
+        out[key] = first_alive(val, alive) if key != "mic_url" else val
     return out
 
 

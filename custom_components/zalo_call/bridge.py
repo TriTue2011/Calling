@@ -73,7 +73,12 @@ class CallAudioBridge:
         return item[1] if item else None
 
     def devices_for(self, override: dict[str, Any] | None = None) -> dict[str, str]:
-        return pick_devices(self.defaults.data, override)
+        return pick_devices(self.defaults.data, override, alive=self._entity_alive)
+
+    def _entity_alive(self, entity_id: str) -> bool:
+        """Thiet bi du phong: con hoat dong khi thuc the ton tai va khong unavailable/unknown."""
+        st = self.hass.states.get(entity_id)
+        return st is not None and st.state not in ("unavailable", "unknown")
 
     # -- phan giai thuc the -> URL luong -----------------------------------
     def _ha_base(self) -> str:

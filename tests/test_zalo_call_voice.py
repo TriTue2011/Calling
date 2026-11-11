@@ -1229,3 +1229,30 @@ async def test_announce_volume_is_set_for_the_alert_and_restored_only_when_nobod
     await hass.async_block_till_done()
     assert vols == [], vols
 
+
+def test_device_candidates_split_only_entity_lists_and_pick_the_first_alive():
+    from custom_components.zalo_call import bridge_core as B
+    assert B.candidates("media_player.a, media_player.b") == ["media_player.a", "media_player.b"]
+    assert B.candidates("rtsp://x/y,z") == ["rtsp://x/y,z"] and B.candidates("Tên, có dấu phẩy · media_player.a") == ["Tên, có dấu phẩy · media_player.a"]
+    alive = {"media_player.b": True, "media_player.c": True}.get
+    assert B.first_alive("media_player.a,media_player.b,media_player.c", alive) == "media_player.b"           # a hỏng: lấy b (dự phòng thứ nhất)
+    assert B.first_alive("media_player.a,media_player.z", alive) == "media_player.a"                          # không cái nào sống: giữ cái đầu để báo lỗi như cũ
+    assert B.first_alive("media_player.a", alive) == "media_player.a" and B.first_alive("", alive) == ""
+
+
+async def test_device_fallback_list_in_a_rule_uses_the_next_device_when_the_first_is_unavailable(hass, setup, app):
+    rt = hass.data[DOMAIN][setup.entry_id]
+    hass.states.async_set("media_player.r1_loa", "unavailable")
+    hass.states.async_set("media_player.cam_loa", "idle")
+    hass.states.async_set("assist_satellite.r1", "idle")
+    hass.states.async_set("camera.pk", "streaming")
+    await _set_rule(hass, scope="thread", thread_id=THREAD, name="Đại ca", speaker="media_player.r1_loa,media_player.cam_loa", mic="assist_satellite.r1,camera.pk", camera="camera.pk")
+    rule = (await hass.services.async_call(DOMAIN, "list_rules", {}, blocking=True, return_response=True))["threads"][THREAD]
+    assert rule["speaker"] == "media_player.r1_loa,media_player.cam_loa"                                       # lưu nguyên danh sách ưu tiên
+    dev = rt.bridge.devices_for({"speaker": rule["speaker"], "mic": rule["mic"], "camera": rule["camera"]})
+    assert dev["speaker"] == "media_player.cam_loa" and dev["mic"] == "assist_satellite.r1" and dev["camera"] == "camera.pk", dev
+    hass.states.async_set("media_player.r1_loa", "idle")                                                      # loa chính sống lại: dùng lại loa chính
+    assert rt.bridge.devices_for({"speaker": rule["speaker"]})["speaker"] == "media_player.r1_loa"
+    hass.states.async_set("assist_satellite.r1", "unavailable")
+    assert rt.bridge.devices_for({"mic": rule["mic"]})["mic"] == "camera.pk"
+
