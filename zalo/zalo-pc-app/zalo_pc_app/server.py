@@ -1186,7 +1186,10 @@ def _answer_incoming(sess, body, source="api"):
                     # KHÔNG truyền nên rơi về "pc" cũ (newZrtc 0, platform 3): điện thoại coi ta là bản cũ -> «kết nối không ổn định» và
                     # «phiên bản chưa hỗ trợ chuyển video».
                     extend_profile=_extend_profile_for_call(body),
-                    is_caller=False, **hooks)
+                    # is_caller=False (InitZRTP lệnh 12 kiểu bên nghe máy) làm relay KHÔNG trả lời nữa (đo 11/11 20:55: type02_rx=0, không
+                    # nghe máy được): gói Init của bên nghe máy khác gói của bên gọi ở những chỗ ngoài số lệnh. Giữ như cũ cho tới khi
+                    # dựng đúng gói theo engine zcall-native; tham số is_caller vẫn có ở for_call.
+                    **hooks)
                 _log_call("answer relay call_id=%s source=%s"
                           % (call_id, _vname))
                 break

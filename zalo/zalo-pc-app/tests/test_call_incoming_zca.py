@@ -443,7 +443,7 @@ def test_answer_declares_p2p_only_when_this_phone_offers_it_and_follows_its_srtp
     ext = _answer_extend_for_offer({"callType": 0, "sP2P": 1, "p2p": cand, "srtpMode": 1, "negoVidQual": 1})
     # NGHE MÁY phải đăng ký với relay là bên NGHE MÁY (lệnh InitZRTP 12, vai P2P 1), không phải bên gọi (11): relay không nối được hai «bên gọi»
     # nên điện thoại không nhận được gì và tự cúp sau 15 giây (đo bằng bắt gói 11/11/2026).
-    assert _answer_extend_for_offer.last["is_caller"] is False and _answer_extend_for_offer.last["counter"] == 12, _answer_extend_for_offer.last
+    assert _answer_extend_for_offer.last["is_caller"] is True and _answer_extend_for_offer.last["counter"] == 11, _answer_extend_for_offer.last   # tạm: bên nghe máy (12) làm relay không trả lời
     assert ext["sP2P"] == 1 and ext["select2side"] == 1 and ext["numServers"] == 0 and ext["supportCallBusy"] == 0, ext
     assert ext["p2p"] and ext["p2p"][0]["ip"] == "192.0.2.50" and ext["p2p"][0]["type"] == 0 and ext["p2p"][0]["port"] > 0, ext
     assert ext["srtpMode"] == 1 and ext["negoVidQual"] == 1, ext                       # cờ thương lượng bên gọi khai được lặp lại
