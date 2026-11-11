@@ -42,7 +42,9 @@ DEFAULT_GREETING = "Xin chào, tôi là trợ lý của gia đình. Bạn cần 
 PHONE_HINT = ("Bạn đang nói chuyện qua điện thoại bằng giọng nói. Trả lời ngắn gọn, tự nhiên bằng lời nói: không dùng markdown, "
               "danh sách, ký hiệu hay emoji.")
 HANDOVER_MARK = "[[CHUYEN_MAY]]"
-HANDOVER_RE = re.compile(r"\[\[\s*CHUYEN_MAY\s*\]\]", re.IGNORECASE)
+# Mô hình hay làm rơi ngoặc vuông hoặc đổi "_" thành khoảng trắng (đo thật 11/11: "… ạ. CHUYEN MAY" → không bắt được, lại bị đọc to). Nên nhận: có ngoặc
+# (không phân biệt hoa thường, 1-2 ngoặc) HOẶC không ngoặc nhưng VIẾT HOA nguyên cụm, đứng riêng (lời thường có dấu tiếng Việt không bao giờ khớp).
+HANDOVER_RE = re.compile(r"\[{1,2}\s*(?i:CHUYEN[_\s]?MAY)\s*\]{1,2}|(?<![A-Za-z])CHUYEN[_\s]?MAY(?![A-Za-z])")
 HANDOVER_HINT = ("Khi người gọi muốn nói chuyện với người trong nhà, khi có việc khẩn cấp hoặc nguy hiểm, hoặc khi bạn không giúp "
                  "được, hãy nói ngắn gọn rằng bạn sẽ chuyển máy rồi kết thúc câu trả lời bằng đúng dấu " + HANDOVER_MARK +
                  " (dấu này sẽ không được đọc ra). Sau dấu đó cuộc gọi được nối trực tiếp với thiết bị trong nhà.")

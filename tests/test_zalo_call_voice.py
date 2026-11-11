@@ -572,3 +572,13 @@ async def test_llm_api_in_call_only_exposes_the_transfer_tool_and_ai_call_needs_
     app.requests.clear()
     out = await tool.async_call(hass, llm.ToolInput(tool_name="goi_dien", tool_args={"nguoi": "Đại ca"}), _ctx(ctx))
     assert "loi" in out and not app.requests                                                               # người lạ qua điện thoại không sai khiến được
+
+
+def test_handover_marker_tolerates_dropped_brackets_but_not_normal_speech():
+    """Đo thật 11/11: trợ lý ChatGPT trả "Vâng, em chuyển máy ngay ạ. CHUYEN MAY" (không ngoặc) → trước đây không bắt được và bị đọc to."""
+    for text in ("Vâng ạ [[CHUYEN_MAY]]", "Vâng ạ [[ chuyen may ]]", "Vâng ạ [CHUYEN_MAY]", "Vâng, em chuyển máy ngay ạ. CHUYEN MAY",
+                 "Em đang chuyển máy ngay ạ. CHUYEN_MAY", "CHUYEN MAY"):
+        assert cv.HANDOVER_RE.search(text), text
+        assert not cv.HANDOVER_RE.sub("", text).strip().upper().endswith("MAY"), text
+    for text in ("Em sẽ chuyển máy cho người nhà ạ", "Tôi muốn chuyen may khác", "Xin chào, em nghe đây ạ", "Chuyển sang trực tiếp"):
+        assert not cv.HANDOVER_RE.search(text), text
