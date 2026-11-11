@@ -62,11 +62,11 @@ Thay vì gõ mã Zalo, hãy **chọn người và nhóm từ danh bạ**: *Cài 
 # Dùng trong automation: mã Zalo lấy từ thực thể, không cần gõ
 - action: zalo_call.alert_call
   data:
-    thread_id: "{{ state_attr('notify.zalo_dai_ca', 'thread_id') }}"
+    thread_id: "{{ state_attr('notify.zalo_call_dai_ca', 'thread_id') }}"
     message: "Phát hiện có người ngã ở phòng khách"
 # Gửi chữ cho thực thể (chuẩn của Home Assistant)
 - action: notify.send_message
-  target: {entity_id: notify.zalo_dai_ca}
+  target: {entity_id: notify.zalo_call_dai_ca}
   data: {title: "Báo", message: "Nhà đang mất điện"}
 ```
 

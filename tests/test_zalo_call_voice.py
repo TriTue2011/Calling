@@ -1039,11 +1039,12 @@ async def test_recipients_are_picked_from_the_contact_list_and_become_notify_ent
     await hass.async_block_till_done()
     reg = er.async_get(hass)
     ids = sorted(e.entity_id for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify")
-    assert ids == ["notify.zalo_ai_hoc_hoi", "notify.zalo_dai_ca"], ids
-    st = hass.states.get("notify.zalo_dai_ca")
-    assert st.attributes["thread_id"] == THREAD and st.attributes["type"] == "user" and hass.states.get("notify.zalo_ai_hoc_hoi").attributes["type"] == "group"
+    assert ids == ["notify.zalo_call_ai_hoc_hoi", "notify.zalo_call_dai_ca"], ids
+    st = hass.states.get("notify.zalo_call_dai_ca")
+    assert st.attributes["friendly_name"] == "Zalo Call Đại ca", st.attributes                       # tên không lặp «Zalo»
+    assert st.attributes["thread_id"] == THREAD and st.attributes["type"] == "user" and hass.states.get("notify.zalo_call_ai_hoc_hoi").attributes["type"] == "group"
     app.requests.clear()
-    await hass.services.async_call("notify", "send_message", {"entity_id": "notify.zalo_dai_ca", "message": "Chào", "title": "Báo"}, blocking=True)
+    await hass.services.async_call("notify", "send_message", {"entity_id": "notify.zalo_call_dai_ca", "message": "Chào", "title": "Báo"}, blocking=True)
     sent = [r for r in app.requests if THREAD in r["path"]]
     assert sent and sent[-1]["json"]["message"] == "Báo\nChào" and sent[-1]["json"]["type"] == "user", app.requests
     rules = await hass.services.async_call(DOMAIN, "list_rules", {}, blocking=True, return_response=True)
@@ -1052,6 +1053,5 @@ async def test_recipients_are_picked_from_the_contact_list_and_become_notify_ent
     res = await hass.config_entries.options.async_init(setup.entry_id)
     await hass.config_entries.options.async_configure(res["flow_id"], {"recipients": []})
     await hass.async_block_till_done()
-    assert not [e for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify" and hass.states.get(e.entity_id)
-                and hass.states.get(e.entity_id).state != "unavailable"]
+    assert not [e for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify"]      # xoá hẳn khỏi sổ đăng ký, không để thực thể mồ côi
 

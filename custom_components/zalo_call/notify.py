@@ -9,6 +9,7 @@ from __future__ import annotations
 from homeassistant.components.notify import NotifyEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -34,20 +35,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, add: AddEnt
         for part, kind in (("friends", "user"), ("groups", "group")):
             for row in (data.get(part) or {}).get("rows", []):
                 names["%s:%s" % (kind, row.get("id"))] = str(row.get("name") or "")
+    # Bỏ chọn một người thì xoá hẳn thực thể của họ khỏi sổ đăng ký (không để thực thể «không khả dụng» nằm lại).
+    keep = {"%s_to_%s_%s" % ((entry.entry_id,) + split_recipient(v)) for v in chosen}
+    registry = er.async_get(hass)
+    for ent in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if ent.domain == "notify" and (ent.unique_id or "").startswith("%s_to_" % entry.entry_id) and ent.unique_id not in keep:
+            registry.async_remove(ent.entity_id)
     add([ZaloRecipient(entry, v, names.get(v) or split_recipient(v)[1]) for v in chosen])
 
 
 class ZaloRecipient(NotifyEntity):
     """Một người hoặc nhóm Zalo để gửi tin / gọi."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
     _attr_icon = "mdi:account-box-outline"
 
     def __init__(self, entry: ConfigEntry, value: str, name: str) -> None:
         self._entry = entry
         self._kind, self._rid = split_recipient(value)
         self._attr_unique_id = "%s_to_%s_%s" % (entry.entry_id, self._kind, self._rid)
-        self._attr_name = "Zalo %s" % name
+        self._attr_name = name                      # hiển thị «Zalo Call <tên>», mã thực thể notify.zalo_call_<tên>
         self._attr_device_info = device_info(entry)
 
     @property
