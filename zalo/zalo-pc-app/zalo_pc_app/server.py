@@ -934,6 +934,16 @@ def _log_media_stats(kind, call_id, obj):
 
 
 _INCOMING_OFFER = {}             # call_id -> extendData bên gọi khai (dict)
+_CALLEE_EVENT = set()             # call_id mà nhánh «event» dùng vai bên nghe máy đúng engine thật
+_INCOMING_INFO = {}              # call_id -> {"session": sessId của BÊN GỌI, "uid_from", "uid_to": uid media 9 chữ số}
+
+
+def _as_uid(v):
+    try:
+        n = int(v)
+        return n if 0 < n <= 0xFFFFFFFF else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _offer_extend(event):
@@ -1125,6 +1135,20 @@ def _answer_incoming(sess, body, source="api"):
             _d_ev = dict(data)
             _d_ev["servers"] = [_ev_relay[0], _ev_relay[1]]
             _d_ev["rtpIP"], _d_ev["rtcpIP"] = _ev_relay
+            # Bên NGHE MÁY của engine thật (zcall-native): InitZRTP lệnh 12, sessId = phiên của BÊN GỌI (trong tin cuộc gọi đến), uid của ta
+            # (uidTo) và của bên gọi (uidFrom) từ tin; gửi tới đúng relay bên gọi chọn. App cũ gửi lệnh 11 với phiên cấp phát riêng nên relay
+            # không nối được với điện thoại (0 gói tiếng về, tự cúp ở 16,7 s). Nhánh dự phòng "11300" giữ cách cũ để vẫn nghe máy được.
+            _info = _INCOMING_INFO.pop(str(call_id), None) or {}
+            _sess = _info.get("session")
+            if os.environ.get("ZALO_PC_INCOMING_CALLEE", "1") != "0" and isinstance(_sess, str) and len(_sess) == 154 and _sess.isascii():
+                _d_ev["sessId"] = _sess
+                if "token" in _d_ev:                      # có khoá token rõ ràng (mock/phản hồi khác) thì cũng phải là phiên bên gọi
+                    _d_ev["token"] = _sess
+                if _info.get("uid_to"):
+                    _d_ev["fromId"] = _info["uid_to"]
+                if _info.get("uid_from"):
+                    _d_ev["toId"] = _info["uid_from"]
+                _CALLEE_EVENT.add(str(call_id))
             # Mặc định "event" (như sáng 11/11): relay bên gọi ghi trong sự kiện trước, relay 11300 của mình làm dự phòng. Thử "alloc"
             # (như cuộc gọi đi) lúc 20:18 11/11 KHÔNG đổi gì: vẫn 0 gói tiếng từ điện thoại về, tự cúp ở 16,7 giây. Đặt
             # ZALO_PC_INCOMING_RELAY=alloc để thử cách kia.
@@ -1178,17 +1202,16 @@ def _answer_incoming(sess, body, source="api"):
                     call_id=call_id, callee_id=caller_id,
                     call_type="user",
                     codec=body.get("codec") or codec,
-                    local_session=_alloc.get("local_session"),
-                    peer_session=_alloc.get("peer_session"),
+                    local_session=_vdata.get("fromId") if _vname == "event" and str(call_id) in _CALLEE_EVENT else _alloc.get("local_session"),
+                    peer_session=_vdata.get("toId") if _vname == "event" and str(call_id) in _CALLEE_EVENT else _alloc.get("peer_session"),
                     requestcall_data=_vdata,
                     on_first_media=_on_first_media,
                     # Hồ sơ extendData như cuộc gọi đi ("native" = engine zcall-native chạy thật với điện thoại). Trước đây đường nghe máy
                     # KHÔNG truyền nên rơi về "pc" cũ (newZrtc 0, platform 3): điện thoại coi ta là bản cũ -> «kết nối không ổn định» và
                     # «phiên bản chưa hỗ trợ chuyển video».
                     extend_profile=_extend_profile_for_call(body),
-                    # is_caller=False (InitZRTP lệnh 12 kiểu bên nghe máy) làm relay KHÔNG trả lời nữa (đo 11/11 20:55: type02_rx=0, không
-                    # nghe máy được): gói Init của bên nghe máy khác gói của bên gọi ở những chỗ ngoài số lệnh. Giữ như cũ cho tới khi
-                    # dựng đúng gói theo engine zcall-native; tham số is_caller vẫn có ở for_call.
+                    # Vai theo nhánh: «event» đúng engine thật (callee, phiên bên gọi) nếu có đủ phiên; «11300» như cũ (caller).
+                    is_caller=not (_vname == "event" and str(call_id) in _CALLEE_EVENT),
                     **hooks)
                 _log_call("answer relay call_id=%s source=%s"
                           % (call_id, _vname))
@@ -1199,6 +1222,7 @@ def _answer_incoming(sess, body, source="api"):
                 _log_call("answer relay call_id=%s source=%s "
                           "failed: %s -> thu nguon ke"
                           % (call_id, _vname, str(_exc)[:120]))
+        _CALLEE_EVENT.discard(str(call_id))
         # extendData trả lời: nền «native» + THEO lời mời của chính điện thoại này (máy khác nhau khai khác nhau): srtpMode khớp chế độ thật
         # sự dùng (RTP trần nếu bên gọi xin 0), và các cờ thương lượng bên gọi khai mà ta không có thì lặp lại (negoVidQual).
         _ext_final = endpoints["extend_data"]
@@ -2536,6 +2560,16 @@ class AppState:
             "incoming_rtp_present": bool(event.get("rtp_address")),
             "incoming_ringring_sent": False})
         try:                               # lưu extendData bên gọi khai để nghe máy trả lời theo đúng máy đó (mỗi điện thoại có thể khác nhau)
+            _d = event.get("data")
+            _d = json.loads(_d) if isinstance(_d, str) else (_d or {})
+            _sess = event.get("session") or (_d.get("session") if isinstance(_d, dict) else None)
+            if isinstance(_sess, str) and _sess:
+                if len(_INCOMING_INFO) > 50:
+                    _INCOMING_INFO.clear()
+                _INCOMING_INFO[str(call_id)] = {"session": _sess, "uid_from": _as_uid(_d.get("uidFrom")), "uid_to": _as_uid(_d.get("uidTo"))}
+        except Exception:  # noqa: BLE001
+            pass
+        try:
             _off = _offer_extend(event)
             if _off:
                 if len(_INCOMING_OFFER) > 50:

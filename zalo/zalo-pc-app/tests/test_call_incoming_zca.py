@@ -404,7 +404,7 @@ def _inject_incoming(base, mock):
     _wait_steps(mock, CALL_ID_IN, ["ringring"])
 
 
-def _answer_extend_for_offer(offer_ext):
+def _answer_extend_for_offer(offer_ext, session=None):
     """Gọi đến với extendData bên gọi khai = offer_ext, nghe máy, trả extendData bot gửi trong câu trả lời (dict)."""
     mock = MockZalo().start()
     mock.requestcall_data = {"servers": REAL_SHAPE_SERVERS, "sessId": "sess-real-e2e", "srtpKey": "k-test", "token": FAKE_TOKEN}
@@ -413,6 +413,8 @@ def _answer_extend_for_offer(offer_ext):
     def check(base, mock, endpoints):
         ev = dict(INCOMING_EVENT)
         ev["extendData"] = offer_ext
+        if session:
+            ev["session"] = session
         app_server.STATE._on_ctrl_call_event(_parsed_event(ev))
         assert _wait_active(base, CALL_ID_IN, "incoming") is not None
         _wait_steps(mock, CALL_ID_IN, ["ringring"])
@@ -422,6 +424,7 @@ def _answer_extend_for_offer(offer_ext):
         out["ext"] = json.loads(ext) if isinstance(ext, str) else ext
         cfg = media_endpoints.ENDPOINTS.active_record(CALL_ID_IN)["transport"].config
         out["is_caller"], out["counter"] = cfg.is_caller, cfg.call_counter
+        out["token"] = cfg.token
 
     old = os.environ.get("ZALO_PC_P2P_HOSTS")
     os.environ["ZALO_PC_P2P_HOSTS"] = "192.0.2.50"
@@ -452,6 +455,21 @@ def test_answer_declares_p2p_only_when_this_phone_offers_it_and_follows_its_srtp
     nocand = _answer_extend_for_offer({"callType": 0, "sP2P": 1, "p2p": [], "srtpMode": 1})
     assert nocand["sP2P"] == 0 and nocand["p2p"] == [], nocand
 
+
+
+def test_answer_registers_as_callee_with_the_callers_session_when_the_offer_has_a_full_session():
+    """Bên nghe máy của engine thật: InitZRTP lệnh 12 + sessId = phiên của BÊN GỌI (154 ký tự trong tin). Tin không có phiên đủ dài thì giữ vai
+    cũ (lệnh 11) để vẫn nghe máy được."""
+    import base64
+    sess = base64.urlsafe_b64encode(bytes(range(115))).rstrip(b"=").decode()          # 154 ký tự hợp lệ như sessId thật
+    _answer_extend_for_offer({"callType": 0, "srtpMode": 1}, session=sess)
+    got = _answer_extend_for_offer.last
+    assert got["is_caller"] is False and got["counter"] == 12, got
+    tok = got["token"]
+    assert (tok.decode() if isinstance(tok, bytes) else tok) == sess, got
+    _answer_extend_for_offer({"callType": 0, "srtpMode": 1}, session="ngan")
+    got = _answer_extend_for_offer.last
+    assert got["is_caller"] is True and got["counter"] == 11, got            # phiên không đủ 154 ký tự: nhánh cũ
 
 def test_answer_incoming_e2e():
     """POST /api/call/answer cho cuoc incoming: 11300 fallback (cung
