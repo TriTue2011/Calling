@@ -119,7 +119,7 @@ async def test_plan_cancelled_when_call_ends_before_answer(hass):
 async def test_ai_switch_applies_only_to_incoming_calls(hass, monkeypatch):
     started = []
 
-    async def fake_ai(hass_, api, call_id, plan):
+    async def fake_ai(hass_, api, call_id, plan, voice=None):
         started.append((call_id, plan.greeting, plan.hangup))
         return {"handover": False, "heard": ""}
     monkeypatch.setattr(cv, "async_run_ai", fake_ai)
@@ -251,6 +251,10 @@ from test_zalo_call_ha_end_to_end import DOMAIN, THREAD, FakeZaloApp, setup  # n
 class VoiceApp(FakeZaloApp):
     async def _any(self, request: web.Request) -> web.Response:
         p = request.path
+        if p == "/api/contacts":
+            return web.json_response({"friends": {"rows": [{"id": "6643404425553198601", "name": "Đại ca"},
+                                                           {"id": "111", "name": "Đại Ngà"}]},
+                                      "groups": {"rows": [{"id": "3133467193494275911", "name": "AI học hỏi"}]}})
         if p in ("/api/call/request", "/api/call/say", "/api/call/media", "/api/call/end"):
             raw = await request.read()
             self.requests.append({"method": request.method, "path": p, "json": None, "raw": raw, "ctype": request.content_type})
@@ -322,7 +326,7 @@ async def test_take_over_stops_ai_and_restores_house_mic(hass, monkeypatch):
     """Tự nghe máy + AI, rồi người thật tiếp quản: AI dừng (không cúp máy), mic nhà được trả về."""
     started = asyncio.Event()
 
-    async def long_ai(hass_, api, call_id, plan):
+    async def long_ai(hass_, api, call_id, plan, voice=None):
         started.set()
         await asyncio.sleep(60)
         return {"handover": False, "heard": ""}
@@ -425,3 +429,82 @@ async def test_handover_keeps_call_open_restores_mic_and_fires_event(hass, monke
     await _patched_ai_env(monkeypatch, [])
     await cv._run_plan(hass, _rt(api2), "77", cv.Plan(ai=True, hangup=True))
     assert api2.ended == ["77"]
+
+
+# ---- LLM API «Zalo Call» (Assist) ------------------------------------------------------------------------------------
+from homeassistant.core import Context  # noqa: E402
+from homeassistant.helpers import llm  # noqa: E402
+from custom_components.zalo_call import llm_api  # noqa: E402
+
+
+def _ctx(context=None):
+    return llm.LLMContext(platform="conversation", context=context or Context(), language="vi", assistant="conversation", device_id=None)
+
+
+def test_match_people_ignores_accents_and_prefers_exact():
+    rows = [{"id": "1", "name": "Đại ca"}, {"id": "2", "name": "Đại Ngà"}, {"id": "3", "name": "Bé Đại"}]
+    assert [r["id"] for r in llm_api.match_people("dai ca", rows)] == ["1"]
+    assert [r["id"] for r in llm_api.match_people("Đại", rows)] == ["1", "2", "3"]
+    assert [r["id"] for r in llm_api.match_people("2", rows)] == ["2"]            # id đúng
+    assert llm_api.match_people("", rows) == [] and llm_api.match_people("xyz", rows) == []
+
+
+async def test_llm_api_registered_and_lists_call_tools_outside_a_call(hass, setup):
+    api = await llm.async_get_api(hass, "zalo_call", _ctx())
+    assert api.api.name == "Zalo Call"
+    names = [t.name for t in api.tools]
+    assert names == ["tim_nguoi", "goi_dien", "cuoc_goi", "dieu_khien_cuoc_goi", "noi_trong_cuoc_goi", "gui_tin"], names
+    assert "tim_nguoi" in api.api_prompt and "chuyen_may_khi" in api.api_prompt
+
+
+async def test_llm_tools_find_call_and_message_by_name(hass, setup, app):
+    api = await llm.async_get_api(hass, "zalo_call", _ctx())
+
+    async def call(name, **args):
+        return await api.async_call_tool(llm.ToolInput(tool_name=name, tool_args=args))
+    assert (await call("tim_nguoi", ten="dai ca"))["ket_qua"][0]["id"] == "6643404425553198601"
+    assert "loi" in await call("tim_nguoi", ten="không có ai")
+    amb = await call("goi_dien", nguoi="đại")                       # nhiều người khớp: phải hỏi lại, KHÔNG gọi
+    assert len(amb["nhieu_ket_qua"]) == 2 and not [r for r in app.requests if r["path"] == "/api/call/request"]
+    res = await call("goi_dien", nguoi="Đại ca", thong_bao="Có người ngã ở phòng khách", ai=True, chuyen_may_khi="người nghe nói cần giúp")
+    assert res == {"da_lam": "dang_goi", "nguoi": "Đại ca"}
+    assert app.last("/api/call/request")["path"] == "/api/call/request"
+    plan = hass.data[DOMAIN][setup.entry_id].voice.plans["555"]
+    assert plan.message == "Có người ngã ở phòng khách" and plan.ai and plan.handover_rule == "người nghe nói cần giúp"
+    sent = await call("gui_tin", nguoi="Đại ca", noi_dung="Xin chào")
+    assert sent["da_lam"] == "da_gui" and app.last("/api/thread/6643404425553198601/send")["json"]["message"] == "Xin chào"
+
+
+async def test_in_call_ai_only_sees_the_transfer_tool_and_cannot_be_driven_by_the_caller(hass, setup, app):
+    rt = hass.data[DOMAIN][setup.entry_id]
+    ctx = Context()
+    rt.voice.call_context_ids.add(ctx.id)
+    api = await llm.async_get_api(hass, "zalo_call", _ctx(ctx))
+    assert [t.name for t in api.tools] == ["chuyen_sang_truc_tiep"] and "MỘT công cụ" in api.api_prompt
+    # dù model cố gọi công cụ khác trong cuộc gọi (người lạ sai khiến) cũng bị từ chối, và không có yêu cầu nào tới app
+    full = await llm.async_get_api(hass, "zalo_call", _ctx())
+    tool = next(t for t in full.tools if t.name == "goi_dien")
+    out = await tool.async_call(hass, llm.ToolInput(tool_name="goi_dien", tool_args={"nguoi": "Đại ca"}), _ctx(ctx))
+    assert "loi" in out and not [r for r in app.requests if r["path"] == "/api/call/request"]
+    # chuyển máy: chưa có AI nào giữ cuộc gọi thì báo lỗi; có thì ghi nhận
+    transfer = api.tools[0]
+    assert "loi" in await transfer.async_call(hass, llm.ToolInput(tool_name="chuyen_sang_truc_tiep", tool_args={}), _ctx(ctx))
+    rt.voice.ai_running.append("77")
+    ok = await transfer.async_call(hass, llm.ToolInput(tool_name="chuyen_sang_truc_tiep", tool_args={"ly_do": "khẩn cấp"}), _ctx(ctx))
+    assert "da_lam" in ok and rt.voice.handover == {"77": "khẩn cấp"}
+
+
+async def test_ai_loop_handover_through_llm_tool(hass, monkeypatch):
+    voice = cv.CallVoice()
+    fake = await _patched_ai_env(monkeypatch, [("giúp tôi với", "Mình chuyển máy ngay")])
+    orig = fake.run
+
+    async def run_and_request_transfer(hass_, *, conversation_extra_system_prompt=None, **kw):
+        voice.request_handover("khẩn cấp")                          # công cụ LLM được gọi trong lượt này
+        return await orig(hass_, conversation_extra_system_prompt=conversation_extra_system_prompt, **kw)
+    from homeassistant.components import assist_pipeline
+    monkeypatch.setattr(assist_pipeline, "async_pipeline_from_audio_stream", run_and_request_transfer)
+    api = FakeApi(statuses=["answered"])
+    res = await cv.async_run_ai(hass, api, "77", cv.Plan(ai=True), voice)
+    assert res["handover"] is True and [s[2].decode() for s in api.said] == ["TTS:Mình chuyển máy ngay"]
+    assert voice.ai_running == [] and voice.handover == {} and voice.call_context_ids == set()      # dọn sạch

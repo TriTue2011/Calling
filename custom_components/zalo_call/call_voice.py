@@ -70,6 +70,16 @@ class CallVoice:
     plans: dict[str, Plan] = field(default_factory=dict)
     incoming: set[str] = field(default_factory=set)
     tasks: dict[str, asyncio.Task] = field(default_factory=dict)
+    ai_running: list[str] = field(default_factory=list)          # cuộc gọi đang có vòng AI (mới nhất ở cuối)
+    handover: dict[str, str] = field(default_factory=dict)       # call_id -> lý do: AI xin chuyển sang trực tiếp (qua công cụ LLM)
+    call_context_ids: set[str] = field(default_factory=set)      # id Context của các lượt AI trong cuộc gọi (để LLM API nhận ra)
+
+    def request_handover(self, reason: str = "") -> bool:
+        """Công cụ LLM `chuyen_sang_truc_tiep`: đánh dấu cuộc gọi AI mới nhất cần chuyển trực tiếp. False nếu không có AI nào đang giữ."""
+        if not self.ai_running:
+            return False
+        self.handover[self.ai_running[-1]] = reason or "ai"
+        return True
 
     def cancel_all(self) -> None:
         for task in list(self.tasks.values()):
@@ -203,7 +213,8 @@ class _Listener:
 
 
 async def _one_turn(hass: HomeAssistant, listener: _Listener, pipeline_id: str | None, language: str,
-                    conversation_id: str | None, hint: str = PHONE_HINT) -> tuple[str, str, str | None]:
+                    conversation_id: str | None, hint: str = PHONE_HINT,
+                    context: Context | None = None) -> tuple[str, str, str | None]:
     """Nghe một câu → (chữ người gọi nói, câu trả lời của trợ lý, conversation_id). Không nghe ra chữ thì chữ = ""."""
     from homeassistant.components import assist_pipeline, stt          # nạp muộn: chỉ cần khi bật AI trong cuộc gọi
     from homeassistant.components.assist_pipeline import pipeline as pipeline_mod
@@ -231,7 +242,7 @@ async def _one_turn(hass: HomeAssistant, listener: _Listener, pipeline_id: str |
     try:
         async with asyncio.timeout(TURN_TIMEOUT_S):
             await assist_pipeline.async_pipeline_from_audio_stream(
-                hass, context=Context(), event_callback=on_event, stt_metadata=meta, stt_stream=stream,
+                hass, context=context or Context(), event_callback=on_event, stt_metadata=meta, stt_stream=stream,
                 pipeline_id=pipeline_id, conversation_id=conversation_id,
                 end_stage=pipeline_mod.PipelineStage.INTENT,
                 audio_settings=pipeline_mod.AudioSettings(is_vad_enabled=True, silence_seconds=0.8), **extra)
@@ -242,7 +253,8 @@ async def _one_turn(hass: HomeAssistant, listener: _Listener, pipeline_id: str |
     return got["text"], got["reply"], got["conv"]
 
 
-async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan: Plan) -> dict[str, Any]:
+async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan: Plan,
+                       voice: CallVoice | None = None) -> dict[str, Any]:
     """Vòng AI nói chuyện cho tới khi cuộc gọi hết / im lặng / quá giới hạn / AI tự chuyển sang trực tiếp.
     -> {"handover": bool, "heard": câu cuối người gọi nói}."""
     from homeassistant.components.assist_pipeline import pipeline as pipeline_mod
@@ -260,6 +272,10 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
     listener.start()
     start, conv, idle, turns = time.monotonic(), None, 0, 0
     hint, handover, heard = phone_hint(plan.handover_rule), False, ""
+    context = Context()                           # lượt AI trong cuộc gọi có Context riêng: LLM API nhận ra để chỉ cho công cụ chuyển máy
+    if voice is not None:
+        voice.call_context_ids.add(context.id)
+        voice.ai_running.append(call_id)
     try:
         if plan.greeting:
             listener.muted = True
@@ -269,7 +285,7 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
         while turns < MAX_TURNS and time.monotonic() - start < MAX_CALL_S and not listener.ended:
             if await _call_status(api, call_id) != "answered":
                 break
-            text, reply, conv = await _one_turn(hass, listener, plan.pipeline_id, language, conv, hint)
+            text, reply, conv = await _one_turn(hass, listener, plan.pipeline_id, language, conv, hint, context)
             turns += 1
             if not text:
                 idle += 1
@@ -280,6 +296,8 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
             heard = text
             if HANDOVER_RE.search(reply):                 # AI tự quyết chuyển sang trực tiếp: đọc nốt câu (không có dấu) rồi dừng
                 reply, handover = HANDOVER_RE.sub("", reply).strip(), True
+            if voice is not None and call_id in voice.handover:      # hoặc AI gọi công cụ chuyen_sang_truc_tiep
+                handover = True
             if reply:
                 listener.muted = True
                 try:
@@ -293,6 +311,11 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
         return {"handover": handover, "heard": heard}
     finally:
         listener.stop()
+        if voice is not None:
+            voice.call_context_ids.discard(context.id)
+            if call_id in voice.ai_running:
+                voice.ai_running.remove(call_id)
+            voice.handover.pop(call_id, None)
 
 
 # -- Vòng đời: chạy kế hoạch khi cuộc gọi được nghe máy ---------------------------------------------------------------
@@ -306,7 +329,7 @@ async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> N
                 await asyncio.sleep(1.0)
         handed = False
         if plan.ai:
-            res = await async_run_ai(hass, api, call_id, plan)
+            res = await async_run_ai(hass, api, call_id, plan, rt.voice)
             handed = bool(res.get("handover"))
             if handed:
                 # AI quyết định chuyển: trả mic nhà (loa/mic đã nối từ lúc nghe máy), KHÔNG cúp máy, báo HA để automation xử lý.

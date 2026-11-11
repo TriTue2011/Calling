@@ -32,6 +32,7 @@ from .bridge import CallAudioBridge
 from .bridge_core import derive_state
 from .call_voice import CallVoice, on_call_state
 from .devices import DeviceDefaults
+from .llm_api import async_register_llm_api
 from .const import (
     CONF_AI_CALL,
     CONF_AI_CALL_GREETING,
@@ -95,6 +96,7 @@ class ZaloCallCoordinator(DataUpdateCoordinator[dict]):
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
     await async_register_services(hass)
+    async_register_llm_api(hass)          # Assist: tích «Zalo Call» trong cài đặt trợ lý hội thoại là dùng được, không cần automation/prompt
     return True
 
 

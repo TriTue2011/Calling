@@ -223,6 +223,20 @@ Cần Assist pipeline có STT, TTS và trợ lý hội thoại. **Lưu ý an to�
 
 **Các trường hợp nhận cuộc gọi đã xử lý:** sự kiện `request` lặp lại cùng `call_id` chỉ tính một lần (trước đây có thể làm cuộc đang nói bị đặt lại thành «đang chuông»); có cuộc gọi thứ hai đến khi đang nói hoặc đang gọi đi thì **từ chối cuộc mới** (không đè cuộc đang sống), ghi `busy_rejected` và vẫn báo HA như cuộc nhỡ.
 
+## Dùng bằng giọng nói qua Assist (không cần automation hay prompt)
+
+Tích hợp tự đăng ký một **LLM API tên «Zalo Call»** (như «TriTue Music» của custom YouTube). Bạn chỉ cần: **Cài đặt → Trợ lý giọng nói → chọn trợ lý hội thoại dùng LLM** (OpenAI, Google, Ollama, local OpenAI-compatible…) → ở mục điều khiển, **tích chọn «Zalo Call»** cạnh «Assist». Lời dặn nằm sẵn trong API, không phải viết prompt. (Trợ lý mặc định của HA không dùng LLM nên không có mục này.)
+
+Rồi nói với Assist (điện thoại, loa R1…), ví dụ:
+- «Gọi cho Đại ca» · «Gọi video cho Đại ca» · «Nhắn tin cho nhóm AI học hỏi là tối nay họp lúc 8 giờ»
+- «Ai đang gọi vậy?» · «Nghe máy đi» · «Từ chối cuộc gọi này» · «Cúp máy»
+- «Gọi cho Đại ca báo có người vừa ngã ở phòng khách, nếu họ cần giúp thì chuyển máy trực tiếp» (thông báo bằng giọng, AI nói chuyện tiếp, tự chuyển sang trực tiếp khi cần)
+- «Tiếp quản cuộc gọi» (dừng AI đang trực điện thoại, bạn nói chuyện trực tiếp)
+
+Tên được tìm trong danh bạ Zalo không cần dấu; có nhiều người trùng tên thì trợ lý liệt kê đánh số và hỏi lại trước khi gọi.
+
+**An toàn:** trong cuộc gọi do AI giữ (người bên ngoài đang nói), trợ lý chỉ thấy **một** công cụ là «chuyển sang trực tiếp». Người lạ nói qua điện thoại không sai khiến được AI gọi điện, nhắn tin hay cúp máy khác. Công cụ «chuyển sang trực tiếp» cũng là cách AI tự chuyển (ngoài dấu `[[CHUYEN_MAY]]`), nên không cần dặn thêm.
+
 ## Bảng các trường hợp cuộc gọi
 
 **Gọi đi** (tài khoản Zalo của app gọi cho người khác, `make_call`):
