@@ -100,6 +100,7 @@ from . import events as events_mod
 from . import proxy_store as proxy_store_mod
 from . import protocol
 from . import qr_login
+from . import group_polls as group_polls_mod
 from . import rich_text
 from . import services as services_mod
 from . import session as session_mod
@@ -2946,6 +2947,43 @@ def _photo_bundle_from_fields(fields):
         raise ValueError("truong nhom anh khong hop le: %s" % e)
 
 
+def _gp_svc(action, body):
+    """Gọi dịch vụ có sẵn của app cho phần bình chọn nhóm; lỗi -> group_polls.PollError."""
+    return group_polls_mod._unwrap(services_mod.handle_svc(STATE, action, body))
+
+
+def _group_poll_summary(p):
+    return {"poll_id": p["poll_id"], "question": p["question"], "closed": p["closed"], "anonymous": p["anonymous"], "multi": p["multi"],
+            "num_vote": p["num_vote"], "voted": len(group_polls_mod.poll_voters(p)), "created_time": p["created_time"],
+            "options": [{"content": o["content"], "votes": o["votes"]} for o in p["options"]]}
+
+
+def _group_poll_view(gid, op, body):
+    """Tuyến /api/group/<gid>/{polls|poll_non_voters|remove_members}: trả (status, obj). PollError -> 400."""
+    try:
+        group = group_polls_mod.load_group(_gp_svc, gid)
+        polls = group_polls_mod.load_polls(_gp_svc, gid)
+        if op == "polls":
+            return 200, {"group": {"name": group["name"], "members": len(group["members"]), "total": group["total"],
+                                   "complete": group["complete"]},
+                         "polls": [_group_poll_summary(p) for p in polls]}
+        chosen = group_polls_mod.select_polls(polls, body.get("poll_ids"))
+        own = str((STATE.session or {}).get("uid") or "")
+        res = group_polls_mod.compute_non_voters(group, chosen, own, str(body.get("mode") or "none"), body.get("min_votes") or 1)
+        if op == "poll_non_voters":
+            return 200, res
+        out = group_polls_mod.remove_members(_gp_svc, gid, group, res, body.get("member_ids"), body.get("confirm"),
+                                             take_all=body.get("all") is True)
+        for r in out["results"]:
+            _log_call("poll-kick group=%s member=%s ok=%s" % (gid, r["id"], r["ok"]))
+        return 200, {"results": out["results"], "removed": sum(1 for r in out["results"] if r["ok"]), "remaining": out["remaining"]}
+    except group_polls_mod.PollError as exc:
+        return 400, {"error": str(exc)}
+
+
+_GROUP_POLL_RE = re.compile(r"^/api/group/(\d{1,30})/(polls|poll_non_voters|remove_members)$")
+
+
 STATE = AppState(DATA_DIR)
 
 
@@ -3341,6 +3379,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"error": "chua_dang_nhap"},
                                        status=401)
             return self._send_json(STATE.webhook_store.load())
+        m_gp = _GROUP_POLL_RE.match(path)
+        if m_gp and m_gp.group(2) == "polls":
+            if self._require_login() is None:
+                return self._send_json({"error": "chua_dang_nhap"}, status=401)
+            status, obj = _group_poll_view(m_gp.group(1), "polls", {})
+            return self._send_json(obj, status=status)
         if path == "/api/contacts":
             sess = self._require_login()
             if sess is None:
@@ -4015,6 +4059,12 @@ class Handler(BaseHTTPRequestHandler):
                       % revoked)
             return self._send_json({"ok": True,
                                     "other_sessions_revoked": revoked})
+        m_gp = _GROUP_POLL_RE.match(path)
+        if m_gp and m_gp.group(2) in ("poll_non_voters", "remove_members"):
+            if self._require_login() is None:
+                return self._send_json({"error": "chua_dang_nhap"}, status=401)
+            status, obj = _group_poll_view(m_gp.group(1), m_gp.group(2), body or {})
+            return self._send_json(obj, status=status)
         if path == "/api/qr/new":
             STATE.start_qr()
             return self._send_json({"ok": True})

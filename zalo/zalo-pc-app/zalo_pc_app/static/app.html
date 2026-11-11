@@ -31,6 +31,9 @@
       <button id="nav-services" class="nav-item" type="button">
         <span class="nav-label">Dịch vụ</span>
       </button>
+      <button id="nav-polls" class="nav-item" type="button">
+        <span class="nav-label">Bình chọn nhóm</span>
+      </button>
       <button id="nav-devices" class="nav-item" type="button">
         <span class="nav-label">Thiết bị</span>
       </button>
@@ -150,6 +153,46 @@
       </section>
 
       <!-- View 4: cài đặt webhook -->
+      <section id="view-polls" class="view" style="display:none">
+        <div class="title-row">
+          <div>
+            <h1>Bình chọn nhóm</h1>
+            <p class="subline">Xem ai chưa bình chọn và (nếu muốn) xoá họ khỏi nhóm. Cần là trưởng nhóm hoặc phó nhóm mới xoá được; xoá không hoàn tác được.</p>
+          </div>
+        </div>
+        <div class="polls-row">
+          <label for="polls-group">Nhóm</label>
+          <select id="polls-group"></select>
+          <button id="polls-load" class="btn btn-secondary" type="button">Tải bình chọn</button>
+        </div>
+        <div id="polls-error" class="error-box" hidden></div>
+        <p id="polls-info" class="note-box" hidden></p>
+        <ul id="polls-list" class="polls-list"></ul>
+        <div id="polls-filter" class="polls-row" hidden>
+          <label for="polls-mode">Lọc người</label>
+          <select id="polls-mode">
+            <option value="none">không bình chọn cuộc nào</option>
+            <option value="any">bỏ sót ít nhất một cuộc</option>
+            <option value="min">bình chọn ít hơn N cuộc</option>
+          </select>
+          <input id="polls-min" type="number" min="1" value="1" hidden aria-label="N cuộc">
+          <button id="polls-compute" class="btn btn-primary" type="button">Hiện người chưa bình chọn</button>
+        </div>
+        <div id="polls-result" hidden>
+          <h2 id="polls-result-title"></h2>
+          <p id="polls-skipped" class="subline"></p>
+          <label class="polls-check"><input id="polls-all" type="checkbox"> Chọn tất cả</label>
+          <ul id="polls-nonvoters" class="polls-members"></ul>
+          <details class="polls-protected"><summary id="polls-protected-title"></summary><ul id="polls-protected" class="polls-members"></ul></details>
+          <div class="polls-row">
+            <button id="polls-remove-selected" class="btn btn-danger-outline" type="button">Xoá người đã chọn</button>
+            <button id="polls-remove-all" class="btn btn-danger-outline" type="button">Xoá toàn bộ người chưa bình chọn</button>
+            <button id="polls-stop" class="btn btn-text" type="button" hidden>Dừng</button>
+          </div>
+          <p id="polls-progress" class="subline" role="status"></p>
+        </div>
+      </section>
+
       <section id="view-webhooks" class="view" style="display:none">
         <div class="title-row">
           <div>

@@ -66,7 +66,7 @@ function scheduleStaleRefresh() {
 // khi await /api/status — nên mỗi lần làm mới trang đều nháy
 // trang QR dù phiên vẫn còn (lỗi 2026-11-05).
 const VIEWS = ["view-loading", "view-login", "view-main", "view-calls", "view-call",
-               "view-chat", "view-webhooks", "view-services", "view-devices", "view-account"];
+               "view-chat", "view-webhooks", "view-services", "view-devices", "view-account", "view-polls"];
 function show(view) {
   VIEWS.forEach((v) => { $(v).style.display = (v === view ? "" : "none"); });
   // No contacts to search before login — hide the search box there.
@@ -82,6 +82,8 @@ function show(view) {
     "nav-item" + (view === "view-services" ? " on" : "");
   $("nav-devices").className =
     "nav-item" + (view === "view-devices" ? " on" : "");
+  $("nav-polls").className =
+    "nav-item" + (view === "view-polls" ? " on" : "");
   $("nav-account").className =
     "nav-item" + (view === "view-account" ? " on" : "");
   closeMenu();
@@ -2103,6 +2105,16 @@ $("topbar-call").onclick = () => {
 $("nav-contacts").onclick = () => { show("view-main"); loadMain(); };
 $("nav-calls").onclick = async () => { await loadCalls(); show("view-calls"); };
 $("nav-webhooks").onclick = loadWebhooks;
+$("nav-polls").onclick = openPolls;
+$("polls-load").onclick = loadPolls;
+$("polls-compute").onclick = computeNonVoters;
+$("polls-mode").onchange = () => { $("polls-min").hidden = $("polls-mode").value !== "min"; };
+$("polls-all").onchange = () => {
+  document.querySelectorAll("#polls-nonvoters input[type=checkbox]").forEach((c) => { c.checked = $("polls-all").checked; });
+};
+$("polls-remove-selected").onclick = () => removeNonVoters(false);
+$("polls-remove-all").onclick = () => removeNonVoters(true);
+$("polls-stop").onclick = () => { pollsState.stop = true; $("polls-stop").hidden = true; };
 $("webhooks-form").onsubmit = saveWebhooks;
 WEBHOOK_KINDS.forEach((k) => {
   $(`wh-${k}-test`).onclick = () => testWebhook(k);
@@ -2138,6 +2150,156 @@ $("filter-all").onclick = () => setFilter("all");
 $("filter-friends").onclick = () => setFilter("friends");
 $("filter-groups").onclick = () => setFilter("groups");
 
+
+// -- Binh chon nhom: ai chua binh chon, xoa khoi nhom (co xac nhan) ---------
+// Moi lan xoa, may chu TINH LAI danh sach tu du lieu moi nhat va chi nhan ID nam trong do (khong tin danh sach cua trinh duyet);
+// truong/pho nhom va chinh tai khoan nay khong bao gio bi xoa. Xoa toan bo: lap cac dot toi da 10 nguoi, co nut Dung.
+let pollsState = { gid: "", name: "", polls: [], result: null, stop: false, busy: false };
+
+function pollsMsg(id, text, isErr) {
+  const el = $(id);
+  el.textContent = text || "";
+  el.hidden = !text;
+  if (isErr !== undefined) el.className = isErr ? "error-box" : "note-box";
+}
+function pollsGroupId() { return $("polls-group").value; }
+function pollsSelectedIds() {
+  return Array.from(document.querySelectorAll("#polls-list input[type=checkbox]:checked")).map((c) => c.value);
+}
+function pollsBody(extra) {
+  return Object.assign({ poll_ids: pollsSelectedIds(), mode: $("polls-mode").value, min_votes: Number($("polls-min").value) || 1 }, extra || {});
+}
+
+async function openPolls() {
+  show("view-polls");
+  const sel = $("polls-group");
+  const prev = sel.value;
+  sel.innerHTML = "";
+  const groups = (contacts.groups.rows || []);
+  groups.forEach((g) => {
+    const o = document.createElement("option");
+    o.value = g.id;
+    o.textContent = g.name || g.id;
+    sel.appendChild(o);
+  });
+  if (prev) sel.value = prev;
+  if (!groups.length) pollsMsg("polls-error", "Chưa có nhóm nào trong danh bạ (bấm «Tải lại» ở Danh bạ).", true);
+}
+
+async function loadPolls() {
+  const gid = pollsGroupId();
+  if (!gid || pollsState.busy) return;
+  pollsState = { gid, name: $("polls-group").selectedOptions[0].textContent, polls: [], result: null, stop: false, busy: true };
+  pollsMsg("polls-error", ""); pollsMsg("polls-info", "Đang tải bình chọn…", false);
+  $("polls-result").hidden = true; $("polls-filter").hidden = true; $("polls-list").innerHTML = "";
+  try {
+    const r = await api("/api/group/" + encodeURIComponent(gid) + "/polls");
+    if (r.error) { pollsMsg("polls-info", ""); pollsMsg("polls-error", r.error, true); return; }
+    pollsState.polls = r.polls;
+    const g = r.group;
+    pollsMsg("polls-info", g.name + ": " + g.members + " thành viên" + (g.complete ? "" : " (danh sách CHƯA ĐỦ: chưa cho xoá)") + ", "
+      + r.polls.length + " bình chọn.", false);
+    r.polls.forEach((p) => {
+      const li = document.createElement("li");
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.value = p.poll_id; cb.checked = !p.closed && !p.anonymous; cb.disabled = p.anonymous;
+      const box = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = p.question || "(không có câu hỏi)";
+      const sub = document.createElement("small");
+      sub.textContent = (p.anonymous ? "Ẩn danh: không có danh sách người chọn · " : "") + (p.closed ? "Đã đóng · " : "Đang mở · ")
+        + p.voted + " người đã bình chọn · " + p.options.map((o) => o.content + " (" + o.votes + ")").join(" · ");
+      box.appendChild(title); box.appendChild(sub);
+      li.appendChild(cb); li.appendChild(box);
+      $("polls-list").appendChild(li);
+    });
+    $("polls-filter").hidden = !r.polls.length;
+    if (!r.polls.length) pollsMsg("polls-info", g.name + ": nhóm này chưa có bình chọn nào.", false);
+  } catch (e) {
+    pollsMsg("polls-info", ""); pollsMsg("polls-error", String(e.message || e), true);
+  } finally { pollsState.busy = false; }
+}
+
+function renderMembers(ul, list, withBox) {
+  ul.innerHTML = "";
+  list.forEach((m) => {
+    const li = document.createElement("li");
+    li.dataset.id = m.id;
+    if (withBox) {
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.value = m.id; cb.checked = true;
+      li.appendChild(cb);
+    }
+    const box = document.createElement("div");
+    const name = document.createElement("strong"); name.textContent = m.name || m.id;
+    const sub = document.createElement("small");
+    sub.textContent = m.id + (m.why ? " · " + m.why : "") + " · đã bình chọn " + m.voted + " cuộc";
+    box.appendChild(name); box.appendChild(sub);
+    li.appendChild(box);
+    ul.appendChild(li);
+  });
+}
+
+async function computeNonVoters() {
+  if (pollsState.busy) return;
+  if (!pollsSelectedIds().length) { pollsMsg("polls-error", "Chọn ít nhất một bình chọn.", true); return; }
+  pollsState.busy = true; pollsMsg("polls-error", ""); pollsMsg("polls-progress", "Đang tính…");
+  try {
+    const r = await api("/api/group/" + encodeURIComponent(pollsState.gid) + "/poll_non_voters", "POST", pollsBody());
+    if (r.error) { pollsMsg("polls-error", r.error, true); $("polls-result").hidden = true; return; }
+    pollsState.result = r;
+    $("polls-result").hidden = false;
+    $("polls-result-title").textContent = r.non_voters.length + " người chưa bình chọn (trên " + r.members_total + " thành viên, " + r.polls_count + " bình chọn)";
+    $("polls-skipped").textContent = r.skipped.length ? "Bỏ qua: " + r.skipped.map((s) => s.question + " (" + s.why + ")").join("; ") : "";
+    renderMembers($("polls-nonvoters"), r.non_voters, true);
+    $("polls-all").checked = true;
+    $("polls-protected-title").textContent = "Được giữ lại, không bao giờ bị xoá (" + r.protected.length + ")";
+    renderMembers($("polls-protected"), r.protected, false);
+    const can = r.members_complete && r.non_voters.length > 0;
+    $("polls-remove-selected").disabled = !can; $("polls-remove-all").disabled = !can;
+    pollsMsg("polls-progress", r.members_complete ? "" : "Danh sách thành viên của nhóm chưa đủ (nhóm lớn): chỉ xem, chưa cho xoá.");
+  } catch (e) { pollsMsg("polls-error", String(e.message || e), true); }
+  finally { pollsState.busy = false; }
+}
+
+function markGone(ids) {
+  ids.forEach((id) => {
+    const li = document.querySelector('#polls-nonvoters li[data-id="' + CSS.escape(id) + '"]');
+    if (li) { li.classList.add("gone"); const cb = li.querySelector("input"); if (cb) { cb.checked = false; cb.disabled = true; } }
+  });
+}
+
+async function removeNonVoters(all) {
+  if (pollsState.busy || !pollsState.result) return;
+  const total = pollsState.result.non_voters.length;
+  const picked = Array.from(document.querySelectorAll("#polls-nonvoters input[type=checkbox]:checked")).map((c) => c.value);
+  const count = all ? total : picked.length;
+  if (!count) { pollsMsg("polls-error", "Chưa chọn ai.", true); return; }
+  // Xac nhan: xoa nhieu nguoi thi phai go dung so luong; khong hoan tac duoc.
+  const typed = window.prompt("Xoá " + count + " người khỏi nhóm «" + pollsState.name + "». Không hoàn tác được.\nGõ đúng số " + count + " để xác nhận:");
+  if (typed === null) return;
+  if (String(typed).trim() !== String(count)) { pollsMsg("polls-error", "Số xác nhận không khớp: không xoá ai.", true); return; }
+  pollsMsg("polls-error", "");
+  pollsState.busy = true; pollsState.stop = false; $("polls-stop").hidden = !all;
+  let removed = 0, failed = 0, remaining = count;
+  try {
+    let queue = picked.slice();
+    for (let guard = 0; guard < 200 && !pollsState.stop; guard++) {
+      const batch = all ? { all: true } : { member_ids: queue.slice(0, 10) };
+      if (!all && !batch.member_ids.length) break;
+      const r = await api("/api/group/" + encodeURIComponent(pollsState.gid) + "/remove_members", "POST", pollsBody(Object.assign({ confirm: true }, batch)));
+      if (r.error) { pollsMsg("polls-error", r.error, true); break; }
+      const okIds = r.results.filter((x) => x.ok).map((x) => x.id);
+      markGone(okIds);
+      removed += okIds.length; failed += r.results.length - okIds.length;
+      if (!all) queue = queue.slice(10); else remaining = r.remaining;
+      pollsMsg("polls-progress", "Đã xoá " + removed + " người" + (failed ? ", lỗi " + failed : "") + (all ? ", còn " + remaining : "") + "…");
+      if (all ? (r.remaining === 0 || !okIds.length) : !queue.length) break;
+      await new Promise((res) => setTimeout(res, 1500));
+    }
+    pollsMsg("polls-progress", (pollsState.stop ? "Đã dừng. " : "Xong. ") + "Đã xoá " + removed + " người" + (failed ? ", " + failed + " lỗi (kiểm tra quyền trưởng/phó nhóm)" : "") + ".");
+  } catch (e) { pollsMsg("polls-error", String(e.message || e), true); }
+  finally { pollsState.busy = false; $("polls-stop").hidden = true; }
+}
 
 // -- tieng / hinh trong cuoc goi + cai dat thiet bi ------------------------
 let mediaBusy = false;

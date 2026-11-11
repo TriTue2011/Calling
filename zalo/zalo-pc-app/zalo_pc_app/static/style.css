@@ -638,3 +638,14 @@ button { font-family: var(--font); }
 .dev-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
 .dev-grid label { display: flex; gap: 6px; align-items: center; margin: 0; }
 .dev-grid input { width: 90px; }
+
+/* Bình chọn nhóm */
+.polls-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+.polls-row select, .polls-row input[type=number] { min-height: 36px; padding: 4px 8px; border: 1px solid var(--line, #ccd3dd); border-radius: 8px; background: transparent; color: inherit; max-width: 100%; }
+.polls-row input[type=number] { width: 72px; }
+.polls-list, .polls-members { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.polls-list li, .polls-members li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line, #ccd3dd); border-radius: 10px; }
+.polls-list li small, .polls-members li small { opacity: .7; display: block; }
+.polls-check { display: inline-flex; gap: 6px; align-items: center; margin: 6px 0; }
+.polls-protected { margin: 8px 0; }
+.polls-members .gone { opacity: .45; text-decoration: line-through; }
