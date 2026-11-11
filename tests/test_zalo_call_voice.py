@@ -776,7 +776,7 @@ async def test_connect_accepts_any_combination_of_parts_for_voice_and_video_in_b
         assert cv.devices_for_mode(full, list(parts)) == expect, parts
     assert cv.devices_for_mode(full, ["camera", "mic"]) == cv.devices_for_mode(full, ["mic", "camera"])            # thứ tự chọn không quan trọng
     assert R.parse_connect("voice") == ["mic", "speaker"] and R.parse_connect(["always"]) == ["mic", "speaker", "camera"]
-    assert R.parse_connect(["never"]) == [] and R.parse_connect(["mic", "ai"]) == ["ai"] and R.parse_connect(None) == []
+    assert R.parse_connect(["never"]) == [] and R.parse_connect(["mic", "ai"]) == ["mic", "ai"] and R.parse_connect(["ai"]) == ["mic", "speaker", "camera", "ai"] and R.parse_connect(None) == []
     rt = hass.data[DOMAIN][setup.entry_id]
     await _set_rule(hass, scope="thread", thread_id=THREAD, name="Đại ca", ai=True, agent="conversation.x", **{k: v for k, v in full.items()})
     for service, extra in (("alert_call", {"message": "Khói"}), ("make_call", {"ai": True})):
@@ -848,3 +848,91 @@ async def test_outgoing_ai_call_without_message_greets_first_instead_of_staying_
     assert hass.data[DOMAIN][setup.entry_id].voice.plans["555"].greeting == cv.DEFAULT_GREETING
     await hass.services.async_call(DOMAIN, "make_call", {"thread_id": THREAD, "ai": True, "message": "Báo bạn một việc"}, blocking=True, return_response=True)
     assert hass.data[DOMAIN][setup.entry_id].voice.plans["555"].greeting == ""                       # có message thì đọc message, không chào thêm
+
+
+# ---------------------------------------------------------------- cảnh báo: after + sự kiện «đọc xong» ----------------------------------
+async def test_alert_after_hangup_connect_wait_and_alert_done_event_tells_exactly_when(hass):
+    """after: hangup = cúp; connect = nối thiết bị (không có thiết bị thì cúp); wait = giữ máy. Mọi trường hợp đều bắn zalo_call_alert_done."""
+    done = []
+    hass.bus.async_listen("zalo_call_alert_done", lambda e: done.append(dict(e.data)))
+    full = {**HOUSE, "camera": "camera.pk"}
+    cases = [("", {}, "hangup", False, True), ("", HOUSE, "connect", True, False), ("hangup", full, "hangup", False, True),
+             ("connect", {}, "hangup", False, True), ("connect", full, "connect", True, False), ("wait", full, "wait", False, False)]
+    for after, connect, want_after, connected, ended in cases:
+        api = FakeApi()
+        rt = _rt(api)
+        await cv._run_plan(hass, rt, "77", cv.Plan(message="Mất điện", alert=True, hangup=True, after=after, connect=dict(connect), thread_id="123", video=True))
+        await hass.async_block_till_done()
+        ev = done[-1]
+        assert ev["after"] == want_after and ev["connected"] is connected and ev["ended"] is ended and ev["thread_id"] == "123" and ev["call_id"] == "77", (after, connect, ev)
+        assert (api.ended == ["77"]) is ended and bool(rt.bridge.reconnected) is connected, (after, connect)
+        assert ev["camera"] is bool(connected and "camera" in connect)
+    assert len(done) == len(cases)
+
+
+async def test_alert_call_type_follows_the_camera_tick_video_when_camera_is_used(hass, setup, app):
+    """Tích camera = gọi VIDEO. Không nêu type: có camera sẽ nối thì video, không thì thoại; nêu type thì theo type; AI tự chọn thì không ép video."""
+    await _set_rule(hass, scope="thread", thread_id=THREAD, name="Đại ca", ai=True, agent="conversation.x", speaker="media_player.r1_loa",
+                    mic="assist_satellite.r1", camera="camera.phong_khach")
+
+    async def placed(service, **data):
+        await hass.services.async_call(DOMAIN, service, {"thread_id": THREAD, **data}, blocking=True, return_response=True)
+        return [r for r in app.requests if r["path"] == "/api/call/request"][-1]["json"]["type"]
+    assert await placed("alert_call", message="Khói") == "video"                                   # cảnh báo mặc định nối tất cả, có camera → video
+    assert await placed("alert_call", message="Khói", connect=["mic", "speaker"]) == "user"        # không tích camera → thoại
+    assert await placed("alert_call", message="Khói", connect=["camera"]) == "video"
+    assert await placed("alert_call", message="Khói", type="user") == "user"                       # nêu type thì theo type
+    assert await placed("alert_call", message="Khói", connect=["never"]) == "user"                 # không nối gì: thoại
+    assert await placed("make_call", ai=True, connect=["mic", "camera"]) == "video"
+    assert await placed("make_call", ai=True, connect=["mic"]) == "user"
+    assert await placed("make_call", ai=True, connect=["ai"]) == "user"                            # AI tự chọn camera: không ép video, chỉ nâng khi AI quyết
+    assert await placed("make_call", ai=True, connect=["mic", "ai"]) == "user"
+    plan = hass.data[DOMAIN][setup.entry_id].voice.plans["555"]
+    assert plan.connect_ai and set(plan.connect) == {"mic"}                                       # AI chỉ được chọn trong ô đã tích (chỉ mic)
+    assert await placed("make_call", ai=True) == "user"                                            # không nêu connect: theo quy tắc (không tích gì) → không nối, thoại
+
+
+# ---------------------------------------------------------------- thông báo «có cuộc gọi đến» ra loa -------------------------------------
+def test_announce_text_uses_rule_name_then_zalo_name_then_stranger_label():
+    assert cv.announce_text({"name": "Đại ca"}, {"call_type_raw": 1, "peer": "Nguyễn Việt"}) == "Có cuộc gọi video từ Đại ca."
+    assert cv.announce_text({}, {"call_type_raw": 0, "peer": "Nguyễn Việt"}) == "Có cuộc gọi thoại từ Nguyễn Việt."
+    assert cv.announce_text({}, {"contact_status": "stranger"}) == "Có cuộc gọi thoại từ người lạ."
+    assert cv.announce_text({}, {"contact_status": "friend"}) == "Có cuộc gọi thoại từ một người."
+    assert cv.announce_text({"announce_text": "Alo {ten} gọi {loai} {khac}"}, {"peer": "Bố"}) == "Alo Bố gọi thoại {khac}"      # khoá lạ không làm lỗi
+
+
+async def test_incoming_call_announces_on_the_speaker_only_when_the_rule_turns_it_on(hass, setup, app, hass_client_no_auth, monkeypatch):
+    spoken = []
+
+    async def fake_speak(call):
+        spoken.append(dict(call.data))
+    hass.services.async_register("tts", "speak", fake_speak)
+    monkeypatch.setattr(cv, "pipeline_tts", lambda hass_, pid: ("tts.chatgpt", "vi", {"voice": "v1"}))
+    with pytest.raises(ServiceValidationError):
+        await _set_rule(hass, scope="contacts", announce=True)                                    # bật mà không chọn loa: báo lỗi
+    # Không có quy tắc: im lặng
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="a1", peer="Nguyễn Việt"))
+    await hass.async_block_till_done()
+    assert spoken == []
+    # Có quy tắc nhưng không bật announce (mặc định): im lặng
+    await _set_rule(hass, scope="contacts", answer=False)
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="a2", peer="Nguyễn Việt"))
+    await hass.async_block_till_done()
+    assert spoken == []
+    # Bật: đọc ra loa đã chọn bằng giọng pipeline, một lần dù webhook đến hai lần; không tự nghe máy (answer false)
+    await _set_rule(hass, scope="contacts", announce=True, announce_to="media_player.loa_phong_khach")
+    for _ in range(2):
+        await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="a3", peer="Nguyễn Việt", call_type_raw=1))
+    await hass.async_block_till_done()
+    assert spoken == [{"entity_id": "tts.chatgpt", "media_player_entity_id": "media_player.loa_phong_khach", "message": "Có cuộc gọi video từ Nguyễn Việt.",
+                       "language": "vi", "options": {"voice": "v1"}}], spoken
+    assert not [r for r in app.requests if r["path"] == "/api/call/answer"]
+    # Người lạ không có quy tắc strangers: im lặng (quy tắc contacts không áp cho người lạ)
+    spoken.clear()
+    await _webhook(hass, hass_client_no_auth, _incoming(status="stranger", call_id="a4"))
+    await hass.async_block_till_done()
+    assert spoken == []
+    await _set_rule(hass, scope="strangers", announce=True, announce_to="media_player.loa_phong_khach")
+    await _webhook(hass, hass_client_no_auth, _incoming(status="stranger", call_id="a5"))
+    await hass.async_block_till_done()
+    assert spoken and spoken[0]["message"] == "Có cuộc gọi thoại từ người lạ."

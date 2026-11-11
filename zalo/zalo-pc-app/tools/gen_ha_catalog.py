@@ -292,6 +292,8 @@ def main():
                           "description": desc,
                           "fields": fields}
     extra = yaml.safe_load(EXTRA_YAML)
+    import ha_plain_words                                   # bảng từ ngữ dễ hiểu (một chỗ duy nhất)
+    ha_plain_words.apply(extra)
     for name, svc in extra.items():
         flds = svc.get("fields") or {}
         svc["fields"] = {"entry_id": ENTRY_ID_FIELD, **flds}
@@ -315,8 +317,7 @@ EXTRA_YAML = '''make_call:
         text: null
     type:
       name: Loại cuộc gọi
-      description: user = thoại 1-1, video = video 1-1, group = nhóm.
-      default: user
+      description: user = thoại 1-1, video = video 1-1, group = nhóm. Bỏ trống = tự chọn - có tích Camera (hoặc nêu camera) thì gọi VIDEO, không thì thoại.
       selector:
         select:
           options:
@@ -383,17 +384,18 @@ EXTRA_YAML = '''make_call:
           domain: camera
     connect:
       name: Nối thiết bị nhà khi chuyển máy
-      description: Phần nối khi chuyển máy (chọn nhiều) - mic, speaker, camera ghép bất kỳ, hoặc voice = mic + loa, always = cả ba, ai = AI chọn voice hay camera (với cảnh báo thì là voice), never = không nối. Bỏ trống = theo thiết bị lời gọi đã nêu, không nêu thì theo quy tắc của threadID, không có thì không nối.
+      description: Tích ô nào thì nối thứ đó khi chuyển sang trực tiếp (tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = cả 3). Tích Camera = cuộc gọi VIDEO. Bỏ trống = theo thiết bị lời gọi đã nêu, không nêu thì theo quy tắc của threadID, không có thì không nối gì.
       selector:
         select:
           options:
-          - never
-          - voice
-          - always
-          - ai
-          - mic
-          - speaker
-          - camera
+          - value: mic
+            label: Mic - gửi tiếng trong nhà cho người gọi
+          - value: speaker
+            label: Loa - phát tiếng người gọi ra loa nhà
+          - value: camera
+            label: Camera - gửi hình (tích cái này là cuộc gọi VIDEO)
+          - value: ai
+            label: AI tự chọn trong các ô đã tích
           multiple: true
     message:
       name: Thông báo bằng giọng nói
@@ -498,17 +500,18 @@ answer_call:
           domain: camera
     connect:
       name: Nối thiết bị nhà khi chuyển máy
-      description: Phần nối khi chuyển máy (chọn nhiều) - mic, speaker, camera ghép bất kỳ, hoặc voice = mic + loa, always = cả ba, ai = AI chọn voice hay camera (với cảnh báo thì là voice), never = không nối. Bỏ trống = theo thiết bị lời gọi đã nêu, không nêu thì theo quy tắc của threadID, không có thì không nối.
+      description: Tích ô nào thì nối thứ đó khi chuyển sang trực tiếp (tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = cả 3). Tích Camera = cuộc gọi VIDEO. Bỏ trống = theo thiết bị lời gọi đã nêu, không nêu thì theo quy tắc của threadID, không có thì không nối gì.
       selector:
         select:
           options:
-          - never
-          - voice
-          - always
-          - ai
-          - mic
-          - speaker
-          - camera
+          - value: mic
+            label: Mic - gửi tiếng trong nhà cho người gọi
+          - value: speaker
+            label: Loa - phát tiếng người gọi ra loa nhà
+          - value: camera
+            label: Camera - gửi hình (tích cái này là cuộc gọi VIDEO)
+          - value: ai
+            label: AI tự chọn trong các ô đã tích
           multiple: true
     message:
       name: Thông báo bằng giọng nói
@@ -881,19 +884,37 @@ set_rule:
       description: Tin thoại 1-1 được Zalo STT chuyển thành chữ và bắn sự kiện zalo_call_voice_text.
       selector:
         boolean:
+    announce:
+      name: Thông báo ra loa khi có cuộc gọi đến
+      description: Bật thì khi người này gọi đến, một loa trong nhà đọc «Có cuộc gọi ... từ ...» để người trong nhà biết (kể cả khi không tự nghe máy). Mặc định TẮT.
+      default: false
+      selector:
+        boolean:
+    announce_to:
+      name: Loa phát thông báo
+      description: media_player đọc thông báo cuộc gọi đến (bắt buộc khi bật thông báo). Giọng đọc lấy từ Assist pipeline của quy tắc.
+      selector:
+        entity:
+          domain: media_player
+    announce_text:
+      name: Câu thông báo
+      description: Câu đọc ra loa; có thể dùng {ten} (tên người gọi) và {loai} (thoại hoặc video). Bỏ trống = «Có cuộc gọi {loai} từ {ten}.»
+      selector:
+        text:
     connect:
-      name: Nối thiết bị nhà
-      description: Chọn phần nối khi chuyển máy (chọn nhiều, ghép bất kỳ, thoại hay video đều áp) - mic, speaker (loa), camera; hoặc lối tắt voice = mic + loa, always = cả ba, ai = AI tự chọn voice hay camera lúc chuyển máy. Bỏ trống hoặc never = không nối gì (mặc định, người lạ không nghe/thấy được nhà). Chỉ nối thứ ĐÃ CHỌN ở các ô bên dưới, chỉ KHI CHUYỂN MÁY (AI giữ máy thì chưa nối), ô trống là không nối. Thoại mà có camera thì nâng lên video.
+      name: Nối thiết bị nhà khi chuyển sang trực tiếp
+      description: Tích ô nào thì nối thứ đó (tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = dùng cả 3); không tích gì = không nối gì (mặc định, người lạ không nghe/thấy được nhà). Tích Camera thì đó là cuộc gọi VIDEO (cuộc thoại sẽ được nâng lên video). Tích «AI tự chọn» thì AI quyết nối mic+loa hay thêm camera, chỉ trong các ô đã tích. Chỉ nối thiết bị ĐÃ CHỌN ở các ô bên dưới, và chỉ KHI CHUYỂN MÁY (AI giữ máy thì chưa nối).
       selector:
         select:
           options:
-          - never
-          - voice
-          - always
-          - ai
-          - mic
-          - speaker
-          - camera
+          - value: mic
+            label: Mic - gửi tiếng trong nhà cho người gọi
+          - value: speaker
+            label: Loa - phát tiếng người gọi ra loa nhà
+          - value: camera
+            label: Camera - gửi hình (tích cái này là cuộc gọi VIDEO)
+          - value: ai
+            label: AI tự chọn trong các ô đã tích
           multiple: true
     speaker:
       name: Loa
@@ -998,13 +1019,24 @@ alert_call:
           multiline: true
     type:
       name: Thoại hay video
-      description: user = thoại, video = video. Video thì nối camera nhà (nếu đã cài) sau khi đọc.
-      default: user
+      description: user = thoại, video = video. Bỏ trống = tự chọn - có camera trong thiết bị sẽ nối (mặc định cảnh báo nối tất cả) thì gọi VIDEO, không thì thoại.
       selector:
         select:
           options:
           - user
           - video
+    after:
+      name: Đọc cảnh báo xong thì
+      description: hangup = cúp máy ngay (hợp báo mất điện, rò nước...). connect = nối thiết bị nhà đã cài (hợp báo người ngã, trộm...). wait = giữ máy, người nhận hoặc automation tự cúp (dịch vụ end_call). Bỏ trống = tự chọn - có thiết bị để nối thì connect, không thì hangup. Khi đọc xong HA bắn sự kiện zalo_call_alert_done.
+      selector:
+        select:
+          options:
+          - value: hangup
+            label: Cúp máy
+          - value: connect
+            label: Nối thiết bị nhà
+          - value: wait
+            label: Giữ máy
     pipeline:
       name: Assist pipeline (giọng đọc)
       description: Chọn từ danh sách. Bỏ trống = pipeline của quy tắc threadID này (set_rule); không có thì giọng TTS mặc định của HA.
@@ -1037,17 +1069,18 @@ alert_call:
           domain: camera
     connect:
       name: Nối thiết bị nhà khi chuyển máy
-      description: Phần nối ngay sau khi đọc cảnh báo (chọn nhiều) - mic, speaker, camera ghép bất kỳ, hoặc voice = mic + loa, always = cả ba, never = chỉ đọc rồi cúp. Bỏ trống = nối TẤT CẢ thiết bị đã cài (lời gọi hoặc quy tắc của threadID) kể cả camera, vì báo động thì người nhận phải thấy hiện trường; lời gọi nêu thiết bị nào thì nối thiết bị đó.
+      description: Tích ô nào thì nối thứ đó ngay sau khi đọc cảnh báo (tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = cả 3). Tích Camera = cuộc gọi VIDEO. Bỏ trống = nối TẤT CẢ thiết bị đã cài (lời gọi hoặc quy tắc của threadID) kể cả camera, vì báo động thì người nhận phải thấy hiện trường. Muốn chỉ đọc rồi cúp thì ở ô «Đọc cảnh báo xong thì» chọn Cúp máy.
       selector:
         select:
           options:
-          - never
-          - voice
-          - always
-          - ai
-          - mic
-          - speaker
-          - camera
+          - value: mic
+            label: Mic - gửi tiếng trong nhà cho người gọi
+          - value: speaker
+            label: Loa - phát tiếng người gọi ra loa nhà
+          - value: camera
+            label: Camera - gửi hình (tích cái này là cuộc gọi VIDEO)
+          - value: ai
+            label: AI tự chọn trong các ô đã tích
           multiple: true
     volume:
       name: Âm lượng loa trong cuộc gọi

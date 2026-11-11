@@ -22,7 +22,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
          CallButton(entry, rt, "stop_video", "Tắt hình", "mdi:video-off"),
          CallButton(entry, rt, "stop_mic", "Tắt mic cuộc gọi",
                     "mdi:microphone-off"),
-         CallButton(entry, rt, "take_over", "Tiếp quản cuộc gọi (dừng AI, nối mic nhà)",
+         CallButton(entry, rt, "take_over", "Người nhà nói trực tiếp (dừng AI)",
                     "mdi:phone-in-talk")])
 
 

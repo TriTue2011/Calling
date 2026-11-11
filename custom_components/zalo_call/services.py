@@ -249,8 +249,11 @@ async def async_register_services(hass: HomeAssistant) -> None:
         rt.bridge.remember(None, override)
         try:
             fields = await rt.bridge.async_call_fields(override)
+            ctype = _call_type(call.data, plan)
+            if plan is not None:
+                plan.video = ctype == "video"
             res = await api.call_request(str(call.data["thread_id"]),
-                                         call.data.get("type", "user"),
+                                         ctype,
                                          call.data.get("peer_name", ""),
                                          call.data.get("srtp"),
                                          call.data.get("extend_profile"),
@@ -283,13 +286,15 @@ async def async_register_services(hass: HomeAssistant) -> None:
         pipeline = _pipeline_id_of(data["pipeline"]) if data.get("pipeline") else (rule.get("pipeline") or "")
         plan = Plan(message=str(data["message"]).strip(), repeat=int(data.get("repeat") or 1), alert=True, hangup=True,
                     engine=data.get("tts_engine") or None, language=data.get("language") or None, pipeline_id=pipeline or None,
-                    video=data.get("type") == "video", connect=_connect_for(data, rule, allow_ai=False, alert=True)[0])
+                    thread_id=thread, after=data.get("after") or "", connect=_connect_for(data, rule, allow_ai=False, alert=True)[0])
         if not plan.message:
             raise ServiceValidationError("message (nội dung cảnh báo) không được trống")
         rt.bridge.remember(None, dict(HELD_DEVICES))                  # lúc nghe máy mọi thiết bị nhà TẮT; chỉ nối sau khi đọc cảnh báo
         try:
             fields = await rt.bridge.async_call_fields(dict(HELD_DEVICES))
-            res = await api.call_request(thread, data.get("type", "user"), data.get("peer_name", ""), None, None, fields)
+            ctype = _call_type(data, plan)
+            plan.video = ctype == "video"
+            res = await api.call_request(thread, ctype, data.get("peer_name", ""), None, None, fields)
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
         _register_voice_plan(rt, (res or {}).get("call_id"), plan)
@@ -312,7 +317,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return next((p.name for p in pipeline_mod.async_get_pipelines(hass) if p.id == pid), pid)
 
     _RULE_FIELDS = ("name", "answer", "answer_delay", "call_types", "ai", "pipeline", "agent", "greeting", "handover_rule", "trusted",
-                    "reply_ai", "voice_text", "connect", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
+                    "reply_ai", "voice_text", "announce", "announce_to", "announce_text", "connect", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
 
     def _rules_copy(rt) -> dict:
         r = get_rules(rt.defaults)
@@ -427,6 +432,15 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return {"req_id": res.get("req_id"), "done": bool(res.get("done")),
                 "text": res.get("text", "")}
 
+    def _call_type(data, plan) -> str:
+        """Loại cuộc gọi đi. Nêu `type` thì theo đó; không nêu: tích camera (chắc chắn nối camera) = gọi VIDEO, không thì thoại. AI tự chọn camera
+        (connect có «ai») thì không ép video: camera chỉ vào khi AI quyết (thoại được nâng lên video)."""
+        if data.get("type"):
+            return str(data["type"])
+        if plan is not None and (plan.ai or plan.alert) and "camera" in plan.connect and not plan.connect_ai:
+            return "video"
+        return "user"
+
     def _connect_for(data, rule, allow_ai: bool = True, alert: bool = False) -> tuple[dict, bool]:
         """(thiết bị, AI chọn lúc chuyển máy). Phần nối (`connect`, chọn nhiều): của lời gọi; không nêu thì các phần ứng với thiết bị lời gọi
         đã nêu (nêu loa → nối loa...); không nêu gì thì của quy tắc threadID; không có thì không nối. Thiết bị: nêu trong lời gọi, không thì của
@@ -440,11 +454,11 @@ async def async_register_services(hass: HomeAssistant) -> None:
             parts = [p for p, keys in (("mic", ("mic", "mic_url")), ("speaker", ("speaker",)), ("camera", ("camera",))) if any(k in explicit for k in keys)]
         else:
             parts = list(CONNECT_PARTS) if alert else parse_connect(rule.get("connect"))
-        if parts == ["ai"] and not allow_ai:
-            parts = ["mic", "speaker"]
+        if "ai" in parts and not allow_ai:                  # không có AI để chọn: chỉ các phần đã tích, bỏ camera (kín hơn)
+            parts = [p for p in parts if p not in ("ai", "camera")]
         source = explicit or {k: rule[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if rule.get(k)}
         devices = devices_for_mode(source, parts)
-        return devices, bool(devices) and parts == ["ai"]
+        return devices, bool(devices) and "ai" in parts
 
     def _build_plan(rt, data):
         """Kế hoạch giọng nói (message/ai/alert) của make_call/answer_call, KIỂM TRA TRƯỚC khi gọi/nghe. ai: true cần pipeline/agent nêu rõ hoặc theo
@@ -453,6 +467,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         plan = plan_from_service(data)
         if plan is None:
             return None
+        plan.thread_id = str(data.get("thread_id") or "")
         if not plan.ai:
             return plan
         rule = None
@@ -621,6 +636,9 @@ async def async_register_services(hass: HomeAssistant) -> None:
                    vol.Optional("trusted"): cv.boolean,
                    vol.Optional("reply_ai"): cv.boolean,
                    vol.Optional("voice_text"): cv.boolean,
+                   vol.Optional("announce"): cv.boolean,
+                   vol.Optional("announce_to"): cv.string,
+                   vol.Optional("announce_text"): cv.string,
                    vol.Optional("connect"): vol.All(cv.ensure_list, [vol.In(list(CONNECT))]),
                    vol.Optional("speaker"): cv.string,
                    vol.Optional("mic"): cv.string,
@@ -654,7 +672,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema({
             vol.Optional("entry_id"): cv.string,
             vol.Required("thread_id"): cv.string,
-            vol.Optional("type", default="user"): vol.In(["user", "video", "group"]),
+            vol.Optional("type"): vol.In(["user", "video", "group"]),
             vol.Optional("peer_name"): cv.string,
             vol.Optional("srtp"): vol.In(["sess", "off", "key"]),
             vol.Optional("extend_profile"): vol.In(["native", "pc", "zca"]),
@@ -666,8 +684,9 @@ async def async_register_services(hass: HomeAssistant) -> None:
             vol.Optional("entry_id"): cv.string,
             vol.Required("thread_id"): cv.string,
             vol.Required("message"): cv.string,
-            vol.Optional("type", default="user"): vol.In(["user", "video"]),
+            vol.Optional("type"): vol.In(["user", "video"]),
             vol.Optional("peer_name"): cv.string,
+            vol.Optional("after"): vol.In(["hangup", "connect", "wait"]),
             vol.Optional("pipeline"): cv.string,
             vol.Optional("tts_engine"): cv.entity_id,
             vol.Optional("language"): cv.string,

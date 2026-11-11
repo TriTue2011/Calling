@@ -78,3 +78,35 @@ if __name__ == "__main__":
             _f()
             print("PASS", _n)
     print("ALL SERVICES.YAML TESTS PASSED")
+
+
+# Dich vu goi / AI / canh bao / quy tac: TEN o va nhan o chon phai de hieu - khong dung thuat ngu ky thuat lam ten (gen_ha_catalog + ha_plain_words).
+_FRIENDLY = ("make_call", "answer_call", "alert_call", "set_rule", "remove_rule", "take_over_call", "list_rules", "list_contacts")
+_JARGON = ("threadid", "pipeline", "agent", "stt", "tts", "handover", "ghi đè", "ghi de", "stream", "rtp", "sessid", "srtp ", "webhook")
+
+
+def _visible_texts(svc):
+    yield svc["name"]
+    for f in svc.get("fields", {}).values():
+        yield f.get("name", "")
+        sel = (f.get("selector") or {}).get("select") or {}
+        for o in sel.get("options") or []:
+            if isinstance(o, dict):
+                yield o.get("label", "")
+
+
+def test_call_services_use_plain_words_in_names_and_option_labels():
+    y = _load()
+    bad = [(k, t) for k in _FRIENDLY for t in _visible_texts(y[k]) if any(j in t.lower() for j in _JARGON)]
+    assert not bad, "ten/nhan co thuat ngu kho hieu: %s" % bad
+
+
+def test_connect_is_tick_boxes_mic_speaker_camera_ai_with_labels_in_every_call_service():
+    y = _load()
+    for k in ("make_call", "answer_call", "alert_call", "set_rule"):
+        sel = y[k]["fields"]["connect"]["selector"]["select"]
+        assert sel["multiple"] is True and [o["value"] for o in sel["options"]] == ["mic", "speaker", "camera", "ai"], k
+        assert all(o["label"] for o in sel["options"])
+    assert "after" in y["alert_call"]["fields"] and "type" in y["make_call"]["fields"] and "default" not in y["make_call"]["fields"]["type"]
+    for f in ("announce", "announce_to", "announce_text"):
+        assert f in y["set_rule"]["fields"]

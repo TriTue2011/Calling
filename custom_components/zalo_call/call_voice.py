@@ -109,6 +109,8 @@ class Plan:
     video: bool = False          # cuộc gọi video: chuyển máy mới bật camera (thoại thì không)
     # Thiết bị nhà sẽ nối KHI CHUYỂN MÁY (speaker/mic/mic_url/camera/volume), chỉ gồm thứ ĐÃ CÀI trong dịch vụ. Trống = KHÔNG nối gì, kể cả khi AI muốn.
     connect: dict = field(default_factory=dict)
+    thread_id: str = ""          # người nhận (có trong sự kiện «đọc xong» của cảnh báo)
+    after: str = ""              # cảnh báo: sau khi đọc xong làm gì - hangup (cúp) / connect (nối thiết bị) / wait (giữ máy); trống = tự chọn
     connect_ai: bool = False     # connect: ai - AI chọn voice/camera lúc chuyển máy (connect chứa TẤT CẢ thiết bị được phép)
 
 
@@ -116,6 +118,7 @@ class Plan:
 class CallVoice:
     plans: dict[str, Plan] = field(default_factory=dict)
     incoming: set[str] = field(default_factory=set)
+    announced: set[str] = field(default_factory=set)             # call_id đã phát thông báo «có cuộc gọi» ra loa (mỗi cuộc một lần)
     scheduled: set[str] = field(default_factory=set)            # call_id đã lên lịch nghe máy theo quy tắc (mỗi cuộc một lần)
     timers: dict[str, Any] = field(default_factory=dict)        # call_id -> hàm huỷ lịch
     tasks: dict[str, asyncio.Task] = field(default_factory=dict)
@@ -201,9 +204,7 @@ _PART_KEYS = {"mic": ("mic", "mic_url"), "speaker": ("speaker", "volume"), "came
 def devices_for_mode(devices: dict[str, Any], mode: Any) -> dict[str, Any]:
     """Thiết bị sẽ nối theo `connect` (chuỗi hay danh sách, xem rules.parse_connect): chỉ những PHẦN được chọn (mic / speaker / camera, ghép bất kỳ),
     và chỉ thiết bị ĐÃ cài. ["ai"] = tập được phép là tất cả (lúc chuyển máy AI chọn voice hay camera trong đó). Không có gì để nối thì {}."""
-    parts = parse_connect(mode)
-    if parts == ["ai"]:
-        parts = list(CONNECT_PARTS)
+    parts = [p for p in parse_connect(mode) if p != "ai"]
     out = {k: devices[k] for p in parts for k in _PART_KEYS[p] if devices.get(k) not in (None, "")}
     return out if any(k in out for k in _DEVICE_KEYS) else {}
 
@@ -445,6 +446,68 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
 
 # -- Vòng đời: chạy kế hoạch khi cuộc gọi được nghe máy ---------------------------------------------------------------
 
+async def _finish_alert(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> None:
+    """Cảnh báo đã đọc xong: làm theo `after` rồi báo HA (`zalo_call_alert_done`) để automation biết đúng lúc đó.
+      hangup  = cúp máy;  connect = nối thiết bị đã cài (không có thiết bị nào thì cúp);  wait = giữ máy, người nhận hoặc automation tự cúp.
+    after trống: có thiết bị để nối thì connect, không thì hangup (báo mất điện... đọc xong là cúp)."""
+    after = plan.after or ("connect" if plan.connect else "hangup")
+    if after == "connect" and not plan.connect:
+        after = "hangup"
+    connected = False
+    if after == "connect":
+        connected = await async_connect_devices(rt, call_id, plan.connect, plan.video)
+    elif after == "hangup":
+        await rt.api.call_end(call_id)
+    camera = bool(connected and plan.connect.get("camera"))
+    hass.bus.async_fire("zalo_call_alert_done", {"call_id": call_id, "thread_id": plan.thread_id, "after": after, "connected": connected,
+                                                  "camera": camera, "ended": after == "hangup"})
+    if connected:                                       # tương thích: automation đang nghe chuyển máy vẫn nhận (reason alert)
+        hass.bus.async_fire("zalo_call_ai_handover", {"call_id": call_id, "heard": "", "reason": "alert", "connected": True, "camera": camera})
+
+
+# -- Thông báo «có cuộc gọi đến» ra loa (bật/tắt theo quy tắc, mặc định TẮT) ------------------------------------------
+
+DEFAULT_ANNOUNCE = "Có cuộc gọi {loai} từ {ten}."
+
+
+class _Safe(dict):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def announce_text(rule: dict[str, Any], payload: dict[str, Any]) -> str:
+    """Câu thông báo: {loai} = thoại/video, {ten} = tên trong quy tắc, không thì tên Zalo của người gọi, không có thì «người lạ»/«một người»."""
+    kind = "video" if str(payload.get("call_type_raw")) == "1" else "thoại"
+    name = str(rule.get("name") or payload.get("peer") or "").strip()
+    if not name:
+        name = "người lạ" if payload.get("contact_status") == "stranger" else "một người"
+    return str(rule.get("announce_text") or DEFAULT_ANNOUNCE).format_map(_Safe(loai=kind, ten=name))
+
+
+async def async_announce_incoming(hass: HomeAssistant, rt: Any, payload: dict[str, Any]) -> bool:
+    """Cuộc gọi ĐẾN: nếu quy tắc của người đó bật `announce` (và chọn loa `announce_to`) thì đọc thông báo ra loa đó, để người trong nhà biết có
+    người gọi. Không có quy tắc/không bật = im lặng. Giọng đọc = của pipeline trong quy tắc (không có thì pipeline ưu tiên, chỉ lấy giọng).
+    Trả về True nếu đã gửi lệnh phát."""
+    rule = resolve_rule(get_rules(rt.defaults), payload.get("thread_id"), "user", payload.get("contact_status"))
+    if not rule or not rule.get("announce") or not rule.get("announce_to"):
+        return False
+    engine, language, options = pipeline_tts(hass, rule.get("pipeline") or None)
+    if not engine:
+        _LOGGER.warning("Thông báo cuộc gọi đến: chưa có giọng đọc (TTS) - chọn pipeline trong quy tắc")
+        return False
+    data: dict[str, Any] = {"entity_id": engine, "media_player_entity_id": rule["announce_to"], "message": announce_text(rule, payload)}
+    if language:
+        data["language"] = language
+    if options:
+        data["options"] = options
+    try:
+        await hass.services.async_call("tts", "speak", data, blocking=False)
+    except Exception:  # noqa: BLE001 - lỗi loa/TTS không được làm hỏng việc nghe máy
+        _LOGGER.warning("Không phát được thông báo cuộc gọi đến ra %s", rule["announce_to"], exc_info=True)
+        return False
+    return True
+
+
 async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> None:
     api: ZaloCallApi = rt.api
     try:
@@ -456,10 +519,11 @@ async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> N
             await async_say(hass, api, call_id, plan.message, engine, language, options=options)
             if i + 1 < plan.repeat:
                 await asyncio.sleep(1.0)
-        handed, reason, heard, choice = False, "", "", ""
         if plan.alert:
-            handed, reason = True, "alert"                  # cảnh báo: đọc xong là nối thẳng, không hỏi
-        elif plan.ai:
+            await _finish_alert(hass, rt, call_id, plan)      # cảnh báo: đọc xong theo `after` (cúp / nối thiết bị / giữ máy), không hỏi
+            return
+        handed, reason, heard, choice = False, "", "", ""
+        if plan.ai:
             res = await async_run_ai(hass, api, call_id, plan, rt.voice)
             handed, reason, heard, choice = bool(res.get("handover")), "ai", res.get("heard", ""), res.get("connect", "")
         if handed:
@@ -468,15 +532,11 @@ async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> N
             if plan.connect_ai:                              # AI chọn: CAMERA = cả camera, còn lại (hoặc không chọn) = chỉ loa + mic
                 connect = devices_for_mode(plan.connect, "always" if choice == "camera" else "voice")
             connected = await async_connect_devices(rt, call_id, connect, plan.video)
-            if connected or not plan.alert:
-                hass.bus.async_fire("zalo_call_ai_handover", {"call_id": call_id, "heard": heard, "reason": reason, "connected": connected, "camera": bool(connected and connect.get("camera"))})
-            else:
-                handed = False                              # cảnh báo mà chưa cài thiết bị nào: chỉ là thông báo, theo hangup_after
-        if handed:
-            pass
+            hass.bus.async_fire("zalo_call_ai_handover", {"call_id": call_id, "heard": heard, "reason": reason, "connected": connected,
+                                                          "camera": bool(connected and connect.get("camera"))})
         elif plan.hangup:
             await api.call_end(call_id)
-        elif not (plan.ai or plan.alert):
+        elif not plan.ai:
             await _restore_mic(api, call_id)
     except asyncio.CancelledError:
         raise
@@ -514,7 +574,7 @@ def _devices_override(rule: dict[str, Any]) -> dict[str, Any]:
     quy tắc đã cài theo `connect`, không rơi về mặc định; không cài = tắt hết."""
     if rule.get("ai"):
         return dict(HELD_DEVICES)
-    connect = rule_devices({**rule, "connect": "voice"} if parse_connect(rule.get("connect")) == ["ai"] else rule)     # không có AI để chọn: "ai" = voice
+    connect = rule_devices({**rule, "connect": "voice"} if "ai" in parse_connect(rule.get("connect")) else rule)     # không có AI để chọn: "ai" = chỉ mic + loa
     return explicit_devices(connect) if connect else dict(HELD_DEVICES)
 
 
@@ -524,7 +584,7 @@ def _plan_from_rule(rule: dict[str, Any], video: bool = False) -> Plan | None:
     return Plan(ai=True, hangup=True, pipeline_id=rule.get("pipeline") or None, agent_id=rule.get("agent") or "",
                 greeting=rule.get("greeting") or DEFAULT_GREETING, handover_rule=rule.get("handover_rule") or "",
                 trusted=bool(rule.get("trusted")), video=video, connect=rule_devices(rule),
-                connect_ai=parse_connect(rule.get("connect")) == ["ai"])
+                connect_ai="ai" in parse_connect(rule.get("connect")))
 
 
 async def _answer_by_rule(hass: HomeAssistant, rt: Any, call_id: str, rule: dict[str, Any], video: bool = False) -> None:
@@ -585,6 +645,9 @@ def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, termin
     voice: CallVoice = rt.voice
     if state == "incoming":
         voice.incoming.add(cid)
+        if cid not in voice.announced:                          # webhook «incoming» có thể đến hai lần: thông báo một lần
+            voice.announced.add(cid)
+            hass.async_create_task(async_announce_incoming(hass, rt, payload or {"call_id": cid}))
         schedule_answer(hass, rt, payload or {"call_id": cid})
     elif state == "answered":
         plan = voice.plans.pop(cid, None)
@@ -597,6 +660,7 @@ def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, termin
         voice.scheduled.discard(cid)
         voice.plans.pop(cid, None)
         voice.incoming.discard(cid)
+        voice.announced.discard(cid)
         task = voice.tasks.pop(cid, None)
         if task:
             task.cancel()

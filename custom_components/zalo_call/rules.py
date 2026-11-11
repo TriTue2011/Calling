@@ -5,10 +5,10 @@
     ``strangers`` (người lạ). Quy tắc theo threadID THAY HẲN quy tắc nhóm (không trộn từng trường), nên ``answer: false`` ở một người
     chặn được quy tắc danh bạ dễ dãi hơn.
   * Không biết người đó quen hay lạ (app chưa tải được danh bạ): chỉ quy tắc theo threadID được áp, quy tắc contacts/strangers bị bỏ qua.
-  * Thiết bị nhà do ``connect`` quyết định (chọn nhiều): rỗng/``never`` (mặc định) = không nối gì; hoặc chọn từng phần ``mic``, ``speaker``,
-    ``camera`` / ghép bất kỳ (chỉ mic, chỉ loa, chỉ cam, mic+loa, loa+cam...). Lối tắt: ``voice`` = mic+loa, ``always`` = cả ba, ``ai`` = AI tự chọn
-    voice hay camera lúc chuyển máy (không chọn thì voice). Áp cho cả cuộc thoại lẫn video (thoại mà có camera thì nâng lên video). Chỉ nối thứ
-    ĐÃ CHỌN trong quy tắc, và chỉ KHI CHUYỂN MÁY.
+  * Thiết bị nhà do ``connect`` quyết định, là các ô TÍCH: ``mic``, ``speaker``, ``camera`` (tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = dùng cả 3),
+    không tích gì = không nối (mặc định). Tích camera = cuộc gọi VIDEO (thoại thì nâng lên video). Ô ``ai`` = AI tự chọn voice hay thêm camera lúc
+    chuyển máy, chỉ trong các ô đã tích. Chỉ nối thứ ĐÃ CHỌN trong quy tắc, và chỉ KHI CHUYỂN MÁY.
+  * ``announce: true`` (cần ``announce_to``): có cuộc gọi đến thì một loa trong nhà đọc thông báo cho người trong nhà biết. Mặc định TẮT.
   * ``ai: true`` bắt buộc có ``pipeline`` hoặc ``agent`` — không lặng lẽ rơi về pipeline ưu tiên (nó có quyền thiết bị nhà).
 """
 from __future__ import annotations
@@ -30,8 +30,9 @@ CONNECT = ("never", "voice", "always", "ai") + CONNECT_PARTS
 
 
 def parse_connect(value: Any) -> list[str]:
-    """Danh sách phần sẽ nối, chuẩn hoá: tập con của (mic, speaker, camera) theo thứ tự đó, hoặc ["ai"] (AI chọn), hoặc [] (không nối).
-    Nhận chuỗi hay danh sách. never = không; voice = mic+speaker; always = cả ba; mic/speaker/camera = từng phần. Giá trị lạ thì RuleError."""
+    """Danh sách ô đã tích của `connect`, chuẩn hoá: các phần (mic, speaker, camera, theo thứ tự đó) rồi "ai" nếu có tích «AI tự chọn». Rỗng = không nối.
+    "ai" mà không tích phần nào = AI được chọn trong cả ba. Nhận chuỗi hay danh sách; lối tắt (never/voice/always) vẫn dùng được cho API:
+    voice = mic+speaker, always = cả ba. Giá trị lạ thì RuleError."""
     raw = [value] if isinstance(value, str) else list(value or [])
     parts: set[str] = set()
     ai = False
@@ -47,18 +48,22 @@ def parse_connect(value: Any) -> list[str]:
             parts.add(v)
         elif v not in ("never", ""):
             raise RuleError("connect chỉ gồm: %s" % ", ".join(CONNECT))
-    return ["ai"] if ai else [p for p in CONNECT_PARTS if p in parts]
+    ordered = [p for p in CONNECT_PARTS if p in parts]
+    return (ordered or list(CONNECT_PARTS)) + ["ai"] if ai else ordered
+
+
 RULES_KEY = "rules"
 
 # Trường quy tắc và kiểu. Thiếu trường = giá trị mặc định ở dưới (an toàn: tất cả TẮT).
 DEFAULT_RULE: dict[str, Any] = {
     "name": "", "answer": False, "answer_delay": 3, "call_types": ["voice", "video"],
     "ai": False, "pipeline": "", "agent": "", "greeting": "", "handover_rule": "", "trusted": False,
+    "announce": False, "announce_to": "", "announce_text": "",
     "reply_ai": False, "voice_text": False,
     "connect": [], "speaker": "", "mic": "", "mic_url": "", "camera": "", "volume": 0, "echo_guard": "auto",
 }
-_STR = ("name", "pipeline", "agent", "greeting", "handover_rule", "speaker", "mic", "mic_url", "camera")
-_BOOL = ("answer", "ai", "trusted", "reply_ai", "voice_text")
+_STR = ("name", "pipeline", "agent", "greeting", "handover_rule", "speaker", "mic", "mic_url", "camera", "announce_to", "announce_text")
+_BOOL = ("answer", "ai", "trusted", "reply_ai", "voice_text", "announce")
 
 
 def empty_rules() -> dict[str, dict[str, Any]]:
@@ -110,6 +115,8 @@ def normalize(data: dict[str, Any], old: dict[str, Any] | None = None) -> dict[s
         raise RuleError(
             "ai: true cần chọn pipeline (Assist pipeline) hoặc agent (trợ lý hội thoại): không tự dùng pipeline ưu tiên vì nó có quyền "
             "thiết bị nhà")
+    if rule["announce"] and not rule["announce_to"]:
+        raise RuleError("announce: true cần announce_to (loa media_player sẽ phát thông báo «có cuộc gọi»)")
     if rule["reply_ai"] and not (rule["pipeline"] or rule["agent"]):
         raise RuleError("reply_ai: true cần chọn pipeline hoặc agent (không tự dùng trợ lý mặc định)")
     return rule
