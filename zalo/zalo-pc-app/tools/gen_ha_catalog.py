@@ -802,6 +802,21 @@ take_over_call:
       description: Bỏ trống = cuộc gọi đang nói hiện tại.
       selector:
         text:
+accept_video:
+  name: Đồng ý chuyển sang video
+  description: Đồng ý lời xin chuyển cuộc thoại sang video.
+  fields:
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống = cuộc gọi đang nói hiện tại.
+      selector:
+        text:
+    camera:
+      name: Camera
+      description: Camera gửi hình.
+      selector:
+        entity:
+          domain: camera
 set_rule:
   name: Đặt quy tắc cuộc gọi đến / tin nhắn
   description: >-
@@ -922,6 +937,15 @@ set_rule:
         select:
           options: []
           multiple: true
+    video_request:
+      name: Người gọi xin chuyển sang video
+      description: Chọn cách xử lý.
+      selector:
+        select:
+          options:
+          - ask
+          - accept
+          - accept_camera
     connect:
       name: Nối thiết bị nhà khi chuyển sang trực tiếp
       description: Tích ô nào thì nối thứ đó (tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = dùng cả 3); không tích gì = không nối gì (mặc định, người lạ không nghe/thấy được nhà). Tích Camera thì đó là cuộc gọi VIDEO (cuộc thoại sẽ được nâng lên video). Tích «AI tự chọn» thì AI quyết nối mic+loa hay thêm camera, chỉ trong các ô đã tích. Chỉ nối thiết bị ĐÃ CHỌN ở các ô bên dưới, và chỉ KHI CHUYỂN MÁY (AI giữ máy thì chưa nối).

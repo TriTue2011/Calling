@@ -651,6 +651,22 @@ def _system_text(msg_type, content, item):
     return _ARG_RE.sub(lambda m: args.get(m.group(1), ""), tmpl).strip()
 
 
+def _poll_ref(msg_type, content, item):
+    """(poll_id, câu hỏi) của tin bình chọn (group.poll: tạo mới / tham gia / đổi phiếu), hoặc ("", ""). Thẻ bình chọn trên WebUI dựng từ poll_id
+    (get_poll_detail / danh sách bình chọn của nhóm): chính tin chỉ là SỰ KIỆN hệ thống, không chứa phương án hay số phiếu."""
+    if msg_type != "group.poll" or not isinstance(content, dict):
+        return "", ""
+    params = content.get("params")
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except ValueError:
+            return "", ""
+    if not isinstance(params, dict) or params.get("pollId") in (None, ""):
+        return "", ""
+    return str(params["pollId"]), str(params.get("question") or "")
+
+
 def normalize_message(item, thread_type="user"):
     """Chuan hoa 1 tin (best-effort — shape lich su nhom that chua
     duoc thay truc tiep): {id, sender_id, text, time, kind, file_name,
@@ -739,6 +755,7 @@ def normalize_message(item, thread_type="user"):
             text = file_name
     f_type = _int_or_none(
         params.get("fType") if isinstance(params, dict) else None)
+    poll_id, poll_question = _poll_ref(msg_type, content_dict, item) if kind == "system" else ("", "")
     return {"id": str(msg_id), "sender_id": str(sender),
             "text": str(text), "time": when, "kind": kind,
             "file_name": str(file_name),
@@ -748,6 +765,7 @@ def normalize_message(item, thread_type="user"):
             "file_ext": file_ext,
             "f_type": f_type,
             "sender_name": str(item.get("dName") or ""),
+            "poll_id": poll_id, "poll_question": poll_question,
             "raw": item}
 
 

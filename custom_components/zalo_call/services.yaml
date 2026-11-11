@@ -7492,6 +7492,24 @@ take_over_call:
       description: Bỏ trống = cuộc gọi đang nói hiện tại.
       selector:
         text: null
+accept_video:
+  name: Đồng ý chuyển sang video
+  description: Người đang gọi thoại xin chuyển sang video, bạn đồng ý. Chọn Camera để gửi hình trong nhà;
+    không chọn thì chỉ đồng ý (người gọi thấy mình, nhưng không thấy hình trong nhà). Chỉ dùng được khi
+    cuộc gọi đang nói.
+  fields:
+    entry_id: *id001
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống = cuộc gọi đang nói hiện tại.
+      selector:
+        text: null
+    camera:
+      name: Camera
+      description: Camera gửi hình.
+      selector:
+        entity:
+          domain: camera
 set_rule:
   name: Đặt quy tắc cho cuộc gọi đến và tin nhắn
   description: Quy định hệ thống làm gì khi có người gọi hoặc nhắn đến. Chưa có quy tắc cho người đó thì
@@ -7636,6 +7654,20 @@ set_rule:
         select:
           options: *id023
           multiple: true
+    video_request:
+      name: Khi người gọi xin chuyển sang video
+      description: 'Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng
+        tư): chỉ báo cho automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn
+        đồng ý nếu muốn tự động.'
+      selector:
+        select:
+          options:
+          - value: ask
+            label: Không tự đồng ý (chỉ báo cho automation, mặc định)
+          - value: accept
+            label: Tự đồng ý, KHÔNG gửi hình trong nhà
+          - value: accept_camera
+            label: Tự đồng ý và gửi camera đã chọn bên dưới
     connect:
       name: Thiết bị nhà dùng khi người nhà nói trực tiếp
       description: 'Tích ô nào thì dùng thứ đó: tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = dùng cả 3.

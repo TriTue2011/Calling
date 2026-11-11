@@ -1488,15 +1488,119 @@ function bubbleText(m) {
   return m.text || "";
 }
 
+// ---- Thẻ bình chọn trong khung chat -----------------------------------------------------------------------------------------------------
+// Tin bình chọn chỉ là sự kiện hệ thống (group.poll: tạo mới / tham gia / đổi phiếu); phương án và số phiếu lấy từ danh sách bình chọn của nhóm.
+// Mỗi bình chọn chỉ vẽ MỘT thẻ, ở sự kiện mới nhất của nó, để chuỗi sự kiện «X tham gia cuộc bình chọn» không dựng nhiều thẻ trùng.
+function pollCardModel(poll) {
+  const opts = (poll && poll.options) || [];
+  const total = opts.reduce((n, o) => n + (Number(o.votes) || 0), 0);
+  const top = opts.reduce((n, o) => Math.max(n, Number(o.votes) || 0), 0);
+  const flags = [];
+  if (poll && poll.closed) flags.push("Đã đóng");
+  if (poll && poll.anonymous) flags.push("Ẩn danh");
+  if (poll && poll.multi) flags.push("Chọn nhiều phương án");
+  return {
+    question: (poll && poll.question) || "(không có câu hỏi)",
+    summary: (poll && Number(poll.num_vote) >= 0 && poll.num_vote !== undefined ? Number(poll.num_vote) : total) + " người đã bình chọn",
+    flags,
+    canVote: !!poll && !poll.closed,
+    multi: !!(poll && poll.multi),
+    rows: opts.map((o) => ({
+      id: String(o.option_id), content: o.content || "", votes: Number(o.votes) || 0,
+      pct: top > 0 ? Math.round(((Number(o.votes) || 0) / top) * 100) : 0,
+      leader: top > 0 && (Number(o.votes) || 0) === top,
+    })),
+  };
+}
+
+function lastPollEventIndexes(messages) {
+  const last = {};
+  (messages || []).forEach((m, i) => { if (m.kind === "system" && m.poll_id) last[m.poll_id] = i; });
+  return last;
+}
+
+async function renderPollCard(card, gid, pollId) {
+  card.textContent = "Đang tải bình chọn…";
+  try {
+    const r = await api("/api/group/" + encodeURIComponent(gid) + "/polls");
+    const poll = (r.polls || []).find((p) => String(p.poll_id) === String(pollId));
+    if (!poll) { card.textContent = "Không xem được chi tiết bình chọn này (đã bị xoá hoặc chưa tải được)."; return; }
+    drawPollCard(card, gid, poll);
+  } catch (e) {
+    card.textContent = "Không tải được bình chọn: " + (e.message || e);
+  }
+}
+
+function drawPollCard(card, gid, poll) {
+  const mdl = pollCardModel(poll);
+  card.innerHTML = "";
+  const title = document.createElement("div");
+  title.className = "poll-q"; title.textContent = mdl.question;
+  const sub = document.createElement("div");
+  sub.className = "poll-sub"; sub.textContent = [mdl.summary].concat(mdl.flags).join(" · ");
+  card.appendChild(title); card.appendChild(sub);
+  mdl.rows.forEach((row) => {
+    const line = document.createElement("div");
+    line.className = "poll-opt" + (row.leader ? " leader" : "");
+    const bar = document.createElement("div");
+    bar.className = "poll-bar"; bar.style.width = row.pct + "%";
+    const label = document.createElement("span");
+    label.className = "poll-label"; label.textContent = row.content;
+    const cnt = document.createElement("span");
+    cnt.className = "poll-count"; cnt.textContent = String(row.votes);
+    line.appendChild(bar); line.appendChild(label); line.appendChild(cnt);
+    card.appendChild(line);
+  });
+  if (!mdl.canVote) return;
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "poll-change"; btn.textContent = "Đổi bình chọn";
+  btn.onclick = () => {
+    card.innerHTML = "";
+    card.appendChild(title);
+    const form = document.createElement("div");
+    form.className = "poll-form";
+    mdl.rows.forEach((row) => {
+      const lab = document.createElement("label");
+      const inp = document.createElement("input");
+      inp.type = mdl.multi ? "checkbox" : "radio"; inp.name = "poll-" + poll.poll_id; inp.value = row.id;
+      lab.appendChild(inp); lab.appendChild(document.createTextNode(" " + row.content));
+      form.appendChild(lab);
+    });
+    const ok = document.createElement("button");
+    ok.type = "button"; ok.textContent = "Gửi phiếu";
+    const msg = document.createElement("div");
+    msg.className = "poll-sub";
+    ok.onclick = async () => {
+      const ids = Array.from(form.querySelectorAll("input")).filter((i) => i.checked).map((i) => i.value);
+      if (!ids.length) { msg.textContent = "Hãy chọn ít nhất một phương án."; return; }
+      ok.disabled = true; msg.textContent = "Đang gửi…";
+      try {
+        const res = await api("/api/svc/vote_poll", "POST", { poll_id: String(poll.poll_id), option_ids: ids.join(",") });
+        if (res && res.error) { msg.textContent = res.error; ok.disabled = false; return; }
+        renderPollCard(card, gid, poll.poll_id);
+      } catch (e) { msg.textContent = "Lỗi: " + (e.message || e); ok.disabled = false; }
+    };
+    card.appendChild(form); card.appendChild(ok); card.appendChild(msg);
+  };
+  card.appendChild(btn);
+}
+
 function renderMessages(messages) {
   const box = $("chat-history");
   box.innerHTML = "";
-  (messages || []).forEach((m) => {
+  const lastPoll = lastPollEventIndexes(messages);
+  (messages || []).forEach((m, idx) => {
     if (m.kind === "system") {          // su kien nhom (binh chon moi...), sticker, thu hoi: dong ghi chu o giua, khong phai bong bong
       const note = document.createElement("div");
       note.className = "bubble-system";
       note.textContent = m.text || "";
       box.appendChild(note);
+      if (m.poll_id && lastPoll[m.poll_id] === idx && currentThread && currentThread.type === "group") {
+        const card = document.createElement("div");
+        card.className = "poll-card";
+        box.appendChild(card);
+        renderPollCard(card, currentThread.id, m.poll_id);
+      }
       return;
     }
     const out = m.direction === "out" || m.sender_id === "me";

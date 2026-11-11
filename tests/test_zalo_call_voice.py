@@ -1055,3 +1055,54 @@ async def test_recipients_are_picked_from_the_contact_list_and_become_notify_ent
     await hass.async_block_till_done()
     assert not [e for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify"]      # xoá hẳn khỏi sổ đăng ký, không để thực thể mồ côi
 
+
+# ---------------------------------------------------------------- người gọi xin chuyển thoại sang video -------------------------------------
+async def test_video_request_is_an_event_and_the_rule_decides_ask_accept_accept_camera_and_no_rule_does_nothing(hass, setup, app, hass_client_no_auth):
+    from homeassistant.core import callback
+    states = []
+    hass.bus.async_listen("zalo_call_call_state", callback(lambda e: states.append((e.data["state"], e.data.get("thread_id")))))
+
+    async def cam_url(entity_id):
+        return "rtsp://cam.local/live"
+    hass.data[DOMAIN][setup.entry_id].bridge.async_camera_url = cam_url
+    accepts = lambda: [r["json"] for r in app.requests if r["path"] == "/api/call/media" and (r["json"] or {}).get("target") == "accept_video"]   # noqa: E731
+    hook = {"event": "call", "status": "video_request", "call_id": "555", "thread_id": THREAD, "contact_status": "friend", "peer": "Đại ca"}
+    # Không có quy tắc: chỉ có sự kiện cho automation, KHÔNG tự đồng ý
+    await _webhook(hass, hass_client_no_auth, hook)
+    await hass.async_block_till_done()
+    assert ("video_request", THREAD) in states and accepts() == []
+    # ask (mặc định của quy tắc): vẫn không đồng ý
+    await _set_rule(hass, scope="thread", thread_id=THREAD, name="Đại ca", camera="camera.phong_khach")
+    await _webhook(hass, hass_client_no_auth, hook)
+    await hass.async_block_till_done()
+    assert accepts() == []
+    # accept: đồng ý, KHÔNG gửi hình trong nhà
+    await _set_rule(hass, scope="thread", thread_id=THREAD, video_request="accept")
+    await _webhook(hass, hass_client_no_auth, hook)
+    await hass.async_block_till_done()
+    assert len(accepts()) == 1 and "camera_url" not in accepts()[0] and accepts()[0]["call_id"] == "555", accepts()
+    # accept_camera: đồng ý và gửi camera đã chọn trong quy tắc
+    await _set_rule(hass, scope="thread", thread_id=THREAD, video_request="accept_camera")
+    await _webhook(hass, hass_client_no_auth, hook)
+    await hass.async_block_till_done()
+    assert len(accepts()) == 2 and accepts()[1]["camera_url"] == "rtsp://cam.local/live", accepts()
+    # người khác (không có quy tắc) không bị đồng ý theo quy tắc của người này
+    await _webhook(hass, hass_client_no_auth, {**hook, "thread_id": "999", "contact_status": "stranger"})
+    await hass.async_block_till_done()
+    assert len(accepts()) == 2
+    with pytest.raises(vol.Invalid):                                                            # giá trị lạ bị bộ kiểm schema từ chối
+        await _set_rule(hass, scope="thread", thread_id=THREAD, video_request="luon_luon")
+
+
+async def test_accept_video_service_needs_a_live_call_or_call_id_and_sends_camera_only_when_chosen(hass, setup, app):
+    async def cam_url(entity_id):
+        return "rtsp://cam.local/live"
+    hass.data[DOMAIN][setup.entry_id].bridge.async_camera_url = cam_url
+    accepts = lambda: [r["json"] for r in app.requests if r["path"] == "/api/call/media" and (r["json"] or {}).get("target") == "accept_video"]   # noqa: E731
+    with pytest.raises(Exception):                                                              # không có cuộc gọi đang nói và không nêu call_id
+        await hass.services.async_call(DOMAIN, "accept_video", {}, blocking=True)
+    r = await hass.services.async_call(DOMAIN, "accept_video", {"call_id": "555"}, blocking=True, return_response=True)
+    assert r == {"call_id": "555", "accepted": True, "camera": False} and accepts() == [{"call_id": "555", "action": "start", "target": "accept_video"}]
+    await hass.services.async_call(DOMAIN, "accept_video", {"call_id": "555", "camera": "camera.phong_khach"}, blocking=True, return_response=True)
+    assert accepts()[1]["camera_url"] == "rtsp://cam.local/live"
+

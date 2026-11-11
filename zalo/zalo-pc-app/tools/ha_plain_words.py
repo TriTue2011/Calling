@@ -81,6 +81,8 @@ SERVICES = {
     "remove_rule": ("Xoá quy tắc", "Xoá quy tắc của một người/nhóm cụ thể hoặc của một nhóm đối tượng. Từ đó hệ thống quay về «không làm gì» với họ."),
     "list_rules": ("Xem các quy tắc", "Trả về mọi quy tắc đang đặt."),
     "list_contacts": ("Xem danh bạ Zalo", "Danh sách bạn bè và nhóm kèm mã Zalo, để điền vào các ô «Mã Zalo»."),
+    "accept_video": ("Đồng ý chuyển sang video", "Người đang gọi thoại xin chuyển sang video, bạn đồng ý. Chọn Camera để gửi hình trong nhà; không chọn thì chỉ đồng ý "
+                     "(người gọi thấy mình, nhưng không thấy hình trong nhà). Chỉ dùng được khi cuộc gọi đang nói."),
     "take_over_call": ("Người nhà nói trực tiếp (dừng AI)",
                        "Dừng AI đang giữ cuộc gọi và bật thiết bị nhà để người trong nhà nói chuyện trực tiếp với người gọi."),
 }
@@ -128,8 +130,15 @@ RULE_FIELDS = {
     "echo_guard": ("Chống vọng âm", "Tránh tiếng loa lọt ngược vào mic khi hai thứ cùng một thiết bị."),
     "connect": (CONNECT_NAME, CONNECT_HELP),
     "connect_now": CONNECT_NOW,
+    "video_request": ("Khi người gọi xin chuyển sang video", "Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng tư): chỉ báo cho "
+                      "automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn đồng ý nếu muốn tự động."),
     "handover_rule": HANDOVER, "pipeline": PIPELINE, "agent": AGENT,
 }
+VIDEO_REQUEST_OPTIONS = [
+    {"value": "ask", "label": "Không tự đồng ý (chỉ báo cho automation, mặc định)"},
+    {"value": "accept", "label": "Tự đồng ý, KHÔNG gửi hình trong nhà"},
+    {"value": "accept_camera", "label": "Tự đồng ý và gửi camera đã chọn bên dưới"},
+]
 RULE_SCOPE_OPTIONS = [
     {"value": "thread", "label": "Một người hoặc một nhóm cụ thể"},
     {"value": "groups", "label": "Mọi nhóm"},
@@ -165,6 +174,8 @@ def apply(extra: dict) -> None:
         if "scope" in f:
             f["scope"]["selector"] = {"select": {"options": RULE_SCOPE_OPTIONS}}
     f = extra.get("set_rule", {}).get("fields", {})
+    if "video_request" in f:
+        f["video_request"]["selector"] = {"select": {"options": VIDEO_REQUEST_OPTIONS}}
     if "call_types" in f:
         f["call_types"]["selector"] = {"select": {"options": CALL_TYPE_OPTIONS, "multiple": True}}
     for svc in ("make_call", "answer_call", "alert_call", "set_rule"):

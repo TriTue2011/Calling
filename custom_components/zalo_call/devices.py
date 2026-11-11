@@ -20,7 +20,7 @@ from .const import (TEXT_STYLE_KEYS, AI_EMPHASIS, AI_FORMATS, CONF_AI_EMPHASIS, 
 
 # Mic/loa/camera mặc định, quy tắc người gọi và AI chỉ đặt bằng DỊCH VỤ (set_default_devices, set_rule…), không có ô cài đặt.
 DEFAULTS: dict[str, Any] = {"speaker": "", "mic": "", "mic_url": "", "camera": "", CONF_AUTO_MIC: True,
-                            CONF_AUTO_VIDEO: True, CONF_AUTO_VIDEO_DELAY: 0, CONF_CALL_VOLUME: 0, CONF_ECHO_GUARD: "auto",
+                            CONF_AUTO_VIDEO: False, CONF_AUTO_VIDEO_DELAY: 0, CONF_CALL_VOLUME: 0, CONF_ECHO_GUARD: "auto",
                             CONF_HA_URL: "", RULES_KEY: empty_rules(),
                             CONF_AI_FORMAT: "markdown", CONF_AI_EMPHASIS: "off",
                             CONF_TEXT_AUTO_EMOJI: False, CONF_TEXT_AI_AGENT: "", CONF_TEXT_AI_INLINE: True, CONF_TEXT_AI_SMART: False,

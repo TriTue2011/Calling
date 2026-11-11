@@ -20,7 +20,7 @@ sys.path.insert(0, HERE)
 
 import ha_option_notes  # noqa: E402
 
-CORE_CALL = ["make_call", "alert_call", "answer_call", "reject_call", "end_call", "say_in_call", "take_over_call", "upgrade_to_video", "start_call_video",
+CORE_CALL = ["make_call", "alert_call", "answer_call", "reject_call", "end_call", "say_in_call", "take_over_call", "accept_video", "upgrade_to_video", "start_call_video",
              "stop_call_video", "start_call_mic", "stop_call_mic", "set_default_devices", "get_default_devices"]
 CORE_RULE = ["set_rule", "remove_rule", "list_rules", "list_contacts"]
 GROUP_TITLES = {

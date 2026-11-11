@@ -48,6 +48,10 @@ GENERIC = {
     ("echo_guard", ("auto", "on", "duplex", "off")): {
         "auto": "chỉ chặn mic khi mic và loa là cùng một thiết bị (ví dụ loa R1)", "on": "luôn chặn mic khi loa đang phát tiếng bên kia",
         "duplex": "song công: nói chen được (loa R1 dùng bộ khử vọng riêng)", "off": "tắt chống vọng"},
+    ("video_request", ("ask", "accept", "accept_camera")): {
+        "ask": "không tự đồng ý: chỉ báo cho automation (trạng thái video_request), bạn hoặc blueprint quyết định (mặc định)",
+        "accept": "tự đồng ý chuyển sang video nhưng KHÔNG gửi hình trong nhà (người gọi thấy bạn, không thấy nhà)",
+        "accept_camera": "tự đồng ý và gửi camera đã chọn trong quy tắc"},
     ("scope", ("thread", "groups", "contacts", "strangers")): {
         "thread": "một người hoặc một nhóm cụ thể (điền thêm Mã Zalo); được ưu tiên cao nhất và thay hẳn quy tắc chung",
         "groups": "mọi nhóm", "contacts": "mọi người trong danh bạ (bạn bè)", "strangers": "mọi người lạ (không có trong danh bạ)"},

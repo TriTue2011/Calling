@@ -4,11 +4,11 @@
 
 Mọi dịch vụ gọi bằng `action: zalo_call.<tên>` (Công cụ nhà phát triển → Hành động, hoặc trong automation). Ô `entry_id` có ở mọi dịch vụ (chọn tài khoản Zalo) và **chỉ cần khi bạn có nhiều tài khoản**, nên các ví dụ bỏ qua. Dịch vụ đánh dấu ⚠️ xoá hoặc đổi dữ liệu thật.
 
-Có **363 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi, AI, cảnh báo và quy tắc: xem [README](../README.md).  
+Có **364 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi, AI, cảnh báo và quy tắc: xem [README](../README.md).  
 
 ## Mục lục
 
-- **Cuộc gọi, AI và cảnh báo** (14): [`make_call`](#make_call), [`alert_call`](#alert_call), [`answer_call`](#answer_call), [`reject_call`](#reject_call), [`end_call`](#end_call), [`say_in_call`](#say_in_call), [`take_over_call`](#take_over_call), [`upgrade_to_video`](#upgrade_to_video), [`start_call_video`](#start_call_video), [`stop_call_video`](#stop_call_video), [`start_call_mic`](#start_call_mic), [`stop_call_mic`](#stop_call_mic), [`set_default_devices`](#set_default_devices), [`get_default_devices`](#get_default_devices)
+- **Cuộc gọi, AI và cảnh báo** (15): [`make_call`](#make_call), [`alert_call`](#alert_call), [`answer_call`](#answer_call), [`reject_call`](#reject_call), [`end_call`](#end_call), [`say_in_call`](#say_in_call), [`take_over_call`](#take_over_call), [`accept_video`](#accept_video), [`upgrade_to_video`](#upgrade_to_video), [`start_call_video`](#start_call_video), [`stop_call_video`](#stop_call_video), [`start_call_mic`](#start_call_mic), [`stop_call_mic`](#stop_call_mic), [`set_default_devices`](#set_default_devices), [`get_default_devices`](#get_default_devices)
 - **Quy tắc cho cuộc gọi đến và tin nhắn** (4): [`set_rule`](#set_rule), [`remove_rule`](#remove_rule), [`list_rules`](#list_rules), [`list_contacts`](#list_contacts)
 - **Tin nhắn** (20): [`send_message`](#send_message), [`send_file`](#send_file), [`send_image`](#send_image), [`send_image_to_user`](#send_image_to_user), [`send_images_to_user`](#send_images_to_user), [`send_image_to_group`](#send_image_to_group), [`send_images_to_group`](#send_images_to_group), [`undo_message`](#undo_message), [`send_voice`](#send_voice), [`get_group_chat_history`](#get_group_chat_history), [`add_reaction`](#add_reaction), [`delete_message`](#delete_message), [`forward_message`](#forward_message), [`parse_link`](#parse_link), [`send_card`](#send_card), [`send_link`](#send_link), [`send_video`](#send_video), [`quote_message`](#quote_message), [`mark_seen`](#mark_seen), [`fetch_important`](#fetch_important)
 - **Tài khoản và webhook** (10): [`get_logged_accounts`](#get_logged_accounts), [`get_account_details`](#get_account_details), [`get_account_webhooks`](#get_account_webhooks), [`get_account_webhook`](#get_account_webhook), [`set_account_webhook`](#set_account_webhook), [`delete_account_webhook`](#delete_account_webhook), [`get_proxies`](#get_proxies), [`add_proxy`](#add_proxy), [`remove_proxy`](#remove_proxy), [`get_login_qr`](#get_login_qr)
@@ -330,6 +330,27 @@ data:
 
 ---
 
+<a id="accept_video"></a>
+#### Đồng ý chuyển sang video — `zalo_call.accept_video`
+
+Người đang gọi thoại xin chuyển sang video, bạn đồng ý. Chọn Camera để gửi hình trong nhà; không chọn thì chỉ đồng ý (người gọi thấy mình, nhưng không thấy hình trong nhà). Chỉ dùng được khi cuộc gọi đang nói.
+
+**Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
+
+```yaml
+action: zalo_call.accept_video
+data:
+  call_id: "..."          # tuỳ chọn - Mã cuộc gọi
+  camera: "camera.vi_du"  # tuỳ chọn - Camera
+```
+
+| Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
+|---|---|---|---|
+| `call_id` | Mã cuộc gọi | không | Bỏ trống = cuộc gọi đang nói hiện tại. |
+| `camera` | Camera | không | Camera gửi hình. |
+
+---
+
 <a id="upgrade_to_video"></a>
 #### Chuyển cuộc gọi thoại sang video — `zalo_call.upgrade_to_video`
 
@@ -523,6 +544,7 @@ data:
   announce_to: "media_player.vi_du"  # tuỳ chọn - Loa dùng để báo
   announce_text: "..."               # tuỳ chọn - Câu báo ra loa
   connect_now: ["mic", "speaker"]    # tuỳ chọn - Thiết bị nhà dùng NGAY khi người nhận nghe máy
+  video_request: "ask"               # tuỳ chọn - Khi người gọi xin chuyển sang video
   connect: ["mic", "speaker"]        # tuỳ chọn - Thiết bị nhà dùng khi người nhà nói trực tiếp
   speaker: "media_player.vi_du"      # tuỳ chọn - Loa trong nhà
   mic: "camera.vi_du"                # tuỳ chọn - Mic trong nhà
@@ -552,6 +574,7 @@ data:
 | `announce_to` | Loa dùng để báo | không | Loa đọc thông báo cuộc gọi đến (bắt buộc khi bật báo ra loa). Giọng đọc lấy từ Trợ lý giọng nói của quy tắc. |
 | `announce_text` | Câu báo ra loa | không | Có thể dùng {ten} (tên người gọi) và {loai} (thoại hoặc video). Bỏ trống = «Có cuộc gọi {loai} từ {ten}.» |
 | `connect_now` | Thiết bị nhà dùng NGAY khi người nhận nghe máy | không | Tích ô nào thì thứ đó bật ngay khi người nhận nghe máy, không chờ người nhà nói trực tiếp (ví dụ tích Camera để người nhận thấy hình trong nhà ngay, còn Mic và Loa chỉ bật khi người nhà nói). Tích Camera = cuộc gọi VIDEO. Không tích gì = chưa bật gì (mặc định). Chỉ bật được thiết bị đã chọn ở các ô Loa, Mic, Camera. |
+| `video_request` | Khi người gọi xin chuyển sang video | không | Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng tư): chỉ báo cho automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn đồng ý nếu muốn tự động. |
 | `connect` | Thiết bị nhà dùng khi người nhà nói trực tiếp | không | Tích ô nào thì dùng thứ đó: tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = dùng cả 3. Không tích gì = không dùng thiết bị nào (mặc định, người lạ không nghe hay thấy được trong nhà). Tích Camera = cuộc gọi VIDEO. «AI tự chọn» = AI quyết dùng mic và loa hay thêm cả camera, chỉ trong các ô đã tích. Chỉ dùng được thiết bị đã chọn ở các ô Loa, Mic, Camera bên dưới. Thiết bị chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật. |
 | `speaker` | Loa trong nhà | không | Loa phát tiếng người gọi khi người nhà nói trực tiếp. |
 | `mic` | Mic trong nhà | không | Camera hoặc vệ tinh Assist có mic, gửi tiếng trong nhà cho người gọi khi người nhà nói trực tiếp. |
@@ -574,6 +597,10 @@ data:
   - `mic`: bật mic ngay khi người nhận nghe máy
   - `speaker`: bật loa ngay khi người nhận nghe máy
   - `camera`: bật camera ngay khi người nhận nghe máy (và là cuộc gọi VIDEO)
+- **Khi người gọi xin chuyển sang video** (`video_request`)
+  - `ask`: không tự đồng ý: chỉ báo cho automation (trạng thái video_request), bạn hoặc blueprint quyết định (mặc định)
+  - `accept`: tự đồng ý chuyển sang video nhưng KHÔNG gửi hình trong nhà (người gọi thấy bạn, không thấy nhà)
+  - `accept_camera`: tự đồng ý và gửi camera đã chọn trong quy tắc
 - **Thiết bị nhà dùng khi người nhà nói trực tiếp** (`connect`) - chọn được nhiều ô cùng lúc
   - `mic`: Mic: gửi tiếng trong nhà cho người gọi
   - `speaker`: Loa: phát tiếng người gọi ra loa trong nhà

@@ -183,6 +183,52 @@ def test_answer_with_off_overrides_never_starts_default_mic_speaker_or_camera_ev
         app_server._start_mic, app_server._start_video = real_mic, real_vid
 
 
+def test_video_request_is_reported_to_ha_never_auto_accepted_by_default_and_accept_video_target_works():
+    """Người gọi xin chuyển thoại sang video: app BÁO HA (status video_request) và KHÔNG tự đồng ý (mặc định tắt, riêng tư); HA đồng ý bằng
+    /api/call/media target accept_video (a2v status 2), kèm camera_url thì phát hình, không kèm thì chỉ đồng ý; cuộc chưa nghe máy thì báo lỗi."""
+    mock = _mock()
+    real_vid, real_a2v = app_server._start_video, app_server._send_a2v_async
+    a2v, started = [], []
+    app_server._send_a2v_async = lambda cid, tid, st: a2v.append((str(cid), int(st)))
+    app_server._start_video = lambda cid, src, params=None: started.append((str(cid), src))
+
+    def check(base, mock, endpoints):
+        state = app_server.STATE
+        assert state.devices.get()["auto_video_on_request"] is False                    # mặc định TẮT
+        sent = _capture_call_webhooks(state)
+        state._on_ctrl_call_event(_event(CALL_ID_IN, caller="20003"))
+        assert _wait_active(base, CALL_ID_IN, "incoming") is not None
+        _wait_steps(mock, CALL_ID_IN, ["ringring"])
+        # chưa nghe máy: không đồng ý được
+        assert _api(base, "POST", "/api/call/media", {"call_id": CALL_ID_IN, "action": "start", "target": "accept_video"})[1] == {"ok": False, "error": "chua_nghe_may"}
+        assert _api(base, "POST", "/api/call/answer", {"call_id": CALL_ID_IN, "mic_url": "off", "speaker_url": "off", "camera_url": "off"})[1]["ok"] is True
+        state._on_video_request({"call_id": CALL_ID_IN, "act": "audio_to_video", "data": {"params": {"status": 1}}})
+        deadline = time.time() + 5
+        while time.time() < deadline and not [p for p in sent if p.get("status") == "video_request"]:
+            time.sleep(0.05)
+        vr = [p for p in sent if p.get("status") == "video_request"]
+        assert vr and vr[0]["call_id"] == str(CALL_ID_IN) and vr[0]["thread_id"] == "20003" and "contact_status" in vr[0], sent
+        time.sleep(0.4)
+        assert a2v == [] and started == [], (a2v, started)                                # không tự đồng ý
+        # status 2 (bên kia đồng ý lời xin của ta) không phải lời xin: không báo
+        n = len(vr)
+        state._on_video_request({"call_id": CALL_ID_IN, "act": "audio_to_video", "data": {"params": {"status": 2}}})
+        time.sleep(0.3)
+        assert len([p for p in sent if p.get("status") == "video_request"]) == n
+        # HA đồng ý: chỉ đồng ý, không gửi hình
+        r = _api(base, "POST", "/api/call/media", {"call_id": CALL_ID_IN, "action": "start", "target": "accept_video"})[1]
+        assert r["ok"] is True and a2v == [(str(CALL_ID_IN), 2)] and started == [], (r, a2v, started)
+        # đồng ý và gửi camera
+        r = _api(base, "POST", "/api/call/media", {"call_id": CALL_ID_IN, "action": "start", "target": "accept_video", "camera_url": "test"})[1]
+        assert r["ok"] is True and a2v[-1] == (str(CALL_ID_IN), 2) and started == [(str(CALL_ID_IN), "test")], (r, a2v, started)
+        _api(base, "POST", "/api/call/end", {"call_id": CALL_ID_IN})
+
+    try:
+        _run(mock, check)
+    finally:
+        app_server._start_video, app_server._send_a2v_async = real_vid, real_a2v
+
+
 def test_two_incoming_before_answering_newer_supersedes():
     mock = _mock()
 

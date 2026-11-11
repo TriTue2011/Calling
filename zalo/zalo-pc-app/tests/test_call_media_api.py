@@ -131,7 +131,8 @@ def test_endpoints():
         st, b = api("POST", "/api/call/upgrade_video", {})
         assert b["ok"] and b["video"] is not None, b
         assert ("a2v", 77, "20001", 1) in sent and ("cam", 77, "20001", True) in sent, sent
-        # Dien thoai xin len video (status 1): dong y status 2 va phat camera mac dinh.
+        # Dien thoai xin len video (status 1): dong y status 2 va phat camera mac dinh. Mac dinh TAT (rieng tu): bat tuong minh o day.
+        api("POST", "/api/settings/devices", {"auto_video_on_request": True})
         sv._stop_video(77)
         sent.clear()
         state._on_video_request({
@@ -140,7 +141,7 @@ def test_endpoints():
         # Co do tre: chua lam gi truoc han, den han thi dong y + phat; cuoc goi het truoc han thi bo qua.
         sv._stop_video(77)
         sent.clear()
-        api("POST", "/api/settings/devices", {"auto_video_delay": 1})
+        api("POST", "/api/settings/devices", {"auto_video_delay": 1})  # mặc định TẮT (riêng tư): bật tường minh để thử đường tự đồng ý
         state._on_video_request({"call_id": 77, "act": "audio_to_video",
                                  "data": {"params": {"status": 1}}})
         assert sent == [] and "77" not in sv.VIDEO_SENDERS                  # chua toi han

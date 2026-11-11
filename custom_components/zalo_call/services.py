@@ -22,8 +22,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .call_voice import DEFAULT_GREETING, HELD_DEVICES, Plan, explicit_devices, async_say, async_take_over, devices_for_mode, plan_from_service
-from .rules import CALL_TYPES, CONNECT, CONNECT_PARTS, ECHO as RULE_ECHO, parse_connect, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
+from .call_voice import DEFAULT_GREETING, HELD_DEVICES, Plan, async_accept_video, explicit_devices, async_say, async_take_over, devices_for_mode, plan_from_service
+from .rules import CALL_TYPES, CONNECT, CONNECT_PARTS, VIDEO_REQUEST, ECHO as RULE_ECHO, parse_connect, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
 
@@ -317,7 +317,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return next((p.name for p in pipeline_mod.async_get_pipelines(hass) if p.id == pid), pid)
 
     _RULE_FIELDS = ("name", "answer", "answer_delay", "call_types", "ai", "pipeline", "agent", "greeting", "handover_rule", "trusted",
-                    "reply_ai", "voice_text", "announce", "announce_to", "announce_text", "connect", "connect_now", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
+                    "reply_ai", "voice_text", "announce", "announce_to", "announce_text", "connect", "connect_now", "video_request", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
 
     def _rules_copy(rt) -> dict:
         r = get_rules(rt.defaults)
@@ -394,6 +394,21 @@ async def async_register_services(hass: HomeAssistant) -> None:
             return await async_take_over(rt, call.data.get("call_id"))
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
+
+    async def accept_video(call: ServiceCall) -> dict:
+        """Đồng ý lời xin chuyển cuộc thoại sang video của người gọi (camera trống = chỉ đồng ý, không gửi hình trong nhà)."""
+        rt, api = _api(hass, call)
+        call_id = call.data.get("call_id")
+        try:
+            if call_id in (None, ""):
+                active = (await api.calls() or {}).get("active")
+                if not active or active.get("status") != "answered":
+                    raise ZaloCallError("Không có cuộc gọi nào đang nói")
+                call_id = active["call_id"]
+            await async_accept_video(rt, call_id, call.data.get("camera") or "")
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"call_id": str(call_id), "accepted": True, "camera": bool(call.data.get("camera"))}
 
     async def say_in_call(call: ServiceCall) -> dict:
         """Đọc (TTS) một câu lên cuộc gọi đang nói."""
@@ -654,6 +669,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
                    vol.Optional("announce_text"): cv.string,
                    vol.Optional("connect"): vol.All(cv.ensure_list, [vol.In(list(CONNECT))]),
                    vol.Optional("connect_now"): vol.All(cv.ensure_list, [vol.In(list(CONNECT))]),
+                   vol.Optional("video_request"): vol.In(list(VIDEO_REQUEST)),
                    vol.Optional("speaker"): cv.string,
                    vol.Optional("mic"): cv.string,
                    vol.Optional("mic_url"): cv.string,
@@ -668,6 +684,10 @@ async def async_register_services(hass: HomeAssistant) -> None:
     for _name, _fn in (("list_rules", list_rules), ("list_contacts", list_contacts), ("get_default_devices", get_default_devices)):
         hass.services.async_register(DOMAIN, _name, _fn, schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
                                      supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(
+        DOMAIN, "accept_video", accept_video,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("call_id"): vol.Any(int, cv.string), vol.Optional("camera"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, "take_over_call", take_over_call,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("call_id"): vol.Any(int, cv.string)}),

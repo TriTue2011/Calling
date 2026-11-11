@@ -566,6 +566,33 @@ async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> N
         rt.voice.tasks.pop(call_id, None)
 
 
+async def async_accept_video(rt: Any, call_id: Any, camera: str = "") -> bool:
+    """Đồng ý lời xin chuyển cuộc thoại sang video của người gọi. camera (thực thể) trống = chỉ đồng ý, KHÔNG gửi hình trong nhà."""
+    body: dict[str, Any] = {"call_id": call_id, "action": "start", "target": "accept_video"}
+    if camera:
+        fields = await rt.bridge.async_call_fields({"camera": camera})
+        if fields.get("camera_url") and fields["camera_url"] != "off":
+            body["camera_url"] = fields["camera_url"]
+    res = await rt.api.media_control(body)
+    if res and res.get("ok") is False:
+        raise ZaloCallError("App không đồng ý được lời xin video: %s" % res.get("error", "lỗi"))
+    return True
+
+
+async def async_handle_video_request(hass: HomeAssistant, rt: Any, payload: dict[str, Any]) -> bool:
+    """Người gọi xin chuyển sang video: làm theo `video_request` của quy tắc (ask = chỉ báo sự kiện, accept, accept_camera). Không có quy tắc = KHÔNG
+    làm gì (người gọi chỉ thấy không ai đồng ý). Lỗi không được làm hỏng webhook."""
+    rule = resolve_rule(get_rules(rt.defaults), payload.get("thread_id"), "user", payload.get("contact_status"))
+    mode = (rule or {}).get("video_request") or "ask"
+    if not rule or mode == "ask":
+        return False
+    try:
+        return await async_accept_video(rt, payload.get("call_id"), rule.get("camera") or "" if mode == "accept_camera" else "")
+    except ZaloCallError as err:
+        _LOGGER.warning("Đồng ý chuyển sang video lỗi: %s", err)
+        return False
+
+
 async def async_take_over(rt: Any, call_id: str | None = None) -> dict[str, Any]:
     """Người thật tiếp quản cuộc gọi đang do AI/thông báo giữ: dừng kế hoạch giọng nói, trả mic về nguồn mặc định (loa/mic nhà
     đã nối từ lúc nghe máy). call_id trống = cuộc gọi đang nói. Không có AI đang chạy thì cuộc gọi vốn đã trực tiếp."""
@@ -668,6 +695,8 @@ def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, termin
             voice.announced.add(cid)
             hass.async_create_task(async_announce_incoming(hass, rt, payload or {"call_id": cid}))
         schedule_answer(hass, rt, payload or {"call_id": cid})
+    elif state == "video_request":
+        hass.async_create_task(async_handle_video_request(hass, rt, payload or {"call_id": cid}))
     elif state == "answered":
         plan = voice.plans.pop(cid, None)
         if plan is not None and cid not in voice.tasks:

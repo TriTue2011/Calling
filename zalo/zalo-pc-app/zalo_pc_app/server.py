@@ -2355,6 +2355,16 @@ class AppState:
         except (TypeError, ValueError):
             status = 1
         _log_call("video request call_id=%s status=%s" % (call_id, status))
+        if status == 1:
+            # Báo cho HA (zalo_call_call_state state=video_request) để quy tắc/blueprint quyết định đồng ý hay không.
+            try:
+                entry = next((c for c in STATE.calls.snapshot()["calls"] if str(c["call_id"]) == str(call_id)), None)
+                if entry is not None:
+                    webhooks_mod.dispatch_call_event(STATE.webhook_dispatcher, entry, (STATE.session or {}).get("uid", ""),
+                                                     extra={"status": "video_request",
+                                                            "contact_status": self.contact_status("user", entry["thread_id"])})
+            except Exception:  # noqa: BLE001 - báo HA là best-effort
+                pass
         cfg = _devices_for_call(call_id)
         if status != 1 or not cfg["auto_video_on_request"]:
             return
@@ -3428,6 +3438,19 @@ class Handler(BaseHTTPRequestHandler):
             _remember_call_devices(call_id, body)
             # "off" = nhóm này không cài: đã ghi vào thiết bị riêng của cuộc gọi (rỗng), nay bỏ khỏi body để không bị coi là URL.
             body = {k: v for k, v in body.items() if not (k in ("mic_url", "speaker_url", "camera_url") and str(v).strip().lower() == "off")}
+        if target == "accept_video":
+            # Đồng ý lời xin chuyển sang video của người gọi (HA quyết định); camera_url trống = chỉ đồng ý, không gửi hình trong nhà.
+            entry = next((c for c in snap["calls"] if str(c["call_id"]) == str(call_id)), None)
+            if entry is None or entry["status"] != "answered":
+                return self._send_json({"ok": False, "error": "chua_nghe_may"})
+            _send_a2v_async(call_id, _thread_of_call(call_id), 2)
+            src = str(body.get("camera_url") or "")
+            if src:
+                try:
+                    _start_video(call_id, src)
+                except (ValueError, RuntimeError) as exc:
+                    return self._send_json({"ok": False, "error": str(exc)[:120]})
+            return self._send_json({"ok": True, "call_id": call_id, "video": vstat(), "mic": mstat(), "speaker": sstat()})
         cfg = _devices_for_call(call_id)
         try:
             if target == "upgrade":

@@ -20,7 +20,7 @@ DEFAULTS = {
     "echo_guard": False,        # tam ngung gui mic khi loa dang phat tieng that (mic va loa cung thiet bi)
     "video": {"width": 640, "height": 360, "fps": 15, "bitrate_kbps": 300},
     "auto_mic": True,           # tu phat mic khi cuoc goi duoc nghe may
-    "auto_video_on_request": True,   # dien thoai xin len video: dong y + phat camera
+    "auto_video_on_request": False,  # dien thoai xin len video: tu dong y + phat camera. MAC DINH TAT (rieng tu): HA quyet dinh theo quy tac `video_request`
     "auto_video_delay": 0,           # giay cho truoc khi tu dong y (0 = ngay)
 }
 MAX_AUTO_VIDEO_DELAY = 120

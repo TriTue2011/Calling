@@ -31,7 +31,8 @@ END_REASON_STATE = {
     "server_rejected": "error",
 }
 _STATUS_STATE = {"incoming": "incoming", "sent": "ringing",
-                 "answered": "answered", "error": "error"}
+                 "answered": "answered", "error": "error",
+                 "video_request": "video_request"}          # người gọi xin chuyển cuộc thoại sang video (HA quyết định)
 
 
 def derive_state(payload: Mapping[str, Any]) -> str | None:
