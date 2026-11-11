@@ -933,6 +933,9 @@ def _log_media_stats(kind, call_id, obj):
         pass
 
 
+_INCOMING_OFFER = {}             # call_id -> extendData bên gọi khai (dict)
+
+
 def _key_fp(key):
     """Dấu vân tay ngắn của khoá SRTP (6 hex đầu SHA-1) để so khoá giữa hai nguồn trong nhật ký mà không lộ khoá."""
     if not key:
@@ -1119,12 +1122,22 @@ def _answer_incoming(sess, body, source="api"):
         # tu 11300 neu co, neu khong thi khoa ben goi gui kem trong
         # su kien cuoc goi den, neu khong thi RTP tran.
         hooks = {}
+        _offer = _INCOMING_OFFER.pop(str(call_id), None) or {}
+        # Chế độ SRTP theo lời mời của CHÍNH điện thoại gọi (srtpMode 0 = RTP trần; khác 0 = SRTP khoá từ phiên); ZALO_PC_INCOMING_SRTP
+        # ép: event (khoá phiên trong tin) | alloc (khoá phiên bot cấp) | off (RTP trần), chỉ để thử.
+        _force = os.environ.get("ZALO_PC_INCOMING_SRTP", "").strip().lower()
+        _plain = _force == "off" or (not _force and _offer.get("srtpMode") == 0)
         _in_key = _alloc.get("srtp_key")
         _in_src = "alloc.srtp_key" if _in_key is not None else ""
         if _in_key is None:
             _in_key = _INCOMING_SRTP.pop(str(call_id), None)
             _in_src = "event" if _in_key is not None else ""
-        if _in_key is None:
+        if _force == "alloc":
+            from . import srtp_pure as _sp3
+            _in_key, _in_src = _sp3.key_from_session(_alloc.get("session")), "alloc.session(ep)"
+        if _plain:
+            _in_key, _in_src = None, "plain"
+        elif _in_key is None:
             from . import srtp_pure as _srtp_pure
             _in_key = _srtp_pure.key_from_session(
                 _alloc.get("session"))
@@ -1168,13 +1181,26 @@ def _answer_incoming(sess, body, source="api"):
                 _log_call("answer relay call_id=%s source=%s "
                           "failed: %s -> thu nguon ke"
                           % (call_id, _vname, str(_exc)[:120]))
-        _log_call("answer offer call_id=%s rtp=%s rtcp=%s extend=%s"
-                  % (call_id, endpoints["rtp_address"], endpoints["rtcp_address"], str(endpoints["extend_data"])[:1500]))
+        # extendData trả lời: nền «native» + THEO lời mời của chính điện thoại này (máy khác nhau khai khác nhau): srtpMode khớp chế độ thật
+        # sự dùng (RTP trần nếu bên gọi xin 0), và các cờ thương lượng bên gọi khai mà ta không có thì lặp lại (negoVidQual).
+        _ext_final = endpoints["extend_data"]
+        try:
+            _ext = json.loads(_ext_final) if isinstance(_ext_final, str) else dict(_ext_final)
+            if _plain:
+                _ext["srtpMode"] = 0
+            for _k in ("negoVidQual",):
+                if _k in _offer and _k not in _ext:
+                    _ext[_k] = _offer[_k]
+            _ext_final = json.dumps(_ext, separators=(",", ":"), ensure_ascii=False)
+        except (ValueError, TypeError):
+            pass
+        _log_call("answer offer call_id=%s rtp=%s rtcp=%s plain=%s extend=%s"
+                  % (call_id, endpoints["rtp_address"], endpoints["rtcp_address"], _plain, str(_ext_final)[:1500]))
         sig.answer(caller_id, call_id, 0, endpoints["codec"],
                    endpoints["rtcp_address"],
                    endpoints["rtp_address"],
                    endpoints["session"],
-                   endpoints["extend_data"])
+                   _ext_final)
         # Gan engine media de cau noi am thanh (loa/mic) hoat dong.
         engine_seam.SEAM.attach_pc_media(
             media_endpoints.ENDPOINTS.active_record(call_id))
@@ -2479,6 +2505,16 @@ class AppState:
             "incoming_session_present": bool(event.get("session")),
             "incoming_rtp_present": bool(event.get("rtp_address")),
             "incoming_ringring_sent": False})
+        try:                               # lưu extendData bên gọi khai để nghe máy trả lời theo đúng máy đó (mỗi điện thoại có thể khác nhau)
+            _off = (((event.get("data") or {}).get("params") or {}).get("extendData"))
+            if isinstance(_off, str):
+                _off = json.loads(_off)
+            if isinstance(_off, dict):
+                if len(_INCOMING_OFFER) > 50:
+                    _INCOMING_OFFER.clear()
+                _INCOMING_OFFER[str(call_id)] = _off
+        except Exception:  # noqa: BLE001 - chẩn đoán/thích ứng là best-effort
+            pass
         try:                               # điện thoại (bên gọi) khai gì: cắt ngắn chuỗi dài, che khoá/phiên/token (chỉ để chẩn đoán)
             def _shrink(o, name=""):
                 if isinstance(o, dict):
