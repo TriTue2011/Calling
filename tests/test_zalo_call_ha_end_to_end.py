@@ -193,7 +193,7 @@ async def test_ai_reply_is_formatted_as_markdown_by_default_and_follows_the_new_
         "mặc định: markdown (hết dấu ** thô), không tự đổi màu/emoji"
     # bật qua đúng các thực thể trên thiết bị (như người dùng bấm trong giao diện)
     sel = uid(hass, setup, "select", "ai_emphasis")
-    sw = uid(hass, setup, "switch", "ai_emoji")
+    sw = uid(hass, setup, "switch", "text_auto_emoji")
     fmt = uid(hass, setup, "select", "ai_format")
     assert sel and sw and fmt, "thiếu thực thể điều khiển AI: %s %s %s" % (sel, sw, fmt)
     await hass.services.async_call("select", "select_option", {"entity_id": sel, "option": "orange"}, blocking=True)
@@ -312,3 +312,27 @@ async def test_picker_lists_for_the_text_style_fields_in_the_service_description
     for k in ("bold", "italic", "underline", "heading"):
         assert f[k]["selector"]["select"]["options"] == ["off", "on", "auto"], k
     assert f["auto_color"]["selector"]["select"]["options"] == ["red", "orange", "yellow", "green"]
+
+
+async def test_auto_emoji_switch_on_the_device_is_the_default_and_the_field_overrides_it(hass, setup, app):
+    sw = uid(hass, setup, "switch", "text_auto_emoji")
+    assert sw, "thiếu công tắc tự thêm emoji trên thiết bị"
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "Cảnh báo"})
+    assert "auto_emoji" not in app.last("/send")["json"], "công tắc tắt (mặc định): không gửi auto_emoji"
+    await hass.services.async_call("switch", "turn_on", {"entity_id": sw}, blocking=True)
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "Cảnh báo"})
+    assert app.last("/send")["json"]["auto_emoji"] is True, "công tắc bật: mọi tin tự thêm emoji"
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "Cảnh báo", "auto_emoji": False})
+    assert "auto_emoji" not in app.last("/send")["json"], "trường auto_emoji=false ghi đè công tắc bật"
+    await hass.services.async_call("switch", "turn_off", {"entity_id": sw}, blocking=True)
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "Cảnh báo", "auto_emoji": True})
+    assert app.last("/send")["json"]["auto_emoji"] is True, "trường auto_emoji=true ghi đè công tắc tắt"
+
+
+async def test_ai_reply_follows_the_auto_emoji_switch(hass, setup, app, fake_agent):
+    from custom_components.zalo_call.ai import async_ai_reply
+    from custom_components.zalo_call import ai as ai_mod
+    ai_mod.MIN_INTERVAL = 0
+    await hass.data[DOMAIN][setup.entry_id].defaults.async_set(ai_enabled=True, text_auto_emoji=True)
+    await async_ai_reply(hass, setup, {"content": "hi", "thread_id": THREAD, "thread_type": "user", "is_self": False})
+    assert app.last("/send")["json"]["auto_emoji"] is True

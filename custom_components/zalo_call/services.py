@@ -22,7 +22,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .const import DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
+from .const import CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 
 MAX_FILE = 100 * 1024 * 1024
 _ANY = cv.match_all
@@ -172,6 +172,12 @@ def _with_text_style(rt, d: dict) -> dict:
             raise ServiceValidationError("%s phải là một trong: %s" % (field, ", ".join(options)))
     if any(style[n] != "off" for n in ("size", "color", "bold", "italic", "underline", "heading")):
         out["style"] = style
+    # auto_emoji: trường của lời gọi (true/false) ghi đè công tắc «Chữ: tự thêm emoji» trên thiết bị; bỏ trống = theo công tắc.
+    flag = d.get("auto_emoji")
+    flag = bool(rt.defaults.get(CONF_TEXT_AUTO_EMOJI)) if flag in (None, "") else (str(flag).strip().lower() not in ("false", "0", "off", "no"))
+    out.pop("auto_emoji", None)
+    if flag:
+        out["auto_emoji"] = True
     return out
 
 

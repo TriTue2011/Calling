@@ -35,7 +35,7 @@ CHAT_FIELDS = {
         ("emoji", "Emoji chèn vào đầu tin: chọn trong bảng hoặc gõ emoji bất kỳ (🎉). Mã :ten: trong chữ (ví dụ :ok:) "
                   "cũng được đổi thành emoji", False),
         ("auto_emoji", "Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ, cửa, đèn…). "
-                       "Bật = true; để trống = tắt", False),
+                       "true = bật, false = tắt cho tin này; bỏ trống = theo công tắc «Chữ: tự thêm emoji» trên thiết bị", False),
         ("font_size", "Cỡ chữ cho tin này (ghi đè mặc định trên thiết bị): off, small, big hoặc auto (tiêu đề to, dòng trong ngoặc nhỏ). Bỏ trống = theo mặc định", False),
         ("text_color", "Màu chữ cho tin này: off, auto (con số), red, orange, yellow, green. Bỏ trống = theo mặc định", False),
         ("bold", "In đậm: off, on, auto (con số). Bỏ trống = theo mặc định", False),

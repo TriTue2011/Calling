@@ -31,7 +31,7 @@
    },
    {
     "key": "auto_emoji",
-    "label": "Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ, cửa, đèn…). Bật = true; để trống = tắt",
+    "label": "Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ, cửa, đèn…). true = bật, false = tắt cho tin này; bỏ trống = theo công tắc «Chữ: tự thêm emoji» trên thiết bị",
     "required": false
    },
    {

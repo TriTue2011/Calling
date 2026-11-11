@@ -144,10 +144,12 @@ send_message:
           custom_value: true
           mode: dropdown
     auto_emoji:
-      name: Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ,
-        cửa, đèn…). Bật = true; để trống = tắt
-      description: Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt
-        độ, cửa, đèn…). Bật = true; để trống = tắt
+      name: 'Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt độ,
+        cửa, đèn…). true = bật, false = tắt cho tin này; bỏ trống = theo công tắc «Chữ: tự thêm emoji»
+        trên thiết bị'
+      description: 'Tự thêm emoji hợp ngữ cảnh vào đầu từng dòng chưa có emoji (cảnh báo, lỗi, xong, nhiệt
+        độ, cửa, đèn…). true = bật, false = tắt cho tin này; bỏ trống = theo công tắc «Chữ: tự thêm emoji»
+        trên thiết bị'
       required: false
       selector:
         boolean: null

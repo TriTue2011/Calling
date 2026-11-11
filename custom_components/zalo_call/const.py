@@ -13,7 +13,7 @@ CONF_AI_ENABLED = "ai_enabled"    # tu tra loi tin nhan 1-1 bang tro ly AI
 CONF_AI_AGENT = "ai_agent"        # agent hoi thoai (de trong = mac dinh)
 CONF_AI_FORMAT = "ai_format"        # định dạng chữ của trả lời AI: plain | markdown (AI hay trả **đậm**, danh sách…)
 CONF_AI_EMPHASIS = "ai_emphasis"    # tự nhấn mạnh số và chữ đậm bằng màu: off | red | orange | yellow | green
-CONF_AI_EMOJI = "ai_emoji"          # tự thêm emoji hợp ngữ cảnh vào đầu từng dòng trả lời
+CONF_TEXT_AUTO_EMOJI = "text_auto_emoji"   # công tắc: tự thêm emoji hợp ngữ cảnh vào đầu từng dòng của MỌI tin tích hợp gửi (send_message, AI); bật/tắt
 AI_FORMATS = ("plain", "markdown")
 # Kiểu chữ mặc định cho MỌI tin tích hợp gửi (send_message, trả lời AI); send_message ghi đè từng tin. Mỗi mục có chế độ «auto».
 CONF_TEXT_SIZE = "text_size"              # off | small | big | auto
