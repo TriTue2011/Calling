@@ -40,3 +40,12 @@ def test_other_messages_have_no_poll_id():
 def test_poll_card_model_and_one_card_per_poll_in_js():
     r = subprocess.run(["node", os.path.join(os.path.dirname(__file__), "test_poll_card.js")], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+if __name__ == "__main__":
+    # CI chạy mỗi file như một script: tự chạy các test rồi in dòng PASSED (không cần pytest).
+    for _name, _fn in list(globals().items()):
+        if _name.startswith("test_") and callable(_fn):
+            _fn()
+            print("PASS", _name)
+    print("ALL POLL CARD TESTS PASSED")
