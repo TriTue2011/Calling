@@ -1100,7 +1100,14 @@ def _answer_incoming(sess, body, source="api"):
             _d_ev = dict(data)
             _d_ev["servers"] = [_ev_relay[0], _ev_relay[1]]
             _d_ev["rtpIP"], _d_ev["rtcpIP"] = _ev_relay
-            _data_variants.insert(0, ("event", _d_ev))
+            # Mặc định "alloc" = như cuộc gọi đi: dùng relay do 11300 của CHÍNH MÌNH cấp (thăm dò chọn relay đáp lại), relay bên gọi ghi
+            # trong sự kiện chỉ là phương án dự phòng. Chọn relay của bên gọi (từ 11/11 09:25) làm điện thoại không nhận được tiếng của
+            # bot: relay trả lời bắt tay nhưng không chuyển tiếng hai chiều (đo bằng bắt gói 11/11 20:xx: 0 gói tiếng về, điện thoại tự
+            # cúp sau 15 giây). Đặt ZALO_PC_INCOMING_RELAY=event để thử lại cách cũ.
+            if os.environ.get("ZALO_PC_INCOMING_RELAY", "alloc").strip().lower() == "event":
+                _data_variants.insert(0, ("event", _d_ev))
+            else:
+                _data_variants.append(("event", _d_ev))
         # Hook ma hoa LUON duoc dung (xem cuoc goi di): khoa SRTP lay
         # tu 11300 neu co, neu khong thi khoa ben goi gui kem trong
         # su kien cuoc goi den, neu khong thi RTP tran.
