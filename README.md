@@ -198,7 +198,7 @@ Mọi cài đặt này đặt bằng **dịch vụ** (gọi từ Công cụ nhà
 - **Không có quy tắc = không làm gì.** Cuộc gọi đến chỉ đổ chuông; tin nhắn, tin thoại không đi đâu (không STT, không AI, không trả lời).
 - **Quy tắc theo ai:** `thread` (một threadID — người **hoặc nhóm**), `contacts` (mọi người trong danh bạ), `strangers` (người lạ), `groups` (mọi nhóm). Quy tắc theo threadID **thay hẳn** quy tắc nhóm (không trộn từng trường), nên `answer: false` ở một người chặn được quy tắc danh bạ dễ dãi.
 - **Không chắc người đó quen hay lạ** (app chưa tải được danh bạ): chỉ quy tắc theo threadID được áp; quy tắc `contacts`/`strangers` bị bỏ qua.
-- **Thiết bị nhà tắt mặc định:** cuộc gọi do quy tắc nghe máy **không** nối mic, loa, camera nhà (app nhận «off»), nên người lạ không nghe được phòng nhà. Chỉ nối khi đặt `home_devices: true` **và** chọn thiết bị trong quy tắc (`speaker`, `mic`, `camera`): nối **sau khi AI chuyển sang trực tiếp**, không nối lúc AI còn giữ máy; thiết bị không chọn thì không nối (không rơi về mặc định).
+- **Thiết bị nhà tắt mặc định:** trường `connect` quyết định (đặt ở quy tắc `set_rule` hoặc ghi đè ở từng lời gọi `make_call`/`alert_call`): `never` = không nối gì (mặc định, người lạ không nghe/thấy được nhà); `voice` = khi chuyển máy chỉ nối loa + mic đã chọn; `always` = nối luôn cả camera (cuộc thoại thì nâng lên video). Chỉ nối thứ **đã chọn** (`speaker`, `mic`, `camera`) và **chỉ khi chuyển máy**, không nối lúc AI còn giữ máy; ô trống thì không nối (không rơi về mặc định).
 - **`ai: true` / `reply_ai: true` bắt buộc chọn `pipeline` hoặc `agent`** (không tự dùng pipeline ưu tiên vì nó có quyền thiết bị nhà). Với người lạ nên chọn trợ lý **không có quyền thiết bị**.
 - Người gọi cúp trước khi hết thời gian chờ thì không nghe; webhook lặp chỉ nghe một lần.
 
@@ -220,7 +220,7 @@ Trường nào không nêu thì giữ như cũ (quy tắc mới: mặc định t
 | | `trusted` | người tin cậy (AI không bị dặn kiểu «chưa xác thực») |
 | Tin nhắn | `reply_ai` | AI trả lời tin chữ (nhóm thì trả lời vào nhóm) |
 | | `voice_text` | tin thoại 1-1 → Zalo STT → chữ (bắn sự kiện `zalo_call_voice_text`); `reply_ai` thì AI trả lời bằng tin thoại |
-| Thiết bị nhà | `home_devices` | nối thiết bị nhà cho cuộc gọi do quy tắc nghe máy (mặc định **tắt**) |
+| Thiết bị nhà | `connect` | `never` (mặc định) / `voice` (loa+mic) / `always` (cả camera) |
 | | `speaker`, `mic`, `camera` | chọn từ danh sách thiết bị (trống = mặc định của `set_default_devices`) |
 | | `mic_url`, `volume`, `echo_guard` | mic từ URL (gõ tay), âm lượng loa %, chống vọng |
 
@@ -238,20 +238,20 @@ action:
   # 2) Mọi người trong danh bạ: chỉ nghe thoại, nối loa/mic phòng khách để nói chuyện trực tiếp
   - action: zalo_call.set_rule
     data: {scope: contacts, answer: true, answer_delay: 10, call_types: [voice],
-           home_devices: true, speaker: media_player.r1_loa, mic: assist_satellite.r1}
+           connect: always, speaker: media_player.r1_loa, mic: assist_satellite.r1}
   # 3) Người lạ: không nghe máy; chỉ AI lễ tân trả lời tin nhắn
   - action: zalo_call.set_rule
     data: {scope: strangers, reply_ai: true, agent: conversation.le_tan}
 ```
 
 ### Chuyển sang trực tiếp
-Trong cuộc gọi do AI giữ, AI tự chuyển sang trực tiếp khi khẩn cấp / người gọi muốn gặp người nhà / AI không giúp được (kết thúc câu bằng dấu `[[CHUYEN_MAY]]` — không đọc ra — hoặc công cụ «chuyển sang trực tiếp»). Khi đó AI dừng, cuộc gọi **không bị cúp**, HA bắn `zalo_call_ai_handover` (`call_id`, `heard`, `reason`, `connected`); loa/mic/camera chỉ được nối nếu quy tắc có `home_devices: true` và đã chọn thiết bị (`connected: false` = không có gì để nối). Bạn cũng có thể chủ động tiếp quản bằng nút hoặc dịch vụ `take_over_call`.
+Trong cuộc gọi do AI giữ, AI tự chuyển sang trực tiếp khi khẩn cấp / người gọi muốn gặp người nhà / AI không giúp được (kết thúc câu bằng dấu `[[CHUYEN_MAY]]` — không đọc ra — hoặc công cụ «chuyển sang trực tiếp»). Khi đó AI dừng, cuộc gọi **không bị cúp**, HA bắn `zalo_call_ai_handover` (`call_id`, `heard`, `reason`, `connected`); loa/mic/camera chỉ được nối nếu `connect` là `voice`/`always` và đã chọn thiết bị (`connected: false` = không có gì để nối). Bạn cũng có thể chủ động tiếp quản bằng nút hoặc dịch vụ `take_over_call`.
 
 ### Thông báo bằng giọng khi gọi đi
 `make_call` có `message` (đọc bằng TTS khi người nhận nghe máy, rồi cúp), `ai: true` (AI nói chuyện tiếp; cần `pipeline`/`agent` hoặc quy tắc của threadID đó). Cuộc gọi `ai: true` giữ máy: loa/mic/camera nhà **tắt** cho tới khi chuyển trực tiếp; thiết bị nối lúc đó là thứ nêu trong lời gọi hoặc của quy tắc threadID, không có thì không nối gì.
 
 ### Gọi cảnh báo: dịch vụ `alert_call` (tách riêng)
-`alert_call` chỉ để báo một cảnh báo: AI đọc `message` bằng giọng của `pipeline`, rồi **nối thẳng** loa/mic/camera đã cài, không hỏi, không trò chuyện (HA bắn `zalo_call_ai_handover` với `reason: alert`). Thiết bị lấy từ `speaker`/`mic`/`camera` trong lời gọi, hoặc của quy tắc threadID (`home_devices` bật). Chưa cài thiết bị nào thì chỉ đọc rồi cúp. `type: video` thì nối cả camera. Muốn AI hỏi đáp thì dùng `make_call` với `ai: true`.
+`alert_call` chỉ để báo một cảnh báo: AI đọc `message` bằng giọng của `pipeline`, rồi **nối thẳng** loa/mic/camera đã cài, không hỏi, không trò chuyện (HA bắn `zalo_call_ai_handover` với `reason: alert`). Thiết bị lấy từ `speaker`/`mic`/`camera` trong lời gọi, hoặc của quy tắc threadID; `connect` ghi đè được ngay trong lời gọi. Chưa cài thiết bị nào thì chỉ đọc rồi cúp. `type: video` thì nối cả camera. Muốn AI hỏi đáp thì dùng `make_call` với `ai: true`.
 
 ```yaml
 service: zalo_call.alert_call

@@ -381,6 +381,15 @@ EXTRA_YAML = '''make_call:
       selector:
         entity:
           domain: camera
+    connect:
+      name: Nối thiết bị nhà khi chuyển máy
+      description: never = không nối gì. voice = chỉ loa + mic. always = nối cả camera (thoại thì nâng lên video). Bỏ trống = theo quy tắc của threadID (set_rule); không có quy tắc thì voice nếu lời gọi nêu thiết bị, không thì never.
+      selector:
+        select:
+          options:
+          - never
+          - voice
+          - always
     message:
       name: Thông báo bằng giọng nói
       description: Câu đọc (TTS của HA) ngay khi cuộc gọi được nghe máy. Bỏ trống = không đọc.
@@ -482,6 +491,15 @@ answer_call:
       selector:
         entity:
           domain: camera
+    connect:
+      name: Nối thiết bị nhà khi chuyển máy
+      description: never = không nối gì. voice = chỉ loa + mic. always = nối cả camera (thoại thì nâng lên video). Bỏ trống = theo quy tắc của threadID (set_rule); không có quy tắc thì voice nếu lời gọi nêu thiết bị, không thì never.
+      selector:
+        select:
+          options:
+          - never
+          - voice
+          - always
     message:
       name: Thông báo bằng giọng nói
       description: Câu đọc (TTS của HA) ngay khi cuộc gọi được nghe máy. Bỏ trống = không đọc.
@@ -853,11 +871,16 @@ set_rule:
       description: Tin thoại 1-1 được Zalo STT chuyển thành chữ và bắn sự kiện zalo_call_voice_text.
       selector:
         boolean:
-    home_devices:
+    connect:
       name: Nối thiết bị nhà
-      description: Mặc định TẮT - không nối thiết bị nhà nào (người lạ không nghe được phòng nhà). Bật thì nối loa/mic/camera ĐÃ CHỌN bên dưới, nhưng chỉ KHI CHUYỂN MÁY (AI giữ máy thì không nối gì) và chỉ thứ đã chọn - ô trống là KHÔNG nối, không rơi về mặc định.
+      description: never = không nối gì (mặc định, người lạ không nghe/thấy được nhà). voice = khi chuyển máy chỉ nối loa + mic đã chọn bên dưới. always = nối luôn cả camera (cuộc thoại thì nâng lên video). Chỉ nối thứ ĐÃ CHỌN, chỉ KHI CHUYỂN MÁY (AI giữ máy thì chưa nối); ô trống là không nối, không rơi về mặc định.
+      default: never
       selector:
-        boolean:
+        select:
+          options:
+          - never
+          - voice
+          - always
     speaker:
       name: Loa
       description: media_player phát tiếng người gọi (trống = mặc định của set_default_devices).
@@ -998,6 +1021,15 @@ alert_call:
       selector:
         entity:
           domain: camera
+    connect:
+      name: Nối thiết bị nhà khi chuyển máy
+      description: never = không nối gì. voice = chỉ loa + mic. always = nối cả camera (thoại thì nâng lên video). Bỏ trống = theo quy tắc của threadID (set_rule); không có quy tắc thì voice nếu lời gọi nêu thiết bị, không thì never.
+      selector:
+        select:
+          options:
+          - never
+          - voice
+          - always
     volume:
       name: Âm lượng loa trong cuộc gọi
       description: 1-100 % đặt khi nối loa, trả lại mức cũ khi cúp. Bỏ trống = của quy tắc.

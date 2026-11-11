@@ -22,8 +22,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .call_voice import HELD_DEVICES, Plan, async_say, async_take_over, plan_from_service, rule_devices
-from .rules import CALL_TYPES, ECHO as RULE_ECHO, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
+from .call_voice import HELD_DEVICES, Plan, async_say, async_take_over, devices_for_mode, plan_from_service
+from .rules import CALL_TYPES, CONNECT, ECHO as RULE_ECHO, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
 
@@ -275,16 +275,15 @@ async def async_register_services(hass: HomeAssistant) -> None:
 
     async def alert_call(call: ServiceCall) -> dict:
         """Cuộc gọi CẢNH BÁO (tách riêng khỏi make_call): đọc `message` bằng giọng pipeline rồi nối thẳng thiết bị nhà ĐÃ CÀI. Thiết bị lấy từ
-        trường speaker/mic/camera của lời gọi, không có thì từ quy tắc threadID (home_devices bật); không có nữa thì chỉ đọc rồi cúp."""
+        trường speaker/mic/camera của lời gọi, không có thì từ quy tắc threadID (theo `connect`); không có nữa thì chỉ đọc rồi cúp."""
         rt, api = _api(hass, call)
         data = call.data
         thread = str(data["thread_id"])
         rule = resolve_rule(get_rules(rt.defaults), thread, "user", None) or {}
         pipeline = _pipeline_id_of(data["pipeline"]) if data.get("pipeline") else (rule.get("pipeline") or "")
-        explicit = {k: data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if data.get(k) not in (None, "")}
         plan = Plan(message=str(data["message"]).strip(), repeat=int(data.get("repeat") or 1), alert=True, hangup=True,
                     engine=data.get("tts_engine") or None, language=data.get("language") or None, pipeline_id=pipeline or None,
-                    video=data.get("type") == "video", connect=explicit or rule_devices(rule))
+                    video=data.get("type") == "video", connect=_connect_for(data, rule))
         if not plan.message:
             raise ServiceValidationError("message (nội dung cảnh báo) không được trống")
         rt.bridge.remember(None, dict(HELD_DEVICES))                  # lúc nghe máy mọi thiết bị nhà TẮT; chỉ nối sau khi đọc cảnh báo
@@ -313,7 +312,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return next((p.name for p in pipeline_mod.async_get_pipelines(hass) if p.id == pid), pid)
 
     _RULE_FIELDS = ("name", "answer", "answer_delay", "call_types", "ai", "pipeline", "agent", "greeting", "handover_rule", "trusted",
-                    "reply_ai", "voice_text", "home_devices", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
+                    "reply_ai", "voice_text", "connect", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
 
     def _rules_copy(rt) -> dict:
         r = get_rules(rt.defaults)
@@ -428,10 +427,19 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return {"req_id": res.get("req_id"), "done": bool(res.get("done")),
                 "text": res.get("text", "")}
 
+    def _connect_for(data, rule) -> dict:
+        """Thiết bị nối khi chuyển máy/sau cảnh báo. Chế độ: `connect` của lời gọi > của quy tắc threadID > (có nêu thiết bị trong lời gọi: voice;
+        không: never). Thiết bị: nêu trong lời gọi, không thì của quy tắc; không có thì không nối gì."""
+        explicit = {k: data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if data.get(k) not in (None, "")}
+        rule = rule or {}
+        mode = data.get("connect") or rule.get("connect") or ("voice" if explicit else "never")
+        source = explicit or {k: rule[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if rule.get(k)}
+        return devices_for_mode(source, mode)
+
     def _build_plan(rt, data):
         """Kế hoạch giọng nói (message/ai/alert) của make_call/answer_call, KIỂM TRA TRƯỚC khi gọi/nghe. ai: true cần pipeline/agent nêu rõ hoặc theo
         quy tắc của threadID đó (không tự rơi về pipeline ưu tiên: nó có quyền thiết bị nhà). Thiết bị nhà (plan.connect) chỉ gồm thứ ĐÃ CÀI:
-        trường speaker/mic/camera nêu ngay trong lời gọi, hoặc của quy tắc threadID (home_devices bật); không có thì không nối gì."""
+        trường speaker/mic/camera nêu ngay trong lời gọi, hoặc của quy tắc threadID (theo `connect`); không có thì không nối gì."""
         plan = plan_from_service(data)
         if plan is None:
             return None
@@ -447,8 +455,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         if not (plan.pipeline_id or plan.agent_id):
             raise ServiceValidationError("ai: true cần chọn pipeline (Assist pipeline) hoặc agent (trợ lý), hoặc đặt quy tắc cho threadID này "
                                          "bằng set_rule — không tự dùng pipeline ưu tiên vì nó có quyền thiết bị nhà")
-        explicit = {k: data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if data.get(k) not in (None, "")}
-        plan.connect = explicit or rule_devices(rule or {})
+        plan.connect = _connect_for(data, rule)
         return plan
 
     def _register_voice_plan(rt, call_id, plan) -> None:
@@ -570,7 +577,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
                                vol.All(vol.Coerce(int), vol.Range(min=0, max=120)),
                            }))
 
-    devices = {vol.Optional("speaker"): cv.string,
+    devices = {vol.Optional("connect"): vol.In(list(CONNECT)),
+               vol.Optional("speaker"): cv.string,
                vol.Optional("mic"): cv.string,
                vol.Optional("mic_url"): cv.string,
                vol.Optional("camera"): cv.string,
@@ -601,7 +609,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
                    vol.Optional("trusted"): cv.boolean,
                    vol.Optional("reply_ai"): cv.boolean,
                    vol.Optional("voice_text"): cv.boolean,
-                   vol.Optional("home_devices"): cv.boolean,
+                   vol.Optional("connect"): vol.In(list(CONNECT)),
                    vol.Optional("speaker"): cv.string,
                    vol.Optional("mic"): cv.string,
                    vol.Optional("mic_url"): cv.string,

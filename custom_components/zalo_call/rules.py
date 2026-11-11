@@ -5,7 +5,8 @@
     ``strangers`` (người lạ). Quy tắc theo threadID THAY HẲN quy tắc nhóm (không trộn từng trường), nên ``answer: false`` ở một người
     chặn được quy tắc danh bạ dễ dãi hơn.
   * Không biết người đó quen hay lạ (app chưa tải được danh bạ): chỉ quy tắc theo threadID được áp, quy tắc contacts/strangers bị bỏ qua.
-  * Thiết bị nhà (mic/loa/camera) mặc định KHÔNG nối cho cuộc gọi do quy tắc nghe máy (``home_devices: false``).
+  * Thiết bị nhà (loa/mic/camera) do ``connect`` quyết định: ``never`` (mặc định) = không nối gì; ``voice`` = chỉ loa + mic (không camera);
+    ``always`` = nối luôn cả camera (cuộc thoại thì nâng lên video). Chỉ nối thứ ĐÃ CHỌN trong quy tắc, và chỉ KHI CHUYỂN MÁY.
   * ``ai: true`` bắt buộc có ``pipeline`` hoặc ``agent`` — không lặng lẽ rơi về pipeline ưu tiên (nó có quyền thiết bị nhà).
 """
 from __future__ import annotations
@@ -21,6 +22,7 @@ SCOPES = ("thread", "groups", "contacts", "strangers")
 CALL_TYPES = ("voice", "video")
 MAX_DELAY = 120
 ECHO = ("auto", "on", "duplex", "off")
+CONNECT = ("never", "voice", "always")
 RULES_KEY = "rules"
 
 # Trường quy tắc và kiểu. Thiếu trường = giá trị mặc định ở dưới (an toàn: tất cả TẮT).
@@ -28,10 +30,10 @@ DEFAULT_RULE: dict[str, Any] = {
     "name": "", "answer": False, "answer_delay": 3, "call_types": ["voice", "video"],
     "ai": False, "pipeline": "", "agent": "", "greeting": "", "handover_rule": "", "trusted": False,
     "reply_ai": False, "voice_text": False,
-    "home_devices": False, "speaker": "", "mic": "", "mic_url": "", "camera": "", "volume": 0, "echo_guard": "auto",
+    "connect": "never", "speaker": "", "mic": "", "mic_url": "", "camera": "", "volume": 0, "echo_guard": "auto",
 }
 _STR = ("name", "pipeline", "agent", "greeting", "handover_rule", "speaker", "mic", "mic_url", "camera")
-_BOOL = ("answer", "ai", "trusted", "reply_ai", "voice_text", "home_devices")
+_BOOL = ("answer", "ai", "trusted", "reply_ai", "voice_text")
 
 
 def empty_rules() -> dict[str, dict[str, Any]]:
@@ -73,6 +75,10 @@ def normalize(data: dict[str, Any], old: dict[str, Any] | None = None) -> dict[s
         if bad:
             raise RuleError("call_types chỉ gồm: %s" % ", ".join(CALL_TYPES))
         rule["call_types"] = types
+    if data.get("connect") is not None:
+        if data["connect"] not in CONNECT:
+            raise RuleError("connect chỉ gồm: %s" % ", ".join(CONNECT))
+        rule["connect"] = data["connect"]
     if data.get("echo_guard") is not None:
         if data["echo_guard"] not in ECHO:
             raise RuleError("echo_guard chỉ gồm: %s" % ", ".join(ECHO))

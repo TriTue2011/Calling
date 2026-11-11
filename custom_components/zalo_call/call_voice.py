@@ -180,14 +180,22 @@ HELD_DEVICES: dict[str, str] = {"speaker": "", "mic": "", "mic_url": "", "camera
 _DEVICE_KEYS = ("speaker", "mic", "mic_url", "camera")
 
 
-def rule_devices(rule: dict[str, Any]) -> dict[str, Any]:
-    """Thiết bị nhà do QUY TẮC cài: chỉ khi home_devices bật và chỉ trường ĐÃ chọn. Không rơi về mặc định (set_default_devices)."""
-    if not rule.get("home_devices"):
+def devices_for_mode(devices: dict[str, Any], mode: str) -> dict[str, Any]:
+    """Thiết bị sẽ nối theo chế độ `connect`: never = không gì; voice = loa + mic (bỏ camera); always = tất cả (kể cả camera)."""
+    if mode not in ("voice", "always"):
         return {}
+    out = {k: v for k, v in devices.items() if v not in (None, "")}
+    if mode == "voice":
+        out.pop("camera", None)
+    return out if any(k in out for k in _DEVICE_KEYS) else {}
+
+
+def rule_devices(rule: dict[str, Any]) -> dict[str, Any]:
+    """Thiết bị nhà do QUY TẮC cài, lọc theo `connect` của quy tắc (mặc định never). Chỉ trường ĐÃ chọn, không rơi về mặc định."""
     out: dict[str, Any] = {k: rule[k] for k in _DEVICE_KEYS if rule.get(k)}
     if out and rule.get("volume"):
         out["volume"] = rule["volume"]
-    return out
+    return devices_for_mode(out, rule.get("connect") or "never")
 
 
 def explicit_devices(connect: dict[str, Any]) -> dict[str, Any]:
@@ -200,13 +208,19 @@ async def async_connect_devices(rt: Any, call_id: str, connect: dict[str, Any], 
     if not connect:
         return False
     override = explicit_devices(connect)
+    camera = override.get("camera", "")
     if not video:
-        override["camera"] = ""                           # thoại: không có hình để gửi
+        override["camera"] = ""                           # cuộc thoại: camera chỉ vào qua «nâng lên video» bên dưới (connect: always)
     await rt.bridge.reconnect(call_id, override)           # loa kiểu media_player (play_media) + âm lượng
     fields = await rt.bridge.async_call_fields(override)    # mic_url/mic_format/camera_url/speaker_url/echo_guard; nhóm không cài = "off"
     res = await rt.api.media_control({"call_id": call_id, "action": "start", "target": "both", **fields})
     if res and res.get("ok") is False:
         raise ZaloCallError("App không nối được thiết bị nhà: %s" % res.get("error", "lỗi"))
+    if camera and not video:
+        cam = await rt.bridge.async_call_fields({"camera": camera})
+        up = await rt.api.upgrade_video({"call_id": call_id, **({"camera_url": cam["camera_url"]} if cam.get("camera_url") else {})})
+        if up and up.get("ok") is False:
+            _LOGGER.warning("Cuộc gọi %s: nối được loa/mic nhưng không nâng lên video: %s", call_id, up.get("error", "lỗi"))
     return True
 
 
@@ -468,7 +482,7 @@ async def async_take_over(rt: Any, call_id: str | None = None) -> dict[str, Any]
 
 def _devices_override(rule: dict[str, Any]) -> dict[str, Any]:
     """Thiết bị nhà lúc NGHE MÁY của cuộc gọi do quy tắc. AI giữ máy: tất cả TẮT (chỉ nối khi chuyển máy). Không AI: chỉ thiết bị
-    quy tắc đã cài (home_devices bật), không rơi về mặc định; không cài = tắt hết."""
+    quy tắc đã cài theo `connect`, không rơi về mặc định; không cài = tắt hết."""
     if rule.get("ai"):
         return dict(HELD_DEVICES)
     connect = rule_devices(rule)
