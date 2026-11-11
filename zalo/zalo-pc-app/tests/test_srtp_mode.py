@@ -97,17 +97,28 @@ def _judge(mode, counters, answered=100.0, ended=110.0, source="auto",
     return st
 
 
-def test_answered_but_nothing_received_marks_mode_bad():
+def test_answered_but_nothing_received_is_weak_evidence_and_does_not_flip_the_proven_default():
+    """Su co 11/11: mot cuoc AI im lang (khong nhan goi nao) khong duoc lam sess bi bo (cuoc ke tiep gui RTP tran, dien thoai khong nghe)."""
     st = _judge("sess", {"rtp_rx": 0, "rtp_rx_dropped": 0, "p2p_media_rx": 0})
-    assert st.pick() == "off"
-    assert st.snapshot()["history"][-1] == {
-        "mode": "sess", "ok": False, "at": st.snapshot()["history"][-1]["at"]}
+    assert st.pick() == "sess"                                                    # mot lan yeu: khong doi
+    last = st.snapshot()["history"][-1]
+    assert last["mode"] == "sess" and last["ok"] is False and last["weak"] is True
+
+
+def test_weak_failures_flip_only_after_three_in_a_row_a_success_resets_and_off_failure_returns_at_once():
+    st, _ = _store()
+    assert st.record("sess", False, strong=False) == "sess" and st.record("sess", False, strong=False) == "sess"
+    assert st.record("sess", True) == "sess"                                      # thanh cong: dem lai tu dau
+    assert st.record("sess", False, strong=False) == "sess" and st.record("sess", False, strong=False) == "sess"
+    assert st.record("sess", False, strong=False) == "off"                        # ba lan yeu LIEN TIEP moi doi
+    assert st.record("off", False, strong=False) == "sess"                        # che do khong mac dinh hong: ve mac dinh ngay
+    assert st.record("sess", False, strong=True) == "off"                         # that bai MANH (goi toi, HMAC sai): doi ngay
 
 
 def test_key_mode_dropped_packets_do_not_count_as_received():
     # Toan bo goi bi loai (HMAC sai) = khong phai bang chung cua che do dung.
     st = _judge("sess", {"rtp_rx": 40, "rtp_rx_dropped": 40, "p2p_media_rx": 0})
-    assert st.pick() == "off"
+    assert st.pick() == "off"                                                     # goi toi nhung HMAC sai: that bai MANH, doi ngay
     st = _judge("sess", {"rtp_rx": 40, "rtp_rx_dropped": 0, "p2p_media_rx": 0})
     assert st.pick() == "sess" and st.snapshot()["history"][-1]["ok"] is True
 

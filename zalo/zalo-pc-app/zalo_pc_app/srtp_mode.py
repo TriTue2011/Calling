@@ -27,6 +27,13 @@ _HISTORY_MAX = 20
 _SCHEMA = 2
 
 
+# Che do MAC DINH ("sess") da duoc xac nhan 8/8 cuoc that. Mot cuoc "khong nhan duoc gi" (ben kia im lang / cup som) la bang chung YEU:
+# chi doi che do khi that bai YEU lien tiep tu nay tro len. That bai MANH (goi toi nhung HMAC sai) van doi ngay. Che do khong mac dinh
+# ("off"/"key") that bai la ve mac dinh ngay. (Su co 11/11: mot cuoc AI im lang lam sess bi coi hong -> cuoc ke tiep gui RTP tran, dien thoai
+# khong nghe duoc.)
+WEAK_FLIP_AFTER = 3
+
+
 def other(mode):
     """Che do thu tiep khi `mode` that bai."""
     return "off" if mode == "sess" else "sess"
@@ -69,19 +76,31 @@ class SrtpModeStore:
         with self._lock:
             return self._state["preferred"]
 
-    def record(self, mode, ok):
-        """Ghi ket qua mot cuoc goi da nghe may. Tra ve che do uu tien moi."""
+    def record(self, mode, ok, strong=True):
+        """Ghi ket qua mot cuoc goi da nghe may. strong=False: that bai YEU (khong nhan duoc goi nao). Tra ve che do uu tien moi."""
         if mode not in MODES:
             return self.pick()
         with self._lock:
             hist = self._state["history"]
-            hist.append({"mode": mode, "ok": bool(ok),
-                         "at": int(self._clock())})
+            entry = {"mode": mode, "ok": bool(ok), "at": int(self._clock())}
+            if not ok and not strong:
+                entry["weak"] = True
+            hist.append(entry)
             del hist[:-_HISTORY_MAX]
             if ok:
                 self._state["preferred"] = mode
             elif self._state["preferred"] == mode:
-                self._state["preferred"] = other(mode)
+                if mode != DEFAULT_MODE or strong:
+                    self._state["preferred"] = other(mode)
+                else:
+                    weak_run = 0
+                    for h in reversed(hist):
+                        if h["mode"] == mode and not h["ok"] and h.get("weak"):
+                            weak_run += 1
+                        else:
+                            break
+                    if weak_run >= WEAK_FLIP_AFTER:
+                        self._state["preferred"] = other(mode)
             self._save()
             return self._state["preferred"]
 

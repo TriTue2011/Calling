@@ -464,7 +464,8 @@ def _evaluate_srtp_outcome(ended):
                           "n=%s" % (ended.get("call_id"), sample.get("n", 0)))
                 return
             ok = float(sample.get("toc_agree", 0)) >= SRTP_PLAIN_MIN_AGREE
-        pref = STATE.srtp_modes.record(mode, ok)
+        # Bang chung MANH chi khi co goi toi (rtp_rx > 0) ma khong xac thuc/giai ma duoc; "khong nhan duoc gi" co the do ben kia im lang.
+        pref = STATE.srtp_modes.record(mode, ok, strong=ok or int(counters.get("rtp_rx", 0)) > 0)
         _log_call("srtp outcome call_id=%s mode=%s source=%s ok=%s "
                   "rx_ok=%s toc_agree=%s head=%s peer_sr_blocks=%s "
                   "rtcp_rx=%s rtcp_tx=%s video_rx=%s video_tx=%s "
