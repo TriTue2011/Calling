@@ -618,6 +618,39 @@ def _int_or_none(value):
         return None
 
 
+# Tin HE THONG (khong co chu cua nguoi dung): su kien nhom (bao gom binh chon moi), sticker, thu hoi. Mau cau co SAN trong
+# params.msg ({"vi": "%1$s tao cuoc binh chon moi: %2$s", "en": ...}) nen ve theo mau, khong liet ke tung loai su kien.
+_PLACEHOLDER_TEXT = {"chat.sticker": "[Sticker]", "chat.undo": "Một tin nhắn đã được thu hồi"}
+_ARG_RE = re.compile(r"%(\d+)\$s")
+
+
+def _system_text(msg_type, content, item):
+    """Chu hien thi cho tin he thong, hoac "" neu khong phai (khong doan)."""
+    if msg_type in _PLACEHOLDER_TEXT:
+        return _PLACEHOLDER_TEXT[msg_type]
+    params = content.get("params")
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except ValueError:
+            return ""
+    if not isinstance(params, dict) or not isinstance(params.get("msg"), dict):
+        return ""
+    tmpl = params["msg"].get("vi") or params["msg"].get("en") or next(
+        (v for v in params["msg"].values() if isinstance(v, str)), "")
+    if not tmpl:
+        return ""
+    # Quy uoc cua Zalo: %1$s = nguoi thuc hien, %2$s = doi tuong (cau hoi binh chon, ten nhom, ...).
+    actor = str(params.get("dName") or item.get("dName") or "Ai đó")
+    obj = ""
+    for key in ("question", "groupName", "title", "name", "text"):
+        if params.get(key):
+            obj = str(params[key])
+            break
+    args = {"1": actor, "2": obj}
+    return _ARG_RE.sub(lambda m: args.get(m.group(1), ""), tmpl).strip()
+
+
 def normalize_message(item, thread_type="user"):
     """Chuan hoa 1 tin (best-effort — shape lich su nhom that chua
     duoc thay truc tiep): {id, sender_id, text, time, kind, file_name,
@@ -674,6 +707,10 @@ def normalize_message(item, thread_type="user"):
                  or item.get("title") or "")
     if kind is None:
         kind = "file" if file_name else "text"
+    if not text and kind == "text":
+        sys_text = _system_text(msg_type, content_dict, item) if (content_dict or msg_type in _PLACEHOLDER_TEXT) else ""
+        if sys_text:
+            text, kind = sys_text, "system"
     file_url = (content_dict.get("href")
                 or item.get("fileUrl") or item.get("file_url")
                 or item.get("href") or None)

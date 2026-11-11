@@ -24,7 +24,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .const import CONF_AI_CALL_AGENT, CONF_AI_CALL_AGENT_TRUSTED, CONF_AI_CALL_TRUSTED
+from .const import CONF_AI_CALL_AGENT, CONF_AI_CALL_AGENT_TRUSTED, CONF_AI_CALL_DEVICE, CONF_AI_CALL_TRUSTED
 from .styler import _speech
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,6 +57,32 @@ def phone_hint(handover_rule: str = "", trusted: bool = False) -> str:
     Đây chỉ là lớp MỀM; giới hạn thật nằm ở trợ lý được chọn cho cuộc gọi (không có quyền thiết bị) — xem pick_agent."""
     rule = (" Điều kiện chuyển máy riêng: %s." % handover_rule.strip().rstrip(".")) if handover_rule and handover_rule.strip() else ""
     return PHONE_HINT + ("" if trusted else " " + PUBLIC_HINT) + " " + HANDOVER_HINT + rule
+
+
+def pipeline_for_satellite(hass: HomeAssistant, entity_id: str) -> str | None:
+    """Id Assist pipeline mà một thiết bị Assist (assist_satellite: R1, camera…) đang dùng — để AI trong cuộc gọi dùng đúng STT/TTS/trợ lý
+    đã cấu hình sẵn cho thiết bị đó. Tra qua ô chọn pipeline cùng thiết bị (có tuỳ chọn «preferred»); không thấy / «preferred» thì None
+    (= pipeline ưu tiên của HA)."""
+    from homeassistant.components.assist_pipeline import pipeline as pipeline_mod
+    from homeassistant.helpers import entity_registry as er
+
+    entity_id = entity_of_label(entity_id or "")
+    if not entity_id:
+        return None
+    reg = er.async_get(hass)
+    ent = reg.async_get(entity_id)
+    if ent is None or not ent.device_id:
+        return None
+    for e in er.async_entries_for_device(reg, ent.device_id):
+        st = hass.states.get(e.entity_id) if e.domain == "select" else None
+        if st is None or "preferred" not in (st.attributes.get("options") or []):
+            continue
+        if st.state in ("preferred", "unknown", "unavailable", ""):
+            return None
+        for p in pipeline_mod.async_get_pipelines(hass):
+            if p.name == st.state:
+                return p.id
+    return None
 
 
 def pick_agent(defaults: Any, thread_id: Any) -> tuple[str, bool]:
@@ -351,8 +377,14 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
 async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> None:
     api: ZaloCallApi = rt.api
     try:
+        engine, language, options = plan.engine, plan.language, None
+        if plan.pipeline_id and not engine:            # đã chọn thiết bị Assist/pipeline: đọc thông báo bằng đúng giọng của nó
+            from homeassistant.components.assist_pipeline import pipeline as pipeline_mod
+            pl = pipeline_mod.async_get_pipeline(hass, plan.pipeline_id)
+            engine, language = pl.tts_engine, language or pl.tts_language
+            options = {"voice": pl.tts_voice} if pl.tts_voice else None
         for i in range(plan.repeat if plan.message else 0):
-            await async_say(hass, api, call_id, plan.message, plan.engine, plan.language)
+            await async_say(hass, api, call_id, plan.message, engine, language, options=options)
             if i + 1 < plan.repeat:
                 await asyncio.sleep(1.0)
         handed = False
@@ -410,7 +442,7 @@ def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, termin
         plan = voice.plans.pop(cid, None)
         if plan is None and ai_incoming and cid in voice.incoming and answer_source == "auto":
             agent, trusted = pick_agent(rt.defaults, thread_id)
-            plan = Plan(ai=True, hangup=True, greeting=greeting or DEFAULT_GREETING, handover_rule=handover_rule, agent_id=agent, trusted=trusted)
+            plan = Plan(pipeline_id=pipeline_for_satellite(hass, str(rt.defaults.get(CONF_AI_CALL_DEVICE) or "")) or None, ai=True, hangup=True, greeting=greeting or DEFAULT_GREETING, handover_rule=handover_rule, agent_id=agent, trusted=trusted)
         if plan is not None and cid not in voice.tasks:
             voice.tasks[cid] = hass.async_create_task(_run_plan(hass, rt, cid, plan))
     elif state in terminal:

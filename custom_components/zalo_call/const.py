@@ -63,6 +63,7 @@ CONF_AUTO_ANSWER_FROM = "auto_answer_from"    # ID Zalo duoc tu nghe, cach nhau 
 MAX_AUTO_ANSWER_DELAY = 120
 CONF_AI_CALL = "ai_call"                      # AI nghe va tra loi bang giong noi trong cuoc goi DEN (STT -> tro ly -> TTS)
 CONF_AI_CALL_GREETING = "ai_call_greeting"    # cau chao dau cuoc goi (trong = cau mac dinh)
+CONF_AI_CALL_DEVICE = "ai_call_device"                # thiet bi Assist (assist_satellite) co san STT/TTS/tro ly: AI trong cuoc goi dung pipeline cua no
 CONF_AI_CALL_AGENT = "ai_call_agent"                  # tro ly hoi thoai RIENG cho cuoc goi (nguoi la): chon tro ly KHONG co quyen thiet bi
 CONF_AI_CALL_AGENT_TRUSTED = "ai_call_agent_trusted"  # tro ly cho nguoi tin cay (trong danh sach ben duoi); trong = dung tro ly thuong
 CONF_AI_CALL_TRUSTED = "ai_call_trusted"              # ID Zalo tin cay, cach nhau dau phay

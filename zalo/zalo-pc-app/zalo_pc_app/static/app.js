@@ -1492,6 +1492,13 @@ function renderMessages(messages) {
   const box = $("chat-history");
   box.innerHTML = "";
   (messages || []).forEach((m) => {
+    if (m.kind === "system") {          // su kien nhom (binh chon moi...), sticker, thu hoi: dong ghi chu o giua, khong phai bong bong
+      const note = document.createElement("div");
+      note.className = "bubble-system";
+      note.textContent = m.text || "";
+      box.appendChild(note);
+      return;
+    }
     const out = m.direction === "out" || m.sender_id === "me";
     const div = document.createElement("div");
     div.className = "bubble " + (out ? "bubble-out" : "bubble-in");

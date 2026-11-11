@@ -22,7 +22,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .call_voice import async_say, async_take_over, pick_agent, plan_from_service
+from .call_voice import async_say, async_take_over, pick_agent, pipeline_for_satellite, plan_from_service
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
 
@@ -316,6 +316,9 @@ async def async_register_services(hass: HomeAssistant) -> None:
         """make_call/answer_call kèm message/ai: đăng ký kế hoạch, chạy khi cuộc gọi được nghe máy."""
         plan = plan_from_service(data)
         if plan is not None and call_id not in (None, ""):
+            if not plan.pipeline_id:                  # thiết bị Assist: trường assist_device của dịch vụ, không có thì ô chọn trên thiết bị
+                plan.pipeline_id = pipeline_for_satellite(
+                    hass, data.get("assist_device") or str(rt.defaults.get("ai_call_device") or "")) or None
             if plan.ai:
                 plan.agent_id, plan.trusted = pick_agent(rt.defaults, data.get("thread_id"))
             rt.voice.plans[str(call_id)] = plan
@@ -451,7 +454,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
              vol.Optional("handover_rule"): cv.string,
              vol.Optional("tts_engine"): cv.entity_id,
              vol.Optional("language"): cv.string,
-             vol.Optional("pipeline_id"): cv.string}
+             vol.Optional("pipeline_id"): cv.string,
+             vol.Optional("assist_device"): cv.entity_id}
     hass.services.async_register(
         DOMAIN, "take_over_call", take_over_call,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("call_id"): vol.Any(int, cv.string)}),

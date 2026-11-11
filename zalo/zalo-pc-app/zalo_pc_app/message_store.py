@@ -223,8 +223,21 @@ class MessageStore:
             except ValueError:
                 continue
             if isinstance(item, dict):
-                out.append(item)
+                out.append(self._heal(item))
         return out
+
+    @staticmethod
+    def _heal(m):
+        """Tin luu TRUOC khi app biet ve tin he thong (binh chon moi, thu hoi...): chu rong + kind text -> tinh lai tu `raw`."""
+        if not isinstance(m, dict) or m.get("text") or (m.get("kind") or "text") != "text":
+            return m
+        raw = m.get("raw")
+        if isinstance(raw, dict) and raw:
+            from . import chat as chat_mod              # nap muon: tranh vong import
+            n = chat_mod.normalize_message(raw)
+            if n.get("kind") == "system":
+                return dict(m, text=n["text"], kind="system")
+        return m
 
     def _incoming(self, thread_type, thread_id):
         """(menh de SQL, tham so) chon tin DEN cua mot hoi thoai: 1-1 thi
@@ -296,7 +309,7 @@ class MessageStore:
                             m = json.loads(r[1])
                         except ValueError:
                             m = {}
-                        return r[0], (m if isinstance(m, dict) else {})
+                        return r[0], (self._heal(m) if isinstance(m, dict) else {})
                     last_sender, last_m = _latest("", [])
                     _, in_m = _latest(" AND " + cond, cargs)
                     raw = in_m.get("raw") if isinstance(in_m.get("raw"), dict) else {}

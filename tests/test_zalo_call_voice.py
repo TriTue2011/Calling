@@ -593,3 +593,65 @@ async def test_dedicated_agent_gets_the_question_pipeline_only_does_stt(hass, mo
     assert len(calls) == 1 and calls[0].data["agent_id"] == "conversation.le_tan"
     assert "đèn phòng khách đang bật không" in calls[0].data["text"] and cv.PUBLIC_HINT in calls[0].data["text"]
     assert [s[2].decode() for s in api.said] == ["TTS:Mình không có thông tin đó ạ"]
+
+
+# ---- Dùng Assist của thiết bị (assist_satellite): pipeline STT/TTS/trợ lý có sẵn -------------------------------------------
+def _satellite_with_pipeline_select(hass, state, options=("preferred", "Camera c2a", "Chatgpt")):
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    entry = MockConfigEntry(domain="test_sat")
+    entry.add_to_hass(hass)
+    dev = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id, identifiers={("test_sat", "r1")})
+    reg = er.async_get(hass)
+    sat = reg.async_get_or_create("assist_satellite", "test_sat", "r1", config_entry=entry, device_id=dev.id, suggested_object_id="r1")
+    sel = reg.async_get_or_create("select", "test_sat", "r1_tro_ly", config_entry=entry, device_id=dev.id, suggested_object_id="r1_tro_ly")
+    hass.states.async_set(sel.entity_id, state, {"options": list(options)})
+    return sat.entity_id
+
+
+async def test_pipeline_for_satellite_follows_the_devices_own_pipeline_select(hass, monkeypatch):
+    from homeassistant.components.assist_pipeline import pipeline as pl
+    monkeypatch.setattr(pl, "async_get_pipelines", lambda hass_: [SimpleNamespace(id="id-chatgpt", name="Chatgpt"),
+                                                                  SimpleNamespace(id="id-cam", name="Camera c2a")])
+    sat = _satellite_with_pipeline_select(hass, "Camera c2a")
+    assert cv.pipeline_for_satellite(hass, sat) == "id-cam"                     # đúng pipeline thiết bị đó đang chọn
+    assert cv.pipeline_for_satellite(hass, "Loa · " + sat) == "id-cam"          # nhãn ô chọn «Tên · entity_id» cũng được
+    hass.states.async_set("select.r1_tro_ly", "preferred", {"options": ["preferred", "Camera c2a", "Chatgpt"]})
+    assert cv.pipeline_for_satellite(hass, sat) is None                         # «preferred» = pipeline ưu tiên của HA
+    assert cv.pipeline_for_satellite(hass, "assist_satellite.khong_co") is None
+    assert cv.pipeline_for_satellite(hass, "") is None
+
+
+async def test_chosen_assist_device_gives_ai_its_pipeline_and_announcement_its_voice(hass, monkeypatch):
+    from homeassistant.components.assist_pipeline import pipeline as pl
+    monkeypatch.setattr(pl, "async_get_pipelines", lambda hass_: [SimpleNamespace(id="id-cam", name="Camera c2a")])
+    monkeypatch.setattr(pl, "async_get_pipeline", lambda hass_, pid=None: SimpleNamespace(
+        stt_language="vi", tts_engine="tts.giong_cua_cam", tts_language="vi-VN", tts_voice="mai"))
+    sat = _satellite_with_pipeline_select(hass, "Camera c2a")
+    used = []
+
+    async def fake_tts(hass_, message, engine=None, language=None, options=None):
+        used.append((engine, language, options))
+        return "mp3", b"x"
+    monkeypatch.setattr(cv, "async_tts_audio", fake_tts)
+    # cuộc gọi đến + AI: kế hoạch lấy pipeline của thiết bị đã chọn
+    seen = []
+
+    async def fake_ai(hass_, api, call_id, plan, voice=None):
+        seen.append(plan.pipeline_id)
+        return {"handover": False, "heard": ""}
+    monkeypatch.setattr(cv, "async_run_ai", fake_ai)
+    api = FakeApi()
+    rt = _rt(api)
+    rt.defaults = _Defaults(ai_call_device="Loa phicomm · " + sat)
+    cv.on_call_state(hass, rt, "incoming", 90, TERMINAL, True, "", "", "", "999")
+    cv.on_call_state(hass, rt, "answered", 90, TERMINAL, True, "", "auto", "", "999")
+    await asyncio.sleep(0.2)
+    assert seen == ["id-cam"]
+    # thông báo (không chỉ định giọng) được đọc bằng giọng của pipeline đã chọn
+    api2 = FakeApi()
+    await cv._run_plan(hass, _rt(api2), "77", cv.Plan(message="Có người ngã", pipeline_id="id-cam", hangup=True))
+    assert used[-1] == ("tts.giong_cua_cam", "vi-VN", {"voice": "mai"}), used
+    # nhưng tts_engine nêu rõ trong dịch vụ thì thắng
+    await cv._run_plan(hass, _rt(FakeApi()), "77", cv.Plan(message="x", pipeline_id="id-cam", engine="tts.khac", hangup=True))
+    assert used[-1][0] == "tts.khac"

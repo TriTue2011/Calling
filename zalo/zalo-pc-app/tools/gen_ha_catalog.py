@@ -429,6 +429,12 @@ EXTRA_YAML = '''make_call:
       description: Ngôn ngữ cho STT/TTS (ví dụ vi). Bỏ trống = của pipeline / HA.
       selector:
         text:
+    assist_device:
+      name: Thiết bị Assist (dùng STT/TTS/trợ lý của nó)
+      description: Chọn thiết bị Assist như Assist Cam hay Assist R1 — cuộc gọi dùng pipeline (STT, TTS, trợ lý) đã cấu hình sẵn cho thiết bị đó, và đọc thông báo bằng giọng của nó. Bỏ trống = ô «AI trong cuộc gọi - dùng Assist của thiết bị» trên thiết bị, rồi đến pipeline ưu tiên.
+      selector:
+        entity:
+          domain: assist_satellite
     pipeline_id:
       name: Assist pipeline
       description: Id pipeline dùng cho AI trong cuộc gọi. Bỏ trống = pipeline mặc định.
@@ -525,6 +531,12 @@ answer_call:
       description: Ngôn ngữ cho STT/TTS (ví dụ vi). Bỏ trống = của pipeline / HA.
       selector:
         text:
+    assist_device:
+      name: Thiết bị Assist (dùng STT/TTS/trợ lý của nó)
+      description: Chọn thiết bị Assist như Assist Cam hay Assist R1 — cuộc gọi dùng pipeline (STT, TTS, trợ lý) đã cấu hình sẵn cho thiết bị đó, và đọc thông báo bằng giọng của nó. Bỏ trống = ô «AI trong cuộc gọi - dùng Assist của thiết bị» trên thiết bị, rồi đến pipeline ưu tiên.
+      selector:
+        entity:
+          domain: assist_satellite
     pipeline_id:
       name: Assist pipeline
       description: Id pipeline dùng cho AI trong cuộc gọi. Bỏ trống = pipeline mặc định.
