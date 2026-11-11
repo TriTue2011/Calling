@@ -198,7 +198,7 @@ Mọi cài đặt này đặt bằng **dịch vụ** (gọi từ Công cụ nhà
 - **Không có quy tắc = không làm gì.** Cuộc gọi đến chỉ đổ chuông; tin nhắn, tin thoại không đi đâu (không STT, không AI, không trả lời).
 - **Quy tắc theo ai:** `thread` (một threadID — người **hoặc nhóm**), `contacts` (mọi người trong danh bạ), `strangers` (người lạ), `groups` (mọi nhóm). Quy tắc theo threadID **thay hẳn** quy tắc nhóm (không trộn từng trường), nên `answer: false` ở một người chặn được quy tắc danh bạ dễ dãi.
 - **Không chắc người đó quen hay lạ** (app chưa tải được danh bạ): chỉ quy tắc theo threadID được áp; quy tắc `contacts`/`strangers` bị bỏ qua.
-- **Thiết bị nhà tắt mặc định:** cuộc gọi do quy tắc nghe máy **không** nối mic, loa, camera nhà (app nhận «off»), nên người lạ không nghe được phòng nhà. Chỉ nối khi đặt `home_devices: true`.
+- **Thiết bị nhà tắt mặc định:** cuộc gọi do quy tắc nghe máy **không** nối mic, loa, camera nhà (app nhận «off»), nên người lạ không nghe được phòng nhà. Chỉ nối khi đặt `home_devices: true` **và** chọn thiết bị trong quy tắc (`speaker`, `mic`, `camera`): nối **sau khi AI chuyển sang trực tiếp**, không nối lúc AI còn giữ máy; thiết bị không chọn thì không nối (không rơi về mặc định).
 - **`ai: true` / `reply_ai: true` bắt buộc chọn `pipeline` hoặc `agent`** (không tự dùng pipeline ưu tiên vì nó có quyền thiết bị nhà). Với người lạ nên chọn trợ lý **không có quyền thiết bị**.
 - Người gọi cúp trước khi hết thời gian chờ thì không nghe; webhook lặp chỉ nghe một lần.
 
@@ -245,10 +245,18 @@ action:
 ```
 
 ### Chuyển sang trực tiếp
-Trong cuộc gọi do AI giữ, AI tự chuyển sang trực tiếp khi khẩn cấp / người gọi muốn gặp người nhà / AI không giúp được (kết thúc câu bằng dấu `[[CHUYEN_MAY]]` — không đọc ra — hoặc công cụ «chuyển sang trực tiếp»). Khi đó AI dừng, cuộc gọi **không bị cúp**, HA bắn `zalo_call_ai_handover` (`call_id`, `heard`, `home_devices`); mic nhà chỉ được nối nếu quy tắc có `home_devices: true`. Bạn cũng có thể chủ động tiếp quản bằng nút hoặc dịch vụ `take_over_call`.
+Trong cuộc gọi do AI giữ, AI tự chuyển sang trực tiếp khi khẩn cấp / người gọi muốn gặp người nhà / AI không giúp được (kết thúc câu bằng dấu `[[CHUYEN_MAY]]` — không đọc ra — hoặc công cụ «chuyển sang trực tiếp»). Khi đó AI dừng, cuộc gọi **không bị cúp**, HA bắn `zalo_call_ai_handover` (`call_id`, `heard`, `reason`, `connected`); loa/mic/camera chỉ được nối nếu quy tắc có `home_devices: true` và đã chọn thiết bị (`connected: false` = không có gì để nối). Bạn cũng có thể chủ động tiếp quản bằng nút hoặc dịch vụ `take_over_call`.
 
 ### Thông báo bằng giọng khi gọi đi
-`make_call` có `message` (đọc bằng TTS khi người nhận nghe máy, rồi cúp), `ai: true` (AI nói chuyện tiếp; cần `pipeline`/`agent` hoặc quy tắc của threadID đó). Mic/loa/camera nhà vẫn theo `set_default_devices` và các trường thiết bị của dịch vụ.
+`make_call` có `message` (đọc bằng TTS khi người nhận nghe máy, rồi cúp), `ai: true` (AI nói chuyện tiếp; cần `pipeline`/`agent` hoặc quy tắc của threadID đó). Cuộc gọi `ai: true` giữ máy: loa/mic/camera nhà **tắt** cho tới khi chuyển trực tiếp; thiết bị nối lúc đó là thứ nêu trong lời gọi hoặc của quy tắc threadID, không có thì không nối gì.
+
+### Gọi cảnh báo: dịch vụ `alert_call` (tách riêng)
+`alert_call` chỉ để báo một cảnh báo: AI đọc `message` bằng giọng của `pipeline`, rồi **nối thẳng** loa/mic/camera đã cài, không hỏi, không trò chuyện (HA bắn `zalo_call_ai_handover` với `reason: alert`). Thiết bị lấy từ `speaker`/`mic`/`camera` trong lời gọi, hoặc của quy tắc threadID (`home_devices` bật). Chưa cài thiết bị nào thì chỉ đọc rồi cúp. `type: video` thì nối cả camera. Muốn AI hỏi đáp thì dùng `make_call` với `ai: true`.
+
+```yaml
+service: zalo_call.alert_call
+data: {thread_id: "6643404425553198601", type: video, message: "Phát hiện có người ngã ở phòng khách"}
+```
 
 ### Dùng bằng giọng nói qua Assist
 Tích chọn **«Zalo Call»** cạnh «Assist» trong cài đặt trợ lý hội thoại LLM: «gọi cho Đại ca», «nghe máy», «từ chối», «cúp máy», «nhắn nhóm AI học hỏi…», «tiếp quản cuộc gọi». Trong cuộc gọi do AI giữ, trợ lý chỉ thấy **một** công cụ «chuyển sang trực tiếp» nên người lạ không sai khiến được gọi điện/nhắn tin.

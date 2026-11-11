@@ -22,7 +22,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
-from .call_voice import async_say, async_take_over, plan_from_service
+from .call_voice import HELD_DEVICES, Plan, async_say, async_take_over, plan_from_service, rule_devices
 from .rules import CALL_TYPES, ECHO as RULE_ECHO, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
@@ -234,15 +234,18 @@ async def async_register_services(hass: HomeAssistant) -> None:
             DOMAIN, e["name"], _make_handler(hass, e), schema=_schema(e),
             supports_response=SupportsResponse.OPTIONAL)
 
-    def _device_override(call: ServiceCall) -> dict:
-        """Thiet bi ghi de cua service nay (vang = dung mac dinh; "" = tat)."""
+    def _device_override(call: ServiceCall, plan=None) -> dict:
+        """Thiet bi ghi de luc NGHE MAY (vang = dung mac dinh; "" = tat). Cuoc goi AI/canh bao giu may: tat het, chi noi khi chuyen may
+        (thiet bi da cai nam trong plan.connect)."""
+        if plan is not None and (plan.ai or plan.alert):
+            return dict(HELD_DEVICES)
         return {k: call.data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume")
                 if k in call.data}
 
     async def make_call(call: ServiceCall) -> dict:
         rt, api = _api(hass, call)
         plan = _build_plan(rt, call.data)                         # lỗi cấu hình thì báo TRƯỚC khi gọi
-        override = _device_override(call)
+        override = _device_override(call, plan)
         rt.bridge.remember(None, override)
         try:
             fields = await rt.bridge.async_call_fields(override)
@@ -260,7 +263,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def answer_call(call: ServiceCall) -> dict:
         rt, api = _api(hass, call)
         plan = _build_plan(rt, call.data)
-        override = _device_override(call)
+        override = _device_override(call, plan)
         rt.bridge.remember(call.data.get("call_id"), override)
         try:
             fields = await rt.bridge.async_call_fields(override)
@@ -268,6 +271,29 @@ async def async_register_services(hass: HomeAssistant) -> None:
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
         _register_voice_plan(rt, (res or {}).get("call_id") or call.data.get("call_id"), plan)
+        return {"result": res}
+
+    async def alert_call(call: ServiceCall) -> dict:
+        """Cuộc gọi CẢNH BÁO (tách riêng khỏi make_call): đọc `message` bằng giọng pipeline rồi nối thẳng thiết bị nhà ĐÃ CÀI. Thiết bị lấy từ
+        trường speaker/mic/camera của lời gọi, không có thì từ quy tắc threadID (home_devices bật); không có nữa thì chỉ đọc rồi cúp."""
+        rt, api = _api(hass, call)
+        data = call.data
+        thread = str(data["thread_id"])
+        rule = resolve_rule(get_rules(rt.defaults), thread, "user", None) or {}
+        pipeline = _pipeline_id_of(data["pipeline"]) if data.get("pipeline") else (rule.get("pipeline") or "")
+        explicit = {k: data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if data.get(k) not in (None, "")}
+        plan = Plan(message=str(data["message"]).strip(), repeat=int(data.get("repeat") or 1), alert=True, hangup=True,
+                    engine=data.get("tts_engine") or None, language=data.get("language") or None, pipeline_id=pipeline or None,
+                    video=data.get("type") == "video", connect=explicit or rule_devices(rule))
+        if not plan.message:
+            raise ServiceValidationError("message (nội dung cảnh báo) không được trống")
+        rt.bridge.remember(None, dict(HELD_DEVICES))                  # lúc nghe máy mọi thiết bị nhà TẮT; chỉ nối sau khi đọc cảnh báo
+        try:
+            fields = await rt.bridge.async_call_fields(dict(HELD_DEVICES))
+            res = await api.call_request(thread, data.get("type", "user"), data.get("peer_name", ""), None, None, fields)
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        _register_voice_plan(rt, (res or {}).get("call_id"), plan)
         return {"result": res}
 
     def _pipeline_id_of(value: str) -> str:
@@ -403,20 +429,26 @@ async def async_register_services(hass: HomeAssistant) -> None:
                 "text": res.get("text", "")}
 
     def _build_plan(rt, data):
-        """Kế hoạch giọng nói (message/ai) của make_call/answer_call, KIỂM TRA TRƯỚC khi gọi/nghe. ai: true cần pipeline/agent nêu rõ hoặc theo
-        quy tắc của threadID đó (không tự rơi về pipeline ưu tiên: nó có quyền thiết bị nhà)."""
+        """Kế hoạch giọng nói (message/ai/alert) của make_call/answer_call, KIỂM TRA TRƯỚC khi gọi/nghe. ai: true cần pipeline/agent nêu rõ hoặc theo
+        quy tắc của threadID đó (không tự rơi về pipeline ưu tiên: nó có quyền thiết bị nhà). Thiết bị nhà (plan.connect) chỉ gồm thứ ĐÃ CÀI:
+        trường speaker/mic/camera nêu ngay trong lời gọi, hoặc của quy tắc threadID (home_devices bật); không có thì không nối gì."""
         plan = plan_from_service(data)
-        if plan is None or not plan.ai:
+        if plan is None:
+            return None
+        if not plan.ai:
             return plan
-        if not (plan.pipeline_id or plan.agent_id) and data.get("thread_id"):
+        rule = None
+        if data.get("thread_id"):
             rule = resolve_rule(get_rules(rt.defaults), data.get("thread_id"), "group" if data.get("type") == "group" else "user", None)
-            if rule:
-                plan.pipeline_id = rule.get("pipeline") or None
-                plan.agent_id = rule.get("agent") or ""
-                plan.trusted = bool(rule.get("trusted"))
+        if rule and not (plan.pipeline_id or plan.agent_id):
+            plan.pipeline_id = rule.get("pipeline") or None
+            plan.agent_id = rule.get("agent") or ""
+            plan.trusted = bool(rule.get("trusted"))
         if not (plan.pipeline_id or plan.agent_id):
             raise ServiceValidationError("ai: true cần chọn pipeline (Assist pipeline) hoặc agent (trợ lý), hoặc đặt quy tắc cho threadID này "
                                          "bằng set_rule — không tự dùng pipeline ưu tiên vì nó có quyền thiết bị nhà")
+        explicit = {k: data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if data.get(k) not in (None, "")}
+        plan.connect = explicit or rule_devices(rule or {})
         return plan
 
     def _register_voice_plan(rt, call_id, plan) -> None:
@@ -607,6 +639,20 @@ async def async_register_services(hass: HomeAssistant) -> None:
             vol.Optional("srtp"): vol.In(["sess", "off", "key"]),
             vol.Optional("extend_profile"): vol.In(["native", "pc", "zca"]),
             **voice, **devices}),
+        supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "alert_call", alert_call,
+        schema=vol.Schema({
+            vol.Optional("entry_id"): cv.string,
+            vol.Required("thread_id"): cv.string,
+            vol.Required("message"): cv.string,
+            vol.Optional("type", default="user"): vol.In(["user", "video"]),
+            vol.Optional("peer_name"): cv.string,
+            vol.Optional("pipeline"): cv.string,
+            vol.Optional("tts_engine"): cv.entity_id,
+            vol.Optional("language"): cv.string,
+            vol.Optional("repeat"): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)),
+            **devices}),
         supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, "answer_call", answer_call,

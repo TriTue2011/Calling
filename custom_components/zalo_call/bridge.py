@@ -293,6 +293,24 @@ class CallAudioBridge:
         run.speaker_started = True
         return devices
 
+    async def reconnect(self, call_id: Any, override: dict[str, Any]) -> dict[str, str]:
+        """Nối (lại) thiết bị cho cuộc gọi ĐANG nói bằng bộ ghi đè mới: dùng khi cuộc gọi do AI/cảnh báo giữ (lúc nghe máy mọi thiết bị
+        tắt) rồi chuyển trực tiếp. Khác `start`: không bỏ qua khi cuộc gọi đã có lượt chạy trước đó."""
+        key = str(call_id)
+        old = self._running.pop(key, None)
+        if old is not None and old.speaker_started:
+            await self.stop_run(old)
+        self.remember(call_id, override)
+        return await self.start(call_id)
+
+    async def stop_run(self, run: "_Running") -> None:
+        try:
+            await self.hass.services.async_call("media_player", "media_stop", {"entity_id": entity_of_label(run.devices["speaker"])},
+                                                blocking=False)
+        except HomeAssistantError as err:
+            _LOGGER.debug("Khong dung duoc loa: %s", err)
+        await self._async_restore_volume(run)
+
     async def stop(self, call_id: Any) -> None:
         run = self._running.pop(str(call_id), None)
         if run is None:

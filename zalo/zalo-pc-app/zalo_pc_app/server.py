@@ -3421,6 +3421,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, "call_id": call_id,
                                     "video": vstat(), "mic": mstat(),
                                     "speaker": sstat()})
+        # Nối thiết bị GIỮA cuộc gọi (HA chuyển máy từ AI sang trực tiếp): bộ thiết bị đưa kèm thành thiết bị riêng của cuộc gọi này (đủ
+        # bốn nhóm, nhóm không cài = "off" → không rơi về mặc định); có nhóm nào thì nối nhóm đó.
+        if any(k in body for k in _CALL_DEVICE_KEYS):
+            _CALL_DEVICES.pop(str(call_id), None)
+            _remember_call_devices(call_id, body)
+            # "off" = nhóm này không cài: đã ghi vào thiết bị riêng của cuộc gọi (rỗng), nay bỏ khỏi body để không bị coi là URL.
+            body = {k: v for k, v in body.items() if not (k in ("mic_url", "speaker_url", "camera_url") and str(v).strip().lower() == "off")}
         cfg = _devices_for_call(call_id)
         try:
             if target == "upgrade":

@@ -13,6 +13,7 @@ import types
 from types import SimpleNamespace
 
 import pytest
+import voluptuous as vol
 
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
@@ -69,8 +70,21 @@ class _Defaults(dict):
         return dict.get(self, k, d)
 
 
+class FakeBridge:
+    """Ghi lại việc nối thiết bị giữa cuộc gọi (bộ ghi đè truyền cho reconnect)."""
+    def __init__(self):
+        self.reconnected = []
+
+    async def reconnect(self, call_id, override):
+        self.reconnected.append((str(call_id), dict(override)))
+        return {}
+
+    async def async_call_fields(self, override):
+        return {k + "_url": (v or "off") for k, v in override.items() if k in ("speaker", "mic", "camera")}
+
+
 def _rt(api, rules=None):
-    return SimpleNamespace(api=api, voice=cv.CallVoice(), defaults=_Defaults(rules=rules or R.empty_rules()))
+    return SimpleNamespace(api=api, voice=cv.CallVoice(), defaults=_Defaults(rules=rules or R.empty_rules()), bridge=FakeBridge())
 
 
 @pytest.fixture(autouse=True)
@@ -244,17 +258,57 @@ async def test_handover_through_llm_tool_cleans_up(hass, monkeypatch):
     assert res["handover"] is True and voice.ai_running == [] and voice.handover == {} and voice.call_context_ids == set()
 
 
-async def test_handover_connects_house_mic_only_when_rule_allows_and_never_hangs_up(hass, monkeypatch):
+HOUSE = {"speaker": "media_player.r1_loa", "mic": "assist_satellite.r1"}
+
+
+async def test_handover_connects_only_devices_that_were_configured_and_never_hangs_up(hass, monkeypatch):
+    """Không cài thiết bị (connect trống) thì AI chuyển máy cũng KHÔNG nối gì; có cài thì nối đúng thứ đã cài. Cả hai đều không cúp máy."""
     events = []
     hass.bus.async_listen("zalo_call_ai_handover", lambda e: events.append(dict(e.data)))
-    for allowed in (False, True):
+    for connect in ({}, HOUSE):
         await _ai_env(monkeypatch, [("giúp tôi với", "Có ai đó sẽ nói chuyện với bạn ngay [[chuyen_may]]")])
-        api = FakeApi(statuses=["answered"])
-        await cv._run_plan(hass, _rt(api), "77", cv.Plan(message="Phát hiện có người ngã", ai=True, hangup=True, pipeline_id="pl", home_devices=allowed))
+        api, rt = FakeApi(statuses=["answered"]), None
+        rt = _rt(api)
+        await cv._run_plan(hass, rt, "77", cv.Plan(message="Phát hiện có người ngã", ai=True, hangup=True, pipeline_id="pl", connect=dict(connect)))
         await hass.async_block_till_done()
-        restored = [m for m in api.media if m.get("action") == "start" and m.get("target") == "mic"]
-        assert api.ended == [] and bool(restored) is allowed, (allowed, api.media)       # KHÔNG cúp; mic nhà chỉ nối khi được phép
-    assert [e["home_devices"] for e in events] == [False, True]
+        started = [m for m in api.media if m.get("action") == "start" and m.get("target") == "both"]
+        assert api.ended == [], connect                                                  # KHÔNG cúp
+        assert bool(started) is bool(connect) and bool(rt.bridge.reconnected) is bool(connect), (connect, api.media)
+        if connect:
+            ov = rt.bridge.reconnected[0][1]
+            assert ov["speaker"] == "media_player.r1_loa" and ov["mic"] == "assist_satellite.r1" and ov["camera"] == "" and ov["mic_url"] == "", ov
+            assert started[0]["speaker_url"] == "media_player.r1_loa" and started[0]["camera_url"] == "off", started[0]
+    assert [(e["reason"], e["connected"]) for e in events] == [("ai", False), ("ai", True)]
+
+
+async def test_voice_call_never_starts_camera_but_video_call_does(hass, monkeypatch):
+    for video in (False, True):
+        await _ai_env(monkeypatch, [("giúp tôi", "Mình chuyển máy [[CHUYEN_MAY]]")])
+        rt = _rt(FakeApi(statuses=["answered"]))
+        await cv._run_plan(hass, rt, "77", cv.Plan(ai=True, pipeline_id="pl", video=video, connect={**HOUSE, "camera": "camera.phong_khach"}))
+        assert (rt.bridge.reconnected[0][1]["camera"] == "camera.phong_khach") is video, (video, rt.bridge.reconnected)
+
+
+async def test_alert_call_reads_the_message_then_connects_at_once_without_asking(hass, monkeypatch):
+    """Cuộc gọi cảnh báo: đọc message (giọng pipeline), KHÔNG chạy vòng AI hỏi đáp, nối thẳng thiết bị đã cài; chưa cài thì chỉ đọc rồi cúp."""
+    events = []
+    hass.bus.async_listen("zalo_call_ai_handover", lambda e: events.append(dict(e.data)))
+    ran = []
+
+    async def no_ai(*a, **k):
+        ran.append(1)
+        return {"handover": False, "heard": ""}
+    monkeypatch.setattr(cv, "async_run_ai", no_ai)
+    api, rt = FakeApi(), None
+    rt = _rt(api)
+    await cv._run_plan(hass, rt, "77", cv.Plan(message="Phát hiện có người ngã ở phòng khách", alert=True, hangup=True, connect=dict(HOUSE)))
+    await hass.async_block_till_done()
+    assert ran == [] and [x[2] for x in api.said] == [b"TTS:Phat hien co nguoi nga o phong khach".replace(b"Phat hien co nguoi nga o phong khach", "Phát hiện có người ngã ở phòng khách".encode())]
+    assert api.ended == [] and rt.bridge.reconnected and events == [{"call_id": "77", "heard": "", "reason": "alert", "connected": True}], events
+    api2 = FakeApi()
+    rt2 = _rt(api2)
+    await cv._run_plan(hass, rt2, "78", cv.Plan(message="Cảnh báo", alert=True, hangup=True, connect={}))
+    assert api2.ended == ["78"] and not rt2.bridge.reconnected and len(events) == 1       # chưa cài thiết bị: không nối, không báo chuyển máy
 
 
 async def test_take_over_stops_ai_and_restores_house_mic_deliberately(hass, monkeypatch):
@@ -267,12 +321,12 @@ async def test_take_over_stops_ai_and_restores_house_mic_deliberately(hass, monk
     monkeypatch.setattr(cv, "async_run_ai", long_ai)
     api = FakeApi()
     rt = _rt(api)
-    rt.voice.plans["77"] = cv.Plan(ai=True, pipeline_id="pl", home_devices=False)
+    rt.voice.plans["77"] = cv.Plan(ai=True, pipeline_id="pl")
     cv.on_call_state(hass, rt, "answered", 77, TERMINAL, {})
     await asyncio.wait_for(started.wait(), 5)
     res = await cv.async_take_over(rt, "77")                                    # thao tác chủ động của chủ máy: được nối mic nhà
     assert res == {"call_id": "77", "ai_was_running": True} and api.ended == []
-    assert {"call_id": "77", "action": "start", "target": "mic"} in api.media
+    assert {"call_id": "77", "action": "start", "target": "mic"} in api.media                 # chưa cài thiết bị cho cuộc này: mic mặc định (người chủ động bấm)
 
 
 # ------------------------------------------------- QUY TẮC NGHE MÁY TRONG HA THẬT (app giả) ------------------------------------------
@@ -414,7 +468,7 @@ async def test_rule_ai_call_speaks_greeting_after_answer_and_ai_needs_pipeline_o
     seen = []
 
     async def fake_ai(hass_, api, call_id, plan, voice=None):
-        seen.append((plan.agent_id, plan.pipeline_id, plan.trusted, plan.home_devices, plan.greeting))
+        seen.append((plan.agent_id, plan.pipeline_id, plan.trusted, plan.connect, plan.greeting))
         return {"handover": False, "heard": ""}
     monkeypatch.setattr(cv, "async_run_ai", fake_ai)
     await _set_rule(hass, scope="strangers", answer=True, answer_delay=0, ai=True, agent="conversation.le_tan", greeting="Chào bạn")
@@ -425,7 +479,7 @@ async def test_rule_ai_call_speaks_greeting_after_answer_and_ai_needs_pipeline_o
         if seen:
             break
         await asyncio.sleep(0.05)
-    assert seen == [("conversation.le_tan", None, False, False, "Chào bạn")], seen
+    assert seen == [("conversation.le_tan", None, False, {}, "Chào bạn")], seen
     # người thật nghe máy (không có kế hoạch) thì AI không chen vào
     seen.clear()
     await _webhook(hass, hass_client_no_auth, {"event": "call", "status": "answered", "call_id": "999", "thread_id": THREAD})
@@ -582,3 +636,45 @@ def test_handover_marker_tolerates_dropped_brackets_but_not_normal_speech():
         assert not cv.HANDOVER_RE.sub("", text).strip().upper().endswith("MAY"), text
     for text in ("Em sẽ chuyển máy cho người nhà ạ", "Tôi muốn chuyen may khác", "Xin chào, em nghe đây ạ", "Chuyển sang trực tiếp"):
         assert not cv.HANDOVER_RE.search(text), text
+
+
+async def test_alert_call_service_is_separate_holds_devices_off_and_takes_them_from_the_rule(hass, setup, app):
+    """Dịch vụ alert_call (riêng, không lẫn make_call): lúc nghe máy mọi thiết bị TẮT; thiết bị + giọng lấy từ quy tắc threadID; cờ alert/ai không có ở make_call."""
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(DOMAIN, "make_call", {"thread_id": THREAD, "alert": True}, blocking=True)
+    await _set_rule(hass, scope="thread", thread_id=THREAD, name="Đại ca", ai=True, agent="conversation.x", home_devices=True, speaker="media_player.r1_loa",
+                    mic="assist_satellite.r1", camera="camera.phong_khach")
+    await hass.services.async_call(DOMAIN, "alert_call", {"thread_id": THREAD, "message": "Phát hiện có người ngã", "type": "video"}, blocking=True,
+                                   return_response=True)
+    req = [r for r in app.requests if r["path"] == "/api/call/request"][-1]["json"]
+    assert req["type"] == "video" and req["mic_url"] == OFF and req["speaker_url"] == OFF and req["camera_url"] == OFF, req
+    plan = hass.data[DOMAIN][setup.entry_id].voice.plans["555"]
+    assert plan.alert and not plan.ai and plan.video and plan.message == "Phát hiện có người ngã" and plan.hangup
+    assert plan.connect == {"speaker": "media_player.r1_loa", "mic": "assist_satellite.r1", "camera": "camera.phong_khach"}
+    # Lời gọi nêu thiết bị thì thắng quy tắc; không có quy tắc và không nêu thì KHÔNG nối gì
+    await hass.services.async_call(DOMAIN, "alert_call", {"thread_id": THREAD, "message": "Khói", "speaker": "media_player.khac"}, blocking=True, return_response=True)
+    assert hass.data[DOMAIN][setup.entry_id].voice.plans["555"].connect == {"speaker": "media_player.khac"}
+    await hass.services.async_call(DOMAIN, "alert_call", {"thread_id": "999", "message": "Khói"}, blocking=True, return_response=True)
+    assert hass.data[DOMAIN][setup.entry_id].voice.plans["555"].connect == {}
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(DOMAIN, "alert_call", {"thread_id": THREAD, "message": "   "}, blocking=True)
+
+
+async def test_ai_rule_call_holds_all_devices_off_and_keeps_configured_ones_for_the_handover(hass, setup, app, hass_client_no_auth, monkeypatch):
+    seen = []
+
+    async def fake_ai(hass_, api, call_id, plan, voice=None):
+        seen.append((dict(plan.connect), plan.video))
+        return {"handover": False, "heard": ""}
+    monkeypatch.setattr(cv, "async_run_ai", fake_ai)
+    await _set_rule(hass, scope="thread", thread_id=THREAD, answer=True, answer_delay=0, ai=True, agent="conversation.x", home_devices=True,
+                    speaker="media_player.r1_loa", mic="assist_satellite.r1")
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_type_raw=1))
+    body = (await _wait_answers(app, 1))[0]["json"]
+    assert body["mic_url"] == OFF and body["speaker_url"] == OFF and body["camera_url"] == OFF, body     # AI giữ máy: không nối gì dù đã cài
+    await _webhook(hass, hass_client_no_auth, {"event": "call", "status": "answered", "call_id": "555", "thread_id": THREAD})
+    for _ in range(60):
+        if seen:
+            break
+        await asyncio.sleep(0.05)
+    assert seen == [({"speaker": "media_player.r1_loa", "mic": "assist_satellite.r1"}, True)], seen

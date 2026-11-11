@@ -855,7 +855,7 @@ set_rule:
         boolean:
     home_devices:
       name: Nối thiết bị nhà
-      description: Mặc định TẮT - cuộc gọi do quy tắc nghe máy không nối mic/loa/camera nhà (người lạ không nghe được phòng nhà). Bật thì dùng các thiết bị bên dưới (trống = mặc định của set_default_devices).
+      description: Mặc định TẮT - không nối thiết bị nhà nào (người lạ không nghe được phòng nhà). Bật thì nối loa/mic/camera ĐÃ CHỌN bên dưới, nhưng chỉ KHI CHUYỂN MÁY (AI giữ máy thì không nối gì) và chỉ thứ đã chọn - ô trống là KHÔNG nối, không rơi về mặc định.
       selector:
         boolean:
     speaker:
@@ -938,6 +938,98 @@ end_call:
     call_id:
       name: Mã cuộc gọi
       description: Bỏ trống để kết thúc cuộc gọi gần nhất.
+      selector:
+        text: null
+
+alert_call:
+  name: Gọi cảnh báo
+  description: Gọi thoại hoặc video để BÁO một cảnh báo - AI đọc nội dung (bằng giọng của pipeline) rồi nối thẳng loa/mic/camera nhà đã cài, không hỏi, không trò chuyện. Chưa cài thiết bị nào thì chỉ đọc rồi cúp (không tự nối gì). Muốn AI trò chuyện thì dùng "Gọi điện" (make_call) với AI.
+  fields:
+    thread_id:
+      name: Mã hội thoại (threadId)
+      description: UserId của người nhận cảnh báo (gọi 1-1).
+      required: true
+      example: "6643404425553198601"
+      selector:
+        text: null
+    message:
+      name: Nội dung cảnh báo
+      description: Câu AI đọc ngay khi người nhận nghe máy.
+      required: true
+      selector:
+        text:
+          multiline: true
+    type:
+      name: Thoại hay video
+      description: user = thoại, video = video. Video thì nối camera nhà (nếu đã cài) sau khi đọc.
+      default: user
+      selector:
+        select:
+          options:
+          - user
+          - video
+    pipeline:
+      name: Assist pipeline (giọng đọc)
+      description: Chọn từ danh sách. Bỏ trống = pipeline của quy tắc threadID này (set_rule); không có thì giọng TTS mặc định của HA.
+      selector:
+        assist_pipeline: null
+    speaker:
+      name: Loa nhà (nối sau khi đọc)
+      description: media_player phát tiếng người nhận. Bỏ trống = loa của quy tắc threadID (set_rule, khi bật home_devices). Không cài thì KHÔNG nối loa.
+      selector:
+        entity:
+          domain: media_player
+    mic:
+      name: Mic nhà (nối sau khi đọc)
+      description: Camera hoặc vệ tinh Assist lấy tiếng gửi cho người nhận. Bỏ trống = của quy tắc. Không cài thì KHÔNG nối mic.
+      selector:
+        entity:
+          domain:
+          - camera
+          - assist_satellite
+    mic_url:
+      name: Mic từ URL (nối sau khi đọc)
+      description: rtsp/rtsps/http/https/rtmp hoặc luồng PCM của loa R1. Thắng ô Mic.
+      selector:
+        text: null
+    camera:
+      name: Camera video (nối sau khi đọc)
+      description: Camera HA phát hình lên cuộc gọi video. Bỏ trống = của quy tắc. Không cài thì KHÔNG gửi hình.
+      selector:
+        entity:
+          domain: camera
+    volume:
+      name: Âm lượng loa trong cuộc gọi
+      description: 1-100 % đặt khi nối loa, trả lại mức cũ khi cúp. Bỏ trống = của quy tắc.
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: slider
+          unit_of_measurement: '%'
+    repeat:
+      name: Đọc mấy lần
+      description: Số lần đọc cảnh báo (1-3).
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 3
+          mode: box
+    tts_engine:
+      name: Giọng đọc (TTS) riêng
+      description: Thực thể tts.* dùng thay giọng của pipeline. Bỏ trống = giọng của pipeline.
+      selector:
+        entity:
+          domain: tts
+    language:
+      name: Ngôn ngữ
+      description: Ngôn ngữ TTS (ví dụ vi). Bỏ trống = của pipeline / HA.
+      selector:
+        text:
+    peer_name:
+      name: Tên hiển thị
+      description: Tên người nhận hiện trong nhật ký cuộc gọi (bỏ trống = dùng mã).
       selector:
         text: null
 '''

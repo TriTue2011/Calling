@@ -251,6 +251,18 @@ def test_speaker_sink_and_echo_guard_endpoints():
         sv._remember_call_devices(88, {"speaker_url": "off", "echo_guard": "false"})
         assert sv._devices_for_call(88)["speaker_url"] == "" and sv._devices_for_call(88)["echo_guard"] is False
         sv._CALL_DEVICES.pop("88", None)
+        # Noi thiet bi GIUA cuoc goi (HA chuyen may tu AI sang truc tiep): luc nghe may moi thiet bi bi tat du mac dinh co san; bo thiet bi dua
+        # kem luc chuyen may thanh thiet bi RIENG cua cuoc goi, nhom khong cai ("off") KHONG roi ve mac dinh.
+        sv._stop_mic(88); sv._stop_speaker(88); sv.ECHO_GUARDS.pop("88", None)
+        sv._remember_call_devices(88, {"mic_url": "off", "speaker_url": "off", "camera_url": "off"})
+        st, b = api("POST", "/api/call/media", {"action": "start", "target": "both", "mic_url": "test", "speaker_url": "off", "camera_url": "off"})
+        assert b["ok"] and b["mic"] is not None and b["speaker"] is None, b            # chi mic: loa khong cai thi khong mo du mac dinh co loa
+        assert sv._devices_for_call(88)["speaker_url"] == "" and "88" not in sv.SPEAKER_SINKS
+        sv._stop_mic(88)
+        st, b = api("POST", "/api/call/media", {"action": "start", "target": "both", "mic_url": "test", "camera_url": "off", "echo_guard": True,
+                                                "speaker_url": "http://ha:8123/api/r1_speaker/intercom/E?k=S"})
+        assert b["ok"] and b["speaker"]["alive"] and b["mic"] is not None and sv.ECHO_GUARDS["88"] is sv.SPEAKER_SINKS["88"]._guard, b
+        sv._CALL_DEVICES.pop("88", None)
         # Dong cuoc goi: don sach loa, guard, mic.
         api("POST", "/api/call/media", {"target": "both"})
         sv._cleanup_call_media({"call_id": 88})
