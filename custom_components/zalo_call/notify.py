@@ -76,6 +76,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, add: AddEnt
         for ent in er.async_entries_for_config_entry(registry, entry.entry_id):
             if ent.domain == "notify" and (ent.unique_id or "").startswith("%s_to_" % entry.entry_id) and ent.unique_id not in keep:
                 registry.async_remove(ent.entity_id)             # người đã xoá khỏi danh bạ và không được chọn
+    registry = er.async_get(hass)
+    for v in chosen:                                              # vừa được chọn: bỏ ẩn (thực thể có thể đã tạo sẵn ở dạng ẩn từ danh bạ)
+        eid = registry.async_get_entity_id("notify", DOMAIN, "%s_to_%s_%s" % ((entry.entry_id,) + split_recipient(v)))
+        ent = registry.async_get(eid) if eid else None
+        if ent is not None and ent.hidden_by == er.RegistryEntryHider.INTEGRATION:
+            registry.async_update_entity(eid, hidden_by=None)
     add(build(everyone, shown))
 
     async def refresh(_now) -> None:

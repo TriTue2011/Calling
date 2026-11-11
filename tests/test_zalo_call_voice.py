@@ -374,6 +374,8 @@ class VoiceApp(FakeZaloApp):
             self.requests.append({"method": "POST", "path": p, "json": json.loads(raw or b"{}"), "raw": b"", "ctype": "application/json"})
             return web.json_response(self.v2t)
         if p == "/api/contacts":
+            if getattr(self, "fail_contacts", False):
+                return web.json_response({"error": "chua_dang_nhap"}, status=503)
             return web.json_response({"friends": {"rows": [{"id": "6643404425553198601", "name": "Đại ca"}, {"id": "111", "name": "Đại Ngà"}]},
                                       "groups": {"rows": [{"id": "3133467193494275911", "name": "AI học hỏi"}]}})
         if p in ("/api/call/request", "/api/call/say", "/api/call/media", "/api/call/end", "/api/call/answer"):
@@ -1039,7 +1041,10 @@ async def test_recipients_are_picked_from_the_contact_list_and_become_notify_ent
     await hass.async_block_till_done()
     reg = er.async_get(hass)
     ids = sorted(e.entity_id for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify")
-    assert ids == ["notify.zalo_call_ai_hoc_hoi", "notify.zalo_call_dai_ca"], ids
+    assert ids == ["notify.zalo_call_ai_hoc_hoi", "notify.zalo_call_dai_ca", "notify.zalo_call_dai_nga"], ids      # TOÀN BỘ danh bạ là thực thể (lọc theo chữ gõ ở ô chọn)
+    assert reg.async_get("notify.zalo_call_dai_ca").hidden_by is None and reg.async_get("notify.zalo_call_ai_hoc_hoi").hidden_by is None
+    assert reg.async_get("notify.zalo_call_dai_nga").hidden_by is not None                            # không được chọn: ẩn khỏi bảng điều khiển, vẫn chọn được trong blueprint
+    assert hass.states.get("notify.zalo_call_dai_nga").attributes["thread_id"] == "111"
     st = hass.states.get("notify.zalo_call_dai_ca")
     assert st.attributes["friendly_name"] == "Zalo Call Đại ca", st.attributes                       # tên không lặp «Zalo»
     assert st.attributes["thread_id"] == THREAD and st.attributes["type"] == "user" and hass.states.get("notify.zalo_call_ai_hoc_hoi").attributes["type"] == "group"
@@ -1049,11 +1054,31 @@ async def test_recipients_are_picked_from_the_contact_list_and_become_notify_ent
     assert sent and sent[-1]["json"]["message"] == "Báo\nChào" and sent[-1]["json"]["type"] == "user", app.requests
     rules = await hass.services.async_call(DOMAIN, "list_rules", {}, blocking=True, return_response=True)
     assert rules["threads"][THREAD]["answer"] is True                                                  # quy tắc còn nguyên sau khi đổi tuỳ chọn
-    # Bỏ chọn hết: thực thể notify biến mất
+    # Bỏ chọn hết: thực thể của danh bạ vẫn còn (chọn được trong blueprint), không có thực thể mồ côi
     res = await hass.config_entries.options.async_init(setup.entry_id)
     await hass.config_entries.options.async_configure(res["flow_id"], {"recipients": []})
     await hass.async_block_till_done()
-    assert not [e for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify"]      # xoá hẳn khỏi sổ đăng ký, không để thực thể mồ côi
+    assert sorted(e.entity_id for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify") == ids
+
+
+def test_display_names_add_the_last_four_digits_only_when_two_contacts_share_a_name():
+    from custom_components.zalo_call import notify as N
+    shown = N._display_names({"user:6643404425553198601": "Vợ yêu", "user:6643404425553191234": "Vợ yêu", "user:111": "Bố", "group:3133467193494275911": "", "user:222": "Bố"})
+    assert shown["user:6643404425553198601"] == "Vợ yêu (…8601)" and shown["user:6643404425553191234"] == "Vợ yêu (…1234)"
+    assert shown["user:111"] == "Bố (…111)" and shown["user:222"] == "Bố (…222)"           # mã ngắn lấy tối đa 4 số cuối
+    assert shown["group:3133467193494275911"] == "3133467193494275911"                       # không tên: dùng mã
+
+
+async def test_contact_entities_survive_the_app_being_down_at_setup(hass, setup, app):
+    """App chưa lên lúc nạp: không xoá thực thể đã có (chỉ dọn sổ khi đọc được danh bạ)."""
+    reg = er.async_get(hass)
+    before = sorted(e.entity_id for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify")
+    assert before
+    await hass.config_entries.async_unload(setup.entry_id)
+    app.fail_contacts = True
+    await hass.config_entries.async_setup(setup.entry_id)
+    await hass.async_block_till_done()
+    assert sorted(e.entity_id for e in reg.entities.values() if e.platform == DOMAIN and e.domain == "notify") == before
 
 
 # ---------------------------------------------------------------- người gọi xin chuyển thoại sang video -------------------------------------
