@@ -421,6 +421,11 @@
             <label class="check"><input id="dev-auto-video" type="checkbox"> Bên kia xin chuyển sang video: tự đồng ý và phát camera mặc định</label>
             <label for="dev-auto-delay">Chờ trước khi tự đồng ý (giây, 0 = ngay)</label>
             <input id="dev-auto-delay" type="number" min="0" max="120" step="1" style="max-width:120px">
+            <label class="check"><input id="dev-auto-answer" type="checkbox"> Tự nghe máy khi có người gọi đến (chỉ những ID Zalo ghi bên dưới)</label>
+            <label for="dev-answer-delay">Chờ trước khi tự nghe máy (giây, 0 = ngay)</label>
+            <input id="dev-answer-delay" type="number" min="0" max="120" step="1" style="max-width:120px">
+            <label for="dev-answer-from">ID Zalo được tự nghe máy (cách nhau dấu phẩy; để trống = không ai)</label>
+            <input id="dev-answer-from" type="text" placeholder="ví dụ: 6643404425553198601" autocomplete="off">
           </fieldset>
           <p id="devices-note" class="row-sub" role="status"></p>
           <button class="btn btn-primary" type="submit">Lưu</button>

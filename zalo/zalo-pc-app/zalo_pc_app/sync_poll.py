@@ -266,13 +266,17 @@ def extract_messages(data, own_id):
                 continue
             sender = str(item.get("uidFrom") or "")
             peer = str(item.get("idTo") or "")
-            if sender in ("", "0") and peer in ("", "0"):
-                sender, peer = own, own
-                # Bundle gan idTo = uid trong truong hop nay; sua
-                # ca ban sao item de normalize khong giu "0".
+            # Zalo dung "0" lam dau hieu "chinh minh" (zca-js: uidFrom "0" -> uid cua minh). Tin tu gui tu thiet bi khac
+            # den voi uidFrom "0" + idTo that: phai tinh la TIN CUA MINH, thread = idTo (truoc day chi bat khi ca hai
+            # deu "0" nen thread thanh "0", is_self sai, AI tra loi nham tin tu gui).
+            if (sender in ("", "0") and peer in ("", "0")) or (sender == "0" and own):
+                if peer in ("", "0"):
+                    peer = own
+                sender = own
+                # Sua ban sao item de normalize khong giu "0".
                 item = dict(item)
                 item["uidFrom"] = own
-                item["idTo"] = own
+                item["idTo"] = peer
             if thread_type == "group":
                 thread_id = peer or sender
             else:

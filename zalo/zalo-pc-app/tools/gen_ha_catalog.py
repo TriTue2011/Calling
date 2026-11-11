@@ -381,6 +381,54 @@ EXTRA_YAML = '''make_call:
       selector:
         entity:
           domain: camera
+    message:
+      name: Thông báo bằng giọng nói
+      description: Câu đọc (TTS của HA) ngay khi cuộc gọi được nghe máy. Bỏ trống = không đọc.
+      selector:
+        text:
+          multiline: true
+    repeat:
+      name: Đọc mấy lần
+      description: Số lần đọc thông báo (1-3).
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 3
+          mode: box
+    ai:
+      name: AI nói chuyện trong cuộc gọi
+      description: Sau thông báo (nếu có), nghe người bên kia nói rồi trả lời bằng AI (Assist pipeline của HA - STT, trợ lý, TTS) tới khi họ cúp, im lặng quá lâu hoặc 10 phút.
+      default: false
+      selector:
+        boolean:
+    hangup_after:
+      name: Cúp máy khi xong
+      description: Cúp máy sau khi đọc xong (và sau cuộc trò chuyện AI). Mặc định bật khi có message hoặc ai.
+      default: true
+      selector:
+        boolean:
+    greeting:
+      name: Câu AI nói đầu tiên
+      description: Chỉ khi bật AI mà không có message - AI nói câu này trước rồi mới lắng nghe.
+      selector:
+        text:
+    tts_engine:
+      name: Giọng đọc (TTS)
+      description: Thực thể tts.* dùng để đọc. Bỏ trống = giọng của pipeline.
+      selector:
+        entity:
+          domain: tts
+    language:
+      name: Ngôn ngữ
+      description: Ngôn ngữ cho STT/TTS (ví dụ vi). Bỏ trống = của pipeline / HA.
+      selector:
+        text:
+    pipeline_id:
+      name: Assist pipeline
+      description: Id pipeline dùng cho AI trong cuộc gọi. Bỏ trống = pipeline mặc định.
+      selector:
+        text:
 answer_call:
   name: Nghe máy
   description: Nghe cuộc gọi đến (nối loa/mic đã chọn).
@@ -424,6 +472,54 @@ answer_call:
       selector:
         entity:
           domain: camera
+    message:
+      name: Thông báo bằng giọng nói
+      description: Câu đọc (TTS của HA) ngay khi cuộc gọi được nghe máy. Bỏ trống = không đọc.
+      selector:
+        text:
+          multiline: true
+    repeat:
+      name: Đọc mấy lần
+      description: Số lần đọc thông báo (1-3).
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 3
+          mode: box
+    ai:
+      name: AI nói chuyện trong cuộc gọi
+      description: Sau thông báo (nếu có), nghe người bên kia nói rồi trả lời bằng AI (Assist pipeline của HA - STT, trợ lý, TTS) tới khi họ cúp, im lặng quá lâu hoặc 10 phút.
+      default: false
+      selector:
+        boolean:
+    hangup_after:
+      name: Cúp máy khi xong
+      description: Cúp máy sau khi đọc xong (và sau cuộc trò chuyện AI). Mặc định bật khi có message hoặc ai.
+      default: true
+      selector:
+        boolean:
+    greeting:
+      name: Câu AI nói đầu tiên
+      description: Chỉ khi bật AI mà không có message - AI nói câu này trước rồi mới lắng nghe.
+      selector:
+        text:
+    tts_engine:
+      name: Giọng đọc (TTS)
+      description: Thực thể tts.* dùng để đọc. Bỏ trống = giọng của pipeline.
+      selector:
+        entity:
+          domain: tts
+    language:
+      name: Ngôn ngữ
+      description: Ngôn ngữ cho STT/TTS (ví dụ vi). Bỏ trống = của pipeline / HA.
+      selector:
+        text:
+    pipeline_id:
+      name: Assist pipeline
+      description: Id pipeline dùng cho AI trong cuộc gọi. Bỏ trống = pipeline mặc định.
+      selector:
+        text:
 reject_call:
   name: Từ chối cuộc gọi đến
   description: Từ chối cuộc gọi đang đổ chuông.
@@ -590,6 +686,25 @@ set_default_devices:
           max: 120
           mode: box
           unit_of_measurement: s
+    auto_answer:
+      name: Tự nghe máy khi có người gọi đến
+      description: Bật thì cuộc gọi 1-1 đến từ ID nằm trong «Tự nghe máy chỉ với các ID Zalo này» sẽ được tự nghe sau bộ đếm.
+      selector:
+        boolean:
+    auto_answer_delay:
+      name: Chờ trước khi tự nghe máy (giây)
+      description: Bộ đếm tự nghe máy (0 = nghe ngay). Người gọi cúp trước hạn thì không nghe.
+      selector:
+        number:
+          min: 0
+          max: 120
+          mode: box
+          unit_of_measurement: s
+    auto_answer_from:
+      name: Chỉ tự nghe máy với các ID Zalo này
+      description: ID Zalo cách nhau dấu phẩy. Để trống = không ai được tự nghe (nghe máy là mở mic nhà cho người gọi).
+      selector:
+        text:
     call_volume:
       name: Âm lượng cuộc gọi mặc định
       description: 1-100 % — âm lượng loa đặt khi nghe máy rồi trả lại khi cuộc gọi kết thúc; 0 = giữ nguyên âm lượng loa.
@@ -599,6 +714,39 @@ set_default_devices:
           max: 100
           mode: slider
           unit_of_measurement: '%'
+say_in_call:
+  name: Đọc lên cuộc gọi (TTS)
+  description: Đọc một câu bằng TTS của HA lên cuộc gọi đang nói.
+  fields:
+    message:
+      name: Nội dung
+      description: Câu cần đọc.
+      required: true
+      selector:
+        text:
+          multiline: true
+    call_id:
+      name: Mã cuộc gọi
+      description: Bỏ trống = cuộc gọi đang nói hiện tại.
+      selector:
+        text:
+    tts_engine:
+      name: Giọng đọc (TTS)
+      description: Thực thể tts.*; bỏ trống = mặc định của HA.
+      selector:
+        entity:
+          domain: tts
+    language:
+      name: Ngôn ngữ
+      description: Ví dụ vi.
+      selector:
+        text:
+    wait:
+      name: Chờ đọc xong
+      description: Chờ đọc xong mới trả về.
+      default: true
+      selector:
+        boolean:
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.

@@ -89,7 +89,7 @@ MAX_BACKLOG_FRAMES = 5     # > 100 ms ton dong thi bo bot khung cu (giu do tre t
 
 
 def stream_out(engine, write, is_live, clock=time.monotonic,
-               sleep=time.sleep, header=True):
+               sleep=time.sleep, header=True, read=None, depth=None):
     """Ghi WAV lien tuc cho den khi `is_live()` sai hoac `write` loi.
 
     DUNG MOT KHUNG MOI 20 MS theo dong ho (khung that neu co, khong thi
@@ -98,13 +98,16 @@ def stream_out(engine, write, is_live, clock=time.monotonic,
     ton hon MAX_BACKLOG_FRAMES (mang khung den dap), bo bot khung cu nhat."""
     if header:                                  # loa truc tiep ghi PCM tho, khong co header WAV
         write(wav_header())
-    depth = getattr(engine, "queue_depth", None)
+    # read/depth: nguon khung rieng (tap) thay cho hang doi chinh cua engine.
+    if read is None:
+        read = lambda: engine.read_frame(timeout=0)  # noqa: E731
+        depth = getattr(engine, "queue_depth", None)
     tick = clock()
     while is_live():
         if depth is not None:
             for _ in range(max(0, depth() - MAX_BACKLOG_FRAMES)):
-                engine.read_frame(timeout=0)
-        frame = engine.read_frame(timeout=0)
+                read()
+        frame = read()
         write(frame if frame is not None else SILENCE)
         tick += FRAME_BYTES / (RATE * 2)            # 0,02 s
         wait = tick - clock()

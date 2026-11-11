@@ -53,14 +53,14 @@ class ZaloCallApi:
             raise ZaloCallError("Không gọi được tới app: %s" % err) from err
 
     async def _request(self, method: str, path: str, *, retry: bool = True,
-                       **kw: Any) -> Any:
+                       timeout: aiohttp.ClientTimeout = TIMEOUT, **kw: Any) -> Any:
         try:
             async with self._s.request(method, self.url + path,
-                                       timeout=TIMEOUT, **kw) as r:
+                                       timeout=timeout, **kw) as r:
                 if r.status == 401 and retry:
                     async with self._lock:
                         await self.login()
-                    return await self._request(method, path, retry=False, **kw)
+                    return await self._request(method, path, retry=False, timeout=timeout, **kw)
                 try:
                     data = await r.json(content_type=None)
                 except (aiohttp.ContentTypeError, ValueError):
@@ -162,6 +162,13 @@ class ZaloCallApi:
         return await self._request(
             "POST", "/api/call/reject",
             json={"call_id": call_id if call_id is not None else ""})
+
+    async def call_say(self, call_id: str | int, filename: str, data: bytes) -> dict:
+        """Phat mot doan am thanh (TTS) len cuoc goi dang noi qua duong mic cua app: POST /api/call/say."""
+        form = aiohttp.FormData()
+        form.add_field("call_id", str(call_id))
+        form.add_field("file", data, filename=filename, content_type="application/octet-stream")
+        return await self._request("POST", "/api/call/say", data=form, timeout=aiohttp.ClientTimeout(total=60))
 
     async def call_media_status(self, call_id: str | int) -> dict | None:
         """Trang thai media (kem audio_token) cua mot cuoc goi dang song."""

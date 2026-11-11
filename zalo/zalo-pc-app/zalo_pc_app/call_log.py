@@ -116,6 +116,23 @@ class CallLog:
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
 
+    def has_call(self, call_id):
+        """Da co entry (bat ky trang thai) cho call_id nay chua — de bo qua su kien `request` lap lai."""
+        with self._lock:
+            return any(c["call_id"] == str(call_id) for c in self._calls)
+
+    def record_busy_rejected(self, call_id, peer, thread_id, call_type):
+        """Cuoc goi DEN luc ta dang ban (dang noi / dang goi di): ghi mot entry da KET THUC ngay ("busy_rejected"),
+        KHONG dung vao cuoc dang song (khac record_incoming: no don cuoc cu)."""
+        now = time.time()
+        with self._lock:
+            entry = {"call_id": str(call_id), "peer": peer or "", "thread_id": str(thread_id), "type": call_type,
+                     "status": "ended", "started_at": now, "ended_at": now, "detail": "busy_rejected",
+                     "request_sent": None, "request_detail": "", "answered_at": None, "answer_source": "", "diag": {}}
+            self._calls.append(entry)
+            del self._calls[:-MAX_RECORDS]
+            return dict(entry)
+
     def record_answered(self, call_id, source=""):
         """Mark a live (ringing) call answered: the peer picked up
         and the call is connected. "sent" -> "answered" (outgoing)

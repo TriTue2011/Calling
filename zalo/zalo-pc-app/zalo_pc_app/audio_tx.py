@@ -26,6 +26,7 @@ FRAME_BYTES = 640           # 20 ms PCM16 mono 16 kHz
 FRAME_SECONDS = 0.02
 MAX_BACKLOG = 10            # > 200 ms ton dong thi bo khung cu (giu do tre thap)
 FORMATS = ("auto", "s16le16k")
+ONCE_BACKLOG = 250          # phat MOT lan (TTS): ffmpeg xa don luc dau; khong bo khung cua cau noi (250 khung = 5 s)
 
 
 # Do 10/11 tren luong mic R1 that: ffmpeg mac dinh doi ~3,3 s (do dinh dang) roi xa don gap 4 lan,
@@ -33,7 +34,7 @@ FORMATS = ("auto", "s16le16k")
 LOW_LATENCY = ["-fflags", "nobuffer", "-flags", "low_delay"]
 
 
-def build_ffmpeg_args(source, fmt="auto", ffmpeg="ffmpeg"):
+def build_ffmpeg_args(source, fmt="auto", ffmpeg="ffmpeg", loop=True):
     src = str(source or "test")
     args = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin"]
     if src == "test":
@@ -49,21 +50,24 @@ def build_ffmpeg_args(source, fmt="auto", ffmpeg="ffmpeg"):
         else:
             args += LOW_LATENCY + ["-analyzeduration", "1000000", "-i", src]
     else:
-        args += ["-re", "-stream_loop", "-1", "-i", src]
+        # Tep: mac dinh LAP MAI (nguon mic gia/nhac nen). loop=False phat dung mot lan roi ket thuc (alive -> False):
+        # giong noi TTS cua /api/call/say.
+        args += ["-re"] + (["-stream_loop", "-1"] if loop else []) + ["-i", src]
     args += ["-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1"]
     return args
 
 
 class AudioSender:
     def __init__(self, send_pcm, source="test", fmt="auto", popen=None,
-                 clock=time.monotonic, sleep=time.sleep, gate=None, log=None):
+                 clock=time.monotonic, sleep=time.sleep, gate=None, log=None, loop=True):
         if fmt not in FORMATS:
             raise ValueError("fmt khong hop le: %r" % (fmt,))
         self._log = log
         self._tail = None
         self._send = send_pcm
         self._gate = gate               # gate() True = bo khung nay (chong vong)
-        self._args = build_ffmpeg_args(source, fmt)
+        self._args = build_ffmpeg_args(source, fmt, loop=loop)
+        self._max_backlog = MAX_BACKLOG if loop else ONCE_BACKLOG
         self._popen = popen or subprocess.Popen
         self._clock, self._sleep = clock, sleep
         self._proc = None
@@ -104,7 +108,7 @@ class AudioSender:
                     frame, buf = buf[:FRAME_BYTES], buf[FRAME_BYTES:]
                     with self._cv:
                         self._queue.append(frame)
-                        while len(self._queue) > MAX_BACKLOG:
+                        while len(self._queue) > self._max_backlog:
                             self._queue.popleft()
                             self.dropped += 1
                         self._cv.notify()
@@ -163,7 +167,9 @@ class AudioSender:
             t.join(timeout=2)
 
     def status(self):
-        return {"alive": self.alive, "frames": self.frames,
+        # alive: con nguon HOAC con khung cho gui (tep ket thuc truoc khi khung cuoi duoc gui het ~0,5 s) — de nguoi poll
+        # trang thai (HA doi doc xong TTS) khong cat cau.
+        return {"alive": self.alive or len(self._queue) > 0, "frames": self.frames,
                 "dropped": self.dropped, "gated": self.gated, "errors": self.errors,
                 "last_error": self.last_error,
                 "ffmpeg_err": self.stderr_tail(),

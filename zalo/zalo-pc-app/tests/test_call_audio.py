@@ -12,6 +12,7 @@ import struct
 import sys
 import tempfile
 import threading
+import time
 
 TEST_USER = "nguoi-dung-test"
 TEST_PASSWORD = "mat-khau-test-123"
@@ -236,6 +237,60 @@ def test_http_routes():
         conn, resp = _http(port, "GET", "/api/call/audio/out/" + token)
         assert resp.status == 404, resp.status
         resp.read(); conn.close()
+    finally:
+        engine_seam.SEAM.engine = None
+        httpd.shutdown()
+
+
+def test_http_tap_route_gives_second_listener_its_own_copy():
+    """/api/call/audio/tap/<token>: AI (nguoi nghe thu hai) nhan BAN SAO, khong lay khung cua loa (hang doi chinh)."""
+    from http.server import ThreadingHTTPServer
+    from zalo_pc_app import pc_media
+
+    class _T:
+        state = "started"
+
+        def set_pcm_callback(self, cb):
+            self.cb = cb
+
+        def stop(self):
+            pass
+
+    state = app_server.AppState(tmp)
+    app_server.STATE = state
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), app_server.Handler)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        token = state.audio_tokens.token_for(77)
+        conn, resp = _http(port, "GET", "/api/call/audio/tap/khong-co")
+        assert resp.status == 404
+        resp.read(); conn.close()
+        engine_seam.SEAM.engine = None
+        conn, resp = _http(port, "GET", "/api/call/audio/tap/" + token)
+        assert resp.status == 409
+        resp.read(); conn.close()
+        t = _T()
+        eng = pc_media.PcMediaEngine(t, queue_size=500).start().attach({"call_id": 77})
+        engine_seam.SEAM.engine = eng
+        conn, resp = _http(port, "GET", "/api/call/audio/tap/" + token)
+        assert resp.status == 200 and resp.getheader("Content-Type") == "audio/wav"
+        time.sleep(0.2)                                # cho tap duoc dang ky
+        for i in range(1, 6):
+            t.cb(bytes([i]) * 640)
+        data = resp.read(44 + 640 * 40)
+        resp.close()
+        conn.close()
+        assert data[:4] == b"RIFF"
+        chunks = [data[44 + i * 640:44 + (i + 1) * 640] for i in range(40)]
+        real = [c[0] for c in chunks if c != bytes(640)]           # bo khung im lang truoc khi co tieng
+        assert real[:5] == [1, 2, 3, 4, 5], real[:8]
+        time.sleep(0.2)
+        assert eng.queue_depth() == 5                  # loa (hang doi chinh) van giu du 5 khung
+        deadline = time.time() + 3
+        while time.time() < deadline and eng._taps:    # ngat ket noi thi tap duoc go
+            time.sleep(0.1)
+        assert eng._taps == []
     finally:
         engine_seam.SEAM.engine = None
         httpd.shutdown()

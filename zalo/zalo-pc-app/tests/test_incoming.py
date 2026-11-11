@@ -113,6 +113,24 @@ def test_extract_messages_self_and_both_zero():
     assert msgs[1][2]["sender_id"] == "10001", msgs[1]
 
 
+def test_extract_messages_uidfrom_zero_is_self():
+    """Tin tu gui tu thiet bi khac den voi uidFrom "0" + idTo that (log that 11/11: thread "0", AI tra loi nham)."""
+    data = {"msgs": [{"msgId": "e1", "uidFrom": "0", "idTo": "20001", "content": "Canh bao: cua chinh dang mo",
+                      "ts": 1762345820}],
+            "groupMsgs": [{"msgId": "e2", "uidFrom": "0", "idTo": "30001", "content": "Tin nhom cua minh", "ts": 1762345830}],
+            "pageMsgs": []}
+    msgs = sync_mod.extract_messages(data, "10001")
+    (t1, tid1, m1), (t2, tid2, m2) = msgs
+    assert (t1, tid1) == ("user", "20001"), msgs[0]       # thread la nguoi nhan, khong phai "0"
+    assert m1["is_self"] is True and m1["direction"] == "out" and m1["sender_id"] == "10001", m1
+    assert (t2, tid2) == ("group", "30001"), msgs[1]
+    assert m2["is_self"] is True and m2["sender_id"] == "10001", m2
+    # Nguoc lai: tin NGUOI KHAC gui cho minh (idTo "0") van la tin den cua nguoi do.
+    inc = sync_mod.extract_messages({"msgs": [{"msgId": "i1", "uidFrom": "20001", "idTo": "0", "content": "Chao", "ts": 1}]},
+                                    "10001")
+    assert inc[0][1] == "20001" and inc[0][2]["is_self"] is False, inc
+
+
 def test_normalize_poll_shape():
     item = {"msgId": "pm9", "uidFrom": "20009",
             "content": {"msg": "Xin chao", "title": "Tieu de"},

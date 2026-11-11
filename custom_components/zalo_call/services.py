@@ -22,6 +22,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
+from .call_voice import async_say, plan_from_service
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
 
@@ -251,6 +252,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
                                          fields)
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
+        _register_voice_plan(rt, (res or {}).get("call_id"), call.data)
         return {"result": res}
 
     async def answer_call(call: ServiceCall) -> dict:
@@ -262,7 +264,24 @@ async def async_register_services(hass: HomeAssistant) -> None:
             res = await api.call_answer(call.data.get("call_id"), fields)
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
+        _register_voice_plan(rt, (res or {}).get("call_id") or call.data.get("call_id"), call.data)
         return {"result": res}
+
+    async def say_in_call(call: ServiceCall) -> dict:
+        """Đọc (TTS) một câu lên cuộc gọi đang nói."""
+        rt, api = _api(hass, call)
+        call_id = call.data.get("call_id")
+        try:
+            if call_id in (None, ""):
+                active = (await api.calls() or {}).get("active")
+                if not active or active.get("status") != "answered":
+                    raise HomeAssistantError("Không có cuộc gọi nào đang nói")
+                call_id = active["call_id"]
+            await async_say(hass, api, str(call_id), str(call.data["message"]), call.data.get("tts_engine"),
+                            call.data.get("language"), wait=bool(call.data.get("wait", True)), restore_mic=True)
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"call_id": call_id}
 
     async def reject_call(call: ServiceCall) -> dict:
         _, api = _api(hass, call)
@@ -284,6 +303,12 @@ async def async_register_services(hass: HomeAssistant) -> None:
                                      % res["error"])
         return {"req_id": res.get("req_id"), "done": bool(res.get("done")),
                 "text": res.get("text", "")}
+
+    def _register_voice_plan(rt, call_id, data) -> None:
+        """make_call/answer_call kèm message/ai: đăng ký kế hoạch, chạy khi cuộc gọi được nghe máy."""
+        plan = plan_from_service(data)
+        if plan is not None and call_id not in (None, ""):
+            rt.voice.plans[str(call_id)] = plan
 
     async def end_call(call: ServiceCall) -> dict:
         _, api = _api(hass, call)
@@ -362,7 +387,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
         rt, _ = _api(hass, call)
         patch = {k: call.data[k] for k in
                  ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video",
-                  "auto_video_delay", "echo_guard", "call_volume")
+                  "auto_video_delay", "auto_answer", "auto_answer_delay", "auto_answer_from",
+                  "echo_guard", "call_volume")
                  if k in call.data}
         if patch.get("mic_url") or patch.get("mic"):
             patch.setdefault("mic_url" if patch.get("mic") else "mic", "")
@@ -396,13 +422,34 @@ async def async_register_services(hass: HomeAssistant) -> None:
                            vol.Optional("call_volume"):
                                vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
                            vol.Optional("auto_video_delay"):
-                               vol.All(vol.Coerce(int), vol.Range(min=0, max=120))}))
+                               vol.All(vol.Coerce(int), vol.Range(min=0, max=120)),
+                           vol.Optional("auto_answer"): cv.boolean,
+                           vol.Optional("auto_answer_delay"):
+                               vol.All(vol.Coerce(int), vol.Range(min=0, max=120)),
+                           vol.Optional("auto_answer_from"): cv.string}))
 
     devices = {vol.Optional("speaker"): cv.string,
                vol.Optional("mic"): cv.string,
                vol.Optional("mic_url"): cv.string,
                vol.Optional("camera"): cv.string,
                vol.Optional("volume"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100))}
+    voice = {vol.Optional("message"): cv.string,
+             vol.Optional("repeat"): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)),
+             vol.Optional("ai"): cv.boolean,
+             vol.Optional("hangup_after"): cv.boolean,
+             vol.Optional("greeting"): cv.string,
+             vol.Optional("tts_engine"): cv.entity_id,
+             vol.Optional("language"): cv.string,
+             vol.Optional("pipeline_id"): cv.string}
+    hass.services.async_register(
+        DOMAIN, "say_in_call", say_in_call,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string,
+                           vol.Optional("call_id"): vol.Any(int, cv.string),
+                           vol.Required("message"): cv.string,
+                           vol.Optional("tts_engine"): cv.entity_id,
+                           vol.Optional("language"): cv.string,
+                           vol.Optional("wait"): cv.boolean}),
+        supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, "make_call", make_call,
         schema=vol.Schema({
@@ -412,13 +459,13 @@ async def async_register_services(hass: HomeAssistant) -> None:
             vol.Optional("peer_name"): cv.string,
             vol.Optional("srtp"): vol.In(["sess", "off", "key"]),
             vol.Optional("extend_profile"): vol.In(["native", "pc", "zca"]),
-            **devices}),
+            **voice, **devices}),
         supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, "answer_call", answer_call,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string,
                            vol.Optional("call_id"): vol.Any(int, cv.string),
-                           **devices}),
+                           **voice, **devices}),
         supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, "reject_call", reject_call,

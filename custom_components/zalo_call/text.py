@@ -9,14 +9,15 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .bridge_core import valid_url
-from .const import CONF_AI_THREADS, CONF_HA_URL, DOMAIN
+from .const import CONF_AI_CALL_GREETING, CONF_AI_THREADS, CONF_AUTO_ANSWER_FROM, CONF_HA_URL, DOMAIN
 from .entity import ZaloCallEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             add: AddEntitiesCallback) -> None:
     rt = hass.data[DOMAIN][entry.entry_id]
-    add([MicUrlText(entry, rt), HaUrlText(entry, rt), AiThreadsText(entry, rt)])
+    add([MicUrlText(entry, rt), HaUrlText(entry, rt), AiThreadsText(entry, rt), AutoAnswerFromText(entry, rt),
+         AiCallGreetingText(entry, rt)])
 
 
 class MicUrlText(ZaloCallEntity, TextEntity):
@@ -89,3 +90,30 @@ class AiThreadsText(_PlainText):
 
     async def async_set_value(self, value: str) -> None:
         await self._rt.defaults.async_set(**{self._key: value})
+
+
+class AutoAnswerFromText(_PlainText):
+    """ID Zalo được tự nghe máy; trống = không ai (nghe máy là mở mic nhà cho người gọi)."""
+
+    def __init__(self, entry: ConfigEntry, rt) -> None:
+        super().__init__(entry, rt, CONF_AUTO_ANSWER_FROM,
+                         "Tự nghe máy chỉ với các ID Zalo này (cách nhau dấu phẩy, trống = không ai)",
+                         "mdi:phone-check")
+
+    async def async_set_value(self, value: str) -> None:
+        ids = [p.strip() for p in value.replace(";", ",").split(",") if p.strip()]
+        if not all(p.isdigit() for p in ids):
+            raise ServiceValidationError("Chỉ nhập ID Zalo (số), cách nhau dấu phẩy")
+        await self._rt.defaults.async_set(**{self._key: ",".join(ids)})
+        await self._rt.bridge.async_push_defaults()
+
+
+class AiCallGreetingText(_PlainText):
+    """Câu AI nói đầu cuộc gọi đến khi bật «AI nghe và trả lời trong cuộc gọi» (trống = câu mặc định)."""
+
+    def __init__(self, entry: ConfigEntry, rt) -> None:
+        super().__init__(entry, rt, CONF_AI_CALL_GREETING, "Câu chào đầu cuộc gọi của AI (trống = câu mặc định)",
+                         "mdi:message-text")
+
+    async def async_set_value(self, value: str) -> None:
+        await self._rt.defaults.async_set(**{self._key: value.strip()})

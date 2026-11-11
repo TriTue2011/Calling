@@ -9,7 +9,7 @@ dưới tên `zalo_call_message`, `zalo_call_call`, `zalo_call_group_event`,
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 import aiohttp
@@ -30,8 +30,11 @@ from .ai import async_ai_reply
 from .api import ZaloCallApi, ZaloCallAuthError, ZaloCallError
 from .bridge import CallAudioBridge
 from .bridge_core import derive_state
+from .call_voice import CallVoice, on_call_state
 from .devices import DeviceDefaults
 from .const import (
+    CONF_AI_CALL,
+    CONF_AI_CALL_GREETING,
     CONF_HA_URL,
     CONF_PASSWORD,
     CONF_URL,
@@ -59,6 +62,7 @@ class ZaloCallData:
     coordinator: "ZaloCallCoordinator"
     bridge: CallAudioBridge
     defaults: DeviceDefaults
+    voice: CallVoice = field(default_factory=CallVoice)     # kế hoạch giọng nói/AI theo từng cuộc gọi
 
 
 class ZaloCallCoordinator(DataUpdateCoordinator[dict]):
@@ -133,6 +137,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if kind == "call":
             await coordinator.async_request_refresh()
             await _async_call_state(hass_, bridge, payload)
+            state = derive_state(payload)
+            if state is not None:
+                on_call_state(hass_, hass_.data[DOMAIN][entry.entry_id], state, payload.get("call_id"), TERMINAL_STATES,
+                              bool(defaults.get(CONF_AI_CALL)), str(defaults.get(CONF_AI_CALL_GREETING) or ""),
+                              str(payload.get("answer_source") or ""))
         elif kind == "message":
             hass_.async_create_task(async_ai_reply(hass_, entry, payload))
         return web.Response(status=200)
@@ -163,6 +172,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if ok:
         data = hass.data[DOMAIN].pop(entry.entry_id, None)
         if data is not None:
+            data.voice.cancel_all()
             await data.bridge.async_shutdown()
     return ok
 

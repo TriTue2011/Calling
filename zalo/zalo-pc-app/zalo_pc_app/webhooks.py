@@ -248,6 +248,9 @@ def build_call_event(call_entry, account_id):
     })
     if status == "error":
         payload["detail"] = call_entry.get("detail", "") or ""
+    if status == "answered":
+        # api = nguoi/automation goi answer; auto = app tu nghe may (auto_answer); media = thay RTP; sync = ben kia nghe may.
+        payload["answer_source"] = str(call_entry.get("answer_source", "") or "")
     if status == "ended":
         # Ly do ket thuc that (user_end / ring_timeout / peer_declined /
         # peer_ended / missed / user_rejected ...), chi phan truoc dau ";"

@@ -454,7 +454,8 @@ def test_push_defaults_to_app_with_resolved_urls():
         assert api.pushed == [{"mic_url": "rtsp://u:p@cam.local/stream", "mic_format": "auto",
                                "camera_url": "rtsp://cam2.local/s", "speaker_url": "",
                                "echo_guard": False, "auto_mic": False,
-                               "auto_video_on_request": True, "auto_video_delay": 0}]
+                               "auto_video_on_request": True, "auto_video_delay": 0,
+                               "auto_answer": False, "auto_answer_delay": 3, "auto_answer_from": ""}]
         # camera khong co stream -> day rong (app khong tu phat hinh)
         H["urls"]["camera.cam2"] = "rtsp://u:p@localhost:8554/cam2-sub"        # go2rtc cua HA
         await br.async_push_defaults()

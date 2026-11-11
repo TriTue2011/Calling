@@ -57,6 +57,12 @@ CONF_ECHO_GUARD = "echo_guard"          # chong vong: auto | on (chan mic) | dup
 ECHO_MODES = ("auto", "on", "duplex", "off")
 CONF_AUTO_VIDEO_DELAY = "auto_video_delay"   # giay cho truoc khi tu dong y (0 = ngay)
 MAX_AUTO_VIDEO_DELAY = 120
+CONF_AUTO_ANSWER = "auto_answer"              # tu nghe may cuoc goi 1-1 DEN tu nguoi trong danh sach
+CONF_AUTO_ANSWER_DELAY = "auto_answer_delay"  # giay cho truoc khi tu nghe may (bo dem; 0 = ngay)
+CONF_AUTO_ANSWER_FROM = "auto_answer_from"    # ID Zalo duoc tu nghe, cach nhau dau phay (trong = khong ai)
+MAX_AUTO_ANSWER_DELAY = 120
+CONF_AI_CALL = "ai_call"                      # AI nghe va tra loi bang giong noi trong cuoc goi DEN (STT -> tro ly -> TTS)
+CONF_AI_CALL_GREETING = "ai_call_greeting"    # cau chao dau cuoc goi (trong = cau mac dinh)
 CONF_CALL_VOLUME = "call_volume"   # % am luong loa luc dang goi (0 = giu nguyen am luong cua loa)
 MAX_CALL_VOLUME = 100
 STORAGE_VERSION = 1

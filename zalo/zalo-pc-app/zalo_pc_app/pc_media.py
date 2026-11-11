@@ -338,6 +338,8 @@ class PcMediaEngine:
     def __init__(self, transport, queue_size=50):
         self.transport = transport
         self._queue = queue.Queue(maxsize=queue_size)
+        self._taps = []                  # ban sao khung nhan cho nguoi nghe thu hai (vi du AI) — khong chia khung voi loa
+        self._taps_lock = threading.Lock()
         self._stop = threading.Event()
         self._started = False
         self._dropped = 0
@@ -386,6 +388,19 @@ class PcMediaEngine:
     def queue_depth(self):
         return self._queue.qsize()
 
+    def add_tap(self, maxsize=100):
+        """Hang doi nhan BAN SAO moi khung nhan duoc. Nguoi nghe thu hai doc qua day, khong tranh khung voi read_frame
+        (loa): neu khong, hai nguoi nghe se moi ben chi duoc mot nua so khung."""
+        tap = queue.Queue(maxsize=maxsize)
+        with self._taps_lock:
+            self._taps.append(tap)
+        return tap
+
+    def remove_tap(self, tap):
+        with self._taps_lock:
+            if tap in self._taps:
+                self._taps.remove(tap)
+
     def read_frame(self, timeout=1.0):
         """One received PCM frame, or None on timeout/stop."""
         try:
@@ -411,3 +426,10 @@ class PcMediaEngine:
             self._queue.put_nowait(frame)
         except queue.Full:
             self._dropped += 1
+        with self._taps_lock:
+            taps = list(self._taps)
+        for tap in taps:
+            try:
+                tap.put_nowait(frame)
+            except queue.Full:
+                pass                              # nguoi nghe cham: bo khung, khong chan duong nhan
