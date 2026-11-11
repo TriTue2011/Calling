@@ -659,38 +659,75 @@ async function loadServices() {
 function renderServices() {
   const cat = svcCatalog;
   if (!cat || !cat.services) return;
-  const c = cat.counts || {};
-  const done = (c.supported || 0) + (c.view || 0);
-  $("svc-counts").textContent =
-    done + "/96 thao tác được trên UI (trong đó "
-    + (c.supported || 0) + " qua panel Dịch vụ, "
-    + (c.view || 0) + " đã xem được ở Danh bạ) · "
-    + (c.chat || 0) + " thuộc khung chat · "
-    + (c.zalobot || 0) + " thuộc máy chủ zalobot · "
-    + (c.unsupported || 0) + " chưa hỗ trợ (chưa có đường PC).";
   const box = $("svc-groups");
   box.innerHTML = "";
-  (cat.groups || []).forEach((g) => {
-    const items = cat.services.filter((s) => s.group === g.id);
-    if (!items.length) return;
+  let total = 0;
+  const addSection = (title, entries, id) => {
+    if (!entries.length) return;
     const sec = document.createElement("section");
     sec.className = "svc-group";
+    sec.dataset.group = id;
     const h = document.createElement("h2");
     h.className = "svc-group-title";
-    h.textContent = g.label;
+    h.textContent = title + " (" + entries.length + ")";
     sec.appendChild(h);
     const ul = document.createElement("ul");
     ul.className = "svc-list";
-    items.forEach((s) => ul.appendChild(svcRow(s)));
+    entries.forEach((s) => { ul.appendChild(svcRow(svcWithExtras(s), cat)); total += 1; });
     sec.appendChild(ul);
     box.appendChild(sec);
-  });
+  };
+  (cat.groups || []).forEach((g) => addSection(g.label, cat.services.filter((s) => s.group === g.id), g.id));
+  // API mo rong (zca-js): moi API mot dong, gom theo nhom (domain), khong sot cai nao.
+  const known = new Set(cat.services.map((s) => s.action).filter(Boolean).concat(cat.services.map((s) => s.addon)));
+  const extras = ((cat.zca && cat.zca.apis) || []).filter((a) => !a.covered_by && !known.has(a.action))
+    .map(svcFromZca);
+  const byDomain = {};
+  extras.forEach((e) => { (byDomain[e.zdomain] = byDomain[e.zdomain] || []).push(e); });
+  Object.keys(byDomain).sort().forEach((d) => addSection("Mở rộng · " + d, byDomain[d], "zca-" + d));
+  $("svc-counts").textContent = total + " dịch vụ, mỗi dịch vụ có form hoặc nút ngay trên trang này ("
+    + cat.services.length + " dịch vụ gốc + " + extras.length + " API mở rộng). Gõ vào ô tìm để lọc.";
+  svcFilter();
   syncSvcThreadBox();
 }
 
-function svcRow(s) {
+function svcWithExtras(s) {
+  if (s.addon !== "send_sticker") return s;     // gui sticker theo tu khoa (tu tim roi gui)
+  const fields = (s.fields || []).map((f) => (f.key === "sticker_id" ? Object.assign({}, f, { required: false }) : f));
+  fields.push({ key: "keyword", label: "Từ khoá sticker (thay cho Sticker ID)", required: false },
+              { key: "pick", label: "Chọn: first hoặc random", required: false });
+  return Object.assign({}, s, { fields });
+}
+
+function svcFilter() {
+  const q = (($("svc-search") && $("svc-search").value) || "").trim().toLowerCase();
+  document.querySelectorAll("#svc-groups .svc-row").forEach((li) => {
+    li.style.display = !q || (li.dataset.q || "").includes(q) ? "" : "none";
+  });
+  document.querySelectorAll("#svc-groups .svc-group").forEach((sec) => {
+    const any = Array.from(sec.querySelectorAll(".svc-row")).some((li) => li.style.display !== "none");
+    sec.style.display = any ? "" : "none";
+  });
+}
+
+// Mot API zca-js -> muc dich vu co form (cac truong lay tu args; raw/manual co them o `params` JSON).
+function svcFromZca(a) {
+  const fields = (a.args || []).map((x) => ({ key: x.name, label: x.name + " (" + x.type + ")", required: !!x.required }));
+  const needParams = a.mode === "raw" || a.mode === "manual";
+  if (needParams) {
+    fields.push({ key: "params", label: "params (JSON nguyên khối)"
+      + (a.mode === "raw" ? "" : " — bắt buộc cho API này"), required: a.mode === "manual" });
+  }
+  return { zca: true, zdomain: a.domain || "khac", label: a.action, addon: a.name, desc: a.summary || "", status: "supported",
+           action: a.action, thread: "none", danger: !!a.danger, fields: fields, reason: a.reason || "", mode: a.mode };
+}
+
+function svcRow(s, cat) {
   const li = document.createElement("li");
   li.className = "svc-row" + (s.danger ? " svc-danger" : "");
+  li.dataset.svc = s.addon || s.action || s.label;
+  li.dataset.q = ((s.label || "") + " " + (s.addon || "") + " " + (s.action || "") + " " + (s.desc || "")).toLowerCase();
+  li.dataset.ui = "info";
   const main = document.createElement("div");
   main.className = "svc-main";
   const name = document.createElement("div");
@@ -725,7 +762,12 @@ function svcRow(s) {
   pill.textContent = SVC_STATUS_LABEL[s.status] || s.status;
   li.appendChild(main);
   li.appendChild(pill);
+  if (s.status === "chat" || s.status === "view" || s.status === "zalobot") {
+    const ex = svcSpecialForm(s, cat);
+    if (ex) { li.appendChild(ex.form); li.dataset.ui = ex.ui; }
+  }
   if (s.status === "supported" && s.action) {
+    li.dataset.ui = "form";
     const form = document.createElement("div");
     form.className = "svc-form";
     const inputs = {};
@@ -755,6 +797,181 @@ function svcRow(s) {
   return li;
 }
 
+// -- Form rieng cho dich vu GUI TIN (chat), XEM (view) va TAI KHOAN/WEBHOOK (zalobot): moi dich vu deu co form/nut tren WebUI ----------
+const SVC_FILE_SERVICES = {
+  send_file: { kind: "file", multi: false }, send_video: { kind: "file", multi: false }, send_image: { kind: "photo", multi: false },
+  send_image_to_user: { kind: "photo", multi: false, type: "user" }, send_image_to_group: { kind: "photo", multi: false, type: "group" },
+  send_images_to_user: { kind: "photo", multi: true, type: "user" }, send_images_to_group: { kind: "photo", multi: true, type: "group" },
+  send_voice: { kind: "voice", multi: false },
+};
+
+function svcMk(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+function svcSelect(options, blankLabel) {
+  const sel = svcMk("select");
+  if (blankLabel !== undefined) { const o = svcMk("option", "", blankLabel); o.value = ""; sel.appendChild(o); }
+  options.forEach((x) => {
+    const o = svcMk("option", "", Array.isArray(x) ? x[1] : x);
+    o.value = Array.isArray(x) ? x[0] : x;
+    sel.appendChild(o);
+  });
+  return sel;
+}
+
+function svcSpecialForm(s, cat) {
+  const name = s.addon;
+  const ui = (cat && cat.ui) || { emoji: {}, reactions: [], style: { size: [], color: [], toggle: [], auto_color: [] } };
+  const form = svcMk("div", "svc-form");
+  const inputs = {};
+  const add = (key, label, el) => {
+    const lab = svcMk("label", "svc-field");
+    lab.appendChild(svcMk("span", "", label));
+    lab.appendChild(el);
+    form.appendChild(lab);
+    inputs[key] = el;
+    return el;
+  };
+  const btn = (text, fn, danger, confirmText) => {
+    const b = svcMk("button", "btn " + (danger ? "btn-danger-outline" : "btn-secondary") + " svc-run", text);
+    b.type = "button";
+    b.onclick = async () => {
+      if (confirmText && !window.confirm(confirmText)) return;
+      b.disabled = true;
+      try { await fn(); } catch (e) { svcResult("Lỗi: " + (e.message || e), false); } finally { b.disabled = false; }
+    };
+    form.appendChild(b);
+    return b;
+  };
+  const showJson = (title, data) => svcResult(title + ": " + JSON.stringify(data), true);
+  const thread = () => {
+    const t = svcCurrentThread();
+    if (!t) svcResult("Chọn một thread trước (ở ô Thread thao tác).", false);
+    return t;
+  };
+  const val = (k) => (inputs[k] ? (inputs[k].value || "").trim() : "");
+
+  if (s.status === "chat") {
+    if (name === "send_card") {
+      form.appendChild(svcMk("div", "svc-reason", "Chưa hỗ trợ: app Zalo PC chưa có đường gửi danh thiếp."));
+      return { form, ui: "info" };
+    }
+    if (name === "send_message") {
+      add("message", "Nội dung *", svcMk("textarea"));
+      add("format", "Định dạng chữ", svcSelect(["plain", "markdown"]));
+      const st = ui.style || {};
+      add("size", "Cỡ chữ", svcSelect(st.size || [], "(mặc định)"));
+      add("color", "Màu chữ", svcSelect(st.color || [], "(mặc định)"));
+      ["bold", "italic", "underline", "heading"].forEach((k) =>
+        add(k, { bold: "In đậm", italic: "In nghiêng", underline: "Gạch chân", heading: "Tiêu đề" }[k], svcSelect(st.toggle || [], "(mặc định)")));
+      add("auto_color", "Màu cho chế độ auto", svcSelect(st.auto_color || [], "(đỏ)"));
+      add("emoji", "Emoji (chèn đầu tin)", svcSelect(Object.keys(ui.emoji || {}).map((k) => [k, (ui.emoji[k] || "") + " " + k]), "(không)"));
+      add("zalo_emoji", "Emoji Zalo (mã /-heart…)", svcSelect(ui.reactions || [], "(không)"));
+      add("auto_emoji", "Tự thêm emoji", svcSelect([["true", "Bật"], ["false", "Tắt"]], "(mặc định)"));
+      add("auto_emphasis", "Tự nhấn mạnh số (màu)", svcSelect(["red", "orange", "yellow", "green"], "(không)"));
+      btn("Gửi", async () => {
+        const t = thread(); if (!t) return;
+        if (!val("message")) { svcResult("Thiếu: Nội dung.", false); return; }
+        const body = { type: t.type, message: inputs.message.value, format: val("format") || "plain" };
+        const style = {};
+        ["size", "color", "bold", "italic", "underline", "heading", "auto_color"].forEach((k) => { if (val(k)) style[k] = val(k); });
+        if (Object.keys(style).length) body.style = style;
+        if (val("emoji")) body.emoji = val("emoji");
+        if (val("zalo_emoji")) body.zalo_emoji = val("zalo_emoji");
+        if (val("auto_emoji")) body.auto_emoji = val("auto_emoji") === "true";
+        if (val("auto_emphasis")) body.auto_emphasis = val("auto_emphasis");
+        const r = await api("/api/thread/" + encodeURIComponent(t.id) + "/send", "POST", body);
+        if (r.error) svcResult("Lỗi: " + r.error, false); else showJson("Đã gửi", r.data || r);
+      });
+      return { form, ui: "form" };
+    }
+    if (name === "send_link") {
+      add("link", "Đường link *", svcMk("input"));
+      add("message", "Lời nhắn kèm theo", svcMk("input"));
+      btn("Gửi", async () => {
+        const t = thread(); if (!t) return;
+        if (!val("link")) { svcResult("Thiếu: Đường link.", false); return; }
+        const r = await api("/api/thread/" + encodeURIComponent(t.id) + "/sendlink", "POST", { type: t.type, link: val("link"), message: val("message") });
+        if (r.error) svcResult("Lỗi: " + r.error, false); else showJson("Đã gửi", r.data || r);
+      });
+      return { form, ui: "form" };
+    }
+    const fs = SVC_FILE_SERVICES[name];
+    if (fs) {
+      const fi = svcMk("input");
+      fi.type = "file";
+      if (fs.multi) fi.multiple = true;
+      if (fs.kind === "photo") fi.accept = "image/*";
+      else if (fs.kind === "voice") fi.accept = "audio/*";
+      add("file", (fs.multi ? "Các tệp *" : "Tệp *"), fi);
+      btn("Gửi", async () => {
+        const t = thread(); if (!t) return;
+        const files = Array.from(fi.files || []);
+        if (!files.length) { svcResult("Chưa chọn tệp.", false); return; }
+        const type = fs.type || t.type;
+        const out = [];
+        for (const f of files) {
+          const fd = new FormData();
+          fd.append("type", type);
+          if (fs.kind !== "voice") fd.append("kind", fs.kind);
+          fd.append("file", f, f.name);
+          const r = await apiForm("/api/thread/" + encodeURIComponent(t.id) + (fs.kind === "voice" ? "/sendvoice" : "/sendfile"), fd,
+                                  fs.kind === "voice" ? 180000 : undefined);
+          out.push(r.error ? r.error : "ok");
+        }
+        showJson("Kết quả từng tệp", out);
+      });
+      return { form, ui: "form" };
+    }
+    return null;
+  }
+  if (s.status === "view") {
+    btn("Xem", async () => {
+      const c = await api("/api/contacts");
+      const list = name === "get_all_friends" ? (c.friends || {}) : (c.groups || {});
+      const rows = list.rows || [];
+      showJson(name + " (" + rows.length + ")", rows.slice(0, 50));
+    });
+    return { form, ui: "button" };
+  }
+  // zalobot: tai khoan / webhook / proxy
+  if (name === "get_logged_accounts" || name === "get_account_details") {
+    btn("Xem", async () => {
+      const st = await api("/api/status");
+      showJson(name, { logged_in: !!st.login, uid: st.uid, phone: st.phonenum, version: st.version });
+    });
+    return { form, ui: "button" };
+  }
+  if (name === "get_account_webhooks" || name === "get_account_webhook") {
+    btn("Xem", async () => { const r = await api("/api/webhooks"); showJson(name, r.config || r); });
+    return { form, ui: "button" };
+  }
+  if (name === "set_account_webhook") {
+    btn("Mở mục Webhook để đặt", async () => { await loadWebhooks(); });
+    return { form, ui: "button" };
+  }
+  if (name === "delete_account_webhook") {
+    btn("Xoá mọi webhook", async () => {
+      const cfg = {};
+      WEBHOOK_KINDS.forEach((k) => { cfg[k + "_webhook_url"] = ""; cfg[k + "_enabled"] = false; });
+      const r = await api("/api/webhooks", "POST", cfg);
+      if (r.error) svcResult("Lỗi: " + r.error, false); else showJson("Đã xoá", r.config || r);
+    }, true, "Xoá toàn bộ cấu hình webhook?");
+    return { form, ui: "button" };
+  }
+  if (name === "get_login_qr") {
+    btn("Lấy mã QR (đăng nhập lại)", async () => { show("view-login"); startQr(); }, true,
+        "Đăng nhập lại bằng mã QR sẽ thay phiên Zalo hiện tại. Tiếp tục?");
+    return { form, ui: "button" };
+  }
+  // get_proxies / add_proxy / remove_proxy: app Zalo PC chay mot tai khoan, khong co proxy
+  form.appendChild(svcMk("div", "svc-reason", "Không áp dụng: app Zalo PC chạy một tài khoản và không có proxy theo tài khoản."));
+  return { form, ui: "info" };
+}
+
 function svcResult(text, ok) {
   const box = $("svc-result");
   box.hidden = false;
@@ -773,13 +990,35 @@ async function runSvc(s, inputs, btn) {
     return;
   }
   const body = {};
-  if (t) { body.thread_id = t.id; body.type = t.type; }
+  if (t && !s.zca) { body.thread_id = t.id; body.type = t.type; }
   let missing = null;
   (s.fields || []).forEach((f) => {
     const v = inputs[f.key] ? inputs[f.key].value.trim() : "";
     if (v) body[f.key] = v;
-    else if (f.required) missing = f.label;
+    else if (f.required && !(s.zca && t && /^(thread_?id|group_?id)$/i.test(f.key))
+             && !(s.addon === "send_sticker" && f.key === "sticker_id")) missing = f.label;
   });
+  if (s.zca && t) {          // API zca: truong threadId/groupId/type de trong thi lay tu thread dang chon
+    (s.fields || []).forEach((f) => {
+      if (body[f.key]) return;
+      if (/^(thread_?id|group_?id)$/i.test(f.key)) body[f.key] = t.id;
+      else if (f.key === "type" && s.fields.some((x) => /^(thread_?id)$/i.test(x.key))) body[f.key] = t.type === "group" ? "1" : "0";
+    });
+  }
+  if (s.addon === "send_sticker" && !body.sticker_id && body.keyword) {      // gui sticker theo tu khoa
+    try {
+      const f = await api("/api/svc/search_sticker", "POST", { keyword: body.keyword, limit: 20 });
+      const list = (f.data || []).filter((x) => x && x.sticker_id);
+      if (!list.length) { svcResult("Không tìm thấy sticker cho từ khoá “" + body.keyword + "”.", false); return; }
+      const pick = body.pick === "random" ? list[Math.floor(Math.random() * list.length)] : list[0];
+      body.sticker_id = String(pick.sticker_id); body.cate_id = String(pick.cate_id); body.sticker_type = String(pick.type);
+    } catch (e) { svcResult("Lỗi tìm sticker: " + e, false); return; }
+    delete body.keyword; delete body.pick;
+  }
+  if (s.addon === "send_sticker" && !body.sticker_id) { svcResult("Thiếu: Sticker ID hoặc Từ khoá sticker.", false); return; }
+  if (!missing && body.params) {
+    try { body.params = JSON.parse(body.params); } catch (e) { svcResult("params phải là JSON hợp lệ.", false); return; }
+  }
   if (missing) {
     svcResult("Thiếu: " + missing + ".", false);
     return;
@@ -2133,6 +2372,7 @@ $("svc-thread").onchange = () => {
   syncSvcThreadBox();
 };
 $("svc-thread-id").oninput = () => syncSvcThreadBox();
+$("svc-search").oninput = svcFilter;
 $("svc-thread-type").onchange = () => syncSvcThreadBox();
 $("btn-menu").onclick = () => {
   const open = $("sidebar").classList.toggle("open");

@@ -359,7 +359,7 @@
         <div class="title-row">
           <div>
             <h1>Dịch vụ</h1>
-            <p class="subline">Đầy đủ 96 service của addon, thao tác trên thread đang chọn. Service nào chưa có đường PC thì chỉ hiện trạng thái, không có nút bấm giả.</p>
+            <p class="subline">Tất cả dịch vụ của addon (96 dịch vụ gốc và các API mở rộng), thao tác trên thread đang chọn. Service nào chưa có đường PC thì chỉ hiện trạng thái, không có nút bấm giả.</p>
           </div>
         </div>
         <p id="svc-counts" class="svc-counts" role="status">Đang tải danh mục dịch vụ…</p>
@@ -372,6 +372,10 @@
             <option value="group">Nhóm</option>
           </select>
           <span id="svc-thread-name" class="row-sub"></span>
+        </div>
+        <div class="svc-thread">
+          <label for="svc-search">Tìm dịch vụ</label>
+          <input id="svc-search" type="search" placeholder="Gõ tên hoặc mô tả (ví dụ: nhóm, sticker, dịch…)" autocomplete="off">
         </div>
         <div id="svc-result" class="svc-result" hidden></div>
         <div id="svc-groups"></div>

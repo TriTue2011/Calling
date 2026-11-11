@@ -1996,8 +1996,13 @@ CATALOG = build_catalog()
 
 def catalog_public():
     from . import zca_api
+    from . import rich_text
     out = dict(CATALOG)
     out["zca"] = zca_api.catalog()
+    # Bang chon cho giao dien (cung nguon voi dich vu HA): emoji, bieu tuong cam xuc, kieu chu mac dinh/auto.
+    out["ui"] = {"emoji": dict(rich_text.EMOJI), "reactions": sorted(REACTION_ICONS),
+                 "style": {"size": list(rich_text.STYLE_SIZE), "color": list(rich_text.STYLE_COLOR), "toggle": list(rich_text.STYLE_TOGGLE),
+                           "auto_color": list(rich_text.STYLE_AUTO_COLOR)}}
     return out
 
 # ------------------------------------------------------------------ client
