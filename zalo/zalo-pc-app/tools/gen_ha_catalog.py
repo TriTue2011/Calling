@@ -413,6 +413,11 @@ EXTRA_YAML = '''make_call:
       description: Chỉ khi bật AI mà không có message - AI nói câu này trước rồi mới lắng nghe.
       selector:
         text:
+    handover_rule:
+      name: AI tự chuyển sang trực tiếp khi…
+      description: Điều kiện riêng để AI tự chuyển cuộc gọi sang trực tiếp (nối mic nhà, dừng AI, không cúp máy) và bắn sự kiện zalo_call_ai_handover. Mặc định AI cũng tự chuyển khi người gọi muốn gặp người trong nhà, có việc khẩn cấp hoặc AI không giúp được.
+      selector:
+        text:
     tts_engine:
       name: Giọng đọc (TTS)
       description: Thực thể tts.* dùng để đọc. Bỏ trống = giọng của pipeline.
@@ -502,6 +507,11 @@ answer_call:
     greeting:
       name: Câu AI nói đầu tiên
       description: Chỉ khi bật AI mà không có message - AI nói câu này trước rồi mới lắng nghe.
+      selector:
+        text:
+    handover_rule:
+      name: AI tự chuyển sang trực tiếp khi…
+      description: Điều kiện riêng để AI tự chuyển cuộc gọi sang trực tiếp (nối mic nhà, dừng AI, không cúp máy) và bắn sự kiện zalo_call_ai_handover. Mặc định AI cũng tự chuyển khi người gọi muốn gặp người trong nhà, có việc khẩn cấp hoặc AI không giúp được.
       selector:
         text:
     tts_engine:

@@ -247,14 +247,17 @@ Cần Assist pipeline có STT, TTS và trợ lý hội thoại. **Lưu ý an to�
 | Bật tự nghe, người gọi KHÔNG có trong danh sách | đổ chuông như mặc định |
 | Người gọi cúp trước khi hết bộ đếm | `missed`, không nghe |
 | Tự nghe + công tắc «AI trong cuộc gọi đến» | AI chào, nghe, trả lời; kết thúc khi người gọi cúp, im lặng 2 lượt hoặc 10 phút (rồi cúp máy) |
+| …và AI thấy cần người thật (khẩn cấp / người gọi muốn gặp người nhà) | AI tự chuyển sang trực tiếp: dừng AI, nối mic nhà, không cúp, sự kiện `zalo_call_ai_handover` |
 | Có cuộc thứ hai đến khi đang nói / đang gọi đi | từ chối cuộc mới (`busy_rejected`), cuộc đang sống giữ nguyên, vẫn báo HA như cuộc nhỡ |
 | Zalo gửi lại sự kiện cuộc gọi đến | bỏ qua (mỗi cuộc chỉ xử lý một lần) |
 | Hai cuộc đến liên tiếp, chưa nghe cuộc nào | cuộc mới thay cuộc cũ |
 | Cuộc gọi nhóm đến, giữ máy (hold) | **chưa hỗ trợ** (chỉ ghi log) |
 
+**AI tự chuyển sang trực tiếp (không cần bấm tay):** trong cuộc gọi, trợ lý được dặn rằng khi người gọi muốn gặp người trong nhà, có việc khẩn cấp/nguy hiểm hoặc nó không giúp được thì nói ngắn gọn «mình chuyển máy» và kết thúc bằng dấu `[[CHUYEN_MAY]]` (dấu này **không** được đọc ra). Khi thấy dấu đó: AI đọc nốt câu rồi dừng, mic nhà được nối lại (loa/mic nhà vốn đã nối từ lúc nghe máy), cuộc gọi **không bị cúp**, và HA bắn sự kiện `zalo_call_ai_handover` (`call_id`, `heard` = câu cuối người gọi nói) để automation báo cho bạn. Thêm điều kiện riêng bằng ô **«AI tự chuyển sang trực tiếp khi…»** hoặc trường `handover_rule` của `make_call`/`answer_call`, ví dụ cho cuộc gọi báo ngã: `handover_rule: "Nếu người nghe nói cần giúp, nói không ổn hoặc không trả lời rõ ràng."` Cách này chạy với mọi trợ lý hội thoại (không cần trợ lý hỗ trợ gọi công cụ); trợ lý không làm theo chỉ dẫn thì cuộc gọi vẫn kết thúc như bình thường.
+
 **Tự nghe máy rồi muốn tự nói chuyện trực tiếp:**
 - Tự nghe **không AI**: cuộc gọi đã trực tiếp ngay (loa/mic nhà nối từ lúc nghe máy), không cần làm gì thêm.
-- Tự nghe **có AI**: bấm nút **«Tiếp quản cuộc gọi (dừng AI, nối mic nhà)»** trên thiết bị hoặc gọi `zalo_call.take_over_call`. AI dừng ngay (không cúp máy), mic nhà được trả về nguồn mặc định và cuộc gọi tiếp tục để bạn nói trực tiếp. Trong lúc AI nói chuyện, loa nhà vẫn phát tiếng người gọi nên bạn nghe được và biết lúc nào cần tiếp quản (ví dụ tạo automation gửi thông báo «AI đang nghe cuộc gọi từ X» kèm nút này).
+- Tự nghe **có AI**: AI tự chuyển khi cần (xem trên), hoặc bạn bấm nút **«Tiếp quản cuộc gọi (dừng AI, nối mic nhà)»** trên thiết bị hoặc gọi `zalo_call.take_over_call`. AI dừng ngay (không cúp máy), mic nhà được trả về nguồn mặc định và cuộc gọi tiếp tục để bạn nói trực tiếp. Trong lúc AI nói chuyện, loa nhà vẫn phát tiếng người gọi nên bạn nghe được và biết lúc nào cần tiếp quản (ví dụ tạo automation gửi thông báo «AI đang nghe cuộc gọi từ X» kèm nút này).
 
 ## WebUI: mọi dịch vụ đều làm được trên tab «Dịch vụ»
 

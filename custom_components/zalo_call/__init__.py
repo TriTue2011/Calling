@@ -35,6 +35,7 @@ from .devices import DeviceDefaults
 from .const import (
     CONF_AI_CALL,
     CONF_AI_CALL_GREETING,
+    CONF_AI_CALL_HANDOVER,
     CONF_HA_URL,
     CONF_PASSWORD,
     CONF_URL,
@@ -141,7 +142,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if state is not None:
                 on_call_state(hass_, hass_.data[DOMAIN][entry.entry_id], state, payload.get("call_id"), TERMINAL_STATES,
                               bool(defaults.get(CONF_AI_CALL)), str(defaults.get(CONF_AI_CALL_GREETING) or ""),
-                              str(payload.get("answer_source") or ""))
+                              str(payload.get("answer_source") or ""), str(defaults.get(CONF_AI_CALL_HANDOVER) or ""))
         elif kind == "message":
             hass_.async_create_task(async_ai_reply(hass_, entry, payload))
         return web.Response(status=200)

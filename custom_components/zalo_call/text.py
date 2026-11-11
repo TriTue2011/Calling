@@ -9,7 +9,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .bridge_core import valid_url
-from .const import CONF_AI_CALL_GREETING, CONF_AI_THREADS, CONF_AUTO_ANSWER_FROM, CONF_HA_URL, DOMAIN
+from .const import CONF_AI_CALL_GREETING, CONF_AI_CALL_HANDOVER, CONF_AI_THREADS, CONF_AUTO_ANSWER_FROM, CONF_HA_URL, DOMAIN
 from .entity import ZaloCallEntity
 
 
@@ -17,7 +17,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             add: AddEntitiesCallback) -> None:
     rt = hass.data[DOMAIN][entry.entry_id]
     add([MicUrlText(entry, rt), HaUrlText(entry, rt), AiThreadsText(entry, rt), AutoAnswerFromText(entry, rt),
-         AiCallGreetingText(entry, rt)])
+         AiCallGreetingText(entry, rt), AiCallHandoverText(entry, rt)])
 
 
 class MicUrlText(ZaloCallEntity, TextEntity):
@@ -114,6 +114,17 @@ class AiCallGreetingText(_PlainText):
     def __init__(self, entry: ConfigEntry, rt) -> None:
         super().__init__(entry, rt, CONF_AI_CALL_GREETING, "Câu chào đầu cuộc gọi của AI (trống = câu mặc định)",
                          "mdi:message-text")
+
+    async def async_set_value(self, value: str) -> None:
+        await self._rt.defaults.async_set(**{self._key: value.strip()})
+
+
+class AiCallHandoverText(_PlainText):
+    """Điều kiện riêng để AI TỰ chuyển sang trực tiếp (ngoài mặc định: người gọi muốn gặp người trong nhà, khẩn cấp, AI không giúp được)."""
+
+    def __init__(self, entry: ConfigEntry, rt) -> None:
+        super().__init__(entry, rt, CONF_AI_CALL_HANDOVER, "AI tự chuyển sang trực tiếp khi… (điều kiện riêng, tuỳ chọn)",
+                         "mdi:phone-forward")
 
     async def async_set_value(self, value: str) -> None:
         await self._rt.defaults.async_set(**{self._key: value.strip()})

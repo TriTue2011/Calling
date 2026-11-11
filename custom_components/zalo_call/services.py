@@ -446,6 +446,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
              vol.Optional("ai"): cv.boolean,
              vol.Optional("hangup_after"): cv.boolean,
              vol.Optional("greeting"): cv.string,
+             vol.Optional("handover_rule"): cv.string,
              vol.Optional("tts_engine"): cv.entity_id,
              vol.Optional("language"): cv.string,
              vol.Optional("pipeline_id"): cv.string}

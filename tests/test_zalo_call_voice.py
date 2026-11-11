@@ -121,6 +121,7 @@ async def test_ai_switch_applies_only_to_incoming_calls(hass, monkeypatch):
 
     async def fake_ai(hass_, api, call_id, plan):
         started.append((call_id, plan.greeting, plan.hangup))
+        return {"handover": False, "heard": ""}
     monkeypatch.setattr(cv, "async_run_ai", fake_ai)
     api = FakeApi()
     rt = _rt(api)
@@ -163,6 +164,7 @@ class FakePipelineModule:
         from homeassistant.components.assist_pipeline import pipeline as pl
         assert end_stage == pl.PipelineStage.INTENT                     # TTS do call_voice tự làm bằng giọng của pipeline
         assert "điện thoại" in (conversation_extra_system_prompt or "")  # nhắc trợ lý đang nói qua điện thoại
+        assert cv.HANDOVER_MARK in conversation_extra_system_prompt       # và cách tự chuyển sang trực tiếp
         self.convs.append(conversation_id)
         async for _chunk in stt_stream:            # nghe ít nhất một khúc
             break
@@ -323,6 +325,7 @@ async def test_take_over_stops_ai_and_restores_house_mic(hass, monkeypatch):
     async def long_ai(hass_, api, call_id, plan):
         started.set()
         await asyncio.sleep(60)
+        return {"handover": False, "heard": ""}
     monkeypatch.setattr(cv, "async_run_ai", long_ai)
 
     class Api(FakeApi):
@@ -351,3 +354,74 @@ async def test_take_over_stops_ai_and_restores_house_mic(hass, monkeypatch):
     with pytest.raises(cv.ZaloCallError):
         api2._statuses = ["ended"]
         await cv.async_take_over(_rt(api2), None)                              # không có cuộc nào đang nói
+
+
+async def test_phone_hint_carries_custom_handover_rule():
+    assert cv.HANDOVER_MARK in cv.phone_hint("")
+    assert "người nghe nói cần giúp" in cv.phone_hint("Nếu người nghe nói cần giúp.")
+
+
+async def _patched_ai_env(monkeypatch, script):
+    from homeassistant.components import assist_pipeline
+    from homeassistant.components.assist_pipeline import pipeline as pl
+    fake = FakePipelineModule(script)
+    monkeypatch.setattr(assist_pipeline, "async_pipeline_from_audio_stream", fake.run)
+    monkeypatch.setattr(pl, "async_get_pipeline", lambda hass_, pid=None: SimpleNamespace(
+        stt_language="vi", tts_engine=None, tts_language=None, tts_voice=None))
+
+    class L:
+        def __init__(self, *a):
+            self.muted = self.ended = False
+
+        def start(self):
+            pass
+
+        def drain(self):
+            pass
+
+        def stop(self):
+            pass
+
+        async def chunks(self):
+            while True:
+                yield b"\x00" * 3200
+                await asyncio.sleep(0)
+    monkeypatch.setattr(cv, "_Listener", L)
+    return fake
+
+
+async def test_ai_decides_handover_speaks_clean_reply_then_stops(hass, monkeypatch):
+    fake = await _patched_ai_env(monkeypatch, [("tôi cần gặp người trong nhà", "Mình chuyển máy cho người nhà nhé [[CHUYEN_MAY]]"),
+                                              ("không bao giờ tới", "x")])
+    api = FakeApi(statuses=["answered"])
+    res = await cv.async_run_ai(hass, api, "77", cv.Plan(ai=True))
+    assert res == {"handover": True, "heard": "tôi cần gặp người trong nhà"}
+    assert [s[2].decode() for s in api.said] == ["TTS:Mình chuyển máy cho người nhà nhé"]      # dấu KHÔNG được đọc ra
+    assert fake.turn == 1                                                                      # dừng ngay sau khi chuyển
+
+
+async def test_handover_keeps_call_open_restores_mic_and_fires_event(hass, monkeypatch):
+    await _patched_ai_env(monkeypatch, [("giúp tôi với", "Có ai đó sẽ nói chuyện với bạn ngay [[chuyen_may]]")])
+    events = []
+    hass.bus.async_listen("zalo_call_ai_handover", lambda e: events.append(dict(e.data)))
+
+    class Api(FakeApi):
+        def __init__(self):
+            super().__init__(statuses=["answered"])
+            self.media = []
+
+        async def media_control(self, body):
+            self.media.append(body)
+            return {"mic": {"alive": False}}
+    api = Api()
+    rt = _rt(api)
+    await cv._run_plan(hass, rt, "77", cv.Plan(message="Phát hiện có người ngã", ai=True, hangup=True))
+    await hass.async_block_till_done()
+    assert api.ended == []                                                          # AI chuyển máy: KHÔNG cúp
+    assert {"call_id": "77", "action": "start", "target": "mic"} in api.media       # mic nhà trả về
+    assert events == [{"call_id": "77", "heard": "giúp tôi với"}]
+    # không chuyển máy (hết cuộc trò chuyện) thì vẫn cúp như cũ
+    api2 = Api()
+    await _patched_ai_env(monkeypatch, [])
+    await cv._run_plan(hass, _rt(api2), "77", cv.Plan(ai=True, hangup=True))
+    assert api2.ended == ["77"]
