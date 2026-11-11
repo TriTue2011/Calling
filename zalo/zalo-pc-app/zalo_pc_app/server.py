@@ -936,6 +936,20 @@ def _log_media_stats(kind, call_id, obj):
 _INCOMING_OFFER = {}             # call_id -> extendData bên gọi khai (dict)
 
 
+def _offer_extend(event):
+    """extendData bên gọi khai trong sự kiện cuộc gọi đến. Các lớp data / params / extendData có thể là dict HOẶC chuỗi JSON (tuỳ máy và
+    phiên bản Zalo), nên mở từng lớp. Trả {} nếu không có."""
+    def unwrap(o):
+        if isinstance(o, (str, bytes)):
+            try:
+                o = json.loads(o)
+            except ValueError:
+                return {}
+        return o if isinstance(o, dict) else {}
+    d = unwrap(event.get("data"))
+    return unwrap(unwrap(d.get("params")).get("extendData")) or unwrap(d.get("extendData"))
+
+
 def _key_fp(key):
     """Dấu vân tay ngắn của khoá SRTP (6 hex đầu SHA-1) để so khoá giữa hai nguồn trong nhật ký mà không lộ khoá."""
     if not key:
@@ -2506,10 +2520,8 @@ class AppState:
             "incoming_rtp_present": bool(event.get("rtp_address")),
             "incoming_ringring_sent": False})
         try:                               # lưu extendData bên gọi khai để nghe máy trả lời theo đúng máy đó (mỗi điện thoại có thể khác nhau)
-            _off = (((event.get("data") or {}).get("params") or {}).get("extendData"))
-            if isinstance(_off, str):
-                _off = json.loads(_off)
-            if isinstance(_off, dict):
+            _off = _offer_extend(event)
+            if _off:
                 if len(_INCOMING_OFFER) > 50:
                     _INCOMING_OFFER.clear()
                 _INCOMING_OFFER[str(call_id)] = _off

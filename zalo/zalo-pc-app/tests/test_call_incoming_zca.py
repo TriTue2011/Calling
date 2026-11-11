@@ -484,6 +484,18 @@ def test_answer_and_reject_without_incoming_error():
 
     _run(mock, check)
 
+def test_offer_extend_reads_the_caller_offer_whether_layers_are_dicts_or_json_strings():
+    """Mỗi điện thoại/phiên bản Zalo có thể lồng data/params/extendData bằng dict hoặc chuỗi JSON: đọc được cả hai, thiếu thì {}."""
+    ext = {"srtpMode": 1, "negoVidQual": 1, "sP2P": 1}
+    as_dict = {"data": {"params": {"extendData": ext}}}
+    as_str = {"data": json.dumps({"params": json.dumps({"extendData": json.dumps(ext)})})}
+    top = {"data": {"extendData": ext}}
+    for ev in (as_dict, as_str, top):
+        assert app_server._offer_extend(ev) == ext, ev
+    for ev in ({}, {"data": None}, {"data": "không phải json"}, {"data": {"params": "x"}}):
+        assert app_server._offer_extend(ev) == {}, ev
+
+
 
 if __name__ == "__main__":
     for _name, _fn in list(globals().items()):
