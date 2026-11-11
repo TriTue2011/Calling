@@ -1168,6 +1168,8 @@ def _answer_incoming(sess, body, source="api"):
                 _log_call("answer relay call_id=%s source=%s "
                           "failed: %s -> thu nguon ke"
                           % (call_id, _vname, str(_exc)[:120]))
+        _log_call("answer offer call_id=%s rtp=%s rtcp=%s extend=%s"
+                  % (call_id, endpoints["rtp_address"], endpoints["rtcp_address"], str(endpoints["extend_data"])[:1500]))
         sig.answer(caller_id, call_id, 0, endpoints["codec"],
                    endpoints["rtcp_address"],
                    endpoints["rtp_address"],
@@ -2494,7 +2496,7 @@ class AppState:
                         pass
                     return o if len(o) <= 40 else o[:40] + "..."
                 return o
-            _log_call("incoming offer call_id=%s event=%s" % (call_id, json.dumps(_shrink({k: v for k, v in event.items() if k != "session"}), ensure_ascii=False)[:1500]))
+            _log_call("incoming offer call_id=%s event=%s" % (call_id, json.dumps(_shrink({k: v for k, v in event.items() if k != "session"}), ensure_ascii=False)[:6000]))
         except Exception:  # noqa: BLE001 - chỉ chẩn đoán
             pass
         _log_call("incoming key call_id=%s explicit=%s session_in_event=%s key=%s"
