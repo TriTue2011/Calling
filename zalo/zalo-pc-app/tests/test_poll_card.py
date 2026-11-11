@@ -6,8 +6,6 @@ import shutil
 import subprocess
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from zalo_pc_app import chat  # noqa: E402
 
@@ -36,8 +34,10 @@ def test_other_messages_have_no_poll_id():
     assert bad["poll_id"] == ""
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="cần node")
 def test_poll_card_model_and_one_card_per_poll_in_js():
+    if shutil.which("node") is None:          # không cần pytest: CI chạy file như script
+        print("bỏ qua: không có node")
+        return
     r = subprocess.run(["node", os.path.join(os.path.dirname(__file__), "test_poll_card.js")], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout + r.stderr
 
