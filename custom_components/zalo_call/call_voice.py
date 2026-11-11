@@ -85,6 +85,17 @@ def pipeline_for_satellite(hass: HomeAssistant, entity_id: str) -> str | None:
     return None
 
 
+def pipeline_tts(hass: HomeAssistant, pipeline_id: str | None) -> tuple[str | None, str | None, dict | None]:
+    """(thực thể TTS, ngôn ngữ, tuỳ chọn giọng) của một Assist pipeline (None = pipeline ưu tiên). Không lấy được thì (None, None, None)
+    = TTS mặc định của HA."""
+    from homeassistant.components.assist_pipeline import pipeline as pipeline_mod
+    try:
+        pl = pipeline_mod.async_get_pipeline(hass, pipeline_id)
+    except Exception:  # noqa: BLE001 - không có pipeline: dùng TTS mặc định
+        return None, None, None
+    return pl.tts_engine, pl.tts_language, ({"voice": pl.tts_voice} if pl.tts_voice else None)
+
+
 def pick_agent(defaults: Any, thread_id: Any) -> tuple[str, bool]:
     """(trợ lý hội thoại cho cuộc gọi, người gọi có tin cậy không). Tin cậy = ID nằm trong danh sách; trợ lý tin cậy trống thì dùng trợ lý
     thường. Trợ lý trống = dùng trợ lý của pipeline (giới hạn chỉ còn là lời dặn)."""
@@ -379,10 +390,8 @@ async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> N
     try:
         engine, language, options = plan.engine, plan.language, None
         if plan.pipeline_id and not engine:            # đã chọn thiết bị Assist/pipeline: đọc thông báo bằng đúng giọng của nó
-            from homeassistant.components.assist_pipeline import pipeline as pipeline_mod
-            pl = pipeline_mod.async_get_pipeline(hass, plan.pipeline_id)
-            engine, language = pl.tts_engine, language or pl.tts_language
-            options = {"voice": pl.tts_voice} if pl.tts_voice else None
+            engine, tts_lang, options = pipeline_tts(hass, plan.pipeline_id)
+            language = language or tts_lang
         for i in range(plan.repeat if plan.message else 0):
             await async_say(hass, api, call_id, plan.message, engine, language, options=options)
             if i + 1 < plan.repeat:

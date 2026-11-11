@@ -26,7 +26,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
-from .ai import async_ai_reply
+from .ai import async_handle_message
 from .api import ZaloCallApi, ZaloCallAuthError, ZaloCallError
 from .bridge import CallAudioBridge
 from .bridge_core import derive_state
@@ -146,7 +146,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                               bool(defaults.get(CONF_AI_CALL)), str(defaults.get(CONF_AI_CALL_GREETING) or ""),
                               str(payload.get("answer_source") or ""), str(defaults.get(CONF_AI_CALL_HANDOVER) or ""), payload.get("thread_id"))
         elif kind == "message":
-            hass_.async_create_task(async_ai_reply(hass_, entry, payload))
+            hass_.async_create_task(async_handle_message(hass_, entry, payload))
         return web.Response(status=200)
 
     webhook.async_register(hass, DOMAIN, "Zalo Call", webhook_id, _handle,

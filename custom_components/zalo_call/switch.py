@@ -7,7 +7,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, CONF_AI_ENABLED, CONF_AI_CALL, CONF_AUTO_ANSWER, CONF_AUTO_MIC, CONF_AUTO_VIDEO, DOMAIN
+from .const import CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, CONF_AI_ENABLED, CONF_AI_CALL, CONF_AI_VOICE_REPLY, CONF_AUTO_VOICE_TEXT, CONF_AUTO_ANSWER, CONF_AUTO_MIC, CONF_AUTO_VIDEO, DOMAIN
 from .entity import ZaloCallEntity
 
 
@@ -22,6 +22,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                     "mdi:phone-incoming"),
          AutoSwitch(entry, rt, CONF_AI_CALL, "AI nghe và trả lời bằng giọng nói trong cuộc gọi đến",
                     "mdi:phone-message", push=False),
+         AutoSwitch(entry, rt, CONF_AUTO_VOICE_TEXT, "Tin thoại Zalo đến: tự chuyển thành chữ (Zalo STT)",
+                    "mdi:text-to-speech", push=False),
+         AutoSwitch(entry, rt, CONF_AI_VOICE_REPLY, "AI trả lời bằng tin thoại khi nhận tin thoại",
+                    "mdi:voice", push=False),
          AutoSwitch(entry, rt, CONF_AI_ENABLED, "AI tự trả lời tin nhắn 1-1",
                     "mdi:robot-happy", push=False),
          AutoSwitch(entry, rt, CONF_TEXT_AUTO_EMOJI, "Chữ: tự thêm emoji (auto)",

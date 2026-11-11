@@ -2235,20 +2235,21 @@ class AppState:
             pass
         try:
             account_id = (self.session or {}).get("uid", "")
-            webhooks_mod.dispatch_message(
-                self.webhook_dispatcher,
-                {"threadId": str(thread_id),
-                 "type": 1 if thread_type == "group" else 0,
-                 "senderId": msg.get("sender_id", ""),
-                 "msgId": msg.get("id", ""),
-                 "content": msg.get("text", ""),
-                 "isSelf": bool(msg.get("is_self", False)),
-                 "time": msg.get("time"),
-                 "senderName": msg.get("sender_name") or (
-                     msg.get("raw") if isinstance(msg.get("raw"), dict)
-                     else {}).get("dName") or "",
-                 "isStranger": self.is_stranger(thread_type, thread_id)},
-                account_id)
+            ev = {"threadId": str(thread_id),
+                  "type": 1 if thread_type == "group" else 0,
+                  "senderId": msg.get("sender_id", ""),
+                  "msgId": msg.get("id", ""),
+                  "content": msg.get("text", ""),
+                  "isSelf": bool(msg.get("is_self", False)),
+                  "time": msg.get("time"),
+                  "kind": msg.get("kind") or "",
+                  "senderName": msg.get("sender_name") or (
+                      msg.get("raw") if isinstance(msg.get("raw"), dict)
+                      else {}).get("dName") or "",
+                  "isStranger": self.is_stranger(thread_type, thread_id)}
+            if msg.get("kind") == "voice" and msg.get("file_url") and not msg.get("is_self"):
+                ev["voiceUrl"] = str(msg["file_url"])          # tin thoai den: HA tu goi voice_to_text voi URL nay (Zalo STT)
+            webhooks_mod.dispatch_message(self.webhook_dispatcher, ev, account_id)
         except Exception:
             pass
 

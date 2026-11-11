@@ -3,6 +3,7 @@
 Chạy trong HA thật (ảnh r1-test): python -m pytest tests/test_zalo_call_voice.py -p pytest_homeassistant_custom_component -o asyncio_mode=auto
 Api của app và Assist pipeline được thay bằng bản giả (không gọi thật, không STT/TTS thật)."""
 import asyncio
+import json
 import os
 import sys
 import types
@@ -245,12 +246,16 @@ async def test_ai_loop_stops_when_call_no_longer_answered(hass, monkeypatch):
 # ---- Trong HA thật: dịch vụ make_call / say_in_call và webhook "đã nghe máy" ----------------------------------------
 from aiohttp import web  # noqa: E402
 from homeassistant.helpers import entity_registry as er  # noqa: E402
-from test_zalo_call_ha_end_to_end import DOMAIN, THREAD, FakeZaloApp, setup  # noqa: E402,F401
+from test_zalo_call_ha_end_to_end import DOMAIN, THREAD, FakeZaloApp, fake_agent, setup  # noqa: E402,F401
 
 
 class VoiceApp(FakeZaloApp):
     async def _any(self, request: web.Request) -> web.Response:
         p = request.path
+        if p == "/api/voice2text":
+            raw = await request.read()
+            self.requests.append({"method": "POST", "path": p, "json": json.loads(raw or b"{}"), "raw": b"", "ctype": "application/json"})
+            return web.json_response(getattr(self, "v2t", {"ok": True, "done": True, "text": "bật đèn phòng khách"}))
         if p == "/api/contacts":
             return web.json_response({"friends": {"rows": [{"id": "6643404425553198601", "name": "Đại ca"},
                                                            {"id": "111", "name": "Đại Ngà"}]},
@@ -655,3 +660,67 @@ async def test_chosen_assist_device_gives_ai_its_pipeline_and_announcement_its_v
     # nhưng tts_engine nêu rõ trong dịch vụ thì thắng
     await cv._run_plan(hass, _rt(FakeApi()), "77", cv.Plan(message="x", pipeline_id="id-cam", engine="tts.khac", hangup=True))
     assert used[-1][0] == "tts.khac"
+
+
+# ---- Tin thoại Zalo gửi cho bot: Zalo STT -> chữ -> AI -> trả lời bằng tin thoại ---------------------------------------------
+VOICE_EVENT = {"kind": "voice", "voice_url": "https://f1-voice-aac-dl.zdn.vn/abc/123", "content": "", "thread_id": THREAD,
+               "thread_type": "user", "is_self": False, "message_id": "m77", "sender_id": THREAD}
+
+
+async def _voice_env(hass, setup, monkeypatch, fake_agent, **defaults):
+    from custom_components.zalo_call import ai as ai_mod
+    ai_mod.MIN_INTERVAL = 0
+
+    async def tts(hass_, message, engine=None, language=None, options=None):
+        tts.said.append(message)
+        return "mp3", ("TTS:" + message).encode()
+    tts.said = []
+    monkeypatch.setattr(ai_mod, "async_tts_audio", tts)
+    rt = hass.data[DOMAIN][setup.entry_id]
+    await rt.defaults.async_set(ai_enabled=True, **defaults)
+    fake_agent.reply = "Đã bật đèn phòng khách ạ"
+    return ai_mod, rt, tts
+
+
+async def test_voice_message_goes_through_zalo_stt_then_ai_and_is_answered_by_voice(hass, setup, app, monkeypatch, fake_agent):
+    ai_mod, rt, tts = await _voice_env(hass, setup, monkeypatch, fake_agent)
+    events = []
+    hass.bus.async_listen("zalo_call_voice_text", lambda e: events.append(dict(e.data)))
+    await ai_mod.async_handle_message(hass, setup, dict(VOICE_EVENT))
+    await hass.async_block_till_done()
+    assert app.last("/api/voice2text")["json"]["url"] == VOICE_EVENT["voice_url"]            # URL tin thoại đi qua Zalo STT
+    assert fake_agent and "bật đèn phòng khách" in fake_agent[-1]["text"]                    # AI nhận CHỮ
+    assert "BỘ ĐỊNH DẠNG" not in fake_agent[-1]["text"] and "**" not in fake_agent[-1]["text"]
+    sv = app.last("/sendvoice")
+    assert "TTS:Đã bật đèn phòng khách ạ".encode() in sv["raw"] and not [r for r in app.requests if r["path"].endswith("/send")], sv["raw"][:120]
+    assert events == [{"thread_id": THREAD, "sender_id": THREAD, "message_id": "m77", "text": "bật đèn phòng khách"}]
+
+
+async def test_voice_reply_falls_back_to_text_when_tts_fails_or_switch_off(hass, setup, app, monkeypatch, fake_agent):
+    ai_mod, rt, tts = await _voice_env(hass, setup, monkeypatch, fake_agent)
+
+    async def broken(*a, **k):
+        raise RuntimeError("TTS hỏng")
+    monkeypatch.setattr(ai_mod, "async_tts_audio", broken)
+    await ai_mod.async_handle_message(hass, setup, dict(VOICE_EVENT))
+    assert app.last("/send")["json"]["message"] and not [r for r in app.requests if r["path"].endswith("/sendvoice")]
+    app.requests.clear()
+    monkeypatch.setattr(ai_mod, "async_tts_audio", tts)
+    await rt.defaults.async_set(ai_voice_reply=False)                                        # tắt trả lời bằng thoại: gửi chữ
+    await ai_mod.async_handle_message(hass, setup, dict(VOICE_EVENT))
+    assert app.last("/send")["json"]["message"] and not [r for r in app.requests if r["path"].endswith("/sendvoice")]
+
+
+async def test_voice_message_ignored_when_switch_off_stt_fails_group_or_self(hass, setup, app, monkeypatch, fake_agent):
+    ai_mod, rt, tts = await _voice_env(hass, setup, monkeypatch, fake_agent)
+    await rt.defaults.async_set(auto_voice_text=False)
+    await ai_mod.async_handle_message(hass, setup, dict(VOICE_EVENT))
+    assert not [r for r in app.requests if r["path"] == "/api/voice2text"] and not fake_agent                    # tắt: không STT, không AI
+    await rt.defaults.async_set(auto_voice_text=True)
+    app.v2t = {"ok": True, "done": True, "text": "", "error": "212"}                                          # Zalo từ chối: im lặng
+    await ai_mod.async_handle_message(hass, setup, dict(VOICE_EVENT))
+    assert not fake_agent and not [r for r in app.requests if "/api/thread/" in r["path"]]
+    app.v2t = {"ok": True, "done": True, "text": "xin chào"}
+    for ev in (dict(VOICE_EVENT, thread_type="group"), dict(VOICE_EVENT, is_self=True)):                       # nhóm / tin tự gửi
+        await ai_mod.async_handle_message(hass, setup, ev)
+    assert not fake_agent

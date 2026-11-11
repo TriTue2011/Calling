@@ -237,6 +237,14 @@ Tên được tìm trong danh bạ Zalo không cần dấu; có nhiều người
 
 **An toàn:** trong cuộc gọi do AI giữ (người bên ngoài đang nói), trợ lý chỉ thấy **một** công cụ là «chuyển sang trực tiếp». Người lạ nói qua điện thoại không sai khiến được AI gọi điện, nhắn tin hay cúp máy khác. Công cụ «chuyển sang trực tiếp» cũng là cách AI tự chuyển (ngoài dấu `[[CHUYEN_MAY]]`), nên không cần dặn thêm.
 
+## Tin thoại Zalo gửi cho bot (khi bạn ở ngoài, nói chuyện với AI qua app Zalo)
+
+Ghi âm tin thoại trong app Zalo gửi cho tài khoản bot: tích hợp dùng **STT của chính Zalo** (dịch vụ `voice_to_text`) chuyển thành chữ, đưa cho trợ lý AI, rồi **trả lời bằng tin thoại** (TTS của Assist pipeline). Bật/tắt trên thiết bị:
+- **«Tin thoại Zalo đến: tự chuyển thành chữ (Zalo STT)»** (mặc định bật) — mỗi tin thoại 1-1 đến được chuyển thành chữ và bắn sự kiện `zalo_call_voice_text` (`thread_id`, `sender_id`, `message_id`, `text`) để bạn dùng trong automation. Muốn AI trả lời thì bật thêm «AI tự trả lời tin nhắn 1-1».
+- **«AI trả lời bằng tin thoại khi nhận tin thoại»** (mặc định bật) — giọng đọc lấy từ Assist pipeline của thiết bị chọn ở ô «dùng Assist của thiết bị» (không chọn thì pipeline ưu tiên). TTS hỏng thì gửi chữ thay.
+
+Lưu ý: Zalo STT chỉ chuyển được tin thoại do **app Zalo thật gửi** (nằm trong kho thoại của Zalo); nó **không** dùng được làm STT cho Assist/cuộc gọi trực tiếp (âm thanh khác bị Zalo từ chối, mã 212). STT trong pipeline HA vẫn lo phần đó. AI trả lời **mọi** người nhắn 1-1 trừ khi bạn điền «AI chỉ trả lời các threadId này» — hãy điền ID của bạn để người lạ nhắn tin/thoại cho bot không được AI trả lời.
+
 ## Phạm vi dữ liệu của AI khi người ngoài gọi vào
 
 Giọng nói **không xác thực được ai**, và dặn trong prompt chỉ là lớp mềm (người gọi có thể nói khéo để lách). Giới hạn thật nằm ở **trợ lý được dùng cho cuộc gọi**, vì quyền xem/điều khiển thiết bị là quyền của trợ lý đó:

@@ -296,6 +296,10 @@ def build_message_event(msg, account_id):
         "received_at": round(time.time(), 3),
         "is_stranger": bool(msg.get("isStranger", msg.get("is_stranger", False))),
     })
+    if msg.get("kind"):
+        payload["kind"] = str(msg["kind"])                         # text / voice / photo / file / system
+    if msg.get("voiceUrl"):
+        payload["voice_url"] = str(msg["voiceUrl"])                # tin thoai: URL tren may chu Zalo (cho voice_to_text)
     if msg.get("self_reply"):
         payload["self_reply"] = True
     if msg.get("tag_khop"):
