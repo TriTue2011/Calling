@@ -1162,3 +1162,45 @@ async def test_announce_repeat_says_it_again_after_each_tts_finishes_until_answe
     await asyncio.sleep(2.5)
     assert len(spoken) == 1, spoken
 
+
+async def test_announce_volume_is_set_for_the_alert_and_restored_only_when_nobody_answers(hass, setup, app, hass_client_no_auth, monkeypatch):
+    mp = "media_player.loa_phong_khach"
+    hass.states.async_set(mp, "idle", {"volume_level": 0.2})
+    vols = []
+
+    async def volume_set(call):
+        vols.append(call.data["volume_level"])
+    hass.services.async_register("media_player", "volume_set", volume_set)
+
+    async def fake_speak(call):
+        hass.states.async_set(mp, "playing", {"volume_level": 0.2})
+
+        async def xong():
+            await asyncio.sleep(0.2)
+            hass.states.async_set(mp, "idle", {"volume_level": 0.2})
+        hass.async_create_task(xong())
+    hass.services.async_register("tts", "speak", fake_speak)
+    monkeypatch.setattr(cv, "pipeline_tts", lambda hass_, pid: ("tts.chatgpt", "vi", None))
+    await _set_rule(hass, scope="contacts", answer=False, announce=True, announce_to=mp, announce_volume=40)
+    # Không ai nghe, bên kia cúp: báo ở 0,4 rồi trả loa về 0,2
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="v1", peer="Đại ca"))
+    await asyncio.sleep(0.8)
+    await _webhook(hass, hass_client_no_auth, {"event": "call", "status": "ended", "call_id": "v1", "thread_id": THREAD, "end_reason": "peer_ended"})
+    await hass.async_block_till_done()
+    assert vols == [0.4, 0.2], vols
+    # Có người nghe máy: chỉ đặt 0,4 lúc báo, KHÔNG trả về mức cũ (cuộc gọi tự đặt âm lượng của nó)
+    vols.clear()
+    await _set_rule(hass, scope="contacts", announce_repeat=1)
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="v2", peer="Đại ca"))
+    await asyncio.sleep(0.8)
+    await _webhook(hass, hass_client_no_auth, {"event": "call", "status": "answered", "call_id": "v2", "thread_id": THREAD})
+    await hass.async_block_till_done()
+    assert vols == [0.4], vols
+    # Không đặt announce_volume (0): không đụng âm lượng
+    vols.clear()
+    await _set_rule(hass, scope="contacts", announce_volume=0, announce_repeat=0)
+    await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="v3", peer="Đại ca"))
+    await asyncio.sleep(0.8)
+    await hass.async_block_till_done()
+    assert vols == [], vols
+

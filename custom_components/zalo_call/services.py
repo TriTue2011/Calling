@@ -317,7 +317,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return next((p.name for p in pipeline_mod.async_get_pipelines(hass) if p.id == pid), pid)
 
     _RULE_FIELDS = ("name", "answer", "answer_delay", "call_types", "ai", "pipeline", "agent", "greeting", "handover_rule", "trusted",
-                    "reply_ai", "voice_text", "announce", "announce_to", "announce_text", "announce_repeat", "connect", "connect_now", "video_request", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
+                    "reply_ai", "voice_text", "announce", "announce_to", "announce_text", "announce_repeat", "announce_volume", "connect", "connect_now", "video_request", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
 
     def _rules_copy(rt) -> dict:
         r = get_rules(rt.defaults)
@@ -667,6 +667,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
                    vol.Optional("announce"): cv.boolean,
                    vol.Optional("announce_to"): cv.string,
                    vol.Optional("announce_text"): cv.string,
+                   vol.Optional("announce_volume"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
                    vol.Optional("announce_repeat"): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_ANNOUNCE_REPEAT)),
                    vol.Optional("connect"): vol.All(cv.ensure_list, [vol.In(list(CONNECT))]),
                    vol.Optional("connect_now"): vol.All(cv.ensure_list, [vol.In(list(CONNECT))]),

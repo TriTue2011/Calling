@@ -11,6 +11,7 @@ Không ghi nội dung hội thoại vào log (chỉ độ dài/số lượt).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import logging
 import re
@@ -119,6 +120,7 @@ class Plan:
 class CallVoice:
     plans: dict[str, Plan] = field(default_factory=dict)
     incoming: set[str] = field(default_factory=set)
+    answered_ids: set[str] = field(default_factory=set)          # call_id đã có người nghe (vòng báo ra loa không trả lại âm lượng cũ)
     announce_tasks: dict[str, asyncio.Task] = field(default_factory=dict)   # call_id -> vòng báo (và báo lại) ra loa; huỷ khi nghe máy/kết thúc
     announced: set[str] = field(default_factory=set)             # call_id đã phát thông báo «có cuộc gọi» ra loa (mỗi cuộc một lần)
     scheduled: set[str] = field(default_factory=set)            # call_id đã lên lịch nghe máy theo quy tắc (mỗi cuộc một lần)
@@ -541,18 +543,36 @@ async def async_announce_incoming(hass: HomeAssistant, rt: Any, payload: dict[st
     rule = resolve_rule(get_rules(rt.defaults), payload.get("thread_id"), "user", payload.get("contact_status"))
     if not rule or not rule.get("announce") or not rule.get("announce_to"):
         return False
-    if not await _announce_once(hass, rule, payload):
-        return False
-    gap = int(rule.get("announce_repeat") or 0)
     cid = str(payload.get("call_id"))
-    for _ in range(MAX_ANNOUNCE_LOOPS if gap > 0 else 0):
-        await _wait_player_idle(hass, rule["announce_to"])
-        await asyncio.sleep(gap)
-        if cid not in rt.voice.incoming:
-            break
+    player = rule["announce_to"]
+    old_level = None
+    level = int(rule.get("announce_volume") or 0)
+    if level > 0:                                                 # đặt âm lượng riêng cho tiếng báo (nhớ mức cũ để trả lại nếu không ai nghe)
+        old_level = getattr(hass.states.get(player), "attributes", {}).get("volume_level")
+        try:
+            await hass.services.async_call("media_player", "volume_set", {"entity_id": player, "volume_level": level / 100}, blocking=True)
+        except Exception:  # noqa: BLE001 - loa không đặt được âm lượng thì vẫn báo
+            _LOGGER.warning("Không đặt được âm lượng báo cuộc gọi cho %s", player, exc_info=True)
+            old_level = None
+    try:
         if not await _announce_once(hass, rule, payload):
-            break
-    return True
+            return False
+        gap = int(rule.get("announce_repeat") or 0)
+        for _ in range(MAX_ANNOUNCE_LOOPS if gap > 0 else 0):
+            await _wait_player_idle(hass, player)
+            await asyncio.sleep(gap)
+            if cid not in rt.voice.incoming:
+                break
+            if not await _announce_once(hass, rule, payload):
+                break
+        else:
+            if gap <= 0:
+                await _wait_player_idle(hass, player)             # báo một lần: chờ đọc xong rồi mới trả âm lượng
+        return True
+    finally:
+        if old_level is not None and cid not in rt.voice.answered_ids:     # không ai nghe: trả loa về mức cũ (nghe rồi thì cuộc gọi tự đặt âm lượng)
+            with contextlib.suppress(Exception):
+                await hass.services.async_call("media_player", "volume_set", {"entity_id": player, "volume_level": old_level}, blocking=True)
 
 
 async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> None:
@@ -736,12 +756,14 @@ def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, termin
     elif state == "video_request":
         hass.async_create_task(async_handle_video_request(hass, rt, payload or {"call_id": cid}))
     elif state == "answered":
+        voice.answered_ids.add(cid)
         _stop_announce(voice, cid)                              # đã có người nghe: thôi báo ra loa
         plan = voice.plans.pop(cid, None)
         if plan is not None and cid not in voice.tasks:
             voice.tasks[cid] = hass.async_create_task(_run_plan(hass, rt, cid, plan))
     elif state in terminal:
         _stop_announce(voice, cid)
+        voice.answered_ids.discard(cid)
         cancel = voice.timers.pop(cid, None)
         if cancel:
             cancel()

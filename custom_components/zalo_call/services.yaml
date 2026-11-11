@@ -7644,6 +7644,16 @@ set_rule:
         gọi {loai} từ {ten}.»
       selector:
         text: null
+    announce_volume:
+      name: Âm lượng lúc báo (%)
+      description: 'Âm lượng của loa khi đọc thông báo có cuộc gọi đến. 0 = giữ nguyên. Không ai nghe
+        máy thì loa trở về mức cũ; có người nghe thì cuộc gọi tự đặt âm lượng của nó. Loa R1 có 15 mức:
+        6/15 là 40%.'
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: '%'
     announce_repeat:
       name: Báo lại sau mỗi (giây)
       description: Đọc xong thông báo thì chờ chừng này giây rồi đọc lại, cứ thế tới khi có người nghe

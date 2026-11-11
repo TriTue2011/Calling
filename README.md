@@ -578,6 +578,7 @@ data:
   announce: false                    # tuỳ chọn - Báo ra loa khi có cuộc gọi đến
   announce_to: "media_player.vi_du"  # tuỳ chọn - Loa dùng để báo
   announce_text: "..."               # tuỳ chọn - Câu báo ra loa
+  announce_volume: 0                 # tuỳ chọn - Âm lượng lúc báo (%)
   announce_repeat: 0                 # tuỳ chọn - Báo lại sau mỗi (giây)
   connect_now: ["mic", "speaker"]    # tuỳ chọn - Thiết bị nhà dùng NGAY khi người nhận nghe máy
   video_request: "ask"               # tuỳ chọn - Khi người gọi xin chuyển sang video
@@ -609,6 +610,7 @@ data:
 | `announce` | Báo ra loa khi có cuộc gọi đến | không | Bật thì khi người này gọi đến, một loa trong nhà đọc «Có cuộc gọi ... từ ...» để người trong nhà biết (kể cả khi không tự nghe máy). Mặc định TẮT. |
 | `announce_to` | Loa dùng để báo | không | Loa đọc thông báo cuộc gọi đến (bắt buộc khi bật báo ra loa). Giọng đọc lấy từ Trợ lý giọng nói của quy tắc. |
 | `announce_text` | Câu báo ra loa | không | Có thể dùng {ten} (tên người gọi) và {loai} (thoại hoặc video). Bỏ trống = «Có cuộc gọi {loai} từ {ten}.» |
+| `announce_volume` | Âm lượng lúc báo (%) | không | Âm lượng của loa khi đọc thông báo có cuộc gọi đến. 0 = giữ nguyên. Không ai nghe máy thì loa trở về mức cũ; có người nghe thì cuộc gọi tự đặt âm lượng của nó. Loa R1 có 15 mức: 6/15 là 40%. |
 | `announce_repeat` | Báo lại sau mỗi (giây) | không | Đọc xong thông báo thì chờ chừng này giây rồi đọc lại, cứ thế tới khi có người nghe máy hoặc cuộc gọi kết thúc. 0 = chỉ báo một lần. |
 | `connect_now` | Thiết bị nhà dùng NGAY khi người nhận nghe máy | không | Tích ô nào thì thứ đó bật ngay khi người nhận nghe máy, không chờ người nhà nói trực tiếp (ví dụ tích Camera để người nhận thấy hình trong nhà ngay, còn Mic và Loa chỉ bật khi người nhà nói). Tích Camera = cuộc gọi VIDEO. Không tích gì = chưa bật gì (mặc định). Chỉ bật được thiết bị đã chọn ở các ô Loa, Mic, Camera. |
 | `video_request` | Khi người gọi xin chuyển sang video | không | Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng tư): chỉ báo cho automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn đồng ý nếu muốn tự động. |

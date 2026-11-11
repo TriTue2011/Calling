@@ -11,6 +11,7 @@
   * ``connect_now`` = các phần nối NGAY khi nghe máy (ví dụ chỉ camera); phần còn lại trong ``connect`` chờ tới khi người nhà nói trực tiếp.
   * ``video_request``: người gọi xin chuyển cuộc thoại sang video - ``ask`` (mặc định: chỉ báo sự kiện, không tự đồng ý), ``accept`` (đồng ý, không gửi hình
     trong nhà), ``accept_camera`` (đồng ý và gửi camera đã chọn trong quy tắc).
+  * ``announce_volume``: âm lượng loa (%) lúc đọc thông báo cuộc gọi đến, 0 = giữ nguyên; cuộc gọi không được nghe thì trả về mức cũ, được nghe thì cuộc gọi tự đặt âm lượng của nó.
   * ``announce_repeat``: số giây báo lại sau khi đọc xong (0 = chỉ báo một lần); cứ đọc xong rồi chờ chừng đó thì đọc lại, tới khi nghe máy hoặc cuộc gọi kết thúc.
   * ``announce: true`` (cần ``announce_to``): có cuộc gọi đến thì một loa trong nhà đọc thông báo cho người trong nhà biết. Mặc định TẮT.
   * ``ai: true`` bắt buộc có ``pipeline`` hoặc ``agent`` — không lặng lẽ rơi về pipeline ưu tiên (nó có quyền thiết bị nhà).
@@ -64,7 +65,7 @@ RULES_KEY = "rules"
 DEFAULT_RULE: dict[str, Any] = {
     "name": "", "answer": False, "answer_delay": 3, "call_types": ["voice", "video"],
     "ai": False, "pipeline": "", "agent": "", "greeting": "", "handover_rule": "", "trusted": False,
-    "announce": False, "announce_to": "", "announce_text": "", "announce_repeat": 0, "connect_now": [], "video_request": "ask",
+    "announce": False, "announce_to": "", "announce_text": "", "announce_repeat": 0, "announce_volume": 0, "connect_now": [], "video_request": "ask",
     "reply_ai": False, "voice_text": False,
     "connect": [], "speaker": "", "mic": "", "mic_url": "", "camera": "", "volume": 0, "echo_guard": "auto",
 }
@@ -105,6 +106,11 @@ def normalize(data: dict[str, Any], old: dict[str, Any] | None = None) -> dict[s
             rule["announce_repeat"] = max(0, min(MAX_ANNOUNCE_REPEAT, int(data["announce_repeat"])))
         except (TypeError, ValueError) as err:
             raise RuleError("announce_repeat phải là số giây (0-%d)" % MAX_ANNOUNCE_REPEAT) from err
+    if data.get("announce_volume") is not None:
+        try:
+            rule["announce_volume"] = max(0, min(100, int(data["announce_volume"])))
+        except (TypeError, ValueError) as err:
+            raise RuleError("announce_volume phải là số 0-100") from err
     if data.get("volume") is not None:
         try:
             rule["volume"] = max(0, min(100, int(data["volume"])))

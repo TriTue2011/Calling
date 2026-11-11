@@ -429,6 +429,11 @@ def test_answer_incoming_e2e():
         assert "answerack" not in steps, steps
         assert state.get("answer_codec") == \
             media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, state
+        # Nghe máy phải khai extendData kiểu «native» như cuộc gọi đi (newZrtc 1, platform 2, có codec video h264). Hồ sơ «pc» cũ
+        # (newZrtc 0, platform 3) làm điện thoại coi ta là bản cũ: «kết nối không ổn định», «chưa hỗ trợ chuyển video» (đo 11/11/2026).
+        ext = state.get("answer_extend")
+        ext = json.loads(ext) if isinstance(ext, str) else ext
+        assert ext and ext["newZrtc"] == 1 and ext["platform"] == 2 and ext["video"]["codec"][0]["name"] == "h264", ext
         active = _wait_active(base, CALL_ID_IN, "answered")
         assert active is not None, "incoming not answered"
 

@@ -924,15 +924,27 @@ def _stop_video(call_id):
     return sender
 
 
+def _log_media_stats(kind, call_id, obj):
+    """Ghi số liệu của một nguồn/đích tiếng khi dừng (khung gửi/nhận, bị chặn, lỗi): để lần sau biết «không ổn định» do đâu."""
+    try:
+        st = obj.status()
+        _log_call("%s stats call_id=%s %s" % (kind, call_id, ", ".join("%s=%s" % (k, str(v)[:60]) for k, v in st.items() if k != "ffmpeg_err" or v)))
+    except Exception:  # noqa: BLE001 - ghi nhật ký không được làm hỏng việc dừng
+        pass
+
+
 def _stop_mic(call_id):
     sender = AUDIO_SENDERS.pop(str(call_id), None)
     if sender is not None:
+        _log_media_stats("mic", call_id, sender)
         sender.stop()
     return sender
 
 
 def _stop_speaker(call_id):
     sink = SPEAKER_SINKS.pop(str(call_id), None)
+    if sink is not None:
+        _log_media_stats("speaker", call_id, sink)
     if sink is not None:
         sink.stop()
     return sink
@@ -1124,7 +1136,11 @@ def _answer_incoming(sess, body, source="api"):
                     local_session=_alloc.get("local_session"),
                     peer_session=_alloc.get("peer_session"),
                     requestcall_data=_vdata,
-                    on_first_media=_on_first_media, **hooks)
+                    on_first_media=_on_first_media,
+                    # Hồ sơ extendData như cuộc gọi đi ("native" = engine zcall-native chạy thật với điện thoại). Trước đây đường nghe máy
+                    # KHÔNG truyền nên rơi về "pc" cũ (newZrtc 0, platform 3): điện thoại coi ta là bản cũ -> «kết nối không ổn định» và
+                    # «phiên bản chưa hỗ trợ chuyển video».
+                    extend_profile=_extend_profile_for_call(body), **hooks)
                 _log_call("answer relay call_id=%s source=%s"
                           % (call_id, _vname))
                 break

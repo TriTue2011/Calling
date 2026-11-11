@@ -121,6 +121,7 @@ RULE_FIELDS = {
     "announce": ("Báo ra loa khi có cuộc gọi đến", "Bật thì khi người này gọi đến, một loa trong nhà đọc «Có cuộc gọi ... từ ...» để người trong nhà biết (kể cả "
                                                    "khi không tự nghe máy). Mặc định TẮT."),
     "announce_to": ("Loa dùng để báo", "Loa đọc thông báo cuộc gọi đến (bắt buộc khi bật báo ra loa). Giọng đọc lấy từ Trợ lý giọng nói của quy tắc."),
+    "announce_volume": ("Âm lượng lúc báo (%)", "Âm lượng của loa khi đọc thông báo có cuộc gọi đến. 0 = giữ nguyên. Không ai nghe máy thì loa trở về mức cũ; có người nghe thì cuộc gọi tự đặt âm lượng của nó. Loa R1 có 15 mức: 6/15 là 40%."),
     "announce_repeat": ("Báo lại sau mỗi (giây)", "Đọc xong thông báo thì chờ chừng này giây rồi đọc lại, cứ thế tới khi có người nghe máy hoặc cuộc gọi kết thúc. 0 = chỉ báo một lần."),
     "announce_text": ("Câu báo ra loa", "Có thể dùng {ten} (tên người gọi) và {loai} (thoại hoặc video). Bỏ trống = «Có cuộc gọi {loai} từ {ten}.»"),
     "speaker": ("Loa trong nhà", "Loa phát tiếng người gọi khi người nhà nói trực tiếp."),

@@ -243,6 +243,7 @@ class MockZalo:
                 "requestcall_codec": entry.get("requestcall_codec"),
                 "request_codec": entry.get("request_codec"),
                 "answer_codec": entry.get("answer_codec"),
+                "answer_extend": entry.get("answer_extend"),
                 "answer_addresses": entry.get("answer_addresses")}
 
     def server_call_state(self, call_id):
@@ -319,6 +320,7 @@ class MockZalo:
                       "requestcall_codec": None,
                       "request_codec": None,
                       "answer_codec": None,
+                      "answer_extend": None,
                       "answer_addresses": None})
         if step not in entry["steps"]:
             entry["steps"].append(step)
@@ -329,6 +331,7 @@ class MockZalo:
                 entry["request_codec"] = body.get("codec")
             elif step == "answer":
                 entry["answer_codec"] = body.get("codec")
+                entry["answer_extend"] = body.get("extendData")
                 entry["answer_addresses"] = {
                     "rtcp": body.get("rtcpAddress"),
                     "rtp": body.get("rtpAddress")}
