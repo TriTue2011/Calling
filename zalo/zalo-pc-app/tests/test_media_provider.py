@@ -58,6 +58,14 @@ class FakeTransport:
     mo phong duong nhan: unprotect -> parse RTP -> decode ->
     pcm callback."""
 
+    p2p_cands = ()
+
+    def set_p2p_candidates(self, cands):
+        self.p2p_cands = tuple(cands)
+
+    def local_p2p_candidates(self, extra_hosts=()):
+        return [{"ip": h, "port": 40000, "type": 0} for h in extra_hosts]
+
     def __init__(self, config):
         self.config = config
         self.selected_relay = None

@@ -1205,6 +1205,18 @@ def _answer_incoming(sess, body, source="api"):
             for _k in ("negoVidQual",):
                 if _k in _offer and _k not in _ext:
                     _ext[_k] = _offer[_k]
+            # P2P theo đúng điều điện thoại này khai (máy khác nhau khai khác nhau): bên gọi khai sP2P 1 kèm ứng viên thì ta khai ứng viên
+            # của mình (địa chỉ máy trên cổng media) + sP2P 1, select2side 1, numServers 0, supportCallBusy 0 như engine zcall-native khi
+            # nghe máy, và bắt đầu bind tới từng ứng viên của họ; thiếu thì giữ relay thuần (sP2P 0).
+            _tr = (media_endpoints.ENDPOINTS.active_record(call_id) or {}).get("transport")
+            _cands = [c for c in (_offer.get("p2p") or []) if isinstance(c, dict)] if _offer.get("sP2P") == 1 else []
+            _lp2p = getattr(_tr, "local_p2p_candidates", None)               # transport cũ/giả không có P2P thì relay thuần
+            if _cands and callable(_lp2p) and os.environ.get("ZALO_PC_P2P", "1") != "0":
+                _hosts = [h.strip() for h in os.environ.get("ZALO_PC_P2P_HOSTS", "").split(",") if h.strip()]
+                _mine = _lp2p(_hosts)
+                if _mine:
+                    _tr.set_p2p_candidates(_cands)
+                    _ext.update({"p2p": _mine, "sP2P": 1, "select2side": 1, "numServers": 0, "supportCallBusy": 0})
             _ext_final = json.dumps(_ext, separators=(",", ":"), ensure_ascii=False)
         except (ValueError, TypeError):
             pass

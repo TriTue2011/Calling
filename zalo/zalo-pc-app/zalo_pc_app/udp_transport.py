@@ -62,6 +62,7 @@ import collections
 import ipaddress
 import os
 import random
+import re
 import socket
 import struct
 import threading
@@ -138,6 +139,9 @@ PING_INTERVAL = 0.1                  # ping keepalive, seconds (~10 Hz:
                                     # part of the caller's ringing
                                     # maintenance (5-pcap re-analysis
                                     # 2026-11-08), so match the real cadence.
+P2P_BIND_FAST = 0.1                  # bind tới ứng viên: 0,1 s trong giây đầu
+P2P_BIND_SLOW = 0.4                  # rồi 0,4 s
+P2P_BIND_GIVE_UP = 15.0              # bỏ cuộc sau 15 s (như engine thật)
 HELLO_INTERVAL = 0.5                 # P2P hello retransmit, seconds
 RTCP_INTERVAL = 0.5                  # RTCP RR cadence, seconds. Ben nhan bao
                                     # "tin hieu yeu" neu >4 s khong co bao cao
@@ -1326,6 +1330,25 @@ def build_p2p_confirm(role, call_session, addr):
     return _build_p2p_addr_packet(role, call_session, 0x03, addr)
 
 
+# Kiểu gói P2P của engine zcall-native khi NGHE MÁY (đã chạy thật với điện thoại): bind tới TỪNG ứng viên của bên gọi có
+# u16 LE seq + u32 BE chỉ số ứng viên; điện thoại trả kind 2 (seq, chỉ số, "ip|port" nó thấy ta) ta đáp kind 3 lặp lại seq/chỉ số +
+# "ip|port" của nó; kind 4 byte 9 = 1 là ping, đáp bằng pong (bản sao, role của ta, byte 9 = 2).
+def build_p2p_bind(role, call_session, seq, index):
+    return _p2p_header(role, call_session, 0x01) + struct.pack("<H", seq & 0xFFFF) + struct.pack(">I", index & 0xFFFFFFFF)
+
+
+def build_p2p_bind_answer(role, call_session, request, peer_addr):
+    addr_b = peer_addr.encode("latin-1")
+    return _p2p_header(role, call_session, 0x03) + bytes(request[9:15]) + struct.pack("<I", len(addr_b)) + addr_b
+
+
+def build_p2p_pong(role, ping):
+    pong = bytearray(ping)
+    pong[2] = role & 0xFF
+    pong[9] = 2
+    return bytes(pong)
+
+
 def build_p2p_media(role, call_session, rtp_packet):
     """P2P media 0x06: 9-byte header + full RTP packet."""
     return _p2p_header(role, call_session, 0x06) + rtp_packet
@@ -1554,6 +1577,10 @@ class Udp4200Transport:
         self._sub8_due = None               # gui ReqForward sub 8 mot lan
         self._hello_count = 0
         self._p2p_acked = False
+        self._p2p_cands = []            # [(ip, port, index)] ứng viên P2P bên gọi khai (cuộc gọi ĐẾN); rỗng = đường cũ
+        self._p2p_bind_t0 = None
+        self._p2p_bind_last = 0.0
+        self._p2p_bind_seq = 0
         self._p2p_confirmed = False
         # P2P hello gate (2026-11-08, step 3 / D4): False until
         # begin_p2p() is called explicitly — i.e. until the peer
@@ -1806,6 +1833,53 @@ class Udp4200Transport:
         self._hello_count = 0
         self._last_hello = 0.0  # send immediately on next tick
         self._send_hello()
+
+    def set_p2p_candidates(self, cands):
+        """Ứng viên P2P (IPv4) do bên gọi khai trong lời mời, dạng [{"ip", "port", "type"}]. Có ứng viên thì sau begin_p2p() ta gửi bind tới TỪNG
+        ứng viên (kể cả địa chỉ LAN, đường duy nhất đi được khi hai máy cùng mạng và NAT không vòng lại) và đáp gói P2P của điện thoại."""
+        out = []
+        for i, c in enumerate(cands or []):
+            try:
+                ip, port = str(c.get("ip", "")), int(c.get("port", 0))
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if port > 0 and re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", ip):
+                out.append((ip, port, i))
+        self._p2p_cands = out
+
+    def local_p2p_candidates(self, extra_hosts=()):
+        """Ứng viên P2P của ta cho câu trả lời: địa chỉ IPv4 máy (kiểu 0) trên cổng của socket media."""
+        port = 0
+        try:
+            port = self._sock.getsockname()[1]
+        except (OSError, AttributeError):
+            pass
+        hosts = []
+        for h in extra_hosts:
+            if h and h not in hosts:
+                hosts.append(h)
+        if not hosts:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                probe.connect(("8.8.8.8", 53))              # không gửi gói nào, chỉ hỏi nhân hệ điều hành địa chỉ đi ra
+                hosts.append(probe.getsockname()[0])
+            except OSError:
+                pass
+            finally:
+                probe.close()
+        return [{"ip": h, "port": port, "type": 0} for h in hosts if port and h and h != "0.0.0.0"]
+
+    def _send_binds(self, now):
+        if self._p2p_bind_t0 is None:
+            self._p2p_bind_t0 = now
+        age = now - self._p2p_bind_t0
+        if age > P2P_BIND_GIVE_UP or now - self._p2p_bind_last < (P2P_BIND_FAST if age < 1.0 else P2P_BIND_SLOW):
+            return
+        self._p2p_bind_last = now
+        for ip, port, idx in self._p2p_cands:
+            if self._send_to(build_p2p_bind(self._role_byte(), self.config.call_session, self._p2p_bind_seq, idx), (ip, port)):
+                self.counters["bind_tx"] = self.counters.get("bind_tx", 0) + 1
+        self._p2p_bind_seq += 1
 
     def _is_own_reflexive(self, addr):
         """True when `addr` is our own reflexive address — i.e.
@@ -2081,6 +2155,8 @@ class Udp4200Transport:
                         and not self._p2p_confirmed
                         and now - self._last_hello >= cfg.hello_interval):
                     self._send_hello()
+                if self._p2p_cands and self._p2p_started and not self._p2p_confirmed:
+                    self._send_binds(now)
                 if (self.state == "connected"
                         and now - self._last_rtcp >= cfg.rtcp_interval):
                     self._send_rtcp()
@@ -2403,8 +2479,30 @@ class Udp4200Transport:
             except Exception as exc:  # noqa: BLE001 - callback error
                 self._last_error = "pcm callback failed: %s" % exc
 
+    def _on_p2p_cands(self, data, addr):
+        """Gói P2P khi ta nghe máy và có ứng viên của bên gọi (kiểu engine thật). True nếu đã xử lý hết (không cần đường cũ)."""
+        if len(data) < 10 or bytes(data[3:7]) != _session_to_bytes(self.config.call_session, "call_session"):
+            return True
+        kind = data[7]
+        if kind == 0x02 and len(data) >= 15:                         # điện thoại bind lại: đáp kind 3, đường P2P lên
+            ans = build_p2p_bind_answer(self._role_byte(), self.config.call_session, data, "%s|%d" % (addr[0], addr[1]))
+            if self._send_to(ans, addr):
+                self.counters["ack_tx"] += 1
+            self.peer_p2p_addr = addr
+            self._p2p_acked = True
+            self._switch_to_p2p()
+            return True
+        if kind == 0x04 and data[9] == 1:                            # ping giữ đường: đáp pong
+            self._send_to(build_p2p_pong(self._role_byte(), data), addr)
+            self.peer_p2p_addr = addr
+            self._switch_to_p2p()
+            return True
+        return False
+
     def _on_p2p(self, data, addr):
         self.counters["p2p_rx"] += 1
+        if self._p2p_cands and self._on_p2p_cands(data, addr):
+            return
         try:
             pkt = parse_p2p(data)
         except ValueError as exc:

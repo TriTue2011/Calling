@@ -404,6 +404,49 @@ def _inject_incoming(base, mock):
     _wait_steps(mock, CALL_ID_IN, ["ringring"])
 
 
+def _answer_extend_for_offer(offer_ext):
+    """Gọi đến với extendData bên gọi khai = offer_ext, nghe máy, trả extendData bot gửi trong câu trả lời (dict)."""
+    mock = MockZalo().start()
+    mock.requestcall_data = {"servers": REAL_SHAPE_SERVERS, "sessId": "sess-real-e2e", "srtpKey": "k-test", "token": FAKE_TOKEN}
+    out = {}
+
+    def check(base, mock, endpoints):
+        ev = dict(INCOMING_EVENT)
+        ev["extendData"] = offer_ext
+        app_server.STATE._on_ctrl_call_event(_parsed_event(ev))
+        assert _wait_active(base, CALL_ID_IN, "incoming") is not None
+        _wait_steps(mock, CALL_ID_IN, ["ringring"])
+        status, body = _api(base, "POST", "/api/call/answer", {"call_id": CALL_ID_IN})
+        assert body["ok"] is True, body
+        ext = mock.voice_call_state(CALL_ID_IN).get("answer_extend")
+        out["ext"] = json.loads(ext) if isinstance(ext, str) else ext
+
+    old = os.environ.get("ZALO_PC_P2P_HOSTS")
+    os.environ["ZALO_PC_P2P_HOSTS"] = "192.0.2.50"
+    try:
+        _run(mock, check)
+    finally:
+        if old is None:
+            os.environ.pop("ZALO_PC_P2P_HOSTS", None)
+        else:
+            os.environ["ZALO_PC_P2P_HOSTS"] = old
+    return out["ext"]
+
+
+def test_answer_declares_p2p_only_when_this_phone_offers_it_and_follows_its_srtp_mode():
+    """Mỗi điện thoại khai khác nhau: khai sP2P 1 kèm ứng viên thì bot khai ứng viên của mình + sP2P 1, select2side 1, numServers 0,
+    supportCallBusy 0 (như engine zcall-native); khai sP2P 0 / không có ứng viên thì relay thuần; srtpMode 0 thì trả lời srtpMode 0."""
+    cand = [{"ip": "172.16.10.16", "port": 46518, "type": 0}, {"ip": "42.114.42.252", "port": 46518, "type": 1}]
+    ext = _answer_extend_for_offer({"callType": 0, "sP2P": 1, "p2p": cand, "srtpMode": 1, "negoVidQual": 1})
+    assert ext["sP2P"] == 1 and ext["select2side"] == 1 and ext["numServers"] == 0 and ext["supportCallBusy"] == 0, ext
+    assert ext["p2p"] and ext["p2p"][0]["ip"] == "192.0.2.50" and ext["p2p"][0]["type"] == 0 and ext["p2p"][0]["port"] > 0, ext
+    assert ext["srtpMode"] == 1 and ext["negoVidQual"] == 1, ext                       # cờ thương lượng bên gọi khai được lặp lại
+    off = _answer_extend_for_offer({"callType": 0, "sP2P": 0, "p2p": [], "srtpMode": 0})
+    assert off["sP2P"] == 0 and off["p2p"] == [] and "select2side" not in off and off["srtpMode"] == 0, off
+    nocand = _answer_extend_for_offer({"callType": 0, "sP2P": 1, "p2p": [], "srtpMode": 1})
+    assert nocand["sP2P"] == 0 and nocand["p2p"] == [], nocand
+
+
 def test_answer_incoming_e2e():
     """POST /api/call/answer cho cuoc incoming: 11300 fallback (cung
     callId, partner = caller) + 11303 answer voi codec list JSON;

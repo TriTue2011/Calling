@@ -234,6 +234,106 @@ def test_p2p_handshake_and_media_loopback():
         peer_sock.close()
 
 
+def test_p2p_builders_match_the_real_callee_engine_layouts():
+    """Kiểu gói của engine zcall-native khi NGHE MÁY (chạy thật với điện thoại): bind = header + u16 LE seq + u32 BE chỉ số ứng viên;
+    kind 3 lặp lại seq/chỉ số của kind 2 + u32 LE độ dài + "ip|port"; pong = ping với role của ta và byte 9 = 2."""
+    b = ut.build_p2p_bind(0x01, CALL_SESSION, 0x0102, 3)
+    assert b == bytes.fromhex("7f0001a1b2c32b0100") + bytes.fromhex("0201") + bytes.fromhex("00000003"), b.hex()
+    req = bytes.fromhex("7f0000a1b2c32b0200") + bytes.fromhex("070000000002") + struct.pack("<I", 14) + b"203.0.113.9|555" + b"\xff"
+    a = ut.build_p2p_bind_answer(0x01, CALL_SESSION, req, "198.51.100.4|40000")
+    assert a[:9] == bytes.fromhex("7f0001a1b2c32b0300") and a[9:15] == req[9:15]
+    assert struct.unpack("<I", a[15:19])[0] == len(b"198.51.100.4|40000") and a[19:] == b"198.51.100.4|40000"
+    ping = bytes.fromhex("7f0000a1b2c32b0400") + bytes([1]) + b"\x00\x00\x00"
+    pong = ut.build_p2p_pong(0x01, ping)
+    assert pong[2] == 1 and pong[9] == 2 and pong[:2] == ping[:2] and pong[3:9] == ping[3:9] and pong[10:] == ping[10:]
+
+
+def test_incoming_call_binds_to_every_caller_candidate_answers_kind2_and_pongs_then_flips_to_p2p():
+    """Cuộc gọi ĐẾN: điện thoại khai ứng viên P2P (LAN, công khai...). Ta bind tới TỪNG ứng viên (không chỉ địa chỉ công khai), đáp kind 2 bằng
+    kind 3 (lặp lại seq/chỉ số), đáp ping bằng pong, rồi đường P2P lên và tiếng của điện thoại tới được hàm nhận PCM."""
+    fabric = _Fabric()
+    relay_sock = fabric.new_socket()
+    relay_sock.bind(("127.0.0.1", 0))
+    relay_sock.settimeout(0.2)
+    relay_port = relay_sock.getsockname()[1]
+    peer_sock = fabric.new_socket()
+    peer_sock.bind(("127.0.0.1", 0))
+    peer_sock.settimeout(0.2)
+    peer_port = peer_sock.getsockname()[1]
+    peer_seen, stop = [], threading.Event()
+
+    def fake_relay():                                   # relay im lặng: ta chỉ cần socket để gửi
+        while not stop.is_set():
+            try:
+                relay_sock.recvfrom(65535)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+
+    def fake_peer():                                    # điện thoại: nhận bind rồi bind lại (kind 2) kèm "ip|port"
+        replied = False
+        while not stop.is_set():
+            try:
+                data, addr = peer_sock.recvfrom(65535)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            peer_seen.append(data)
+            if len(data) >= 15 and data[0] == 0x7F and data[7] == 0x01 and not replied:
+                replied = True
+                txt = ("127.0.0.1|%d" % addr[1]).encode()
+                peer_sock.sendto(bytes.fromhex("7f0000a1b2c32b0200") + data[9:15] + struct.pack("<I", len(txt)) + txt + b"\xff", addr)
+                peer_sock.sendto(bytes.fromhex("7f0000a1b2c32b0400") + bytes([1]) + b"\x00\x00\x00", addr)
+
+    threading.Thread(target=fake_relay, daemon=True).start()
+    threading.Thread(target=fake_peer, daemon=True).start()
+    cfg = ut.TransportConfig(
+        relays=[ut.RelayServer("127.0.0.1", relay_port, "127.0.0.1", relay_port)],
+        token=TOKEN_RAW, local_session=SSRC, peer_session=PEER_SSRC, call_id=987654321, callee_id="111222333", call_type=1,
+        call_session=CALL_SESSION, protect_rtp=lambda b: b, unprotect_rtp=lambda b: b, probe_burst=1, setup_refresh_interval=30.0,
+        ping_interval=30.0, hello_interval=30.0, rtcp_interval=30.0, keepalive_media=False, is_caller=False)
+    tr = ut.Udp4200Transport(cfg, socket_factory=fabric.new_socket)
+    got_pcm = []
+    tr.set_pcm_callback(got_pcm.append)
+    try:
+        tr.start()
+        tr.set_p2p_candidates([{"ip": "198.51.100.7", "port": 1, "type": 1},          # công khai: không tới được (như hairpin hỏng)
+                               {"ip": "127.0.0.1", "port": peer_port, "type": 0},       # LAN: tới được
+                               {"ip": "2001:db8::1", "port": 9, "type": 0},             # IPv6: bỏ qua
+                               {"ip": "x", "port": 0}])
+        assert [c[:2] for c in tr._p2p_cands] == [("198.51.100.7", 1), ("127.0.0.1", peer_port)]
+        mine = tr.local_p2p_candidates(["192.0.2.50"])
+        assert mine == [{"ip": "192.0.2.50", "port": tr._sock.getsockname()[1], "type": 0}], mine
+        tr.begin_p2p()
+        deadline = time.time() + 5
+        while time.time() < deadline and tr.mode != "p2p":
+            time.sleep(0.05)
+        assert tr.mode == "p2p", tr.status()
+        assert tr.peer_p2p_addr == ("127.0.0.1", peer_port)
+        binds = [d for d in peer_seen if d[7] == 0x01]
+        assert binds and binds[0][:9] == bytes.fromhex("7f0001a1b2c32b0100") and binds[0][9:] == bytes.fromhex("000000000001"), binds[0].hex()   # seq 0, chỉ số ứng viên 1
+        deadline = time.time() + 3
+        while time.time() < deadline and not [d for d in peer_seen if d[7] == 0x03]:
+            time.sleep(0.05)
+        kind3 = [d for d in peer_seen if d[7] == 0x03]
+        assert kind3 and kind3[0][9:15] == binds[0][9:15], peer_seen                        # đáp kind 2 bằng kind 3, lặp lại seq/chỉ số
+        pongs = [d for d in peer_seen if d[7] == 0x04 and d[9] == 2]
+        assert pongs and pongs[0][2] == 1, [d[:12].hex() for d in peer_seen]            # đáp ping bằng pong, role callee
+        rtp = ut.build_rtp(5, 5 * 320, PEER_SSRC, b"\x07" * 640)
+        peer_sock.sendto(ut.build_p2p_media(0x01, CALL_SESSION, rtp), ("127.0.0.1", tr._sock.getsockname()[1]))
+        deadline = time.time() + 3
+        while time.time() < deadline and not got_pcm:
+            time.sleep(0.05)
+        assert got_pcm == [b"\x07" * 640], len(got_pcm)
+    finally:
+        stop.set()
+        tr.stop()
+        relay_sock.close()
+        peer_sock.close()
+
+
 def main():
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_")]
