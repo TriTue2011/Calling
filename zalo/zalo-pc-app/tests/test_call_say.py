@@ -40,7 +40,7 @@ class _Rec:
     made = []
 
     def __init__(self, send, source="test", fmt="auto", gate=None, **kw):
-        self.source, self.alive = source, True
+        self.source, self.alive, self.gate = source, True, gate
         _Rec.made.append(self)
 
     def start(self):
@@ -70,9 +70,16 @@ def test_say_plays_file_on_answered_call_and_validates():
         # thieu tep -> 400
         st, b = _post_file(base, "a.mp3", None)
         assert st == 400 and b["error"] == "thieu_file", (st, b)
+        # Chong vong dang BAT va loa vua phat tieng lon: TTS KHONG duoc bi gate (neu bi gate: nghe giat cuc)
+        assert _api(base, "POST", "/api/settings/devices", {"echo_guard": True})[1]["ok"]
+        guard = sv._guard_for_call(CALL_ID_IN)
+        assert guard is not None
+        guard.note_far(b"\xff\x7f" * 320)
+        assert guard.blocked() is True
         # co tep -> ghi vao <data>/say va phat qua mic
         st, b = _post_file(base, "tts.mp3", b"ID3-tts-bytes", call_id=CALL_ID_IN)
         assert st == 200 and b["ok"] is True and b["call_id"] == CALL_ID_IN and b["bytes"] == 13, (st, b)
+        assert _Rec.made[-1].gate is None, "TTS bi gate chong vong -> mat khung, nghe giat cuc"
         src = _Rec.made[-1].source
         assert os.path.dirname(src) == os.path.join(sv.STATE.data_dir, "say") and src.endswith(".mp3"), src
         assert open(src, "rb").read() == b"ID3-tts-bytes"

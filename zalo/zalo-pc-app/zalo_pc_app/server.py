@@ -1167,7 +1167,7 @@ def _transport_for_call(call_id):
     return (rec or {}).get("transport")
 
 
-def _start_mic(call_id, source, fmt="auto", loop=True):
+def _start_mic(call_id, source, fmt="auto", loop=True, echo_gate=True):
     """Phat `source` len cuoc goi; thay bo gui cu. Nem ValueError/RuntimeError."""
     transport = _transport_for_call(call_id)
     if transport is None:
@@ -1179,7 +1179,9 @@ def _start_mic(call_id, source, fmt="auto", loop=True):
         _start_speaker(call_id, spk)
         time.sleep(audio_rx_mod.DUPLEX_SETTLE_SECONDS)
     _stop_mic(call_id)
-    guard = _guard_for_call(call_id)
+    # Chong vong chi danh cho MIC THAT (mic va loa cung thiet bi). Giong noi TTS (echo_gate=False) khong the gay vong, ma neu bi gate thi
+    # moi khung bi chan luc loa phat tieng ben kia -> nghe GIAT CUC (su co 11/11).
+    guard = _guard_for_call(call_id) if echo_gate else None
     sender = audio_tx_mod.AudioSender(transport.send_pcm, source=source, fmt=fmt,
                                       gate=guard.blocked if guard else None, log=_log_call, loop=loop)
     sender.start()
@@ -3498,7 +3500,7 @@ class Handler(BaseHTTPRequestHandler):
             path = os.path.join(folder, "%s-%d%s" % (call_id, int(time.time() * 1000), ext))
             with open(path, "wb") as fh:
                 fh.write(data)
-            _start_mic(call_id, path, "auto", loop=False)             # phat MOT lan roi ket thuc (khong lap)
+            _start_mic(call_id, path, "auto", loop=False, echo_gate=False)   # MOT lan, khong lap, KHONG gate chong vong
         except (ValueError, RuntimeError, OSError) as exc:
             return self._send_json({"ok": False, "error": str(exc)[:120]})
         return self._send_json({"ok": True, "call_id": call_id, "bytes": len(data)})
