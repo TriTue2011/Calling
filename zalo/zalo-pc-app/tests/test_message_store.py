@@ -276,7 +276,7 @@ def test_restart_webhook_and_history_e2e():
             ["Chao ban, toi la BenBap"], body
         assert body.get("unavailable") is False, body
         assert body.get("source") == "db+inbox", body
-        assert "chi co tu khi app bat dau luu" in body.get(
+        assert "chỉ có từ khi app bắt đầu lưu" in body.get(
             "notice", ""), body
         state_b.stop_sync()
     finally:

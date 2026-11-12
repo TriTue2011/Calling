@@ -10,7 +10,8 @@
     chuyển máy, chỉ trong các ô đã tích. Chỉ nối thứ ĐÃ CHỌN trong quy tắc, và chỉ KHI CHUYỂN MÁY.
   * ``connect_now`` = các phần nối NGAY khi nghe máy (ví dụ chỉ camera); phần còn lại trong ``connect`` chờ tới khi người nhà nói trực tiếp.
   * ``video_request``: người gọi xin chuyển cuộc thoại sang video - ``ask`` (mặc định: chỉ báo sự kiện, không tự đồng ý), ``accept`` (đồng ý, không gửi hình
-    trong nhà), ``accept_camera`` (đồng ý và gửi camera đã chọn trong quy tắc).
+    trong nhà), ``accept_camera`` (đồng ý và gửi camera đã chọn trong quy tắc). Chỉ có tác dụng khi công tắc «Cho phép đồng ý chuyển sang video»
+    trên thiết bị đang BẬT (mặc định TẮT: lúc đó mọi người chỉ bị báo, không ai được tự đồng ý).
   * ``announce_volume``: âm lượng loa (%) lúc đọc thông báo cuộc gọi đến, 0 = giữ nguyên; cuộc gọi không được nghe thì trả về mức cũ, được nghe thì cuộc gọi tự đặt âm lượng của nó.
   * ``announce_repeat``: số giây báo lại sau khi đọc xong (0 = chỉ báo một lần); cứ đọc xong rồi chờ chừng đó thì đọc lại, tới khi nghe máy hoặc cuộc gọi kết thúc.
   * ``announce: true`` (cần ``announce_to``): có cuộc gọi đến thì một loa trong nhà đọc thông báo cho người trong nhà biết. Mặc định TẮT.
@@ -66,11 +67,12 @@ DEFAULT_RULE: dict[str, Any] = {
     "name": "", "answer": False, "answer_delay": 3, "call_types": ["voice", "video"],
     "ai": False, "pipeline": "", "agent": "", "greeting": "", "handover_rule": "", "trusted": False,
     "announce": False, "announce_to": "", "announce_text": "", "announce_repeat": 0, "announce_volume": 0, "connect_now": [], "video_request": "ask",
-    "reply_ai": False, "voice_text": False,
+    "reply_ai": False, "voice_text": False, "reply_trigger": "", "reply_senders": "", "reply_quote": False, "reply_prefix": "",
     "connect": [], "speaker": "", "mic": "", "mic_url": "", "camera": "", "volume": 0, "echo_guard": "auto",
 }
-_STR = ("name", "pipeline", "agent", "greeting", "handover_rule", "speaker", "mic", "mic_url", "camera", "announce_to", "announce_text")
-_BOOL = ("answer", "ai", "trusted", "reply_ai", "voice_text", "announce")
+_STR = ("name", "pipeline", "agent", "greeting", "handover_rule", "speaker", "mic", "mic_url", "camera", "announce_to", "announce_text",
+        "reply_trigger", "reply_senders", "reply_prefix")
+_BOOL = ("answer", "ai", "trusted", "reply_ai", "voice_text", "announce", "reply_quote")
 
 
 def empty_rules() -> dict[str, dict[str, Any]]:
@@ -90,6 +92,8 @@ def get_rules(defaults: Any) -> dict[str, dict[str, Any]]:
 def normalize(data: dict[str, Any], old: dict[str, Any] | None = None) -> dict[str, Any]:
     """Quy tắc đã kiểm tra: trường nêu trong `data` ghi đè `old`; trường khác giữ như cũ (hoặc mặc định). Lỗi thì RuleError."""
     rule = {**DEFAULT_RULE, **(old or {})}
+    if isinstance(data.get("reply_senders"), (list, tuple)):          # danh sách mã (YAML) -> chuỗi cách nhau dấu phẩy
+        data = {**data, "reply_senders": ", ".join(str(x).strip() for x in data["reply_senders"] if str(x).strip())}
     for k in _STR:
         if k in data and data[k] is not None:
             rule[k] = str(data[k]).strip()

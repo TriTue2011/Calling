@@ -302,6 +302,21 @@ def test_server_ctrl_call_event_request_creates_incoming_and_rings():
     _run(mock, check)
 
 
+def test_incoming_video_call_is_recorded_as_video_so_the_camera_starts_after_answer():
+    """Cuoc goi VIDEO den (extendData.callType 1) ghi type "video"; thoai van "user". Truoc day luon "user" => khong bao gio tu bat camera (12/11)."""
+    for call_type, want in ((1, "video"), (0, "user")):
+        mock = MockZalo().start()
+
+        def check(base, mock, endpoints, call_type=call_type, want=want):
+            ev = dict(INCOMING_EVENT)
+            ev["extendData"] = {"callType": call_type}
+            app_server.STATE._on_ctrl_call_event(_parsed_event(ev))
+            active = _wait_active(base, CALL_ID_IN, "incoming")
+            assert active is not None and active["type"] == want, (call_type, active)
+
+        _run(mock, check)
+
+
 def test_server_ctrl_call_event_cancel_marks_missed():
     """Event cancel cho cuoc incoming chua tra loi -> ended, detail
     "missed" (cuoc goi nho), webhook call.ended."""
@@ -404,7 +419,7 @@ def _inject_incoming(base, mock):
     _wait_steps(mock, CALL_ID_IN, ["ringring"])
 
 
-def _answer_extend_for_offer(offer_ext, session=None):
+def _answer_extend_for_offer(offer_ext, session=None, extra=None):
     """Gọi đến với extendData bên gọi khai = offer_ext, nghe máy, trả extendData bot gửi trong câu trả lời (dict)."""
     mock = MockZalo().start()
     mock.requestcall_data = {"servers": REAL_SHAPE_SERVERS, "sessId": "sess-real-e2e", "srtpKey": "k-test", "token": FAKE_TOKEN}
@@ -415,6 +430,7 @@ def _answer_extend_for_offer(offer_ext, session=None):
         ev["extendData"] = offer_ext
         if session:
             ev["session"] = session
+        ev.update(extra or {})
         app_server.STATE._on_ctrl_call_event(_parsed_event(ev))
         assert _wait_active(base, CALL_ID_IN, "incoming") is not None
         _wait_steps(mock, CALL_ID_IN, ["ringring"])
@@ -422,6 +438,7 @@ def _answer_extend_for_offer(offer_ext, session=None):
         assert body["ok"] is True, body
         ext = mock.voice_call_state(CALL_ID_IN).get("answer_extend")
         out["ext"] = json.loads(ext) if isinstance(ext, str) else ext
+        out["steps"] = mock.voice_call_state(CALL_ID_IN)["steps"]
         cfg = media_endpoints.ENDPOINTS.active_record(CALL_ID_IN)["transport"].config
         out["is_caller"], out["counter"] = cfg.is_caller, cfg.call_counter
         out["token"] = cfg.token
@@ -471,6 +488,29 @@ def test_answer_registers_as_callee_with_the_callers_session_when_the_offer_has_
     got = _answer_extend_for_offer.last
     assert got["is_caller"] is True and got["counter"] == 11, got            # phiên không đủ 154 ký tự: nhánh cũ
 
+def test_answer_skips_11300_like_the_real_client_when_the_event_has_relay_session_and_uids():
+    """Client that (zca-js acceptIncomingCall) KHONG goi 11300 khi tin cuoc goi den da co relay: ringring -> bat tay lenh 12 -> 11303. App cu luon
+    goi 11300 truoc, nghi la nguyen nhan Zalo tra -101 cho 11303 (chua kiem chung tren Zalo that). Thieu uid thi van goi 11300 (nhanh du phong)."""
+    import base64
+    sess = base64.urlsafe_b64encode(bytes(range(115))).rstrip(b"=").decode()
+    uids = {"uidFrom": "207908325", "uidTo": "365685311"}          # tin that: uidFrom/uidTo nam trong `data` cua su kien da parse (= ban goc cua tin)
+    _answer_extend_for_offer({"callType": 0, "srtpMode": 1}, session=sess, extra=uids)
+    got = _answer_extend_for_offer.last
+    # Mac dinh van goi 11300 (co nhanh du phong); ZALO_PC_INCOMING_SKIP_11300=1 moi bo qua nhu client that.
+    assert "requestcall" in got["steps"] and "answer" in got["steps"], got
+    os.environ["ZALO_PC_INCOMING_SKIP_11300"] = "1"
+    try:
+        _answer_extend_for_offer({"callType": 0, "srtpMode": 1}, session=sess, extra=uids)
+        got = _answer_extend_for_offer.last
+        assert "requestcall" not in got["steps"] and "answer" in got["steps"], got
+        assert got["is_caller"] is False and got["counter"] == 12, got
+    finally:
+        os.environ.pop("ZALO_PC_INCOMING_SKIP_11300", None)
+    _answer_extend_for_offer({"callType": 0, "srtpMode": 1}, session=sess)                  # thieu uid: du phong, van 11300
+    got = _answer_extend_for_offer.last
+    assert "requestcall" in got["steps"] and "answer" in got["steps"], got
+
+
 def test_answer_incoming_e2e():
     """POST /api/call/answer cho cuoc incoming: 11300 fallback (cung
     callId, partner = caller) + 11303 answer voi codec list JSON;
@@ -507,10 +547,82 @@ def test_answer_incoming_e2e():
     _run(mock, check)
 
 
+def test_answer_tolerates_zalo_101_only_when_it_is_that_error():
+    """Do 12/11: 11303 bi Zalo tra inner -101 du am thanh da noi. -101 thi cuoc goi van chay (ok True + warning, entry answered); loi khac
+    (vd 114) van la that bai."""
+    for code, want_ok in ((-101, True), (114, False)):
+        mock = MockZalo().start()
+        mock.answer_error = code
+
+        def check(base, mock, endpoints, code=code, want_ok=want_ok):
+            _inject_incoming(base, mock)
+            status, body = _api(base, "POST", "/api/call/answer", {"call_id": CALL_ID_IN})
+            assert body["ok"] is want_ok, (code, body)
+            if want_ok:
+                assert body.get("warning") == "zalo_answer_-101", body
+                assert _wait_active(base, CALL_ID_IN, "answered") is not None
+            else:
+                assert "warning" not in body, body
+
+        _run(mock, check)
+
+
+def test_logendcall_is_sent_like_zalo_pc_for_answered_calls_and_not_for_missed_ones():
+    """Zalo PC gui logendcall (11311) khi cuoc goi ket thuc: da noi may -> status 50 + duration + role callee; cuoc goi den bi nho (nguoi goi huy
+    truoc khi ta nghe) thi KHONG gui (engine `_finish(0, null, {signals:false})`). Thieu logendcall thi lich su chat hien «bi nho» (12/11)."""
+    app_server._LOGENDCALL_SENT.clear()           # moi call_id gui dung mot lan; cac test dung lai CALL_ID_IN
+    mock = MockZalo().start()
+
+    def check(base, mock, endpoints):
+        state = app_server.STATE
+        _inject_incoming(base, mock)
+        status, body = _api(base, "POST", "/api/call/answer", {"call_id": CALL_ID_IN})
+        assert body["ok"] is True, body
+        assert _wait_active(base, CALL_ID_IN, "answered") is not None
+        time.sleep(1.2)
+        state._on_ctrl_call_event(_parsed_event({"act": "end_call", "callId": CALL_ID_IN, "uidN": CALLER_ID}))
+        steps = _wait_steps(mock, CALL_ID_IN, ["logendcall"])
+        log = mock.voice_call_state(CALL_ID_IN)["logendcall"]
+        assert log["status"] == 50 and log["role"] is False and log["duration"] >= 1, (steps, log)
+        assert str(log["partner_id"]) == CALLER_ID and isinstance(log["logdata"], str), log
+        assert json.loads(log["logdata"])["Codec"] == ["opus/16000/1", "20"], log
+
+    _run(mock, check)
+
+    app_server._LOGENDCALL_SENT.clear()
+    mock = MockZalo().start()
+
+    def check_missed(base, mock, endpoints):
+        state = app_server.STATE
+        _inject_incoming(base, mock)
+        state._on_ctrl_call_event(_parsed_event({"act": "cancel", "callId": CALL_ID_IN, "uidN": CALLER_ID}))
+        time.sleep(1.0)
+        assert "logendcall" not in mock.voice_call_state(CALL_ID_IN)["steps"], mock.voice_call_state(CALL_ID_IN)
+
+    _run(mock, check_missed)
+
+
+def test_parallel_and_first_answer_modes_send_11303_without_waiting_for_udp():
+    """ZALO_PC_INCOMING_ANSWER_PARALLEL=1 (11303 song song voi InitZRTP) va ANSWER_FIRST=1 (11303 truoc UDP): moi che do deu gui dung mot 11303 va
+    van nghe may duoc (vai callee, lenh 12); mock tra -101 thi cuoc goi van chay (warning)."""
+    import base64
+    sess = base64.urlsafe_b64encode(bytes(range(115))).rstrip(b"=").decode()
+    uids = {"uidFrom": "207908325", "uidTo": "365685311"}
+    for var in ("ZALO_PC_INCOMING_ANSWER_PARALLEL", "ZALO_PC_INCOMING_ANSWER_FIRST"):
+        os.environ[var] = "1"
+        try:
+            _answer_extend_for_offer({"callType": 0, "srtpMode": 1}, session=sess, extra=uids)
+            got = _answer_extend_for_offer.last
+            assert "answer" in got["steps"], (var, got)
+            assert got["is_caller"] is False and got["counter"] == 12, (var, got)
+        finally:
+            os.environ.pop(var, None)
+
+
 def test_reject_incoming_e2e():
-    """POST /api/call/reject cho cuoc incoming: gui CA cancel (11305)
-    VA endcall (11306) — theo zca-js rejectIncomingCall; entry ket
-    thuc voi detail "user_rejected"."""
+    """POST /api/call/reject cho cuoc incoming: tu choi nhu Zalo PC that (engine-core.js `reject`): 11303 status 3 + logendcall status 160,
+    KHONG con cancel/endcall; entry ket thuc voi detail "user_rejected"."""
+    app_server._LOGENDCALL_SENT.clear()
     mock = MockZalo().start()
 
     def check(base, mock, endpoints):
@@ -519,9 +631,12 @@ def test_reject_incoming_e2e():
                             {"call_id": CALL_ID_IN})
         assert body["ok"] is True, body
         assert body["ended_call_id"] == CALL_ID_IN, body
-        steps = _wait_steps(mock, CALL_ID_IN, ["cancel", "endcall"])
-        assert "cancel" in steps, steps
-        assert "endcall" in steps, steps
+        steps = _wait_steps(mock, CALL_ID_IN, ["answer", "logendcall"])
+        assert "answer" in steps and "logendcall" in steps, steps
+        assert "cancel" not in steps and "endcall" not in steps, steps
+        state = mock.voice_call_state(CALL_ID_IN)
+        assert state.get("answer_codec") == "[]\n", state                      # codec chuan cua nhanh tu choi
+        assert state["logendcall"]["status"] == 160 and state["logendcall"]["role"] is False, state
         _s, calls = _api(base, "GET", "/api/calls")
         assert calls.get("active") is None, calls
         ended = [c for c in calls["calls"]

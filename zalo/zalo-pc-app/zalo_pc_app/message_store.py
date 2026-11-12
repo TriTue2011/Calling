@@ -57,6 +57,17 @@ _SCHEMA = (
 )
 
 
+RECALLED_TEXT = "Tin nhắn đã được thu hồi"
+
+
+def recalled_copy(m):
+    """Ban thay the cho tin da thu hoi: giu id/nguoi gui/gio/huong, bo chu va tep; raw chi con cac ma dinh danh."""
+    raw = m.get("raw") if isinstance(m.get("raw"), dict) else {}
+    return {"id": m.get("id", ""), "client_id": m.get("client_id", ""), "sender_id": m.get("sender_id", ""), "sender_name": m.get("sender_name", ""),
+            "text": RECALLED_TEXT, "time": m.get("time", 0), "kind": "system", "file_name": "", "direction": m.get("direction"),
+            "is_self": bool(m.get("is_self")), "recalled": True, "raw": {k: raw[k] for k in ("msgId", "cliMsgId", "uidFrom", "ts") if k in raw}}
+
+
 class MessageStore:
     """SQLite message store trong thu muc /data. Thread-safe
     (mot khoa, mot connection check_same_thread=False)."""
@@ -181,18 +192,146 @@ class MessageStore:
                 self._conn.commit()
                 if cur.rowcount == 0:
                     return False
-                # Cat bot: giu toi da max_per_thread tin moi nhat.
-                self._conn.execute(
-                    "DELETE FROM messages WHERE rowid IN ("
-                    " SELECT rowid FROM messages"
-                    " WHERE thread_type=? AND thread_id=?"
-                    " ORDER BY ts DESC, rowid DESC"
-                    " LIMIT -1 OFFSET ?)",
-                    (thread_type, thread_id, self.max_per_thread))
-                self._conn.commit()
+                # Cat bot: giu toi da max_per_thread tin moi nhat (0 = khong cat; cai dat o retention.py).
+                if self.max_per_thread and self.max_per_thread > 0:
+                    self._conn.execute(
+                        "DELETE FROM messages WHERE rowid IN ("
+                        " SELECT rowid FROM messages"
+                        " WHERE thread_type=? AND thread_id=?"
+                        " ORDER BY ts DESC, rowid DESC"
+                        " LIMIT -1 OFFSET ?)",
+                        (thread_type, thread_id, self.max_per_thread))
+                    self._conn.commit()
                 return True
             except sqlite3.Error:
                 return False
+
+    def bulk_record(self, thread_type, thread_id, msgs):
+        """Ghi nhieu tin trong MOT giao dich (nhap lich su tu dien thoai). Khong cat theo gioi han (retention.py lo). Cung khoa chong trung voi
+        record() nen chay lai khong nhan doi. Tin nhap vao duoc coi la DA DOC (dau «da doc» cua hoi thoai nang len moc tin moi nhat vua nhap).
+        Tra ve (them_moi, trung_hoac_bo_qua). Khong bao gio nem loi."""
+        thread_type, thread_id = str(thread_type or ""), str(thread_id or "")
+        msgs = [m for m in (msgs or []) if isinstance(m, dict)]
+        if not thread_type or not thread_id or not msgs:
+            return 0, len(msgs)
+        from .sync_poll import Inbox
+        ins = skip = 0
+        newest = 0.0
+        with self._lock:
+            if not self._connect():
+                return 0, len(msgs)
+            try:
+                for msg in msgs:
+                    dedup = Inbox._key(msg)
+                    if not dedup:
+                        skip += 1
+                        continue
+                    ts = float(msg.get("time") or 0) or 0
+                    cur = self._conn.execute(
+                        "INSERT OR IGNORE INTO messages (thread_type, thread_id, dedup_key, sender_id, msg_id, global_msg_id, msg_type, content, ts, raw_json)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (thread_type, thread_id, dedup, str(msg.get("sender_id") or ""), str(msg.get("id") or msg.get("client_id") or ""),
+                         str(msg.get("global_msg_id") or ""), str(msg.get("msg_type") or msg.get("kind") or ""),
+                         str(msg.get("text") or msg.get("file_name") or ""), ts, json.dumps(msg, ensure_ascii=False)))
+                    if cur.rowcount:
+                        ins += 1
+                        newest = max(newest, ts)
+                    else:
+                        skip += 1
+                if newest:
+                    self._conn.execute(
+                        "INSERT INTO reads (thread_type, thread_id, ts) VALUES (?,?,?)"
+                        " ON CONFLICT(thread_type, thread_id) DO UPDATE SET ts = MAX(ts, excluded.ts)", (thread_type, thread_id, newest))
+                self._conn.commit()
+            except sqlite3.Error:
+                try:
+                    self._conn.rollback()
+                except sqlite3.Error:
+                    pass
+                return 0, len(msgs)
+        return ins, skip
+
+    def recall(self, thread_type, thread_id, global_id="", cli_id=""):
+        """THU HOI (nguoi khac/dien thoai thu hoi tin): thay tin goc bang dau «Tin nhắn đã được thu hồi» va XOA chu/URL goc khoi DB. Tim theo
+        msgId (global) hoac cliMsgId. Tra ve danh sach `id` cac tin da doi ([] neu khong co tin goc). Khong bao gio nem loi."""
+        gid, cid = str(global_id or "").strip(), str(cli_id or "").strip()
+        thread_type, thread_id = str(thread_type or ""), str(thread_id or "")
+        if not (gid or cid) or not thread_type or not thread_id:
+            return []
+        pats = []
+        for key, val in (("msgId", gid), ("cliMsgId", cid)):
+            if val:
+                pats += ['%"' + key + '": "' + val + '"%', '%"' + key + '": ' + val + ',%', '%"' + key + '": ' + val + '}%']
+        conds = ["msg_id IN (?,?)", "global_msg_id IN (?,?)"] + ["raw_json LIKE ?"] * len(pats)
+        args = [thread_type, thread_id, gid or "-", cid or "-", gid or "-", cid or "-"] + pats
+        changed = []
+        with self._lock:
+            if not self._connect():
+                return []
+            try:
+                rows = self._conn.execute(
+                    "SELECT dedup_key, raw_json FROM messages WHERE thread_type=? AND thread_id=? AND (" + " OR ".join(conds) + ")", args).fetchall()
+                for dedup, rj in rows:
+                    try:
+                        m = json.loads(rj)
+                    except ValueError:
+                        continue
+                    raw = m.get("raw") if isinstance(m.get("raw"), dict) else {}
+                    if m.get("recalled") or raw.get("msgType") == "chat.undo":
+                        continue
+                    new = recalled_copy(m)
+                    self._conn.execute("UPDATE messages SET content=?, msg_type='system', raw_json=? WHERE thread_type=? AND thread_id=? AND dedup_key=?",
+                                       (RECALLED_TEXT, json.dumps(new, ensure_ascii=False), thread_type, thread_id, dedup))
+                    changed.append(str(m.get("id") or ""))
+                self._conn.commit()
+            except sqlite3.Error:
+                return changed
+        return changed
+
+    def prune(self, keep_days, max_per_thread, now=None):
+        """Xoa tin cu hon keep_days ngay va cat moi hoi thoai con max_per_thread tin moi nhat (0 = bo qua buoc do). Xoa nhieu thi thu nho
+        tep DB (checkpoint + VACUUM). Tra ve so tin da xoa. Khong bao gio nem loi."""
+        now = float(now if now is not None else time.time())
+        deleted = 0
+        with self._lock:
+            if not self._connect():
+                return 0
+            try:
+                if keep_days:
+                    deleted += self._conn.execute("DELETE FROM messages WHERE ts > 0 AND ts < ?", (now - keep_days * 86400,)).rowcount
+                if max_per_thread:
+                    over = self._conn.execute("SELECT thread_type, thread_id FROM messages GROUP BY thread_type, thread_id HAVING COUNT(*) > ?",
+                                              (max_per_thread,)).fetchall()
+                    for ttype, tid in over:
+                        deleted += self._conn.execute(
+                            "DELETE FROM messages WHERE rowid IN (SELECT rowid FROM messages WHERE thread_type=? AND thread_id=?"
+                            " ORDER BY ts DESC, rowid DESC LIMIT -1 OFFSET ?)", (ttype, tid, max_per_thread)).rowcount
+                self._conn.commit()
+                if deleted:
+                    self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    if deleted >= 500:
+                        self._conn.execute("VACUUM")
+            except sqlite3.Error:
+                pass
+        return deleted
+
+    def stats(self):
+        """{rows, threads, oldest_ts, db_bytes} — dung cho trang «Du lieu va tu xoa». Khong bao gio nem loi."""
+        out = {"rows": 0, "threads": 0, "oldest_ts": 0, "db_bytes": 0}
+        with self._lock:
+            if self._connect():
+                try:
+                    rows, threads, oldest = self._conn.execute(
+                        "SELECT COUNT(*), COUNT(DISTINCT thread_type || '|' || thread_id), MIN(CASE WHEN ts > 0 THEN ts END) FROM messages").fetchone()
+                    out.update(rows=rows or 0, threads=threads or 0, oldest_ts=oldest or 0)
+                except sqlite3.Error:
+                    pass
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                out["db_bytes"] += os.path.getsize(self.path + suffix)
+            except OSError:
+                pass
+        return out
 
     def messages_for(self, thread_type, thread_id, limit=50):
         """Tin cua mot thread, moi nhat truoc (dang dict da chuan
@@ -229,14 +368,17 @@ class MessageStore:
     @staticmethod
     def _heal(m):
         """Tin luu TRUOC khi app biet ve tin he thong (binh chon moi, thu hoi...): chu rong + kind text -> tinh lai tu `raw`."""
-        if not isinstance(m, dict) or m.get("text") or (m.get("kind") or "text") != "text":
+        if not isinstance(m, dict) or (m.get("kind") or "text") not in ("text", "system"):
+            return m
+        placeholder = m.get("text") == "sendBubbleMessage"             # title gia cua ban ghi cuoc goi: tin luu dang «text» HOAC «system» (anh 12/11) deu phai tinh lai
+        if (m.get("text") and not placeholder) or ((m.get("kind") or "text") == "system" and not placeholder):
             return m
         raw = m.get("raw")
         if isinstance(raw, dict) and raw:
             from . import chat as chat_mod              # nap muon: tranh vong import
             n = chat_mod.normalize_message(raw)
             if n.get("kind") == "system":
-                return dict(m, text=n["text"], kind="system")
+                return dict(m, text=n["text"], kind="system", call_record=n.get("call_record"))
         return m
 
     def _incoming(self, thread_type, thread_id):

@@ -27,6 +27,8 @@ from zalo_pc_app import services as S  # noqa: E402
 CHAT_FIELDS = {
     "send_message": [
         ("message", "Nội dung tin nhắn", True),
+        ("mentions", "Nhắc người trong NHÓM (chỉ áp dụng khi gửi vào nhóm): danh sách, mỗi mục {uid, name} (tìm «@name» trong tin) hoặc "
+                     "{uid, pos, len}; uid -1 = @Tất cả. Ví dụ: [{\"uid\": \"123456\", \"name\": \"Nam\"}] với tin «Chào @Nam»", False),
         ("format", "Định dạng chữ: plain (mặc định) hoặc markdown — **đậm**, *nghiêng*, __gạch chân__, ~~gạch ngang~~, "
                    "# tiêu đề (to + đậm), - mục / 1. mục (danh sách), {red}chữ đỏ{/} {orange} {yellow} {green} "
                    "(hoặc {đỏ} {cam} {vàng} {xanh}), {big}..{/} {small}..{/}", False),
@@ -90,6 +92,7 @@ def _reaction_options():
 SELECTOR_OVERRIDES = {
     ("send_message", "emoji"): {"select": {"options": _emoji_options(), "custom_value": True, "mode": "dropdown"}},
     ("send_message", "auto_emoji"): {"boolean": None},
+    ("send_message", "mentions"): {"object": None},
     ("send_message", "font_size"): {"select": {"options": ["off", "small", "big", "auto"], "mode": "dropdown"}},
     ("send_message", "text_color"): {"select": {"options": ["off", "auto", "red", "orange", "yellow", "green"], "mode": "dropdown"}},
     ("send_message", "bold"): {"select": {"options": ["off", "on", "auto"], "mode": "dropdown"}},
@@ -728,8 +731,15 @@ set_default_devices:
       selector:
         boolean: null
     auto_video:
-      name: Tự đồng ý khi bên kia xin gọi video
-      description: Bật thì khi bên kia xin chuyển sang video sẽ tự đồng ý và phát camera mặc định.
+      name: Tự đồng ý khi bên kia xin gọi video (mọi người)
+      description: Bật thì khi BẤT KỲ AI xin chuyển sang video app cũng tự đồng ý và phát camera mặc định, không xét quy tắc từng người. Nên TẮT và dùng
+        công tắc «Cho phép đồng ý chuyển sang video» cùng quy tắc từng người (video_request) để chỉ người được phép mới tự đồng ý.
+      selector:
+        boolean: null
+    video_consent:
+      name: Cho phép đồng ý chuyển sang video (công tắc tổng)
+      description: Công tắc tổng, mặc định TẮT. Bật thì quy tắc video_request (accept, accept_camera) của từng người/nhóm mới được tự đồng ý khi họ
+        xin chuyển sang video; tắt thì mọi người chỉ bị báo. Cũng là công tắc «Cho phép đồng ý chuyển sang video» trên thiết bị Zalo Call.
       selector:
         boolean: null
     echo_guard:
@@ -913,6 +923,26 @@ set_rule:
       description: Tin thoại 1-1 được Zalo STT chuyển thành chữ và bắn sự kiện zalo_call_voice_text.
       selector:
         boolean:
+    reply_trigger:
+      name: Từ khóa gọi AI trong nhóm
+      description: Chỉ áp cho NHÓM. Tin có từ này (không phân biệt hoa thường, ví dụ `@Bot`) mới được AI trả lời; từ khóa được bỏ khỏi câu hỏi. Để trống = AI trả lời mọi tin của nhóm.
+      selector:
+        text:
+    reply_senders:
+      name: Người được gọi AI trong nhóm
+      description: Chỉ áp cho NHÓM. Mã Zalo (threadID) của những người được phép gọi AI, cách nhau dấu phẩy. Để trống = mọi thành viên. Dán mã dài 19 chữ số hay mã số ngắn đều được.
+      selector:
+        text:
+    reply_quote:
+      name: Trả lời kèm trích dẫn tin gốc
+      description: Câu trả lời của AI trích dẫn đúng tin vừa hỏi (như zalo_bot). Chỉ với tin chữ; không trích được thì gửi tin thường.
+      selector:
+        boolean:
+    reply_prefix:
+      name: Tiền tố câu trả lời
+      description: Chữ thêm vào đầu câu trả lời của AI, ví dụ `Bot-Hass:`.
+      selector:
+        text:
     announce:
       name: Thông báo ra loa khi có cuộc gọi đến
       description: Bật thì khi người này gọi đến, một loa trong nhà đọc «Có cuộc gọi ... từ ...» để người trong nhà biết (kể cả khi không tự nghe máy). Mặc định TẮT.
@@ -955,7 +985,8 @@ set_rule:
           multiple: true
     video_request:
       name: Người gọi xin chuyển sang video
-      description: Chọn cách xử lý.
+      description: Chọn cách xử lý. Tự đồng ý (accept, accept_camera) chỉ có tác dụng khi công tắc «Cho phép đồng ý chuyển sang video» trên thiết bị
+        Zalo Call đang BẬT (mặc định TẮT).
       selector:
         select:
           options:

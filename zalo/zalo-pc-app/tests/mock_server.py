@@ -104,6 +104,7 @@ class MockZalo:
         self.scan_mode = "ok"
         self.confirm_mode = "ok"
         self.reqqr_mode = "ok"
+        self.server_info_mode = "old"   # getServerInfo: "old" (0/0/0) | "trust" | "self_g" | "absent" (khong co authen) | "error" (HTTP 500)
         self.logininfo_mode = "ok"
         # Ctrl long-poll simulation (99101): khi dat, /lp-ctl/ tra
         # mot event file_done cho fileId "file-1" voi URL nay (de
@@ -150,6 +151,7 @@ class MockZalo:
         # allocation material: the no-allocation tests). Values
         # here are test-only fixtures, never real credentials.
         self.requestcall_data = None
+        self.answer_error = None              # vd -101: 11303 (status 0) tra loi inner loi nay
         # Call-delivery tracking (§7l): call_id -> {"steps": [...],
         # "delivered": bool}. A call is "requested" once its
         # requestcall (11300/12433) arrives and "delivered" only
@@ -223,6 +225,7 @@ class MockZalo:
         self.seen = []  # (path, query, headers) log
         self.seen_post = []  # (path, query) log — chi cac POST
         self.seen_post_raw = []  # (path, raw bytes) — de test doc
+        self.receipts = []       # (path, than da giai ma) cua POST seen/delivered v1+v2
         # noi dung file that gui len (vd. fileContent co phai MP3
         # that khong); them vao vi do_POST decode utf-8 mat byte.
         self._plaintext_forced = False
@@ -244,7 +247,8 @@ class MockZalo:
                 "request_codec": entry.get("request_codec"),
                 "answer_codec": entry.get("answer_codec"),
                 "answer_extend": entry.get("answer_extend"),
-                "answer_addresses": entry.get("answer_addresses")}
+                "answer_addresses": entry.get("answer_addresses"),
+                "logendcall": entry.get("logendcall")}
 
     def server_call_state(self, call_id):
         """The SERVER-side call state the mock models for one callId:
@@ -329,6 +333,8 @@ class MockZalo:
                 entry["requestcall_codec"] = body.get("codec")
             elif step in ("request", "group/request"):
                 entry["request_codec"] = body.get("codec")
+            elif step == "logendcall":
+                entry["logendcall"] = body
             elif step == "answer":
                 entry["answer_codec"] = body.get("codec")
                 entry["answer_extend"] = body.get("extendData")
@@ -355,7 +361,11 @@ class MockZalo:
         elif step == "answer":
             # Callee answered an incoming call (11303): the call
             # is connected now, like answerack for an outgoing one.
-            if entry["server_state"] == "ringing":
+            # status 3 = tu choi (Zalo PC that): cuoc goi ket thuc, ghi la nho.
+            if body is not None and body.get("status") == 3:
+                entry["record"] = "missed"
+                entry["server_state"] = "ended"
+            elif entry["server_state"] == "ringing":
                 entry["server_state"] = "connected"
         elif step == "cancel":
             entry["record"] = "missed"
@@ -439,6 +449,8 @@ class MockZalo:
         if path in ("/api/social/friend/getfriends",
                     "/api/group/getlg/v4") and self.slow_seconds:
             time.sleep(self.slow_seconds)
+        if path == "/api/login/getServerInfo":
+            return self._server_info()
         if path == "/api/login/reqqr":
             return 200, self._reqqr(qs)
         if path == "/scan":
@@ -952,7 +964,22 @@ class MockZalo:
             return self._postlogin_envelope({})
         return self._postlogin_envelope({"msgId": "msg-voice-1", "clientId": body["clientId"], "body": body})
 
+    def _chat_receipt(self, path, qs, headers, raw_body="", raw_qs=""):
+        """POST «da xem» / «da nhan» (v1 + v2) kieu Zalo PC: form params=<AES JSON>, common params o query."""
+        self._check_common(qs, headers, "chat receipt", True)         # POST: params o body, common params + cookie o query
+        key = base64.b64decode(TEST_SESSION_KEY)
+        enc = urllib.parse.unquote(raw_body.split("=", 1)[1])
+        body = json.loads(_openssl_aes(key, base64.b64decode(enc), decrypt=True).decode("utf-8"))
+        if path.endswith("v2"):
+            assert isinstance(body.get("msgInfos"), str) and isinstance(json.loads(body["msgInfos"]).get("data"), list), body
+        else:
+            assert isinstance(body.get("msg_ids"), list) and (body.get("senderId") or body.get("grid")), body
+        self.receipts.append((path, body))
+        return self._postlogin_envelope({"ok": True})
+
     def route_post(self, path, qs, headers, raw_body="", raw_qs=""):
+        if path in ("/api/message/seenv2", "/api/group/seenv2", "/api/message/deliveredv2", "/api/group/deliveredv2"):
+            return 200, self._chat_receipt(path, qs, headers, raw_body, raw_qs)
         if path in ("/api/message/forward", "/api/group/forward") and self._is_voice_forward(raw_body):
             return 200, self._chat_voice_forward(path, qs, headers, raw_body, raw_qs)
         if path == "/api/group/getmg-v2" and self.slow_seconds:
@@ -1059,6 +1086,15 @@ class MockZalo:
                 "reset pin takes no params: %s" % qs
             return self._postlogin_envelope(
                 {"ok": True, "path": path, "body": {}})
+        if path == "/api/setting/me":
+            # bundle getSettings(): chi common params; shape do tren Zalo that 12/11/2026.
+            self._check_common(qs, headers, "svc GET %s" % path)
+            assert "params" not in qs, "setting/me takes no params: %s" % qs
+            return self._postlogin_envelope(
+                {"add_friend_via_contact": 1, "display_on_recommend_friend": 1, "add_friend_via_group": 1, "add_friend_via_qr": 1,
+                 "quick_message_status": 0, "show_online_status": True, "accept_stranger_call": 1, "archived_chat_status": 0,
+                 "receive_message": 1, "add_friend_via_phone": 1, "setting_show_stranger_msg_directly": 0, "display_seen_status": 1,
+                 "view_birthday": 2, "setting_2FA_status": 0})
         self._check_postlogin(qs, headers, raw_qs, "svc GET %s" % path)
         key = base64.b64decode(TEST_SESSION_KEY)
         plain = _openssl_aes(key, base64.b64decode(qs["params"]),
@@ -1135,6 +1171,16 @@ class MockZalo:
         assert m, "%s needs raw params value" % name
         assert "/" not in m.group(1) and "+" not in m.group(1), \
             "%s params not fully percent-encoded: %s" % (name, m.group(1))
+
+    def _server_info(self):
+        mode = self.server_info_mode
+        if mode == "error":
+            return 500, {}
+        data = {"server_time": 1, "setttings": {"authen": {"encryption": {"enable": 1}}}}
+        flags = {"old": (0, 0), "trust": (1, 0), "self_g": (0, 1)}.get(mode)
+        if flags:
+            data["setttings"]["authen"]["trusted_device"] = {"qr_format_trust_device": flags[0], "self_g": flags[1], "logo_qr": 0}
+        return 200, {"error_code": 0, "data": data}
 
     def _reqqr(self, qs):
         if self.reqqr_mode == "rate_limit":
@@ -1537,12 +1583,38 @@ class MockZalo:
             id_ok = (isinstance(call_id, int)
                      and not isinstance(call_id, bool)
                      and 1 <= call_id <= 2 ** 32 - 1)
-            shape_ok = (bool(body.get("callerId")) and id_ok
-                        and body.get("status") == 0
-                        and isinstance(body.get("codec"), str)
-                        and body.get("rtcpAddress")
-                        and body.get("rtpAddress")
-                        and isinstance(body.get("session_id"), str))
+            if body.get("status") == 3:
+                # Tu choi nhu Zalo PC that (engine-core.js reject): status 3, codec "[]\n", dia chi rong, extendData "{}\n".
+                shape_ok = (bool(body.get("callerId")) and id_ok
+                            and isinstance(body.get("codec"), str)
+                            and isinstance(body.get("session_id"), str))
+            else:
+                shape_ok = (bool(body.get("callerId")) and id_ok
+                            and body.get("status") == 0
+                            and isinstance(body.get("codec"), str)
+                            and body.get("rtcpAddress")
+                            and body.get("rtpAddress")
+                            and isinstance(body.get("session_id"), str))
+            if not shape_ok:
+                return self._postlogin_envelope_error(
+                    114, "Tham số không hợp lệ")
+            if self.answer_error is not None and body.get("status") == 0:
+                self._record_voice_step(call_id, sub, body)
+                return self._postlogin_envelope_error(self.answer_error, "Loi gia lap cua mock")
+            self._record_voice_step(call_id, sub, body)
+            return self._postlogin_envelope(
+                {"ok": True, "path": path, "body": body})
+        if sub == "logendcall":
+            # Ket qua cuoc goi cho lich su chat (bundle Zalo PC sendLogEndCall, 11311, signal 406):
+            # {call_id, partner_id, status 50/103/160, logdata (chuoi JSON), duration, role (bool), imei}.
+            call_id = body.get("call_id")
+            shape_ok = (isinstance(call_id, int) and not isinstance(call_id, bool)
+                        and bool(body.get("partner_id"))
+                        and body.get("status") in (50, 103, 160)
+                        and isinstance(body.get("logdata"), str)
+                        and isinstance(body.get("duration"), int)
+                        and isinstance(body.get("role"), bool)
+                        and bool(body.get("imei")))
             if not shape_ok:
                 return self._postlogin_envelope_error(
                     114, "Tham số không hợp lệ")

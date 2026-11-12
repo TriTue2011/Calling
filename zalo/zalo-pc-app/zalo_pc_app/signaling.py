@@ -62,7 +62,9 @@ class Signaling:
             return decode_postlogin_data(payload, self.zpw_enk)
         except RuntimeError as exc:
             if str(exc).startswith("response inner error_code="):
-                raise ServerRejectedError(str(exc)) from exc
+                _rej = ServerRejectedError(str(exc))
+                _rej.inner = getattr(exc, "inner", None)
+                raise _rej from exc
             raise
 
     def request_call(self, callee_id, call_id, codec=None,
@@ -127,6 +129,11 @@ class Signaling:
     def endcall(self, uid_to, call_id):
         return self._call("endcall", protocol.vc_endcall(
             uid_to, call_id, self.device_id))
+
+    def logendcall(self, partner_id, call_id, status, logdata, duration, role):
+        """Ghi ket qua cuoc goi 1-1 (11311, signal 406) — Zalo PC gui khi moi cuoc goi ket thuc."""
+        return self._call("logendcall", protocol.vc_logendcall(
+            call_id, partner_id, status, logdata, duration, role, self.device_id))
 
     def endcall_group(self, callee_id, call_id, call_type, host_call=True,
                       data=None, partners=None):

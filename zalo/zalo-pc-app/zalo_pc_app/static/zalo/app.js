@@ -83,13 +83,14 @@ const S = {
   filter: { chats: "all", contacts: "friends", calls: "all" }, kind: "all", cmenu: "friends", csort: "az", cfilter: "all",
   cur: null, msgs: [], files: {}, lastTime: 0, pollT: null, stick: true, info: false,
   calls: { active: null, calls: [] },
-  catalog: null, svcGroup: "all", svcQ: "", svcOpen: null,
+  catalog: null, svcGroup: "all", svcQ: "", svcOpen: null, setSec: "account", pending: [], replyTo: null, mentions: [], recalled: new Set(), ringId: "",
   watchOpen: null, watchMsgs: {}, rec: null, qrT: null, sound: true, me: { avatar: "" },
 };
 const rowKey = (r) => (r.type || r.thread_type) + "|" + (r.id || r.thread_id);
 const allRows = () => [...S.friends, ...S.groups];
 const rowOf = (type, id) => allRows().find((r) => r.type === type && r.id === String(id));
 const unreadTotal = () => Object.values(S.conv).reduce((n, c) => n + (c.unread || 0), 0);
+const peerName = (c) => c.peer || (rowOf(c.type === "group" ? "group" : "user", c.thread_id) || {}).name || String(c.thread_id || "");
 const strangerList = () => Object.values(S.conv).filter((c) => c.stranger && c.incoming_count !== 0);
 
 // ---- tiện ích --------------------------------------------------------------
@@ -276,7 +277,7 @@ function openThread(row) {
   const kind = row.type === "group" ? "Nhóm" + (row.members && row.members.length ? " · " + row.members.length + " thành viên" : "") : (row.stranger || (S.conv[rowKey(row)] || {}).stranger ? "Người lạ" : "Bạn bè");
   $("chat-sub").replaceChildren(kind + " · ", h("button", { class: "link mono", type: "button", title: "Sao chép threadId", onclick: () => copyText(row.id, "threadId") }, row.id));
   $("btn-video").hidden = row.type === "group";
-  setNotice(""); $("msg-in").value = ""; autosize();
+  setNotice(""); $("msg-in").value = ""; autosize(); setReply(null); S.mentions = []; S.pending = []; renderTray(); updateSendButtons();
   history.replaceState(null, "", "#/" + row.type + "/" + encodeURIComponent(row.id));
   const c = S.conv[rowKey(row)]; if (c) c.unread = 0;
   renderBadges(); renderList(); renderMsgs(); syncInfo(); syncCallButtons();
@@ -325,7 +326,7 @@ const downloadUrl = (m) => "/api/file/download?thread_type=" + typeParam() + "&t
 function photoSrc(m) { const rec = S.files[m._id]; return m.localUrl || (rec && rec.status === "downloaded" ? downloadUrl(m) : ""); }
 function bubbleBody(m) {
   const rec = S.files[m._id], dl = rec && rec.status === "downloaded";
-  if (m.kind === "photo") { const src = photoSrc(m); if (src) return h("img", { class: "photo", src, alt: m.file_name || "Ảnh" }); }
+  if (m.kind === "photo") { const src = photoSrc(m); if (src) { const cap = m.text && m.text !== m.file_name ? m.text : ""; const img = h("img", { class: "photo", src, alt: m.file_name || "Ảnh" }); return cap ? h("div", {}, img, h("div", { class: "photo-cap" }, cap)) : img; } }
   if (m.kind === "voice") return h("div", { class: "filecard" }, h("span", { class: "ficon" }, svg("mic")), h("div", {}, h("div", { class: "fname" }, "Tin nhắn thoại"), m.file_url ? h("audio", { controls: true, preload: "none", src: m.file_url, style: "height:2rem;margin-top:.25rem;max-width:100%" }) : h("div", { class: "fmeta" }, m.file_name || "")));
   if (m.kind === "file" || m.kind === "photo") {
     let act = null;
@@ -347,16 +348,27 @@ function renderMsgs() {
   const box = $("msgs"), near = box.scrollHeight - box.scrollTop - box.clientHeight < 90, frag = document.createDocumentFragment();
   let day = "", prev = null;
   if (!S.msgs.length) frag.append(h("div", { class: "empty", style: "margin:auto" }, "Chưa có tin nhắn. Hãy gửi lời chào."));
-  for (const m of S.msgs) {
+  for (const m0 of S.msgs) {
+    let m = m0;
+    if (S.recalled.has(m._id)) m = Object.assign({}, m, { kind: "system", text: "Tin nhắn đã được thu hồi", reply_to: null, call_record: null, raw: null });
     const d = m._t ? new Date(m._t * 1000).toDateString() : "";
     if (d && d !== day) { day = d; frag.append(h("div", { class: "day" }, fmtDay(m._t))); prev = null; }
+    if (m.kind === "system" && m.text) {           // tin he thong / ban ghi cuoc goi: dai giua nhu Zalo PC, khong phai bong bong
+      const cr = m.call_record;
+      frag.append(h("div", { class: "sysmsg" + (cr && cr.missed ? " missed" : "") },
+        cr ? h("span", { class: "sysico" }, svg("phone")) : null,
+        h("span", {}, m.text), h("span", { class: "bt" }, fmtTime(m._t))));
+      prev = null;
+      continue;
+    }
     const first = !(prev && prev._out === m._out && prev.sender_id === m.sender_id && m._t - prev._t < 120);
     const sender = { id: String(m.sender_id), name: m.sender_name || (S.cur.type === "user" && !m._out ? S.cur.name : ""), avatar: S.cur.type === "user" && !m._out ? S.cur.avatar : "" };
     frag.append(h("div", { class: "msg " + (m._out ? "out" : "in") },
       m._out ? null : (first ? avatar(sender, "sm") : h("span", { class: "gap" })),
       h("div", { class: "mcol" },
         !m._out && S.cur.type === "group" && first && (m.sender_name || m.sender_id) ? h("div", { class: "who" }, m.sender_name || m.sender_id) : null,
-        h("div", { class: "bub" }, bubbleBody(m), h("span", { class: "bt" }, fmtTime(m._t))))));
+        h("div", { class: "bub", onclick: (e) => { if (window.matchMedia("(hover: none)").matches && !e.target.closest("a,button,audio")) e.currentTarget.closest(".msg").classList.toggle("acts"); } }, quoteBlock(m), bubbleBody(m), h("span", { class: "bt" }, fmtTime(m._t))),
+        msgActions(m))));
     prev = m;
   }
   box.replaceChildren(frag);
@@ -365,7 +377,7 @@ function renderMsgs() {
 }
 function setNotice(text, bad) { const n = $("chat-notice"); n.hidden = !text; n.textContent = text || ""; n.className = "notice" + (bad ? " bad" : ""); }
 function autosize() { const t = $("msg-in"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 140) + "px"; updateSendButtons(); }
-function updateSendButtons() { const has = $("msg-in").value.trim() !== ""; $("btn-send").hidden = !has; $("btn-like").hidden = has; }
+function updateSendButtons() { const has = $("msg-in").value.trim() !== "" || S.pending.length > 0; $("btn-send").hidden = !has; $("btn-like").hidden = has; }
 function touchConv(type, id, msg, opts) {   // cập nhật dòng hội thoại ngay, không chờ gọi lại máy chủ
   const key = type + "|" + id;
   const c = S.conv[key] || (S.conv[key] = { thread_type: type, thread_id: String(id), count: 0, incoming_count: 0, unread: 0, name: "", stranger: false });
@@ -377,18 +389,91 @@ function touchConv(type, id, msg, opts) {   // cập nhật dòng hội thoại 
   if (opts && opts.stranger != null) c.stranger = !!opts.stranger;
   return c;
 }
-async function sendRaw(text) {
+async function sendRaw(text, extra) {
   if (!text || !S.cur) return;
-  const r = await api("/api/thread/" + encodeURIComponent(S.cur.id) + "/send", "POST", { type: typeParam(), message: text });
+  const r = await api("/api/thread/" + encodeURIComponent(S.cur.id) + "/send", "POST", Object.assign({ type: typeParam(), message: text }, extra || {}));
   if (r.error) { setNotice("Lỗi gửi tin: " + r.error, true); return false; }
   setNotice("");
   if (r.message) { mergeMsgs([r.message]); touchConv(S.cur.type, S.cur.id, r.message, { open: true }); S.stick = true; renderMsgs(); renderList(); }
   return true;
 }
 async function sendText() {
-  const input = $("msg-in"), text = input.value.trim(); if (!text) return;
-  input.value = ""; autosize();
-  if (!(await sendRaw(text))) { input.value = text; autosize(); }
+  const input = $("msg-in"), text = input.value.trim();
+  if (S.pending.length) { const list = S.pending; S.pending = []; renderTray(); input.value = ""; autosize(); await sendFiles(list, text); return; }
+  if (!text) return;
+  const reply = S.replyTo, keep = S.mentions;
+  const ments = S.cur && S.cur.type === "group" ? keep.filter((x) => text.includes("@" + x.name)).map((x) => ({ uid: x.uid, name: x.name })) : [];
+  input.value = ""; autosize(); S.mentions = []; $("mentions").hidden = true;
+  const ok = reply ? await sendReply(text, reply) : await sendRaw(text, ments.length ? { mentions: ments } : null);
+  if (!ok) { input.value = text; S.mentions = keep; autosize(); }
+}
+// ---- thao tác trên tin: trả lời, cảm xúc, thu hồi, sao chép (dùng dịch vụ có sẵn của app) ----
+const msgRaw = (m) => (m && m.raw && typeof m.raw === "object") ? m.raw : {};
+const QUICK_REACTIONS = [["like", "👍 Thích"], ["heart", "❤️ Yêu thích"], ["haha", "😆 Haha"], ["wow", "😮 Wow"], ["cry", "😢 Buồn"], ["angry", "😡 Phẫn nộ"]];
+const canReply = (m) => !!(m && m.id && (m.kind || "text") === "text" && msgRaw(m).cliMsgId && (msgRaw(m).uidFrom || m.sender_id));
+const canReact = (m) => !!(m && m.kind !== "system" && msgRaw(m).msgId && msgRaw(m).cliMsgId);
+const canUndo = (m) => !!(m && m._out && m.kind !== "system" && msgRaw(m).msgId && msgRaw(m).cliMsgId);
+const threadBody = () => ({ thread_id: String(S.cur.id), type: typeParam() });
+function setReply(m) {
+  S.replyTo = m || null; const bar = $("reply-bar"); if (!bar) return;
+  if (!m) { bar.hidden = true; bar.replaceChildren(); return; }
+  const who = m._out ? "chính mình" : (m.sender_name || (S.cur && S.cur.type === "user" ? S.cur.name : "") || "");
+  put(bar, h("div", { class: "rb-main" }, h("div", { class: "rb-t" }, "Trả lời" + (who ? " " + who : "")), h("div", { class: "rb-x" }, String(m.text || "").slice(0, 120))),
+    h("button", { class: "icon-btn", type: "button", "aria-label": "Bỏ trả lời", onclick: () => setReply(null) }, "✕"));
+  bar.hidden = false; $("msg-in").focus();
+}
+async function sendReply(text, m) {
+  const raw = msgRaw(m);
+  const r = await api("/api/svc/quote_message", "POST", Object.assign(threadBody(), { text, msg_id: String(m.id), qmsg_owner: String(raw.uidFrom || m.sender_id), qmsg_cli_id: String(raw.cliMsgId), qmsg_type: 1, qmsg_ts: Number(raw.ts || 0) || 0, qmsg: String(m.text || "") }));
+  if (r.error) { setNotice("Lỗi trả lời: " + r.error, true); return false; }
+  setReply(null); setNotice(""); await loadHistory(); return true;
+}
+async function reactTo(m, icon) {
+  const raw = msgRaw(m), r = await api("/api/svc/add_reaction", "POST", Object.assign(threadBody(), { icon, msg_id: String(raw.msgId), cli_msg_id: String(raw.cliMsgId) }));
+  toast(r.error ? "Lỗi thả cảm xúc: " + r.error : "Đã thả cảm xúc", r.error ? 5000 : 2000);
+}
+async function undoMsg(m) {
+  if (!confirm("Thu hồi tin này? Người nhận sẽ thấy tin đã bị thu hồi.")) return;
+  const raw = msgRaw(m), r = await api("/api/svc/undo_message", "POST", Object.assign(threadBody(), { msg_id: String(raw.msgId), cli_msg_id: String(raw.cliMsgId) }));
+  if (r.error) return toast("Lỗi thu hồi: " + r.error, 5000);
+  S.recalled.add(m._id); renderMsgs(); toast("Đã thu hồi tin nhắn");
+}
+function msgActions(m) {
+  const b = [];
+  if (canReact(m)) b.push(h("button", { class: "mact", type: "button", "data-pop": "1", onclick: (e) => popup(e.currentTarget, QUICK_REACTIONS.map(([icon, label]) => ({ label, run: () => reactTo(m, icon) }))) }, "Cảm xúc"));
+  if (canReply(m)) b.push(h("button", { class: "mact", type: "button", onclick: () => setReply(m) }, "Trả lời"));
+  if ((m.kind || "text") === "text" && m.text) b.push(h("button", { class: "mact", type: "button", onclick: () => copyText(m.text, "tin nhắn") }, "Sao chép"));
+  if (canUndo(m)) b.push(h("button", { class: "mact red", type: "button", onclick: () => undoMsg(m) }, "Thu hồi"));
+  return b.length ? h("div", { class: "macts" }, b) : null;
+}
+const REPLY_KIND = { photo: "Ảnh", file: "Tệp", voice: "Tin nhắn thoại", video: "Video" };
+function quoteBlock(m) {
+  const q = m.reply_to; if (!q) return null;
+  const member = groupMembers().find((x) => x.id === String(q.owner)), friend = rowOf("user", q.owner);
+  const who = q.owner && String(q.owner) === S.uid ? "Bạn" : (S.cur && S.cur.type === "user" ? S.cur.name : (member && member.name) || (friend && friend.name)) || q.owner || "";
+  const txt = q.text || (q.attach_kind ? "[" + (REPLY_KIND[q.attach_kind] || "Tệp") + "]" + (q.attach_name ? " " + q.attach_name : "") : "");
+  return h("div", { class: "quote" }, h("div", { class: "qwho" }, who), h("div", { class: "qtxt" }, txt.slice(0, 160)));
+}
+// ---- nhắc tên (@) trong nhóm ----
+function groupMembers() {
+  return ((S.cur && S.cur.members) || []).map((m) => typeof m === "object" ? { id: String(m.id || m.userId || ""), name: m.name || m.dName || m.displayName || "" } : { id: String(m), name: "" })
+    .map((m) => ({ id: m.id, name: m.name || (rowOf("user", m.id) || {}).name || "" })).filter((m) => m.id && m.name && m.id !== S.uid);
+}
+function updateMentions() {
+  const box = $("mentions"), ta = $("msg-in"); if (!box) return;
+  if (!S.cur || S.cur.type !== "group") { box.hidden = true; return; }
+  const mt = /(^|\s)@([^\s@]*)$/.exec(ta.value.slice(0, ta.selectionStart)); if (!mt) { box.hidden = true; return; }
+  const q = plain(mt[2]), list = groupMembers().filter((m) => !q || plain(m.name).includes(q)).slice(0, 8);
+  if (!list.length) { box.hidden = true; return; }
+  const tokenLen = mt[0].length - mt[1].length;
+  put(box, list.map((m) => h("button", { type: "button", role: "option", onmousedown: (e) => e.preventDefault(), onclick: () => pickMention(m, tokenLen) }, avatar({ id: m.id, name: m.name, avatar: (rowOf("user", m.id) || {}).avatar }, "sm"), h("span", {}, m.name))));
+  box.hidden = false;
+}
+function pickMention(m, tokenLen) {
+  const ta = $("msg-in"), pos = ta.selectionStart, start = pos - tokenLen, ins = "@" + m.name + " ";
+  ta.value = ta.value.slice(0, start) + ins + ta.value.slice(pos); ta.setSelectionRange(start + ins.length, start + ins.length); ta.focus();
+  if (!S.mentions.some((x) => x.uid === m.id)) S.mentions.push({ uid: m.id, name: m.name });
+  $("mentions").hidden = true; autosize();
 }
 function imageDims(file) {
   return new Promise((resolve) => {
@@ -397,20 +482,40 @@ function imageDims(file) {
   });
 }
 const PHOTO = /^image\/(jpeg|png|webp)$/;
-async function sendFiles(files) {
+// Khay «chờ gửi» (như Zalo PC): chọn/dán/thả ảnh thì xếp vào khay, người dùng gõ chú thích rồi mới bấm Gửi.
+function stageFiles(files) {
+  if (!S.cur) return toast("Hãy mở một cuộc trò chuyện trước.");
+  S.pending = S.pending.concat([...files]).slice(0, 20); renderTray(); updateSendButtons(); $("msg-in").focus();
+}
+function renderTray() {
+  const tray = $("attach-tray"); if (!tray) return;
+  tray.hidden = !S.pending.length;
+  put(tray, S.pending.map((f, i) => h("div", { class: "tray-item" },
+    PHOTO.test(f.type) || /^image\//.test(f.type) ? h("img", { src: URL.createObjectURL(f), alt: f.name }) : h("span", { class: "tray-file" }, svg("file"), h("span", {}, f.name.slice(0, 18))),
+    h("button", { class: "tray-x", type: "button", "aria-label": "Bỏ " + f.name, onclick: () => { S.pending.splice(i, 1); renderTray(); updateSendButtons(); } }, "✕"))),
+    S.pending.length ? h("div", { class: "tray-hint" }, S.pending.length + " tệp · gõ chú thích rồi bấm Gửi") : null);
+}
+// Gửi: nhiều ảnh (không phải GIF) gắn chung một nhóm để bên nhận thấy thành MỘT album; ảnh đơn kèm chú thích thì chú thích đi cùng ảnh
+// (desc), còn nhiều ảnh/tệp thì chú thích gửi thành tin chữ riêng (cách zca-js làm).
+async function sendFiles(files, caption) {
   if (!S.cur) return toast("Hãy mở một cuộc trò chuyện trước.");
   const list = [...files]; let ok = 0;
+  const photoIdx = list.map((f, i) => (PHOTO.test(f.type) ? i : -1)).filter((i) => i >= 0), nPhoto = photoIdx.length, layoutId = String(Date.now());
+  const single = list.length === 1 && nPhoto === 1;
   for (let i = 0; i < list.length; i++) {
     const f = list[i]; toast("Đang gửi " + (i + 1) + "/" + list.length + ": " + f.name, 30000);
     const form = new FormData(); form.append("type", typeParam());
     const photo = PHOTO.test(f.type); form.append("kind", photo ? "photo" : "file");
     if (photo) { const d = await imageDims(f); form.append("width", d.w); form.append("height", d.h); }
+    if (photo && nPhoto > 1) { form.append("groupLayoutId", layoutId); form.append("totalItemInGroup", String(nPhoto)); form.append("isGroupLayout", "1"); form.append("idInGroup", String(photoIdx.indexOf(i))); }
+    if (photo && single && caption) form.append("desc", caption);
     form.append("file", f, f.name);
     const r = await apiForm("/api/thread/" + encodeURIComponent(S.cur.id) + "/sendfile", form);
     if (r.error) { setNotice("Không gửi được “" + f.name + "”: " + r.error, true); continue; }
     ok++;
     if (r.message) { if (photo) r.message.localUrl = URL.createObjectURL(f); mergeMsgs([r.message]); touchConv(S.cur.type, S.cur.id, r.message, { open: true }); S.stick = true; renderMsgs(); renderList(); }
   }
+  if (caption && !single && ok) await sendRaw(caption);
   if (ok) { setNotice(""); toast("Đã gửi " + ok + " tệp."); } else $("toast").hidden = true;
 }
 async function toggleRecord() {
@@ -507,7 +612,9 @@ async function loadCalls() {
   let d; try { d = await api("/api/calls"); } catch (e) { return; }
   if (d.error) return;
   const prev = S.calls.active; S.calls = { active: d.active || null, calls: d.calls || [] };
-  if (prev && !S.calls.active) { const done = S.calls.calls.find((c) => String(c.call_id) === String(prev.call_id)); toast("Cuộc gọi với " + (prev.peer || prev.thread_id) + " đã kết thúc" + (done && done.detail ? ": " + endText(done.detail) : "."), 5000); }
+  const inc = S.calls.active;
+  if (inc && inc.direction === "in" && inc.status === "incoming" && S.ringId !== String(inc.call_id)) { S.ringId = String(inc.call_id); beep(); }
+  if (prev && !S.calls.active) { const done = S.calls.calls.find((c) => String(c.call_id) === String(prev.call_id)); toast("Cuộc gọi với " + peerName(prev) + " đã kết thúc" + (done && done.detail ? ": " + endText(done.detail) : "."), 5000); }
   renderCallCard(); syncCallButtons(); $("dot-calls").hidden = !S.calls.active;
   if (S.cur && S.info) syncInfo();
   if (S.tab === "calls") { renderCallRows($("list")); renderCallsPage(); }
@@ -521,17 +628,36 @@ async function startCall(video) {
   if (r.request_sent === false) toast("Đã gửi yêu cầu nhưng bước 2 chưa gửi được: " + (r.request_error || "không rõ"), 7000);
   await loadCalls();
 }
+async function answerCall(a) {
+  const r = await api("/api/call/answer", "POST", { call_id: a.call_id });
+  if (r.error || r.ok === false) toast("Không nghe máy được: " + (r.error || r.detail || "không rõ"), 6000);
+  await loadCalls();
+}
+async function rejectCall(a) {
+  const r = await api("/api/call/reject", "POST", { call_id: a.call_id });
+  if (r.error || r.ok === false) toast("Không từ chối được: " + (r.error || r.detail || "không rõ"), 6000);
+  await loadCalls();
+}
 async function endCall() { const a = S.calls.active; if (!a) return; const r = await api("/api/call/end", "POST", { call_id: a.call_id }); if (r.error) toast("Lỗi kết thúc cuộc gọi: " + r.error, 5000); await loadCalls(); }
 function renderCallCard() {
   const card = $("callcard"), a = S.calls.active;
   if (!a) { card.hidden = true; card.replaceChildren(); return; }
   const row = rowOf(a.type === "group" ? "group" : "user", a.thread_id) || { id: String(a.thread_id), name: a.peer, type: a.type === "group" ? "group" : "user" };
+  if (a.direction === "in" && a.status === "incoming" && !a.answered_at) {       // cuộc gọi ĐẾN, chưa ai nghe: popup hai nút như Zalo PC
+    card.hidden = false; card._since = a.started_at;
+    put(card, h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, peerName(a)), h("div", { class: "st" }, a.type === "video" ? "Cuộc gọi video đến…" : "Cuộc gọi đến…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - a.started_at)))),
+      h("div", { class: "acts" }, h("button", { class: "end", type: "button", onclick: () => rejectCall(a) }, svg("hang"), "Từ chối"), h("button", { class: "ok", type: "button", onclick: () => answerCall(a) }, svg("phone"), "Nghe")));
+    return;
+  }
   const answered = a.status === "answered" || !!a.answered_at, ringing = !answered && a.request_sent === true;
-  const since = (answered && a.answered_at) || a.started_at, noMedia = !S.status || !S.status.engine || !S.status.engine.attached;
+  // Cảnh báo CHỈ khi đã nối >8 giây mà chưa thấy gói tiếng/hình nào chạy (số đếm thật của cuộc gọi) — không dựa vào cờ «engine» của cuộc gọi đi
+    // (ảnh 12/11: cuộc gọi đến chạy bình thường vẫn bị báo sai ngay giây đầu).
+    const since = (answered && a.answered_at) || a.started_at, mc = a.media && a.media.counters, flowing = !!(mc && (mc.rtp_tx > 0 || mc.rtp_rx > 0));
+    const noMedia = answered && Date.now() / 1000 - since > 8 && !flowing;
   card.hidden = false;
   put(card,
-    h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, (a.type === "video" ? "Video · " : "") + (a.peer || a.thread_id)), h("div", { class: "st" }, answered ? "Đang trong cuộc gọi" : ringing ? "Đang đổ chuông…" : "Đang kết nối…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - since)))),
-    answered && noMedia ? h("div", { class: "warn" }, "Máy bên kia đã nghe nhưng app chưa có tiếng/hình trong cuộc gọi (đang phát triển), nên họ có thể báo “kết nối không ổn định”.") : null,
+    h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, (a.type === "video" ? "Video · " : "") + peerName(a)), h("div", { class: "st" }, answered ? "Đang trong cuộc gọi" : ringing ? "Đang đổ chuông…" : "Đang kết nối…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - since)))),
+    answered && noMedia ? h("div", { class: "warn" }, "Đã nối hơn 8 giây nhưng chưa thấy gói tiếng/hình nào chạy qua; bên kia có thể báo “kết nối không ổn định”.") : null,
     a.request_sent === false ? h("div", { class: "warn" }, "Bước 2 chưa gửi được, bên kia có thể chưa đổ chuông.") : null,
     h("div", { class: "acts" }, h("button", { class: "end", type: "button", onclick: endCall }, svg("hang"), "Kết thúc")));
   card._since = since;
@@ -555,7 +681,7 @@ function renderCallRows(ul) {
   for (const c of list) {
     const row = rowOf(c.type === "group" ? "group" : "user", c.thread_id) || { id: String(c.thread_id), name: c.peer, type: c.type === "group" ? "group" : "user" };
     ul.append(h("li", {}, h("button", { class: "row", type: "button", onclick: () => openThread(row) }, avatar(row), h("div", { class: "row-main" },
-      h("div", { class: "row-top" }, h("span", { class: "row-name" }, c.peer || c.thread_id), h("span", { class: "row-time" }, fmtRel(c.started_at))),
+      h("div", { class: "row-top" }, h("span", { class: "row-name" }, peerName(c)), h("span", { class: "row-time" }, fmtRel(c.started_at))),
       h("div", { class: "row-sub" }, (c.type === "video" ? "Video · " : c.type === "group" ? "Nhóm · " : "Thoại · ") + (endText(c.detail) || c.status))))));
   }
 }
@@ -565,7 +691,7 @@ function renderCallsPage() {
   box.append(h("div", { class: "card wide" }, h("h3", {}, "Lịch sử cuộc gọi"),
     !list.length ? h("p", { style: "color:var(--muted);margin:0" }, "Chưa có cuộc gọi nào. Mở một cuộc trò chuyện và bấm biểu tượng điện thoại hoặc video.") :
       h("div", {}, list.map((c) => h("div", { style: "display:flex;gap:.625rem;align-items:center;padding:.5rem 0;border-top:1px solid var(--line)" },
-        h("div", { style: "flex:1;min-width:0" }, h("div", { style: "font-weight:500" }, c.peer || c.thread_id), h("div", { style: "color:var(--muted);font-size:.78rem" }, (c.type === "video" ? "Video" : c.type === "group" ? "Nhóm" : "Thoại") + " · " + fmtDT(c.started_at) + (c.ended_at ? " · " + fmtDur(c.ended_at - c.started_at) : ""))), callPill(c))))));
+        h("div", { style: "flex:1;min-width:0" }, h("div", { style: "font-weight:500" }, peerName(c)), h("div", { style: "color:var(--muted);font-size:.78rem" }, (c.type === "video" ? "Video" : c.type === "group" ? "Nhóm" : "Thoại") + " · " + fmtDT(c.started_at) + (c.ended_at ? " · " + fmtDur(c.ended_at - c.started_at) : ""))), callPill(c))))));
 }
 
 // ---- danh bạ --------------------------------------------------------------------------------------------------
@@ -641,7 +767,10 @@ async function renderServices() {
     box.replaceChildren(h("p", { style: "color:var(--muted)" }, "Đang tải danh mục…"));
     const d = await api("/api/svc/catalog"); if (d.error) return box.replaceChildren(h("p", { class: "notice bad" }, "Lỗi: " + d.error));
     const seen = new Set();
-    S.catalog = { groups: d.groups || [], items: (d.services || []).filter((s) => s.addon_no != null && !seen.has(s.addon_no) && seen.add(s.addon_no)).sort((a, b) => a.addon_no - b.addon_no) };
+    // Mục "ngoài 96" (quote_message, mark_seen, get_settings, update_label…) không có addon_no nhưng CHẠY ĐƯỢC: khóa theo action để không bị ẩn.
+    const keyOf = (s) => (s.addon_no != null ? s.addon_no : "x:" + (s.action || s.addon));
+    S.catalog = { groups: d.groups || [], items: (d.services || []).filter((s) => { const k = keyOf(s); if (seen.has(k)) return false; seen.add(k); s._key = k; return true; })
+      .sort((a, b) => (a.addon_no == null ? 1e6 : a.addon_no) - (b.addon_no == null ? 1e6 : b.addon_no)) };
     // 333 API của zca-js: những cái chưa có trong 96 dịch vụ PC được thêm vào (gọi bằng bộ gọi chung, CHƯA kiểm với Zalo thật).
     const snake = (n) => n.replace(/[A-Z]/g, (c, k) => (k ? "_" : "") + c.toLowerCase());
     const have = new Set(); for (const x of S.catalog.items) { have.add(x.addon); if (x.action) have.add(x.action); }
@@ -649,7 +778,7 @@ async function renderServices() {
     const zitems = (((d.zca || {}).apis) || []).filter((a) => !a.covered_by && !have.has(snake(a.name))).map((a) => {
       const fields = (a.args || []).map((f) => ({ key: f.name, label: (f.description || f.name) + " (" + f.type + ")", required: !!f.required }));
       if (a.mode === "raw") fields.push({ key: "params", label: "params — JSON đúng như zca-js gửi", required: true });
-      return { addon: snake(a.name), action: snake(a.name), addon_no: "zca:" + a.name, group: "zca_" + a.domain, label: a.name, desc: a.summary, status: a.mode === "manual" ? "manual" : "supported", reason: a.reason, fields, thread: "none", danger: !!a.danger, zca: true };
+      return { addon: snake(a.name), action: snake(a.name), addon_no: "zca:" + a.name, _key: "zca:" + a.name, group: "zca_" + a.domain, label: a.name, desc: a.summary, status: a.mode === "manual" ? "manual" : "supported", reason: a.reason, fields, thread: "none", danger: !!a.danger, zca: true };
     });
     const zgroups = Object.keys(ZG).filter((k) => zitems.some((x) => x.group === "zca_" + k)).map((k) => ({ id: "zca_" + k, label: "zca · " + ZG[k] }));
     S.catalog.items = S.catalog.items.concat(zitems); S.catalog.groups = S.catalog.groups.concat(zgroups);
@@ -666,9 +795,9 @@ async function renderServices() {
 }
 const STATUS_HINT = { chat: "Dùng ngay trong khung chat (nhắn tin, đính kèm, ghi âm).", view: "Xem ở tab Danh bạ.", zalobot: "Chỉ có ở máy chủ zalobot (webhook, proxy, đa tài khoản): xem mục Cài đặt, hoặc tích hợp Home Assistant mô phỏng." };
 function svcItem(s) {
-  const open = S.svcOpen === s.addon_no;
+  const open = S.svcOpen === s._key;
   const pill = s.status === "supported" ? h("span", { class: "pill ok" }, "dùng được") : h("span", { class: "pill" }, s.status === "chat" ? "trong chat" : s.status === "view" ? "ở danh bạ" : s.status === "manual" ? "chưa tự động" : "zalobot");
-  const el = h("div", { class: "svc" }, h("button", { type: "button", "aria-expanded": String(open), onclick: () => { S.svcOpen = open ? null : s.addon_no; renderServices(); } }, h("span", { class: "svc-name" }, s.label && s.label !== s.addon ? s.label : s.addon, h("div", { class: "svc-sub" }, s.addon + (s.danger ? " · không hoàn tác" : ""))), pill));
+  const el = h("div", { class: "svc" }, h("button", { type: "button", "aria-expanded": String(open), onclick: () => { S.svcOpen = open ? null : s._key; renderServices(); } }, h("span", { class: "svc-name" }, s.label && s.label !== s.addon ? s.label : s.addon, h("div", { class: "svc-sub" }, s.addon + (s.danger ? " · không hoàn tác" : ""))), pill));
   if (open) el.append(svcBody(s)); return el;
 }
 function svcBody(s) {
@@ -678,49 +807,219 @@ function svcBody(s) {
   if (need) body.append(h("p", { class: "notice", style: "margin:.625rem 0" }, S.cur ? "Áp dụng cho: " + (S.cur.name || S.cur.id) + (S.cur.type === "group" ? " (nhóm)" : "") : "Cần chọn hội thoại: mở một cuộc trò chuyện trước rồi quay lại đây."));
   if (s.zca) body.append(h("p", { class: "notice", style: "margin:.625rem 0" }, (s.desc || "") + " — API lấy từ zca-js, CHƯA kiểm với máy chủ Zalo thật."));
   const inputs = {};
-  for (const f of s.fields || []) { const input = h("input", { type: "text", id: "svc-" + f.key, autocomplete: "off" }); inputs[f.key] = input; body.append(h("div", { class: "field", style: "margin-top:.625rem" }, h("label", { for: "svc-" + f.key }, f.label + (f.required ? " *" : "")), input)); }
+  for (const f of s.fields || []) { const input = h("input", { type: f.key === "file" ? "file" : "text", id: "svc-" + f.key, autocomplete: "off", accept: f.key === "file" ? "image/*" : null }); inputs[f.key] = input; body.append(h("div", { class: "field", style: "margin-top:.625rem" }, h("label", { for: "svc-" + f.key }, f.label + (f.required ? " *" : "")), input)); }
   const out = h("pre", { class: "out", hidden: true });
   const btn = h("button", { class: "btn primary", type: "button", style: "margin-top:.375rem", onclick: async () => {
     if (need && !S.cur) return toast("Hãy mở một cuộc trò chuyện trước.");
     if (s.danger && !confirm("“" + (s.label || s.addon) + "” không hoàn tác được. Tiếp tục?")) return;
     const payload = need ? { thread_id: S.cur.id, type: S.cur.type } : {}; if (s.zca && s.danger) payload.confirm = true;
-    for (const [k, el] of Object.entries(inputs)) if (el.value.trim() !== "") payload[k] = el.value.trim();
-    btn.disabled = true; const r = await api("/api/svc/" + s.action, "POST", payload); btn.disabled = false; out.hidden = false;
+    for (const [k, el] of Object.entries(inputs)) if (el.type !== "file" && el.value.trim() !== "") payload[k] = el.value.trim();
+    const fileEl = inputs.file && inputs.file.type === "file" ? inputs.file : null;       // dịch vụ tải ảnh (đổi ảnh đại diện): gửi multipart
+    if (fileEl && !fileEl.files.length) return toast("Hãy chọn tệp ảnh trước.");
+    btn.disabled = true; let r;
+    if (fileEl) { const form = new FormData(); for (const [k, v] of Object.entries(payload)) form.append(k, String(v)); form.append("file", fileEl.files[0], fileEl.files[0].name); r = await apiForm("/api/svc/" + s.action, form); }
+    else r = await api("/api/svc/" + s.action, "POST", payload);
+    btn.disabled = false; out.hidden = false;
     out.textContent = r.error ? "Lỗi: " + r.error : JSON.stringify(r.data === undefined ? r : r.data, null, 2);
   } }, "Chạy");
   body.append(btn, out); return body;
 }
 
-// ---- cài đặt: kết nối Zalo (webhook, proxy, bảo mật) ---------------------------------------------------------------------
+// ---- cài đặt: mỗi mục một trang riêng (bấm mục nào chỉ hiện mục đó) ------------------------------------------------------------
 const section = (id, title, ...kids) => h("div", { class: "card", id }, h("h3", {}, title), ...kids);
+const SET_SECS = [["account", "Tài khoản"], ["privacy", "Quyền riêng tư"], ["history", "Đồng bộ lịch sử"], ["data", "Dữ liệu và tự xóa"], ["calls", "Cuộc gọi và thiết bị"], ["ui", "Giao diện"], ["webhook", "Webhook"], ["proxy", "Proxy"], ["security", "Bảo mật"]];
+function openSettings(sec) { S.setSec = sec || S.setSec || "account"; setTab("settings"); }
+const PW_ERRORS = { sai_mat_khau_cu: "Mật khẩu hiện tại không đúng.", mat_khau_qua_ngan: "Mật khẩu mới phải từ 8 ký tự.", mat_khau_qua_dai: "Mật khẩu mới quá dài (tối đa 256 ký tự).", mat_khau_trung: "Mật khẩu mới phải khác mật khẩu cũ.", managed_by_env: "Mật khẩu đang đặt bằng biến môi trường ZALO_PC_APP_PASSWORD_HASH của container: đổi ở cấu hình container, không đổi được ở đây.", qua_nhieu_lan_sai: "Sai quá nhiều lần, thử lại sau 15 phút." };
+const pillOf = (t, c) => h("span", { class: "pill " + (c || "") }, t);
+const runPill = (v) => (v === "running" ? pillOf("đang chạy", "ok") : pillOf(v || "?", "warn"));
 async function renderSettings(focusId) {
-  const box = $("set-page"); box.replaceChildren();
+  const box = $("set-page");
+  if (focusId && String(focusId).startsWith("set-")) S.setSec = String(focusId).slice(4);
+  if (!SET_SECS.some(([id]) => id === S.setSec)) S.setSec = "account";
+  const sec = S.setSec;
+  const nav = h("div", { class: "chips setnav", role: "tablist", "aria-label": "Mục cài đặt" }, SET_SECS.map(([id, label]) => h("button", { class: "chip", type: "button", role: "tab", "aria-selected": String(sec === id), "aria-pressed": String(sec === id), onclick: () => { S.setSec = id; renderSettings(); } }, label)));
+  box.replaceChildren(nav);
+  const build = { account: setAccount, privacy: setPrivacy, history: setHistory, data: setData, calls: setCalls, ui: setUi, webhook: setWebhook, proxy: setProxy, security: setSecurity }[sec];
+  let body; try { body = await build(); } catch (e) { body = h("p", { class: "notice bad" }, "Không tải được mục này: " + (e && e.message || e)); }
+  if (box.firstChild === nav) box.append(body);        // người dùng đã bấm mục khác trong lúc chờ thì bỏ kết quả cũ
+}
+async function setAccount() {
   let st = S.status; try { st = await api("/api/status"); S.status = st; } catch (e) { /* giữ */ }
-  const pill = (t, c) => h("span", { class: "pill " + (c || "") }, t), run = (v) => (v === "running" ? pill("đang chạy", "ok") : pill(v || "?", "warn"));
-  const lag = st.sync_lag_ms;
-  box.append(section("set-account", "Tài khoản và kết nối",
-    h("dl", { class: "kv" },
-      h("dt", {}, "Zalo"), h("dd", {}, st.login ? (st.phonenum || "") + " · " + st.uid : "Chưa đăng nhập"),
-      h("dt", {}, "Kênh nhận tin"), h("dd", {}, run(st.sync), st.sync_error ? " " + st.sync_error : ""),
-      h("dt", {}, "Kênh điều khiển"), h("dd", {}, run(st.ctrl), st.ctrl_error ? " " + st.ctrl_error : ""),
-      h("dt", {}, "Đẩy tức thì"), h("dd", {}, h("span", { class: "live" + (S.sse ? "" : " off") }), S.sse ? "đang nối (tin hiện ngay khi tới)" : "đang nối lại…"),
-      h("dt", {}, "Độ trễ nhận tin"), h("dd", {}, lag ? lag.last + " ms gần nhất · trung bình " + lag.avg + " ms (" + lag.n + " tin)" : "chưa có tin nào trong phiên này"),
-      h("dt", {}, "Tiếng cuộc gọi"), h("dd", {}, st.engine && st.engine.attached ? pill("đã gắn", "ok") : pill("chưa có", "warn"), " ", (st.engine && st.engine.detail) || ""),
-      h("dt", {}, "Phiên bản"), h("dd", { class: "mono" }, st.version || ""))));
+  const lag = st.sync_lag_ms, note = h("p", { class: "inote", role: "status" });
+  const fOld = h("input", { type: "password", id: "acc-old", autocomplete: "current-password" }), fNew = h("input", { type: "password", id: "acc-new", autocomplete: "new-password", minlength: "8" }), fNew2 = h("input", { type: "password", id: "acc-new2", autocomplete: "new-password", minlength: "8" });
+  const change = async () => {
+    if (fNew.value !== fNew2.value) { note.textContent = "Hai ô mật khẩu mới không giống nhau."; return; }
+    const r = await fetch("/api/app/password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ old_password: fOld.value, new_password: fNew.value }) });
+    let d = {}; try { d = await r.json(); } catch (e) { /* không phải JSON */ }
+    if (r.ok && d.ok) { note.textContent = "Đã đổi mật khẩu" + (d.other_sessions_revoked ? " (đã đăng xuất " + d.other_sessions_revoked + " phiên khác)." : "."); fOld.value = fNew.value = fNew2.value = ""; }
+    else note.textContent = PW_ERRORS[d.error] || ("Không đổi được mật khẩu (" + (d.error || r.status) + ").");
+  };
+  return h("div", {},
+    section("set-account", "Tài khoản và kết nối",
+      h("dl", { class: "kv" },
+        h("dt", {}, "Zalo"), h("dd", {}, st.login ? (st.phonenum || "") + " · " + st.uid : "Chưa đăng nhập"),
+        h("dt", {}, "Kênh nhận tin"), h("dd", {}, runPill(st.sync), st.sync_error ? " " + st.sync_error : ""),
+        h("dt", {}, "Kênh điều khiển"), h("dd", {}, runPill(st.ctrl), st.ctrl_error ? " " + st.ctrl_error : ""),
+        h("dt", {}, "Đẩy tức thì"), h("dd", {}, h("span", { class: "live" + (S.sse ? "" : " off") }), S.sse ? "đang nối (tin hiện ngay khi tới)" : "đang nối lại…"),
+        h("dt", {}, "Độ trễ nhận tin"), h("dd", {}, lag ? lag.last + " ms gần nhất · trung bình " + lag.avg + " ms (" + lag.n + " tin)" : "chưa có tin nào trong phiên này"),
+        h("dt", {}, "Tiếng cuộc gọi"), h("dd", {}, st.engine && st.engine.attached ? pillOf("đã gắn", "ok") : pillOf("chưa có", "warn"), " ", (st.engine && st.engine.detail) || ""),
+        h("dt", {}, "Phiên bản"), h("dd", { class: "mono" }, st.version || ""))),
+    section("set-password", "Đổi mật khẩu đăng nhập app",
+      h("p", { class: "inote" }, "Đây là mật khẩu vào app này, không phải mật khẩu Zalo. Đổi xong, các thiết bị khác bị đăng xuất."),
+      h("div", { class: "field" }, h("label", { for: "acc-old" }, "Mật khẩu hiện tại"), fOld),
+      h("div", { class: "field" }, h("label", { for: "acc-new" }, "Mật khẩu mới (từ 8 ký tự)"), fNew),
+      h("div", { class: "field" }, h("label", { for: "acc-new2" }, "Nhập lại mật khẩu mới"), fNew2),
+      h("button", { class: "btn primary", type: "button", onclick: change }, "Đổi mật khẩu"), note));
+}
+// Quyền riêng tư: ĐỌC giá trị thật (get_settings = /api/setting/me); bật/tắt hoặc chọn là ÁP DỤNG NGAY (update_settings), không có nút Lưu,
+// lỗi thì trả công tắc về như cũ. Ý nghĩa giá trị theo zca-js updateSettings (view_birthday 0 ẩn/1 đủ/2 ngày-tháng; receive_message 1 mọi người/
+// 2 chỉ bạn bè; accept_stranger_call 2 bạn bè/3 mọi người/4 bạn bè và người từng liên hệ; còn lại 0 tắt/1 bật). Khóa chưa có nhãn thì chỉ liệt kê tên.
+const PRIVACY_TOGGLES = [["show_online_status", "Hiện trạng thái hoạt động"], ["display_seen_status", "Hiện «Đã xem» cho người nhắn"],
+  ["add_friend_via_phone", "Cho tìm và kết bạn qua số điện thoại"], ["add_friend_via_qr", "Cho kết bạn qua mã QR"], ["add_friend_via_group", "Cho kết bạn qua nhóm chung"],
+  ["add_friend_via_contact", "Cho kết bạn qua danh bạ"], ["display_on_recommend_friend", "Hiện trong gợi ý kết bạn"]];
+const PRIVACY_CHOICES = [["view_birthday", "Hiển thị ngày sinh", [[0, "Ẩn"], [1, "Ngày, tháng và năm"], [2, "Chỉ ngày và tháng"]]],
+  ["receive_message", "Ai được nhắn tin cho bạn", [[1, "Mọi người"], [2, "Chỉ bạn bè"]]],
+  ["accept_stranger_call", "Ai được gọi cho bạn", [[3, "Mọi người"], [2, "Chỉ bạn bè"], [4, "Bạn bè và người từng liên hệ"]]]];
+const PRIVACY_VIEWONLY = [["setting_show_stranger_msg_directly", "Hiện thẳng tin nhắn người lạ"], ["quick_message_status", "Tin nhắn nhanh"],
+  ["archived_chat_status", "Lưu trữ hội thoại"], ["setting_2FA_status", "Xác thực hai lớp (đổi trong Zalo trên điện thoại)"]];
+async function setPrivacy() {
+  const r = await api("/api/svc/get_settings", "POST", {}), d = r.error ? null : (r.data === undefined ? r : r.data);
+  if (!d || typeof d !== "object") return section("set-privacy", "Quyền riêng tư", h("p", { class: "notice bad" }, "Không đọc được cài đặt: " + (r.error || "phản hồi lạ")));
+  const num = (v) => (v === true ? 1 : v === false ? 0 : Number(v)), note = h("p", { class: "inote", role: "status" });
+  const apply = async (key, label, value) => {
+    const x = await api("/api/svc/update_settings", "POST", { setting_type: key, status: value });
+    note.textContent = x.error ? "Không đổi được “" + label + "”: " + x.error : "Đã áp dụng: " + label + ".";
+    return !x.error;
+  };
+  const row = (label, key, control) => h("div", { class: "field-row", style: "padding:.5rem 0;border-top:1px solid var(--line);align-items:center" }, h("div", { style: "flex:1;min-width:0" }, label), control);
+  const toggles = PRIVACY_TOGGLES.filter(([k]) => k in d).map(([k, label]) => {
+    const box = h("input", { type: "checkbox", class: "tog", id: "pv-" + k, role: "switch", "aria-label": label, checked: num(d[k]) === 1 });
+    box.addEventListener("change", async () => { const want = box.checked; box.disabled = true; if (!(await apply(k, label, want ? 1 : 0))) box.checked = !want; box.disabled = false; });
+    return row(label, k, box);
+  });
+  const choices = PRIVACY_CHOICES.filter(([k]) => k in d).map(([k, label, opts]) => {
+    let cur = num(d[k]); const list = opts.some(([v]) => v === cur) ? opts : opts.concat([[cur, "Khác (mức " + cur + ")"]]);
+    const sel = h("select", { id: "pv-" + k, "aria-label": label }, list.map(([v, t]) => h("option", { value: String(v), selected: v === cur }, t)));
+    sel.addEventListener("change", async () => { const want = Number(sel.value); sel.disabled = true; if (await apply(k, label, want)) cur = want; else sel.value = String(cur); sel.disabled = false; });
+    return row(label, k, sel);
+  });
+  const view = PRIVACY_VIEWONLY.filter(([k]) => k in d).map(([k, label]) => row(label, k, h("span", { class: "pill" }, num(d[k]) ? "Bật" : "Tắt")));
+  const known = new Set([...PRIVACY_TOGGLES, ...PRIVACY_CHOICES, ...PRIVACY_VIEWONLY].map((x) => x[0])), extra = Object.keys(d).filter((k) => !known.has(k));
+  return section("set-privacy", "Quyền riêng tư",
+    h("p", { class: "inote" }, "Giá trị đọc trực tiếp từ Zalo. Bật/tắt hoặc chọn là áp dụng ngay, không cần lưu."),
+    ...toggles, ...choices, view.length ? h("div", { class: "inote", style: "margin-top:.75rem" }, "Chỉ xem") : null, ...view,
+    extra.length ? h("p", { class: "inote" }, "Cài đặt khác chưa có nhãn: " + extra.join(", ")) : null, note);
+}
+// Đồng bộ lịch sử chat từ ĐIỆN THOẠI (cách Zalo PC lấy tin cũ): bấm bắt đầu → điện thoại hỏi xác nhận → app tải, giải mã, lưu các tệp SQLite.
+const HS_STAGE = { idle: "Chưa chạy", requesting: "Đang gửi yêu cầu", waiting_phone: "Chờ bạn xác nhận trên điện thoại", downloading: "Đang tải", decrypting: "Đang giải mã", done: "Xong", error: "Lỗi", cancelled: "Đã huỷ" };
+let hsTimer = null;
+async function setHistory() {
+  const box = h("div", {}), note = h("p", { class: "inote", role: "status" });
+  const draw = async () => {
+    const st = await api("/api/history-sync/status");
+    if (st.error) { put(box, h("p", { class: "notice bad" }, "Không đọc được trạng thái: " + st.error)); return; }
+    const busy = !!st.busy, tables = Object.entries(st.schema || {});
+    put(box, section("set-history", "Đồng bộ lịch sử chat từ điện thoại",
+      h("p", { class: "inote" }, "Tin nhắn cũ nằm trên điện thoại. Bấm bắt đầu rồi mở Zalo trên ĐIỆN THOẠI và xác nhận đồng bộ; app sẽ tải bản sao lưu, giải mã và lưu các tệp dữ liệu vào máy chủ này. Giải mã xong thì bấm «Nhập vào khung chat» để tin cũ hiện trong danh sách trò chuyện (chạy lại không nhân đôi tin)."),
+      h("dl", { class: "kv" }, h("dt", {}, "Trạng thái"), h("dd", {}, h("span", { class: "pill " + (st.stage === "done" ? "ok" : st.stage === "error" ? "bad" : busy ? "warn" : "") }, HS_STAGE[st.stage] || st.stage)),
+        h("dt", {}, "Chi tiết"), h("dd", {}, st.detail || "—")),
+      h("div", { class: "field-row", style: "margin:.5rem 0" },
+        h("button", { class: "btn primary", type: "button", disabled: busy, onclick: async () => { const r = await api("/api/history-sync/start", "POST", {}); note.textContent = r.error ? "Không bắt đầu được: " + r.error : "Đã gửi yêu cầu."; draw(); } }, "Bắt đầu đồng bộ"),
+        busy ? h("button", { class: "btn", type: "button", onclick: async () => { await api("/api/history-sync/cancel", "POST", {}); draw(); } }, "Huỷ") : null,
+        st.can_retry ? h("button", { class: "btn", type: "button", title: "Tải lại từ gói dữ liệu điện thoại đã gửi, không cần xác nhận lại", onclick: async () => { const r = await api("/api/history-sync/retry", "POST", {}); note.textContent = r.error ? "Không thử lại được: " + r.error : "Đang thử tải lại."; draw(); } }, "Thử tải lại") : null),
+      st.stage === "done" ? h("div", { class: "field-row", style: "margin:.5rem 0;align-items:center" },
+        h("button", { class: "btn primary", type: "button", disabled: !!(st.import_state && st.import_state.stage === "running"), onclick: async () => { const r = await api("/api/history-sync/import", "POST", {}); note.textContent = r.error ? "Không nhập được: " + r.error : "Đang nhập…"; draw(); } }, "Nhập vào khung chat"),
+        st.import_state ? h("span", { class: "inote" }, st.import_state.detail) : null) : null,
+      st.files && st.files.length ? h("div", {}, h("h4", {}, "Đã giải mã " + st.files.length + " tệp"), tables.map(([name, tbs]) => h("div", { class: "inote" }, name + ": " + Object.entries(tbs).map(([t, v]) => t + " (" + v.rows + " dòng)").join(", ")))) : null,
+      note));
+  };
+  await draw();
+  clearInterval(hsTimer); hsTimer = setInterval(() => { if (!document.getElementById("set-history")) { clearInterval(hsTimer); return; } draw(); }, 3000);
+  return box;
+}
+// Dữ liệu và tự xóa: đổi là áp dụng ngay (không nút Lưu); «Dọn ngay» chạy một lượt dọn.
+const RET_OPTS = {
+  messages_days: ["Xóa tin nhắn cũ hơn", [[0, "Không tự xóa"], [30, "30 ngày"], [90, "90 ngày"], [180, "6 tháng"], [365, "1 năm"], [730, "2 năm"]]],
+  max_per_thread: ["Mỗi cuộc trò chuyện giữ tối đa", [[0, "Không giới hạn"], [1000, "1.000 tin"], [5000, "5.000 tin"], [20000, "20.000 tin"], [50000, "50.000 tin"]]],
+  files_days: ["Xóa ảnh/tệp đã tải về cũ hơn", [[0, "Không tự xóa"], [7, "7 ngày"], [30, "30 ngày"], [90, "90 ngày"]]],
+  sync_days: ["Xóa dữ liệu đồng bộ đã giải mã cũ hơn", [[0, "Không tự xóa"], [1, "1 ngày"], [7, "7 ngày"], [30, "30 ngày"]]] };
+async function setData() {
+  const r = await api("/api/retention");
+  if (r.error) return section("set-data", "Dữ liệu và tự xóa", h("p", { class: "notice bad" }, "Không đọc được: " + r.error));
+  const note = h("p", { class: "inote", role: "status" }), u = r.usage || {}, cfg = r.settings || {}, sz = (n) => (n ? fmtSize(n) : "0 B");
+  const rows = Object.entries(RET_OPTS).map(([key, [label, opts]]) => {
+    const cur = Number(cfg[key]), list = opts.some(([v]) => v === cur) ? opts : opts.concat([[cur, "Khác (" + cur + ")"]]);
+    const sel = h("select", { id: "ret-" + key, "aria-label": label }, list.map(([v, t]) => h("option", { value: String(v), selected: v === cur }, t)));
+    let last = cur;
+    sel.addEventListener("change", async () => {
+      const want = Number(sel.value), x = await api("/api/retention", "POST", { [key]: want });
+      if (x.error) { sel.value = String(last); note.textContent = "Không đổi được: " + x.error; } else { last = want; note.textContent = "Đã áp dụng: " + label + "."; }
+    });
+    return h("div", { class: "field-row", style: "padding:.5rem 0;border-top:1px solid var(--line);align-items:center" }, h("div", { style: "flex:1;min-width:0" }, label), sel);
+  });
+  const clean = h("button", { class: "btn", type: "button", onclick: async () => {
+    clean.disabled = true; const x = await api("/api/retention/run", "POST", {}); clean.disabled = false;
+    const rep = x.report || {}; note.textContent = x.error ? "Không dọn được: " + x.error : "Đã dọn: " + (rep.messages_deleted || 0) + " tin, " + (rep.files_deleted || 0) + " tệp, " + (rep.sync_dirs_deleted || 0) + " thư mục đồng bộ; giải phóng " + sz(rep.freed_bytes || 0) + ".";
+  } }, "Dọn ngay");
+  return section("set-data", "Dữ liệu và tự xóa",
+    h("p", { class: "inote" }, "Đổi là áp dụng ngay. App dọn mỗi 6 giờ; tin cũ bị xóa vĩnh viễn khỏi máy chủ này (tin trên Zalo vẫn còn, chạy lại Đồng bộ lịch sử để lấy lại nếu cần)."),
+    h("dl", { class: "kv" }, h("dt", {}, "Tin nhắn đang lưu"), h("dd", {}, (u.messages || 0) + " tin · " + (u.threads || 0) + " cuộc trò chuyện · " + sz(u.messages_bytes || 0)),
+      h("dt", {}, "Ảnh/tệp đã tải"), h("dd", {}, sz(u.files_bytes || 0)), h("dt", {}, "Dữ liệu đồng bộ đã giải mã"), h("dd", {}, sz(u.sync_bytes || 0))),
+    ...rows, h("div", { style: "margin-top:.75rem" }, clean), note);
+}
+async function setCalls() {
+  const r = await api("/api/settings/devices"), d = (r && r.devices) || {}, v = d.video || {}, note = h("p", { class: "inote", role: "status" });
+  const txt = (id, label, val, ph) => h("div", { class: "field" }, h("label", { for: id }, label), h("input", { type: "text", id, value: val || "", placeholder: ph || "", spellcheck: "false", autocomplete: "off" }));
+  const num = (id, label, val, min, max, step) => h("div", { class: "field" }, h("label", { for: id }, label), h("input", { type: "number", id, value: String(val), min, max, step }));
+  const chk = (id, label, val) => h("label", { class: "chk" }, h("input", { type: "checkbox", id, checked: !!val }), label);
+  const fmt = h("select", { id: "dev-mic-format" }, h("option", { value: "auto", selected: (d.mic_format || "auto") === "auto" }, "Tự nhận (rtsp, http, tệp)"), h("option", { value: "s16le16k", selected: d.mic_format === "s16le16k" }, "PCM16 mono 16 kHz thô (mic loa R1)"));
+  const save = async () => {
+    const g = (id) => $(id), body = { mic_url: g("dev-mic-url").value.trim(), mic_format: g("dev-mic-format").value, auto_mic: g("dev-auto-mic").checked, speaker_url: g("dev-speaker-url").value.trim(), echo_guard: g("dev-echo-guard").checked,
+      camera_url: g("dev-camera-url").value.trim(), auto_video_on_request: g("dev-auto-video").checked, auto_video_delay: +g("dev-auto-delay").value || 0,
+      video: { width: +g("dev-width").value, height: +g("dev-height").value, fps: +g("dev-fps").value, bitrate_kbps: +g("dev-bitrate").value } };
+    const res = await api("/api/settings/devices", "POST", body);
+    note.textContent = res.ok ? "Đã lưu." : "Không lưu được: " + (res.error || "không rõ");
+  };
+  return h("div", {},
+    section("set-calls", "Mic (tiếng gửi sang bên kia)",
+      txt("dev-mic-url", "Nguồn mic (URL)", d.mic_url, "rtsp://… (camera/go2rtc) · http://HA:8123/api/r1_speaker/mic/…?k=… (loa R1) · test"),
+      h("div", { class: "field" }, h("label", { for: "dev-mic-format" }, "Định dạng"), fmt),
+      chk("dev-auto-mic", "Tự phát mic khi cuộc gọi được nghe máy", d.auto_mic)),
+    section("set-speaker", "Loa (tiếng bên kia phát ra)",
+      txt("dev-speaker-url", "URL bộ đàm (http/https, nhận A-law 8 kHz bằng POST)", d.speaker_url, "http://HA:8123/api/r1_speaker/intercom/…?k=… (loa R1)"),
+      chk("dev-echo-guard", "Chống vọng: tạm ngừng gửi mic khi loa đang phát tiếng bên kia (dùng khi mic và loa là cùng một thiết bị)", d.echo_guard),
+      h("p", { class: "inote" }, "Để trống = không dùng; loa HA bình thường vẫn do tích hợp Home Assistant điều khiển.")),
+    section("set-camera", "Camera (hình gửi sang bên kia)",
+      txt("dev-camera-url", "Nguồn camera (URL)", d.camera_url, "rtsp://… (go2rtc, nên dùng luồng -sub) · http(s)://… · test"),
+      h("div", { class: "grid4" }, num("dev-width", "Rộng", v.width || 640, 160, 1280, 2), num("dev-height", "Cao", v.height || 360, 120, 720, 2), num("dev-fps", "Khung/giây", v.fps || 15, 5, 30, 1), num("dev-bitrate", "Kbps", v.bitrate_kbps || 300, 50, 1500, 10)),
+      chk("dev-auto-video", "Bên kia xin chuyển sang video: tự đồng ý và phát camera mặc định", d.auto_video_on_request),
+      num("dev-auto-delay", "Chờ trước khi tự đồng ý (giây, 0 = ngay)", d.auto_video_delay || 0, 0, 120, 1)),
+    h("button", { class: "btn primary", type: "button", onclick: save }, "Lưu cài đặt cuộc gọi"), note);
+}
+async function setUi() {
+  const cur = root.dataset.theme || "auto", sc = scalePref();
+  return section("set-ui", "Giao diện",
+    h("div", { class: "field" }, h("label", {}, "Chế độ màu"), h("div", { class: "seg", role: "group" }, [["auto", "Theo máy"], ["light", "Sáng"], ["dark", "Tối"]].map(([id, l]) => h("button", { type: "button", "aria-pressed": String(cur === id), onclick: () => { applyTheme(id); renderSettings("set-ui"); } }, l)))),
+    h("div", { class: "field" }, h("label", {}, "Cỡ giao diện (nhớ riêng cho thiết bị này)"), h("div", { class: "seg", role: "group" }, [["auto", "Tự động"], ["90", "90%"], ["100", "100%"], ["115", "115%"], ["130", "130%"], ["160", "160%"]].map(([id, l]) => h("button", { type: "button", "aria-pressed": String(sc === id), onclick: () => { setScale(id); renderSettings("set-ui"); } }, l))),
+      h("p", { style: "color:var(--muted);margin:.375rem 0 0;font-size:.8rem" }, "Tự động: tính từ độ rộng màn hình và kiểu cảm ứng/chuột (màn lớn và TV tự to hơn, điện thoại gọn hơn). Hiện " + root.style.fontSize + " · " + (root.dataset.bp === "phone" ? "bố cục điện thoại" : root.dataset.bp === "mid" ? "bố cục vừa" : "bố cục rộng"))),
+    h("label", { style: "display:flex;gap:.5rem;align-items:center" }, h("input", { type: "checkbox", checked: S.sound, onchange: (e) => { S.sound = e.target.checked; try { localStorage.setItem("zalo-sound", S.sound ? "1" : "0"); } catch (x) { /* bỏ qua */ } } }), "Phát tiếng báo khi có tin mới lúc tab đang ẩn và khi có cuộc gọi đến"));
+}
+async function setWebhook() {
   let wh = S.webhooks; try { wh = await api("/api/webhooks"); S.webhooks = wh; } catch (e) { /* giữ */ }
   const kinds = [["message", "Tin nhắn"], ["group_event", "Sự kiện nhóm"], ["reaction", "Cảm xúc"], ["call", "Cuộc gọi"]], ins = {}, ens = {};
-  box.append(section("set-webhook", "Webhook (Home Assistant, n8n…)",
+  return section("set-webhook", "Webhook (Home Assistant, n8n…)",
     h("p", { style: "color:var(--muted);margin:0 0 .75rem;font-size:.85rem" }, "App gửi sự kiện JSON tới các địa chỉ này. Tin nhắn có kèm tên người gửi (sender_name) và cờ người lạ (is_stranger). Tích hợp Home Assistant “Zalo Call” tự điền khi được thêm."),
     ...kinds.map(([k, label]) => {
       ins[k] = h("input", { type: "url", id: "wh-" + k, value: (wh && wh[k + "_webhook_url"]) || "", placeholder: "http://…" });
       ens[k] = h("input", { type: "checkbox", id: "wh-en-" + k, checked: !wh || wh[k + "_enabled"] !== false, "aria-label": "Bật " + label });
       return h("div", { class: "field" }, h("label", { for: "wh-" + k }, label), h("div", { class: "field-row" }, ins[k], ens[k], h("button", { class: "btn sm", type: "button", onclick: async () => { const r = await api("/api/webhooks/test", "POST", { kind: k }); toast(r.error ? "Gửi thử lỗi: " + r.error : r.ok ? "Gửi thử thành công" : "Gửi thử: " + JSON.stringify(r).slice(0, 120), 4500); } }, "Gửi thử")));
     }),
-    h("button", { class: "btn primary", type: "button", onclick: async () => { const cfg = {}; for (const [k] of kinds) { cfg[k + "_webhook_url"] = ins[k].value.trim(); cfg[k + "_enabled"] = ens[k].checked; } const r = await api("/api/webhooks", "POST", cfg); toast(r.error ? "Lưu lỗi: " + r.error : "Đã lưu webhook"); } }, "Lưu webhook")));
-  // proxy
+    h("button", { class: "btn primary", type: "button", onclick: async () => { const cfg = {}; for (const [k] of kinds) { cfg[k + "_webhook_url"] = ins[k].value.trim(); cfg[k + "_enabled"] = ens[k].checked; } const r = await api("/api/webhooks", "POST", cfg); toast(r.error ? "Lưu lỗi: " + r.error : "Đã lưu webhook"); } }, "Lưu webhook"));
+}
+async function setProxy() {
   const px = await api("/api/proxy"), pUrl = h("input", { type: "text", id: "px-url", placeholder: "http://user:mật-khẩu@địa-chỉ:cổng", autocomplete: "off" }), pName = h("input", { type: "text", id: "px-name", placeholder: "Tên gợi nhớ (không bắt buộc)" });
   const pAct = async (body, okMsg) => { const r = await api("/api/proxy", "POST", body); if (r.error) return toast(r.error, 5000); if (okMsg) toast(okMsg); renderSettings("set-proxy"); };
-  box.append(section("set-proxy", "Proxy ra Zalo",
+  return section("set-proxy", "Proxy ra Zalo",
     h("p", { style: "color:var(--muted);margin:0 0 .75rem;font-size:.85rem" }, "Chỉ áp cho kết nối HTTPS tới Zalo (nhắn tin, danh bạ, báo hiệu gọi). Tiếng cuộc gọi (UDP) không đi qua proxy HTTP. Đổi proxy là đổi địa chỉ IP ra ngoài, Zalo có thể yêu cầu xác nhận lại."),
     !px.items || !px.items.length ? h("p", { style: "margin:0 0 .75rem" }, "Chưa có proxy nào. Đang đi thẳng ra Internet.") :
       h("div", {}, px.items.map((p) => h("div", { class: "prow" }, h("div", { class: "pmain" }, h("div", { style: "font-weight:500" }, p.name || p.display, p.id === px.active ? h("span", { class: "pill ok", style: "margin-left:.5rem" }, "đang dùng") : null), h("div", { class: "mono", style: "color:var(--muted)" }, p.display + (p.has_auth ? " · có tài khoản" : ""))),
@@ -728,25 +1027,18 @@ async function renderSettings(focusId) {
         p.id === px.active ? h("button", { class: "btn sm", type: "button", onclick: () => pAct({ action: "deactivate" }, "Đã tắt proxy") }, "Tắt") : h("button", { class: "btn sm", type: "button", onclick: () => pAct({ action: "activate", id: p.id }, "Đã bật proxy") }, "Dùng"),
         h("button", { class: "btn sm danger", type: "button", onclick: () => { if (confirm("Xoá proxy này?")) pAct({ action: "remove", id: p.id }); } }, "Xoá")))),
     h("div", { class: "field", style: "margin-top:.75rem" }, h("label", { for: "px-url" }, "Thêm proxy"), pUrl), h("div", { class: "field" }, pName),
-    h("button", { class: "btn primary", type: "button", onclick: () => { if (!pUrl.value.trim()) return toast("Nhập địa chỉ proxy"); pAct({ action: "add", url: pUrl.value.trim(), name: pName.value.trim() }, "Đã thêm proxy"); } }, "Thêm")));
-  // bảo mật
+    h("button", { class: "btn primary", type: "button", onclick: () => { if (!pUrl.value.trim()) return toast("Nhập địa chỉ proxy"); pAct({ action: "add", url: pUrl.value.trim(), name: pName.value.trim() }, "Đã thêm proxy"); } }, "Thêm"));
+}
+async function setSecurity() {
   const sec = await api("/api/security");
-  box.append(section("set-security", "Bảo mật",
+  return section("set-security", "Bảo mật",
     h("dl", { class: "kv" }, h("dt", {}, "Tài khoản app"), h("dd", {}, sec.app_user || ""), h("dt", {}, "Thiết bị đang đăng nhập"), h("dd", {}, String(sec.sessions)), h("dt", {}, "Hạn phiên"), h("dd", {}, (sec.session_hours || "?") + " giờ"),
       h("dt", {}, "Chặn dò mật khẩu"), h("dd", {}, "sai " + (sec.login_max_fails || 5) + " lần thì khoá địa chỉ 15 phút" + (sec.blocked_ips ? " · đang khoá " + sec.blocked_ips + " địa chỉ" : "")),
-      h("dt", {}, "Đổi mật khẩu"), h("dd", {}, "sửa ZALO_PC_APP_PASSWORD (hoặc ZALO_PC_APP_PASSWORD_HASH) trong .env rồi khởi động lại container")),
+      h("dt", {}, "Đổi mật khẩu"), h("dd", {}, "ở mục Tài khoản")),
     h("div", { class: "field-row", style: "margin-top:.75rem;flex-wrap:wrap" },
       h("button", { class: "btn", type: "button", onclick: async () => { const r = await api("/api/security", "POST", { action: "revoke_others" }); toast("Đã đăng xuất " + (r.revoked || 0) + " thiết bị khác"); renderSettings("set-security"); } }, "Đăng xuất thiết bị khác"),
       h("button", { class: "btn", type: "button", onclick: async () => { await api("/api/security", "POST", { action: "revoke_all" }); location.href = "/login"; } }, "Đăng xuất mọi thiết bị"),
-      h("button", { class: "btn danger", type: "button", onclick: async () => { if (confirm("Đăng xuất Zalo? Phải quét lại QR để vào lại.")) { await api("/api/logout", "POST"); location.reload(); } } }, "Đăng xuất Zalo (xoá phiên QR)"))));
-  // giao diện
-  const cur = root.dataset.theme || "auto", sc = scalePref();
-  box.append(section("set-ui", "Giao diện",
-    h("div", { class: "field" }, h("label", {}, "Chế độ màu"), h("div", { class: "seg", role: "group" }, [["auto", "Theo máy"], ["light", "Sáng"], ["dark", "Tối"]].map(([id, l]) => h("button", { type: "button", "aria-pressed": String(cur === id), onclick: () => { applyTheme(id); renderSettings("set-ui"); } }, l)))),
-    h("div", { class: "field" }, h("label", {}, "Cỡ giao diện (nhớ riêng cho thiết bị này)"), h("div", { class: "seg", role: "group" }, [["auto", "Tự động"], ["90", "90%"], ["100", "100%"], ["115", "115%"], ["130", "130%"], ["160", "160%"]].map(([id, l]) => h("button", { type: "button", "aria-pressed": String(sc === id), onclick: () => { setScale(id); renderSettings("set-ui"); } }, l))),
-      h("p", { style: "color:var(--muted);margin:.375rem 0 0;font-size:.8rem" }, "Tự động: tính từ độ rộng màn hình và kiểu cảm ứng/chuột (màn lớn và TV tự to hơn, điện thoại gọn hơn). Hiện " + root.style.fontSize + " · " + (root.dataset.bp === "phone" ? "bố cục điện thoại" : root.dataset.bp === "mid" ? "bố cục vừa" : "bố cục rộng"))),
-    h("label", { style: "display:flex;gap:.5rem;align-items:center" }, h("input", { type: "checkbox", checked: S.sound, onchange: (e) => { S.sound = e.target.checked; try { localStorage.setItem("zalo-sound", S.sound ? "1" : "0"); } catch (x) { /* bỏ qua */ } } }), "Phát tiếng báo khi có tin mới lúc tab đang ẩn")));
-  if (focusId) { const el = $(focusId); if (el) el.scrollIntoView({ block: "start" }); }
+      h("button", { class: "btn danger", type: "button", onclick: async () => { if (confirm("Đăng xuất Zalo? Phải quét lại QR để vào lại.")) { await api("/api/logout", "POST"); location.reload(); } } }, "Đăng xuất Zalo (xoá phiên QR)")));
 }
 
 // ---- tin mới tức thì (SSE) -----------------------------------------------------------------------------------------------------------
@@ -774,6 +1066,15 @@ function connectSse() {
   const es = new EventSource("/api/events");
   es.onopen = () => { S.sse = true; if (S.tab === "chats") renderList(); loadConversations(); };
   es.onerror = () => { S.sse = false; if (S.tab === "chats") renderList(); };
+  es.addEventListener("call", () => { loadCalls(); });
+  es.addEventListener("history_imported", () => { loadConversations(); if (S.cur) loadHistory(); });
+  es.addEventListener("recall", (e) => {            // tin bị thu hồi ở nơi khác (điện thoại/Zalo khác): đổi ngay thành «Tin nhắn đã được thu hồi»
+    try {
+      const d = JSON.parse(e.data);
+      if (S.cur && S.cur.type === d.thread_type && String(S.cur.id) === String(d.thread_id)) { for (const id of d.msg_ids || []) S.recalled.add(String(id)); renderMsgs(); }
+      loadConversations();
+    } catch (x) { /* bỏ sự kiện hỏng */ }
+  });        // cuộc gọi vừa đến/đổi trạng thái: hiện popup ngay, không chờ vòng hỏi 2 giây
   es.addEventListener("message", (e) => { try { onMessageEvent(JSON.parse(e.data)); } catch (x) { /* bỏ sự kiện hỏng */ } });
 }
 async function loadConversations() {
@@ -788,7 +1089,7 @@ async function loadConversations() {
 // ---- đăng nhập QR ----------------------------------------------------------------------------------------------------------------------------
 async function pollQr() {
   const s = await api("/api/qr/status"), st = $("qr-status");
-  if (s.qr_image) { $("qr-slot").replaceChildren(h("img", { src: s.qr_image, alt: "Mã QR đăng nhập Zalo" })); st.textContent = "Mã có hiệu lực khoảng " + (s.countdown || 90) + " giây."; }
+  if (s.qr_image) { $("qr-slot").replaceChildren(h("img", { src: s.qr_image, alt: "Mã QR đăng nhập Zalo" })); st.textContent = "Mã có hiệu lực khoảng " + (s.countdown || 90) + " giây." + (s.warning ? " ⚠ " + s.warning : ""); }
   const stop = (msg) => { clearInterval(S.qrT); S.qrT = null; st.textContent = msg; $("qr-again").hidden = false; };
   if (s.state === "scanned") st.textContent = "Đã quét. Bấm xác nhận trên điện thoại…";
   else if (s.state === "done") { clearInterval(S.qrT); $("qr").hidden = true; boot(); }
@@ -801,9 +1102,10 @@ function startQr() { $("qr").hidden = false; $("qr-again").hidden = true; $("qr-
 let booted = false;
 function cogMenu() {
   popup($("btn-cog"), [
-    { label: "Thông tin tài khoản", icon: "user", run: () => { setTab("settings"); setTimeout(() => $("set-account") && $("set-account").scrollIntoView(), 80); } },
-    { label: "Cài đặt", icon: "cog", run: () => setTab("settings") }, "-",
-    { label: "Webhook, proxy, bảo mật", icon: "db", run: () => { setTab("settings"); setTimeout(() => $("set-webhook") && $("set-webhook").scrollIntoView(), 80); } },
+    { label: "Thông tin tài khoản", icon: "user", run: () => openSettings("account") },
+    { label: "Cài đặt cuộc gọi và thiết bị", icon: "phone", run: () => openSettings("calls") },
+    { label: "Cài đặt chung", icon: "cog", run: () => openSettings("ui") }, "-",
+    { label: "Webhook, proxy, bảo mật", icon: "db", run: () => openSettings("webhook") },
     { label: "Ngôn ngữ: Tiếng Việt", icon: "globe", run: () => toast("Hiện chỉ có Tiếng Việt.") },
     { label: "Hỗ trợ", icon: "help", run: () => window.open("https://github.com/TriTue2011/Zalo-calling/issues", "_blank", "noopener") }, "-",
     { label: "Đăng xuất", icon: "logout", red: true, run: async () => { await api("/api/app/logout", "POST"); location.href = "/login"; } }], { right: true, up: true });
@@ -820,7 +1122,7 @@ async function boot() {
   if (booted) return; booted = true;
   connectSse();
   setInterval(() => { if (!document.hidden) loadConversations(); }, 20000);
-  setInterval(() => { if (!document.hidden) loadCalls(); }, 3000);
+  setInterval(() => { if (!document.hidden) loadCalls(); }, 2000);
   setInterval(() => { if (S.tab === "chats") renderList(); }, 30000);   // "x phút" tự cũ đi
   setInterval(async () => { try { S.status = await api("/api/status"); S.uid = String(S.status.uid || ""); } catch (e) { /* bỏ qua */ } }, 30000);
 }
@@ -837,7 +1139,7 @@ async function loadContacts(force) {
 }
 
 document.querySelectorAll(".rail-btn[data-tab]").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
-$("me-btn").addEventListener("click", () => { setTab("settings"); });
+$("me-btn").addEventListener("click", () => openSettings("account"));
 $("btn-cog").addEventListener("click", cogMenu); $("btn-cog").dataset.pop = "1";
 document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", () => { $("app").dataset.pane = "list"; if (WIDE.has(S.tab)) setTab("chats"); else toList(); }));
 $("chat-back").addEventListener("click", toList);
@@ -848,18 +1150,20 @@ $("btn-info").addEventListener("click", () => { S.info = !S.info; try { localSto
 $("btn-thread-svc").addEventListener("click", () => setTab("services"));
 $("btn-send").addEventListener("click", sendText); $("btn-like").addEventListener("click", () => sendRaw("👍"));
 $("btn-attach").addEventListener("click", () => $("file-in").click()); $("btn-img").addEventListener("click", () => $("img-in").click());
-for (const id of ["file-in", "img-in"]) $(id).addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) sendFiles(f); });
+for (const id of ["file-in", "img-in"]) $(id).addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) stageFiles(f); });
 $("btn-sticker").addEventListener("click", toggleStickers); $("btn-rec").addEventListener("click", toggleRecord); $("btn-emoji").addEventListener("click", toggleEmoji); $("qr-again").addEventListener("click", startQr);
+{ const comp = $("composer"); comp.insertBefore(h("div", { class: "attach-tray", id: "attach-tray", hidden: true }), comp.firstChild); comp.insertBefore(h("div", { class: "replybar", id: "reply-bar", hidden: true }), comp.firstChild); document.querySelector(".cinput").append(h("div", { class: "mentions", id: "mentions", role: "listbox", hidden: true })); }
 $("msg-in").addEventListener("input", autosize);
+for (const ev of ["input", "click", "keyup"]) $("msg-in").addEventListener(ev, updateMentions);
 $("msg-in").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendText(); } });
-$("msg-in").addEventListener("paste", (e) => { const f = [...(e.clipboardData ? e.clipboardData.files : [])]; if (f.length) { e.preventDefault(); sendFiles(f); } });
+$("msg-in").addEventListener("paste", (e) => { const f = [...(e.clipboardData ? e.clipboardData.files : [])]; if (f.length) { e.preventDefault(); stageFiles(f); } });
 document.addEventListener("click", (e) => { const st = $("stickers"); if (!st.hidden && !st.contains(e.target) && !e.target.closest("#btn-sticker")) st.hidden = true; });
 document.addEventListener("click", (e) => { const em = $("emoji"); if (!em.hidden && !em.contains(e.target) && !e.target.closest("#btn-emoji")) em.hidden = true; });
 const mp = $("mainpane"); let dragN = 0; const dz = h("div", { class: "dropzone", hidden: true }, "Thả tệp để gửi"); mp.append(dz);
 mp.addEventListener("dragenter", (e) => { if (S.cur && S.tab === "chats" && e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragN++; dz.hidden = false; } });
 mp.addEventListener("dragleave", () => { dragN = Math.max(0, dragN - 1); if (!dragN) dz.hidden = true; });
 mp.addEventListener("dragover", (e) => { if (S.cur) e.preventDefault(); });
-mp.addEventListener("drop", (e) => { e.preventDefault(); dragN = 0; dz.hidden = true; if (S.cur && e.dataTransfer.files.length) sendFiles(e.dataTransfer.files); });
+mp.addEventListener("drop", (e) => { e.preventDefault(); dragN = 0; dz.hidden = true; if (S.cur && e.dataTransfer.files.length) stageFiles(e.dataTransfer.files); });
 document.addEventListener("keydown", (e) => {
   if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $("q").focus(); }
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }

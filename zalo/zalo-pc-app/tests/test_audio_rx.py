@@ -145,6 +145,33 @@ def test_mic_sender_gated_by_guard_sends_silence_frames_not_gaps_and_never_the_r
     s.stop()
 
 
+def test_mic_sender_reports_source_level_before_the_echo_gate():
+    """Nguon mic co tieng that hay chi im lang: in_voiced/in_peak do TRUOC chan echo (de phan biet «R1 khong ra tieng» voi «dien thoai khong phat»)."""
+    import struct as _st
+    loud = _st.pack("<320h", *([12000, -12000] * 160))          # khung 20 ms co tieng
+    quiet = _st.pack("<320h", *([3, -3] * 160))                 # gan nhu im lang
+    sent = []
+
+    class P:
+        def __init__(self):
+            import io
+            self.stdout = io.BytesIO(quiet * 3 + loud * 2 + quiet)
+
+        def poll(self):
+            return 0
+
+        def kill(self):
+            pass
+
+    s = audio_tx.AudioSender(sent.append, popen=lambda *a, **k: P(), sleep=lambda x: None, gate=lambda: True)   # chan het: van phai do muc nguon
+    s.start()
+    time.sleep(0.5)
+    st = s.status()
+    assert st["in_voiced"] == 2 and st["in_peak"] == 12000, st
+    assert st["gated"] >= 6 and all(f == bytes(640) for f in sent), "khung gui di van la im lang khi bi chan"
+    s.stop()
+
+
 def test_real_ffmpeg_posts_alaw_to_local_server():
     """Chay ffmpeg THAT (neu co) POST luong A-law toi may chu cuc bo kieu bo dam."""
     if shutil.which("ffmpeg") is None:

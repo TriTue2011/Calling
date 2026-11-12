@@ -61,6 +61,7 @@ QUYET DINH THIET KE (ghi ro, chua chung minh bang live):
 """
 
 import json
+import re
 import sys
 import threading
 import time
@@ -767,7 +768,7 @@ class CtrlPoller:
                  registry, ctl_timeout=30, cursor=None,
                  on_cursor=None, on_group_event=None,
                  on_reaction=None, on_call_event=None,
-                 file_registry=None, on_voice2text=None):
+                 file_registry=None, on_voice2text=None, on_sync_event=None):
         urls = [u for u in (poll_urls or []) if u]
         if not urls:
             raise ValueError("ctrl_poll: can it nhat 1 poll URL "
@@ -805,6 +806,7 @@ class CtrlPoller:
         self.on_reaction = on_reaction
         self.on_call_event = on_call_event
         self.on_voice2text = on_voice2text
+        self.on_sync_event = on_sync_event      # dong bo lich su tu dien thoai (history_sync): control syncmsgmb/transfer_msg
         # Chan doan batch vua xu ly (khong log noi dung).
         self.last_batch = {"group_events": 0, "reactions": 0,
                            "call_events": 0, "at": 0}
@@ -813,6 +815,7 @@ class CtrlPoller:
         self._thread = None
         self.kicked_out = False
         self.last_error = ""
+        self._bad_shape_logs = 0
         self.polls = 0  # dem so lan poll (chan doan, khong log nd)
         # Nhu SyncPoller (loi live 08/11): dem loi lien tiep,
         # auth_failed khi 401/403, stopped_reason khi run() tu
@@ -895,6 +898,14 @@ class CtrlPoller:
             raise KickOut("ctrl_poll: server tra -69, dung retry")
         if code not in (0, None):
             raise RuntimeError("ctrl_poll: error_code=%s" % code)
+        _raw = payload.get("data")
+        if isinstance(_raw, str) and _raw and not re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", _raw) and self._bad_shape_logs < 5 and not sys.is_finalizing():
+            # Chan doan 12/11: phan hoi ctrl co `data` khong phai base64 chuan (12/11 02:25 hai lan, ngay sau khi app bat dau gui «da nhan»). Chi ghi
+            # HINH DANG (do dai, so ky tu theo loai, ky tu dau) — khong ghi noi dung.
+            self._bad_shape_logs += 1
+            print("[ctrl-poll] data khong phai base64 chuan: len=%d chu=%d so=%d khac=%d dau=%r error_code=%s khoa=%s" % (
+                len(_raw), sum(c.isalpha() for c in _raw), sum(c.isdigit() for c in _raw),
+                sum(not c.isalnum() for c in _raw), _raw[:1], payload.get("error_code"), sorted(payload.keys())), flush=True)
         data = decode_postlogin_data(payload, self.zpw_enk)
         if data is None:
             self.consec_errors = 0
@@ -911,6 +922,8 @@ class CtrlPoller:
         reactions = extract_reactions(data)
         call_events = extract_call_events(data)
         v2t_events = extract_voice2text_events(data)
+        from . import history_sync as _hs
+        sync_events = _hs.extract_sync_events(data) if self.on_sync_event is not None else []
         before = self.cursor.to_dict()
         self.cursor.update_from(data)
         for event in group_events:
@@ -931,6 +944,11 @@ class CtrlPoller:
                     self.on_call_event(event)
                 except Exception:  # noqa: BLE001 - callback loi
                     pass
+        for event in sync_events:
+            try:
+                self.on_sync_event(event)
+            except Exception:  # noqa: BLE001 - callback loi
+                pass
         for event in v2t_events:
             if self.on_voice2text is not None:
                 try:

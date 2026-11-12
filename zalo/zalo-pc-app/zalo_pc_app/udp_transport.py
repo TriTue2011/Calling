@@ -113,6 +113,7 @@ FRAME_MS = 20
 FRAME_SAMPLES = 320           # 20 ms @ 16 kHz mono
 FRAME_BYTES = FRAME_SAMPLES * 2  # PCM16 mono LE: 640 bytes/frame
 RTP_PT = 112                  # payload type observed on the wire
+RTP_PT_ACCEPTED_INCOMING = (112, 113)  # CHI cuoc goi DEN (ta la ben nhan): dien thoai gui tieng bang 113 (do 12/11, SRTP dung nhung bi loai vi PT); cuoc goi di giu nguyen 112
 RTP_HEADER_LEN = 20
 RTP_PLAIN_HEADER_LEN = 12
 CONNECTED_PING_INTERVAL = 1.0   # ReqForward sub 10 sau khi nghe may
@@ -888,7 +889,7 @@ def build_rtp(seq, timestamp, ssrc, payload, marker=False,
     return bytes(pkt)
 
 
-def parse_rtp(data):
+def parse_rtp(data, accept_pts=(RTP_PT,)):
     """Parse an RTP packet: PC style (0x90, 20-byte header with BEDE
     extension) or plain (0x80, 12-byte header); payload is opaque.
     ``ext`` is b"" for the plain style."""
@@ -897,9 +898,10 @@ def parse_rtp(data):
     if data[0] not in (0x90, 0x80):
         raise ValueError("RTP first byte must be 0x90 (PC) or 0x80 "
                          "(plain), got 0x%02x" % data[0])
-    if data[1] & 0x7F != RTP_PT:
-        raise ValueError("RTP payload type must be 112, got %d"
-                         % (data[1] & 0x7F))
+    if data[1] & 0x7F not in accept_pts:
+        raise ValueError("RTP payload type must be %s, got %d"
+                         % ("/".join(str(x) for x in accept_pts),
+                            data[1] & 0x7F))
     (seq,) = struct.unpack_from(">H", data, 2)
     (timestamp,) = struct.unpack_from(">I", data, 4)
     (ssrc,) = struct.unpack_from(">I", data, 8)
@@ -917,7 +919,7 @@ def parse_rtp(data):
                              % ext_len)
         ext, payload = bytes(data[16:20]), bytes(data[20:])
     return {"version": 2, "marker": bool(data[1] & 0x80),
-            "payload_type": RTP_PT, "seq": seq,
+            "payload_type": data[1] & 0x7F, "seq": seq,
             "timestamp": timestamp, "ssrc": ssrc,
             "ext": ext, "payload": payload}
 
@@ -1560,6 +1562,8 @@ class Udp4200Transport:
         # wires it to mark the call answered; a callback failure
         # never breaks the receiver loop. None by default.
         self.on_first_media = None
+        self.hold_media = False         # True: KHONG gui goi tieng nao (ca keepalive im lang lan mic) - cuoc goi den giu cho toi khi 11303 co ket qua
+        self.on_init_sent = None        # goi ngay SAU khi gui goi Init dau tien (khong cho type-02): cho 11303 nghe may cuoc goi den gui sat sau Init
         self._first_media_seen = False
         self._peer_plain_rtp = False   # hoc tu goi nhan duoc (xem _on_media)
         self._sock = None
@@ -1666,6 +1670,12 @@ class Udp4200Transport:
         # (bao-cao.md B.2/B.10); the app sent them back-to-back.
         time.sleep(PROBE_SETUP_DELAY)
         self._send_setup_init()
+        _hook = self.on_init_sent
+        if _hook is not None:
+            try:
+                _hook()
+            except Exception as exc:  # noqa: BLE001 - hook chan doan/thu nghiem khong duoc lam hong cuoc goi
+                print("[media] on_init_sent failed: %s" % (exc,), flush=True)
         self.state = "handshaking"
         self._last_setup_refresh = time.monotonic()
         self._last_ping = time.monotonic()
@@ -1774,6 +1784,11 @@ class Udp4200Transport:
         """One RTP media packet: header (seq +1, ts +320) -> protect_rtp
         -> relay type-03 or P2P. Shared by send_pcm and the silence
         keepalive. Raises like send_pcm."""
+        if self.hold_media:
+            # Cuoc goi DEN: dien thoai ben goi coi bat ky goi tieng nao cua ben nghe la «da nghe may» va xac nhan (answer_ack) truoc khi 11303 toi
+            # may chu -> 11303 bi -101, Zalo phu do chuong ~45 giay. Giu tieng cho toi khi 11303 co ket qua; relay van dang ky (Init/ping giu nguyen).
+            self.counters["held_tx"] = self.counters.get("held_tx", 0) + 1
+            return
         if self.config.protect_rtp is None:
             raise MissingTransportParam(
                 "protect_rtp: missing (SRTP hook is required to send "
@@ -2392,6 +2407,14 @@ class Udp4200Transport:
                 break
             off += plen
         _now = time.monotonic()
+        # Toc do goi that moi 5 giay (12/11: dien thoai chi gui ~54 goi tieng trong 18 s = qua thua): tx/rx tieng, video, RTCP, P2P; de lan sau doc
+        # nhat ky la biet chieu nao dang chet va P2P co chay khong.
+        if _now - getattr(self, "_cnt_log_at", 0.0) >= 5.0:
+            self._cnt_log_at = _now
+            _c = self.counters
+            print("[media-rate] tx=%d rx=%d rx_pt113=%d rx_drop=%d video_tx=%d video_rx=%d rtcp_rx=%d p2p_rx=%d p2p_media_rx=%d binds=%d" % (
+                _c.get("rtp_tx", 0), _c.get("rtp_rx", 0), _c.get("rtp_rx_pt113", 0), _c.get("rtp_rx_dropped", 0), _c.get("video_tx", 0),
+                _c.get("video_rx", 0), _c.get("rtcp_rx", 0), _c.get("p2p_rx", 0), _c.get("p2p_media_rx", 0), _c.get("bind_tx", 0)), flush=True)
         if _now - self._peer_log_at >= 5.0 and (self._tw_ok or self._tw_lost):
             self._peer_log_at = _now
             print("[peer-view] twcc ok=%d lost=%d block=%s" % (
@@ -2434,7 +2457,7 @@ class Udp4200Transport:
             return
         try:
             plain = self.config.unprotect_rtp(rtp_data)
-            rtp = parse_rtp(plain)
+            rtp = parse_rtp(plain, RTP_PT_ACCEPTED_INCOMING if not self.config.is_caller else (RTP_PT,))
         except Exception as exc:  # noqa: BLE001 - bad packet, count it
             self.counters["rtp_rx_dropped"] += 1
             self._last_error = "unprotect/parse failed: %s" % exc
@@ -2449,7 +2472,12 @@ class Udp4200Transport:
         if self.counters["rtp_rx"] == 1:
             print("[media] first rx len=%d head=%s" % (
                 len(rtp_data), bytes(rtp_data[:24]).hex()), flush=True)
+        _tr = self.__dict__.setdefault("_rx_trace", [])
+        if len(_tr) < 60:                                   # vet 60 goi tieng dau (seq, ts, do dai, loai goi, thoi diem ms) — chan doan «dien thoai gui thua hay goi bi mat»
+            _tr.append((rtp["seq"], rtp["timestamp"], len(rtp["payload"]), rtp["payload_type"], int(time.monotonic() * 1000)))
         self._peer_plain_rtp = not rtp["ext"]
+        if rtp["payload_type"] != RTP_PT:
+            self.counters["rtp_rx_pt113"] = self.counters.get("rtp_rx_pt113", 0) + 1
         _tw = read_twseq(rtp["ext"])
         if _tw is not None:
             self._twcc.add(_tw, time.monotonic() * 1000.0)

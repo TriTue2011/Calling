@@ -372,7 +372,7 @@ def test_server_incoming_e2e():
         status, body = api("GET", "/api/thread/20001/history?type=user")
         assert status == 200, body
         assert body.get("unavailable") is False, body
-        assert "chi co tu khi app bat dau luu" in body.get("notice", ""), \
+        assert "chỉ có từ khi app bắt đầu lưu" in body.get("notice", ""), \
             body
         assert [m["text"] for m in body["messages"]] == \
             ["Chao ban, toi la BenBap"], body

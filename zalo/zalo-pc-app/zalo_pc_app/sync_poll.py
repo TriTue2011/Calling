@@ -343,6 +343,22 @@ class Inbox:
                 self._unread[key] = self._unread.get(key, 0) + 1
             return True
 
+    def recall(self, thread_type, thread_id, global_id="", cli_id=""):
+        """Thay tin goc (trong RAM) bang dau «da thu hoi» — dong bo voi MessageStore.recall; tra ve danh sach `id` da doi."""
+        from .message_store import recalled_copy
+        gid, cid = str(global_id or ""), str(cli_id or "")
+        hit = []
+        with self._lock:
+            items = self._store.get((str(thread_type), str(thread_id)), [])
+            for i, m in enumerate(items):
+                raw = m.get("raw") if isinstance(m.get("raw"), dict) else {}
+                if m.get("recalled") or raw.get("msgType") == "chat.undo":
+                    continue
+                if (gid and str(raw.get("msgId") or m.get("id") or "") == gid) or (cid and str(raw.get("cliMsgId") or m.get("client_id") or "") == cid):
+                    items[i] = recalled_copy(m)
+                    hit.append(str(m.get("id") or ""))
+        return hit
+
     def messages_for(self, thread_type, thread_id):
         key = (str(thread_type), str(thread_id))
         with self._lock:
@@ -513,6 +529,7 @@ class SyncPoller:
         "empty" / "rotated") reset consec_errors + xoa
         last_error — loi cu khong con hien tren /api/status."""
         url = self._poll_url()
+        _t0 = time.time()
         try:
             status, payload = self.http_get(url,
                                             timeout=self.msg_timeout + 5)
@@ -565,6 +582,7 @@ class SyncPoller:
             self.consec_errors = 0
             self.last_error = ""
             return "empty"
+        _t1 = time.time()
         messages = extract_messages(data, self.own_id)
         before = self.cursor.to_dict()
         self.cursor.update_from(data)
@@ -590,6 +608,12 @@ class SyncPoller:
         if self.on_message is not None:
             for thread_type, thread_id, msg in messages:
                 self.on_message(thread_type, thread_id, msg)
+        # Chan doan 12/11 (tin den tre luc dang goi): server giu long-poll bao lau, va ta xu ly mat bao lau sau khi nhan phan hoi.
+        # Chi ghi con so, khong ghi noi dung. Chi in khi co tin va mot trong hai con so dang ke.
+        _t2 = time.time()
+        if messages and _t2 - _t1 > 1.0 and not sys.is_finalizing():           # chi khi XU LY cham (poll cho lau la binh thuong luc ranh)
+            print("[sync-poll] tin den: poll cho %.1fs (server giu), xu ly %.2fs sau khi nhan phan hoi, %d tin"
+                  % (_t1 - _t0, _t2 - _t1, len(messages)), flush=True)
         if offline and messages and not sys.is_finalizing():
             print("[sync-poll] xu ly %d tin offline tu %d queue"
                   % (len(messages), offline), flush=True)

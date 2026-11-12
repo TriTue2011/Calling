@@ -16,6 +16,7 @@ vao log hay trang thai.
 
 import collections
 import shutil
+import struct
 import subprocess
 import threading
 import time
@@ -24,6 +25,7 @@ from . import ffmpeg_log
 
 FRAME_BYTES = 640           # 20 ms PCM16 mono 16 kHz
 FRAME_SECONDS = 0.02
+IN_VOICED_PEAK = 800          # dinh bien do >= 800/32768 (~ -32 dBFS) coi la khung co tieng
 MAX_BACKLOG = 10            # > 200 ms ton dong thi bo khung cu (giu do tre thap)
 FORMATS = ("auto", "s16le16k")
 ONCE_BACKLOG = 250          # phat MOT lan (TTS): ffmpeg xa don luc dau; khong bo khung cua cau noi (250 khung = 5 s)
@@ -78,6 +80,8 @@ class AudioSender:
         self.frames = 0
         self.dropped = 0
         self.gated = 0
+        self.in_voiced = 0              # so khung nguon mic co tieng that (dinh >= IN_VOICED_PEAK) TRUOC khi bi chan echo
+        self.in_peak = 0                # dinh bien do lon nhat cua nguon mic (0..32767): nguon mic co thuc su ra tieng khong
         self.errors = 0
         self.last_error = ""
         self.started_at = None
@@ -145,6 +149,14 @@ class AudioSender:
             elif due > now:
                 self._sleep(due - now)
             due += FRAME_SECONDS
+            try:
+                _pk = max(abs(x) for x in struct.unpack("<%dh" % (len(frame) // 2), frame[:len(frame) // 2 * 2])) if frame else 0
+                if _pk > self.in_peak:
+                    self.in_peak = _pk
+                if _pk >= IN_VOICED_PEAK:
+                    self.in_voiced += 1
+            except struct.error:
+                pass
             gated = self._gate is not None and self._gate()
             if gated:
                 self.gated += 1                  # loa dang phat: KHONG gui tieng mic, nhung van gui khung im lang de luong RTP lien tuc
@@ -171,7 +183,8 @@ class AudioSender:
         # alive: con nguon HOAC con khung cho gui (tep ket thuc truoc khi khung cuoi duoc gui het ~0,5 s) — de nguoi poll
         # trang thai (HA doi doc xong TTS) khong cat cau.
         return {"alive": self.alive or len(self._queue) > 0, "frames": self.frames,
-                "dropped": self.dropped, "gated": self.gated, "errors": self.errors,
+                "dropped": self.dropped, "gated": self.gated, "in_voiced": self.in_voiced, "in_peak": self.in_peak,
+                "errors": self.errors,
                 "last_error": self.last_error,
                 "ffmpeg_err": self.stderr_tail(),
                 "seconds": (round(time.time() - self.started_at, 1)

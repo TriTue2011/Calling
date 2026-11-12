@@ -229,6 +229,47 @@ def test_video_request_is_reported_to_ha_never_auto_accepted_by_default_and_acce
         app_server._start_video, app_server._send_a2v_async = real_vid, real_a2v
 
 
+def test_camera_on_event_from_phone_is_a_video_request_and_camera_off_is_not():
+    """onoff_camera (ten trong ZaloCall.exe) voi params.type 1 = bat camera, 0 = tat. type 1 -> bao HA nhu loi xin video (khong tu dong y mac dinh);
+    type 0 -> khong bao gi. act "1" khong duoc nhan (chua xac nhan la nut camera)."""
+    mock = _mock()
+
+    def check(base, mock, endpoints):
+        state = app_server.STATE
+        sent = _capture_call_webhooks(state)
+        state._on_ctrl_call_event(_event(CALL_ID_IN, caller="20003"))
+        assert _wait_active(base, CALL_ID_IN, "incoming") is not None
+        assert _api(base, "POST", "/api/call/answer", {"call_id": CALL_ID_IN, "mic_url": "off", "speaker_url": "off", "camera_url": "off"})[1]["ok"] is True
+
+        def cam(act, typ):
+            return {"call_id": CALL_ID_IN, "act": act, "call_type": 0, "caller_id": "20003",
+                    "data": {"callId": str(CALL_ID_IN), "status": "0", "params": {"id": CALL_ID_IN, "receiverId": 1, "ts": 1794481254793, "type": typ}}}
+
+        def requests():
+            return [p for p in sent if p.get("status") == "video_request"]
+
+        state._on_ctrl_call_event(cam("onoff_camera", 0))                   # tat camera: khong phai loi xin
+        state._on_ctrl_call_event(cam("1", 1))                              # act "1" (trung gio bam LOA NGOAI) KHONG duoc coi la xin video
+        time.sleep(0.4)
+        assert requests() == [], sent
+        state._on_ctrl_call_event(cam("onoff_camera", 1))                   # bat camera = xin chuyen sang video
+        deadline = time.time() + 5
+        while time.time() < deadline and not requests():
+            time.sleep(0.05)
+        assert requests() and requests()[0]["thread_id"] == "20003", sent
+        n = len(requests())
+        ev = cam("onoff_camera", 1)                                         # may that: data/params la CHUOI JSON
+        ev["data"] = {"callId": str(CALL_ID_IN), "status": "0", "params": '{"id": %d, "receiverId": 1, "ts": 1, "type": 1}' % CALL_ID_IN}
+        state._on_ctrl_call_event(ev)
+        deadline = time.time() + 5
+        while time.time() < deadline and len(requests()) == n:
+            time.sleep(0.05)
+        assert len(requests()) == n + 1, sent
+        _api(base, "POST", "/api/call/end", {"call_id": CALL_ID_IN})
+
+    _run(mock, check)
+
+
 def test_two_incoming_before_answering_newer_supersedes():
     mock = _mock()
 

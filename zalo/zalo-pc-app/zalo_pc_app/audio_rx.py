@@ -26,7 +26,7 @@ import time
 from . import call_audio, ffmpeg_log
 
 RMS_THRESHOLD = 180.0       # duoi muc nay coi la im lang (nen cua luong Opus/DTX)
-HOLD_SECONDS = 0.5          # het tieng that van chan mic them chung nay (duoi vong phong)
+HOLD_SECONDS = 0.25         # het tieng that van chan mic them chung nay (duoi vong phong). 0,5 -> 0,25 (13/11): chu may bao mic loa chuyen qua lai bi tre
 DUPLEX_SETTLE_SECONDS = 0.8  # cho phien song cong cua R1 mo xong roi moi mo mic
 
 

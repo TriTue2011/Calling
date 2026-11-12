@@ -170,9 +170,11 @@ def decode_postlogin_data(payload, zpw_enk_b64):
             raise RuntimeError("response decrypt failed: %s" % exc)
         if isinstance(inner, dict):
             if inner.get("error_code") not in (0, None):
-                raise RuntimeError("response inner error_code=%s %s" % (
+                _err = RuntimeError("response inner error_code=%s %s" % (
                     inner.get("error_code"),
                     inner.get("error_message", "")))
+                _err.inner = inner          # giu nguyen goi loi (cac truong ngoai error_message) de chan doan
+                raise _err
             return inner.get("data")
         return inner
     return data

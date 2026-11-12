@@ -34,7 +34,7 @@ def test_f1d1_catalog_extras():
     cat = svc_mod.build_catalog()
     assert cat["counts"]["total_96"] == 96, cat["counts"]
     extras = [e for e in cat["services"] if e["addon_no"] is None]
-    assert len(extras) == 8, extras
+    assert len(extras) == 9, extras      # 8 cu + get_settings (12/11/2026)
     assert all(e["status"] == "supported" for e in extras), extras
     by_action = {e["action"]: e for e in cat["services"]
                  if e["action"]}

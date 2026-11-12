@@ -413,6 +413,14 @@ def vc_endcall(uid_to, call_id, device_id):
             "imei": device_id}
 
 
+def vc_logendcall(call_id, partner_id, status, logdata, duration, role, device_id):
+    """Body of logendcall (11311, signal 406): ghi ket qua cuoc goi cho lich su chat. Giong het sendLogEndCall cua Zalo PC 26.11.10:
+    {call_id, partner_id, status, logdata, duration, role, imei}; status 50 da noi may, 103 nguoi goi huy / het gio, 160 tu choi;
+    role true = ta la ben goi; logdata la chuoi JSON thong ke."""
+    return {"call_id": call_id, "partner_id": str(partner_id), "status": status, "logdata": logdata,
+            "duration": duration, "role": bool(role), "imei": device_id}
+
+
 def vc_endcall_group(callee_id, call_id, call_type, host_call, data,
                      partners):
     """Body of group/endcall (code 12438), exactly as the PC client

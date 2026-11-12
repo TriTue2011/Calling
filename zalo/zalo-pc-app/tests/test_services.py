@@ -143,12 +143,12 @@ def test_catalog_covers_all_96():
     assert cat["counts"]["chat"] == 11, cat["counts"]
     assert cat["counts"]["zalobot"] == 10, cat["counts"]
     assert cat["counts"].get("unsupported", 0) == 0, cat["counts"]
-    # The 8 ops outside the 96 (quote, seen, fetchImportant, group
+    # The 9 ops outside the 96 (get_settings added 12/11, quote, seen, fetchImportant, group
     # link detail, label update, keepAlive, vote_poll,
     # reject_friend_request) carry addon_no None and
     # are all supported — they must not inflate the 96 count.
     extras = [e for e in cat["services"] if e["addon_no"] is None]
-    assert len(extras) == 8, extras
+    assert len(extras) == 9, extras      # 8 cu + get_settings (12/11/2026)
     assert all(e["status"] == "supported" for e in extras), extras
     # Every OPS action appears in the catalog exactly once.
     actions = [e["action"] for e in cat["services"] if e["action"]]
@@ -175,17 +175,11 @@ def test_catalog_body_unverified_flagged():
     The rest carry fully bundle-verified bodies (SERVICE-MAP.md
     §4 + bundle greps 2026-11-05)."""
     unverified = {
-        "add_quick_message", "add_reaction",
-        "change_account_avatar", "change_group_avatar",
-        "create_group", "create_note_group", "create_poll",
-        "create_reminder", "delete_chat", "edit_note_group",
-        "edit_reminder", "forward_message", "get_avatar_list",
-        "get_group_link", "get_list_board", "get_list_reminder",
-        "get_user_info", "last_online", "mark_seen",
-        "remove_unread_mark", "update_label", "update_profile",
-        "update_quick_message", "update_settings",
+        "add_reaction",                       # chi icon 'like' thu that tren phien PC
+        "change_account_avatar", "change_group_avatar",   # multipart: can kich thuoc anh + metaData (zca-js changeAccountAvatar)
+        "delete_chat",                        # bundle luon gui cliMsgId + conver cua tin cuoi; app chi gui khi caller truyen
     }
-    assert len(unverified) == 24, unverified
+    assert len(unverified) == 4, unverified
     for action, spec in svc_mod.OPS.items():
         if action in unverified:
             assert spec["body_unverified"] is True, action
@@ -228,20 +222,28 @@ def test_dispatch_message_ops_both_threads():
         assert d["body"] == {"grid": "30001", "msgs": ["m3"],
                              "onlyMe": 1, "cliMsgId": 1234567890124,
                              "imei": "dev-1"}, d
-        # forward: khung {toId|grid, imei} — lap theo tung dich.
+        # forward: mforward co NOI DUNG (bundle forwardMultiMessage + zca-js forwardMessage), mot lan goi cho nhieu dich.
         d = svc.dispatch("forward_message", {
-            "msg_id": "m4", "message": "xin chao",
+            "message": "xin chao",
             "dest_thread_ids": "20002, 20003", "type": "user"})
-        assert d["results"][0]["path"] == "/api/message/forward", d
-        assert d["results"][0]["body"] == {"toId": "20002",
-                                           "imei": "dev-1"}, d
-        assert d["results"][1]["body"]["toId"] == "20003", d
+        (r,) = d["results"]
+        assert r["path"] == "/api/message/mforward", r
+        b = r["body"]
+        assert [x["toUid"] for x in b["toIds"]] == ["20002", "20003"] and b["totalIds"] == 2 and b["msgType"] == "1", b
+        assert b["imei"] == "dev-1" and b["ttl"] == 0 and all(x["ttl"] == 0 and x["clientId"] for x in b["toIds"]), b
+        assert json.loads(b["msgInfo"]) == {"message": "xin chao"} and b["decorLog"] == "null", b
         d = svc.dispatch("forward_message", {
-            "msg_id": "m4", "dest_thread_ids": "30002",
+            "message": "chao nhom", "dest_thread_ids": "30002",
             "type": "group"})
-        assert d["results"][0]["path"] == "/api/group/forward", d
-        assert d["results"][0]["body"] == {"grid": "30002",
-                                           "imei": "dev-1"}, d
+        (r,) = d["results"]
+        assert r["path"] == "/api/group/mforward", r
+        assert [x["grid"] for x in r["body"]["grids"]] == ["30002"] and "imei" not in r["body"] and "toIds" not in r["body"], r
+        for bad in ({"dest_thread_ids": "1", "type": "user"}, {"message": "  ", "dest_thread_ids": "1"}, {"message": "x", "dest_thread_ids": "1", "type": "xx"}):
+            try:
+                svc.dispatch("forward_message", bad)
+                raise AssertionError("phai nem ValueError: %r" % (bad,))
+            except ValueError:
+                pass
         # quote 1-1: qmsg* fields; nhom: language + visibility,
         # KHONG imei.
         d = svc.dispatch("quote_message", {
@@ -268,8 +270,10 @@ def test_dispatch_message_ops_both_threads():
             "thread_id": "30001", "type": "group",
             "msg_ids": "m6,m7"})
         assert d["path"] == "/api/group/seen", d
-        assert d["body"]["msg_ids"] == ["m6", "m7"], d
-        assert d["body"]["seen"] is True, d
+        # Bundle sendGroupSeen: {msg_ids, grid}; 1-1 sendSeen: {msg_ids:[so], senderId} (khong con seen/imei).
+        assert d["body"] == {"msg_ids": ["m6", "m7"], "grid": "30001"}, d
+        d = svc.dispatch("mark_seen", {"thread_id": "20001", "type": "user", "msg_ids": "101,102"})
+        assert d["path"] == "/api/message/seen" and d["body"] == {"msg_ids": [101, 102], "senderId": "20001"}, d
         d = svc.dispatch("send_typing_event", {
             "thread_id": "20001", "type": "user"})
         assert d["path"] == "/api/message/typing", d
@@ -464,7 +468,7 @@ def test_dispatch_group_ops():
         assert json.loads(d["body"]["params"]) == \
             {"title": "Ghi chu"}, d
         assert d["body"]["needPin"] is False, d
-        assert "src" not in d["body"], d
+        assert d["body"]["src"] == 1, d
         d = svc.dispatch("edit_note_group",
                          dict(g, topic_id="t1", title="Sua"))
         assert d["path"] == "/api/board/topic/update", d
@@ -473,8 +477,8 @@ def test_dispatch_group_ops():
         assert "needPin" not in d["body"], d
         d = svc.dispatch("get_list_board", g)
         assert d["path"] == "/api/board/list", d
-        assert d["body"] == {"group_id": "30001",
-                             "imei": "dev-1"}, d
+        assert d["body"] == {"group_id": "30001", "board_type": 0, "page": 1, "count": 20,
+                             "last_id": 0, "last_type": 0, "imei": "dev-1"}, d
         # Group-only ops refuse a user thread (no fake 1-1 call).
         try:
             svc.dispatch("change_group_name", {
@@ -541,6 +545,20 @@ def test_dispatch_pin_hidden_archived():
         seen_reset = [qs for p, qs, _ in mock.seen
                       if p == "/api/hiddenconvers/reset"]
         assert seen_reset and "params" not in seen_reset[0], seen_reset
+    finally:
+        mock.stop()
+
+
+def test_dispatch_get_settings():
+    """get_settings = GET /api/setting/me, chi tham so chung (khong params); tra du 14 cai dat."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        svc = make_svc(mock)
+        d = svc.dispatch("get_settings", {})
+        assert len(d) == 14 and d["show_online_status"] is True and d["display_seen_status"] == 1 and d["view_birthday"] == 2, d
+        seen = [qs for p, qs, _ in mock.seen if p == "/api/setting/me"]
+        assert seen and "params" not in seen[0], seen
     finally:
         mock.stop()
 
@@ -619,8 +637,14 @@ def test_dispatch_poll():
             "group_id": "30001", "question": "Chon mon?",
             "options": ["A", "B", "C"], "allow_multi_choices": True,
             "allow_add_new_option": True, "is_anonymous": False,
-            "poll_type": 0, "expired_time": 0, "pinAct": 0,
-            "imei": "dev-1"}, d
+            "is_hide_vote_preview": False, "poll_type": 0, "src": 1,
+            "expired_time": 0, "pinAct": False, "imei": "dev-1"}, d
+        d = svc.dispatch("create_poll", dict(
+            g, question="Q", options="X,Y", is_anonymous="true",
+            allow_add_new_option="false", hide_vote_preview="true",
+            expired_time="1794500000000"))
+        assert d["body"]["is_anonymous"] is True and d["body"]["allow_add_new_option"] is False, d
+        assert d["body"]["is_hide_vote_preview"] is True and d["body"]["expired_time"] == 1794500000000, d
         d = svc.dispatch("get_poll_detail", dict(g, poll_id="p1"))
         assert d["path"] == "/api/poll/detail", d
         assert d["body"] == {"poll_id": "p1", "imei": "dev-1"}, d
@@ -683,17 +707,21 @@ def test_dispatch_conversation_profile_sticker():
         d = svc.dispatch("add_unread_mark", u)
         assert d["path"] == "/api/conv/addUnreadMark", d
         inner = json.loads(d["body"]["param"])
-        assert inner == {"convsGroup": [], "convsUser": ["20001"],
-                         "imei": "dev-1"}, inner
+        # Moi muc la DOI TUONG {id, cliMsgId, fromUid:"0", ts} (zca-js addUnreadMark), khong phai chuoi id.
+        assert inner["convsGroup"] == [] and inner["imei"] == "dev-1", inner
+        (e,) = inner["convsUser"]
+        assert e["id"] == "20001" and e["fromUid"] == "0" and e["cliMsgId"] == str(e["ts"]) and e["ts"] > 1e12, e
         d = svc.dispatch("add_unread_mark",
                          {"thread_id": "30001", "type": "group"})
         inner = json.loads(d["body"]["param"])
-        assert inner["convsGroup"] == ["30001"], inner
+        assert [x["id"] for x in inner["convsGroup"]] == ["30001"], inner
         assert inner["convsUser"] == [], inner
         d = svc.dispatch("remove_unread_mark", u)
         assert d["path"] == "/api/conv/removeUnreadMark", d
         inner = json.loads(d["body"]["param"])
-        assert inner == {"convsGroup": [], "convsUser": ["20001"]}, inner
+        # Bundle removeMarkAsUnread: {convsGroup, convsUser, convsGroupData, convsUserData}; *Data la [{id, ts}].
+        assert inner["convsGroup"] == [] and inner["convsUser"] == ["20001"] and inner["convsGroupData"] == [], inner
+        assert [x["id"] for x in inner["convsUserData"]] == ["20001"] and inner["convsUserData"][0]["ts"] > 1e12, inner
         d = svc.dispatch("delete_chat", u)
         assert d["path"] == "/api/message/deleteconver", d
         assert d["body"] == {"toid": "20001", "onlyMe": 1,
@@ -744,19 +772,25 @@ def test_dispatch_conversation_profile_sticker():
         assert d["body"] == {"phone": "0900000000",
                              "avatar_size": 240, "language": "vi",
                              "imei": "dev-1"}, d
-        d = svc.dispatch("get_user_info", {"user_id": "20002"})
+        d = svc.dispatch("get_user_info", {"user_id": "20002, 20003_5"})
         assert d["path"] == "/api/social/friend/getprofiles/v2", d
+        # Bundle getFriendProfilev2 + zca-js getUserInfo: POST, friend_pversion_map ["id_0"...] (khong con GET {userId}).
+        assert d["body"] == {"phonebook_version": 0, "friend_pversion_map": ["20002_0", "20003_5"], "avatar_size": 160,
+                             "language": "vi", "show_online_status": 1, "imei": "dev-1"}, d
+        assert "/api/social/friend/getprofiles/v2" in seen_post_paths(mock), "get_user_info must be POST"
         d = svc.dispatch("last_online", {"user_id": "20002"})
         assert d["path"] == "/api/social/profile/lastOnline", d
-        assert d["body"] == {"uid": "20002", "imei": "dev-1"}, d
-        d = svc.dispatch("update_profile", {"name": "Ten Moi"})
+        assert d["body"] == {"uid": "20002", "conv_type": 1, "imei": "dev-1"}, d
+        d = svc.dispatch("update_profile", {"name": "Ten Moi", "gender": "1"})
         assert d["path"] == "/api/social/profile/update", d
-        assert d["body"]["name"] == "Ten Moi", d
+        # zca-js updateProfile: profile la CHUOI JSON + biz + language (khong con name o cap ngoai cung).
+        assert json.loads(d["body"]["profile"]) == {"name": "Ten Moi", "gender": 1}, d
+        assert d["body"]["biz"] == "{}" and d["body"]["language"] == "vi" and "name" not in d["body"], d
         # update_settings la GET tren wpa.zalo.me (auth domain).
         d = svc.dispatch("update_settings", {
-            "setting_type": "seen_status", "status": "0"})
+            "setting_type": "display_seen_status", "status": "0"})
         assert d["path"] == "/api/setting/update", d
-        assert d["body"]["status"] == 0, d
+        assert d["body"] == {"display_seen_status": 0}, d          # bundle setSettings + zca-js: {<ten cai dat>: gia tri}
         assert "/api/setting/update" not in seen_post_paths(mock), \
             "update_settings must be GET"
         # change_account_avatar: upload file.
@@ -773,7 +807,7 @@ def test_dispatch_conversation_profile_sticker():
         assert isinstance(d["body"]["clientId"], int), d
         d = svc.dispatch("get_avatar_list", {"count": "5", "page": "2"})
         assert d["path"] == "/api/social/avatar-list", d
-        assert d["body"] == {"count": 5, "page": 2,
+        assert d["body"] == {"page": 2, "albumId": "0", "count": 5,
                              "imei": "dev-1"}, d
         # get_stickers: params AES cua chuoi rong "".
         d = svc.dispatch("get_stickers", {})
@@ -785,14 +819,23 @@ def test_dispatch_conversation_profile_sticker():
             "/api/message/sticker/category/detail", d
         assert d["body"] == {"cid": "a1"}, d
         d = svc.dispatch("parse_link", {"link": "https://example.invalid"})
-        assert d["path"] == "/api/message/parselink", d
+        assert d["path"] == "/api/message/parselink" and d.get("method", "GET") == "GET", d             # bundle getLinkInformation: GET
         assert d["body"] == {"link": "https://example.invalid",
                              "version": 1, "imei": "dev-1"}, d
         d = svc.dispatch("get_labels", {})
         assert d["path"] == "/api/convlabel/get", d
-        d = svc.dispatch("update_label", dict(u, label_ids="l1,l2"))
+        labels = [{"id": 1, "text": "Khach", "color": "#ff0000", "conversations": ["20001"]}]
+        d = svc.dispatch("update_label", {"label_data": labels, "version": "7"})
         assert d["path"] == "/api/convlabel/update", d
-        assert d["body"]["labelIds"] == ["l1", "l2"], d
+        # Bundle updateConversationLabel: {labelData: JSON-str(danh sach nhan), version, imei} — khong con threadId/labelIds.
+        assert json.loads(d["body"]["labelData"]) == labels and d["body"]["version"] == 7 and d["body"]["imei"] == "dev-1", d
+        assert "labelIds" not in d["body"] and "threadId" not in d["body"], d
+        for bad in ({"label_data": "khong phai json", "version": 1}, {"label_data": {"a": 1}, "version": 1}, {"label_data": labels}):
+            try:
+                svc.dispatch("update_label", bad)
+                raise AssertionError("phai nem ValueError: %r" % (bad,))
+            except ValueError:
+                pass
     finally:
         mock.stop()
 
@@ -823,7 +866,7 @@ def test_dispatch_reminders_user_vs_group():
         expect_ms = int(datetime(2026, 11, 6, 3, 0, 0,
                                  tzinfo=timezone.utc).timestamp() * 1000)
         assert obj["startTime"] == expect_ms, obj
-        assert "src" not in obj, obj
+        assert obj["src"] == 1, obj                         # zca-js createReminder
         # create nhom: qua topic/create (da lan) — khong con 409.
         d = svc.dispatch("create_reminder", dict(
             g, title="Hop", remind_time="2026-11-06T10:00:00+07:00"))
@@ -831,7 +874,7 @@ def test_dispatch_reminders_user_vs_group():
         assert d["body"]["grid"] == "30001", d
         assert d["body"]["type"] == 0, d
         assert json.loads(d["body"]["params"]) == {"title": "Hop"}, d
-        assert d["body"]["startTime"] == expect_ms, d
+        assert d["body"]["startTime"] == expect_ms and d["body"]["src"] == 1, d
         # remove: 1-1 {uid, reminderId} (KHONG imei); nhom qua
         # topic/remove.
         d = svc.dispatch("remove_reminder", dict(u, reminder_id="r1"))
@@ -852,19 +895,22 @@ def test_dispatch_reminders_user_vs_group():
         assert obj["startTime"] == -1, obj
         d = svc.dispatch("edit_reminder",
                          dict(g, topic_id="r1", title="Hop moi"))
-        assert d["path"] == "/api/board/topic/updateEventResponse", d
-        assert d["body"] == {"grid": "30001", "eventId": "r1",
-                             "imei": "dev-1"}, d
+        # Nhom: updateGroupTopicv2 (bundle + zca-js editReminder) — KHONG con updateEventResponse (RSVP).
+        assert d["path"] == "/api/board/topic/update", d
+        assert d["body"]["topicId"] == "r1" and d["body"]["grid"] == "30001" and d["body"]["imei"] == "dev-1", d
+        assert json.loads(d["body"]["params"]) == {"title": "Hop moi"} and d["body"]["startTime"] == -1, d
         # list: objectData JSON-str({uid|group_id}).
         d = svc.dispatch("get_list_reminder", u)
         assert d["path"] == "/api/board/oneone/list", d
         assert json.loads(d["body"]["objectData"]) == \
-            {"uid": "20001"}, d
+            {"uid": "20001", "board_type": 1, "page": 1, "count": 20,
+             "last_id": 0, "last_type": 0}, d
         assert "imei" not in d["body"], d
         d = svc.dispatch("get_list_reminder", g)
         assert d["path"] == "/api/board/listReminder", d
         assert json.loads(d["body"]["objectData"]) == \
-            {"group_id": "30001"}, d
+            {"group_id": "30001", "board_type": 1, "page": 1, "count": 20,
+             "last_id": 0, "last_type": 0}, d
         assert d["body"]["imei"] == "dev-1", d
         # get / responses: chi eventId (+ imei cho get).
         d = svc.dispatch("get_reminder", {"reminder_id": "r1"})
@@ -1009,7 +1055,7 @@ def test_svc_http_api():
         status, body = _api(base, "GET", "/api/svc/catalog")
         assert status == 200, body
         assert body["counts"]["total_96"] == 96, body["counts"]
-        assert body["counts"]["supported"] == 81, body["counts"]
+        assert body["counts"]["supported"] == 82, body["counts"]
 
         # Before login: every op is 401 (Zalo session required).
         status, body = _api(base, "POST", "/api/svc/send_typing_event",

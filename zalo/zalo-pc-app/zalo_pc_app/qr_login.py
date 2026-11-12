@@ -26,6 +26,7 @@ This keeps the real network code and the mock-server tests on the same
 state machine.
 """
 
+import json
 import time
 
 from . import protocol
@@ -94,6 +95,73 @@ def _decode_payload(payload, enk):
     return data
 
 
+def _truthy(v):
+    return v in (1, True, "1", "true", "True")
+
+
+def fetch_server_flags(http_get, device_id, computer_name):
+    """Doc co QR cua may chu Zalo, y nhu Zalo PC luc khoi dong: GET /api/login/getServerInfo (khong ma hoa) roi lay
+    data.setttings.authen.trusted_device = {qr_format_trust_device, self_g, logo_qr} (do 12/11/2026: ca ba = 0). PC chon cach dang nhap QR
+    theo cac co nay: self_g=0 -> anh QR cua may chu (loai cu, app minh dung); self_g=1 -> client tu dung QR; qr_format_trust_device=1 -> lien
+    ket thiet bi tin cay (QR2, Noise/AES-GCM). KHONG BAO GIO nem loi: that bai/khong doc duoc -> known=False (app van thu loai cu nhu truoc).
+    Tra ve {"known", "qr_format_trust_device", "self_g", "logo_qr", "detail"}."""
+    out = {"known": False, "qr_format_trust_device": False, "self_g": False, "logo_qr": False, "detail": ""}
+    try:
+        query, _ = _envelope({"imei": device_id, "computer_name": computer_name, "sp_mtn": -1, "bkt": -1},
+                             "getserverinfo", None, device_id)
+        url = protocol.build_url(protocol.AUTH_DOMAIN, "/api/login/getServerInfo", query)
+        status, payload = http_get(url, timeout=15)
+        if status != 200 or not isinstance(payload, dict):
+            out["detail"] = "getServerInfo: HTTP %s" % status
+            return out
+        if payload.get("error_code") != 0:
+            out["detail"] = "getServerInfo: error_code=%s" % payload.get("error_code")
+            return out
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            out["detail"] = "getServerInfo: data khong phai dict"
+            return out
+        node = ((data.get("setttings") or {}).get("authen") or {}).get("trusted_device")
+        if isinstance(node, str):
+            try:
+                node = json.loads(node)
+            except ValueError:
+                node = None
+        out["known"] = True
+        if isinstance(node, dict):
+            out["qr_format_trust_device"] = _truthy(node.get("qr_format_trust_device"))
+            out["self_g"] = _truthy(node.get("self_g"))
+            out["logo_qr"] = _truthy(node.get("logo_qr"))
+        else:
+            out["detail"] = "may chu khong gui authen.trusted_device: PC coi la 0/0/0 (QR loai cu)"
+    except Exception as e:  # noqa: BLE001 - chi la chan doan, khong duoc lam hong dang nhap
+        out["detail"] = "getServerInfo: %s: %s" % (type(e).__name__, e)
+    return out
+
+
+def describe_server_flags(flags):
+    """Cau tieng Viet mo ta co may chu (cho nhat ky, giao dien, thong bao loi)."""
+    if not flags or not flags.get("known"):
+        return "Chưa đọc được cờ máy chủ Zalo (%s); app dùng QR loại cũ như mặc định." % ((flags or {}).get("detail") or "không rõ lý do")
+    kind = ("liên kết thiết bị tin cậy (QR2)" if flags["qr_format_trust_device"]
+            else "Zalo PC tự dựng mã QR" if flags["self_g"] else "ảnh QR do máy chủ cấp (loại cũ)")
+    return ("Cờ máy chủ Zalo: qr_format_trust_device=%d, self_g=%d, logo_qr=%d → Zalo PC hiện dùng %s."
+            % (flags["qr_format_trust_device"], flags["self_g"], flags["logo_qr"], kind))
+
+
+def flags_warning(flags):
+    """Canh bao khi co may chu KHAC loai app dang ho tro ("" neu khong co gi dang ngai)."""
+    if not flags or not flags.get("known"):
+        return ""
+    if flags["qr_format_trust_device"]:
+        return ("Zalo đang bật đăng nhập QR kiểu “thiết bị tin cậy” (qr_format_trust_device=1) mà app chưa hỗ trợ. "
+                "App vẫn thử QR loại cũ; nếu không quét hoặc xác nhận được thì đó là nguyên nhân.")
+    if flags["self_g"]:
+        return ("Zalo đang bật self_g=1 (Zalo PC tự dựng mã QR) còn app dùng ảnh QR do máy chủ cấp. "
+                "Nếu mã QR không hiện, đó là nguyên nhân.")
+    return ""
+
+
 def fetch_qr(http_get, device_id, computer_name, logged_uids,
              param_cipher_key=None, self_g=0, qr_form=0, language="vi"):
     """Step 1: request a QR code. Returns the parsed QR record."""
@@ -129,6 +197,9 @@ def fetch_qr(http_get, device_id, computer_name, logged_uids,
     qr = protocol.parse_qr_data(data)
     if not qr["chk_wait_scan"] or not qr["chk_wait_cfirm"]:
         raise LoginError("reqqr: response missing poll urls")
+    if not qr["base64_qr"]:
+        raise LoginError("reqqr: máy chủ không trả ảnh QR (base64_qr rỗng). Thường do Zalo bật self_g/QR kiểu mới "
+                         "mà app chưa hỗ trợ; xem cờ máy chủ ở /api/qr/status.")
     return qr
 
 

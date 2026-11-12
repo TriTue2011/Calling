@@ -96,8 +96,11 @@ class ZaloCallApi:
                           auto_emoji: Any = None,
                           zalo_emoji: str | None = None,
                           style: dict | None = None,
-                          ai_markup: str | None = None) -> Any:
+                          ai_markup: str | None = None,
+                          mentions: list | None = None) -> Any:
         body: dict[str, Any] = {"type": ttype, "message": message}
+        if mentions:
+            body["mentions"] = list(mentions)
         if fmt:
             body["format"] = str(fmt)
         if style:

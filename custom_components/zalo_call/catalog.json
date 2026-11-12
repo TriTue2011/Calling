@@ -15,6 +15,11 @@
     "required": true
    },
    {
+    "key": "mentions",
+    "label": "Nhắc người trong NHÓM (chỉ áp dụng khi gửi vào nhóm): danh sách, mỗi mục {uid, name} (tìm «@name» trong tin) hoặc {uid, pos, len}; uid -1 = @Tất cả. Ví dụ: [{\"uid\": \"123456\", \"name\": \"Nam\"}] với tin «Chào @Nam»",
+    "required": false
+   },
+   {
     "key": "format",
     "label": "Định dạng chữ: plain (mặc định) hoặc markdown — **đậm**, *nghiêng*, __gạch chân__, ~~gạch ngang~~, # tiêu đề (to + đậm), - mục / 1. mục (danh sách), {red}chữ đỏ{/} {orange} {yellow} {green} (hoặc {đỏ} {cam} {vàng} {xanh}), {big}..{/} {small}..{/}",
     "required": false
@@ -166,7 +171,7 @@
   "fields": [
    {
     "key": "user_id",
-    "label": "UserId",
+    "label": "UserId (nhiều id cách nhau bằng dấu phẩy)",
     "required": true
    }
   ]
@@ -921,12 +926,12 @@
   "fields": [
    {
     "key": "setting_type",
-    "label": "Loại (online_status/seen_status/receive_message/phone_search)",
+    "label": "Tên cài đặt (vd show_online_status, display_seen_status, receive_message...)",
     "required": true
    },
    {
     "key": "status",
-    "label": "Trạng thái (1=bật, 0=tắt)",
+    "label": "Giá trị (1=bật, 0=tắt)",
     "required": true
    }
   ]
@@ -1218,7 +1223,12 @@
   "fields": [
    {
     "key": "message",
-    "label": "Nội dung tin",
+    "label": "Nội dung chữ cần chuyển tiếp",
+    "required": true
+   },
+   {
+    "key": "ttl",
+    "label": "TTL (ms, 0 = không tự xóa)",
     "required": false
    },
    {
@@ -1417,6 +1427,26 @@
    {
     "key": "allow_multi_choices",
     "label": "Cho chọn nhiều (true/false)",
+    "required": false
+   },
+   {
+    "key": "allow_add_new_option",
+    "label": "Cho thêm lựa chọn mới (mặc định true)",
+    "required": false
+   },
+   {
+    "key": "is_anonymous",
+    "label": "Bình chọn ẩn danh (true/false)",
+    "required": false
+   },
+   {
+    "key": "hide_vote_preview",
+    "label": "Ẩn kết quả khi chưa bình chọn (true/false)",
+    "required": false
+   },
+   {
+    "key": "expired_time",
+    "label": "Hạn chót (ms epoch, 0 = không hết hạn)",
     "required": false
    }
   ]
@@ -1824,6 +1854,17 @@
   "fields": []
  },
  {
+  "name": "get_settings",
+  "no": null,
+  "kind": "svc",
+  "action": "get_settings",
+  "group": "ho_so",
+  "label": "Xem cài đặt riêng tư",
+  "thread": "none",
+  "danger": false,
+  "fields": []
+ },
+ {
   "name": "vote_poll",
   "no": null,
   "kind": "svc",
@@ -1852,12 +1893,17 @@
   "action": "update_label",
   "group": "nhan",
   "label": "Gắn nhãn cho hội thoại",
-  "thread": "both",
+  "thread": "none",
   "danger": false,
   "fields": [
    {
-    "key": "label_ids",
-    "label": "ID nhãn (cách nhau bằng dấu phẩy)",
+    "key": "label_data",
+    "label": "Danh sách nhãn (JSON) đã sửa, lấy từ get_labels",
+    "required": true
+   },
+   {
+    "key": "version",
+    "label": "Version của danh sách nhãn",
     "required": true
    }
   ]
@@ -4545,17 +4591,6 @@
   "action": "get_profile_verification_status",
   "group": "zca_profile",
   "label": "getProfileVerificationStatus — Kiểm tra trạng thái xác thực định danh (eKYC) của tài khoản Zalo (command 12150)",
-  "thread": "none",
-  "danger": false,
-  "fields": []
- },
- {
-  "name": "get_settings",
-  "no": null,
-  "kind": "zca",
-  "action": "get_settings",
-  "group": "zca_profile",
-  "label": "getSettings — Lấy toàn bộ cấu hình quyền riêng tư và cài đặt của tài khoản hiện tại. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))",
   "thread": "none",
   "danger": false,
   "fields": []

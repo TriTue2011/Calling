@@ -516,7 +516,8 @@ data:
   mic_url: "..."                 # tuỳ chọn - Mic mặc định từ URL
   camera: "camera.vi_du"         # tuỳ chọn - Camera mặc định
   auto_mic: false                # tuỳ chọn - Tự phát mic khi nghe máy
-  auto_video: false              # tuỳ chọn - Tự đồng ý khi bên kia xin gọi video
+  auto_video: false              # tuỳ chọn - Tự đồng ý khi bên kia xin gọi video (mọi người)
+  video_consent: false           # tuỳ chọn - Cho phép đồng ý chuyển sang video (công tắc tổng)
   echo_guard: "auto"             # tuỳ chọn - Chống vọng
   auto_video_delay: 0            # tuỳ chọn - Chờ trước khi tự đồng ý (giây)
   call_volume: 0                 # tuỳ chọn - Âm lượng cuộc gọi mặc định
@@ -529,7 +530,8 @@ data:
 | `mic_url` | Mic mặc định từ URL | không | rtsp/rtsps/http/https/rtmp, hoặc luồng PCM của loa R1 (thắng ô Mic). |
 | `camera` | Camera mặc định | không | Camera HA phát hình lên cuộc gọi video. |
 | `auto_mic` | Tự phát mic khi nghe máy | không | Bật thì tự phát mic mặc định ngay khi cuộc gọi được nghe máy. |
-| `auto_video` | Tự đồng ý khi bên kia xin gọi video | không | Bật thì khi bên kia xin chuyển sang video sẽ tự đồng ý và phát camera mặc định. |
+| `auto_video` | Tự đồng ý khi bên kia xin gọi video (mọi người) | không | Bật thì khi BẤT KỲ AI xin chuyển sang video app cũng tự đồng ý và phát camera mặc định, không xét quy tắc từng người. Nên TẮT và dùng công tắc «Cho phép đồng ý chuyển sang video» cùng quy tắc từng người (video_request) để chỉ người được phép mới tự đồng ý. |
+| `video_consent` | Cho phép đồng ý chuyển sang video (công tắc tổng) | không | Công tắc tổng, mặc định TẮT. Bật thì quy tắc video_request (accept, accept_camera) của từng người/nhóm mới được tự đồng ý khi họ xin chuyển sang video; tắt thì mọi người chỉ bị báo. Cũng là công tắc «Cho phép đồng ý chuyển sang video» trên thiết bị Zalo Call. |
 | `echo_guard` | Chống vọng | không | auto = chỉ chặn mic khi mic và loa là cùng một thiết bị (ví dụ R1); on = luôn chặn mic khi loa đang phát tiếng bên kia; duplex = song công, nói chen được (loa R1 dùng khử vọng của nó); off = tắt. |
 | `auto_video_delay` | Chờ trước khi tự đồng ý (giây) | không | Số giây chờ rồi mới tự đồng ý lời xin chuyển sang video (0 = đồng ý ngay; chỉ áp dụng khi cuộc gọi còn đang nói). |
 | `call_volume` | Âm lượng cuộc gọi mặc định | không | 1-100 % — âm lượng loa đặt khi nghe máy rồi trả lại khi cuộc gọi kết thúc; 0 = giữ nguyên âm lượng loa. |
@@ -581,6 +583,10 @@ data:
   trusted: false                     # tuỳ chọn - Người tin cậy
   reply_ai: false                    # tuỳ chọn - AI trả lời tin nhắn
   voice_text: false                  # tuỳ chọn - Chuyển tin thoại thành chữ
+  reply_trigger: "..."               # tuỳ chọn - Từ khóa gọi AI trong nhóm
+  reply_senders: "..."               # tuỳ chọn - Người được gọi AI trong nhóm
+  reply_quote: false                 # tuỳ chọn - Trả lời kèm trích dẫn tin gốc
+  reply_prefix: "..."                # tuỳ chọn - Tiền tố câu trả lời
   announce: false                    # tuỳ chọn - Báo ra loa khi có cuộc gọi đến
   announce_to: "media_player.vi_du"  # tuỳ chọn - Loa dùng để báo
   announce_text: "..."               # tuỳ chọn - Câu báo ra loa
@@ -613,13 +619,17 @@ data:
 | `trusted` | Người tin cậy | không | Tin cậy thì AI nói chuyện bình thường. Không tin cậy (mặc định) thì AI được dặn không tiết lộ thông tin gia đình và không điều khiển thiết bị. |
 | `reply_ai` | AI trả lời tin nhắn | không | AI trả lời tin chữ (và tin thoại nếu bật chuyển tin thoại thành chữ) của người hoặc nhóm này. Cần chọn Trợ lý giọng nói hoặc Trợ lý AI riêng. |
 | `voice_text` | Chuyển tin thoại thành chữ | không | Tin thoại 1-1 được Zalo chuyển thành chữ, và Home Assistant bắn sự kiện zalo_call_voice_text. |
+| `reply_trigger` | Từ khóa gọi AI trong nhóm | không | Chỉ áp cho NHÓM. Tin có từ này (không phân biệt hoa thường, ví dụ `@Bot`) mới được AI trả lời; từ khóa được bỏ khỏi câu hỏi. Để trống = AI trả lời mọi tin của nhóm. |
+| `reply_senders` | Người được gọi AI trong nhóm | không | Chỉ áp cho NHÓM. Mã Zalo (threadID) của những người được phép gọi AI, cách nhau dấu phẩy. Để trống = mọi thành viên. Dán mã dài 19 chữ số hay mã số ngắn đều được. |
+| `reply_quote` | Trả lời kèm trích dẫn tin gốc | không | Câu trả lời của AI trích dẫn đúng tin vừa hỏi (như zalo_bot). Chỉ với tin chữ; không trích được thì gửi tin thường. |
+| `reply_prefix` | Tiền tố câu trả lời | không | Chữ thêm vào đầu câu trả lời của AI, ví dụ `Bot-Hass:`. |
 | `announce` | Báo ra loa khi có cuộc gọi đến | không | Bật thì khi người này gọi đến, một loa trong nhà đọc «Có cuộc gọi ... từ ...» để người trong nhà biết (kể cả khi không tự nghe máy). Mặc định TẮT. |
 | `announce_to` | Loa dùng để báo | không | Loa đọc thông báo cuộc gọi đến (bắt buộc khi bật báo ra loa). Giọng đọc lấy từ Trợ lý giọng nói của quy tắc. |
 | `announce_text` | Câu báo ra loa | không | Có thể dùng {ten} (tên người gọi) và {loai} (thoại hoặc video). Bỏ trống = «Có cuộc gọi {loai} từ {ten}.» |
 | `announce_volume` | Âm lượng lúc báo (%) | không | Âm lượng của loa khi đọc thông báo có cuộc gọi đến. 0 = giữ nguyên. Không ai nghe máy thì loa trở về mức cũ; có người nghe thì cuộc gọi tự đặt âm lượng của nó. Loa R1 có 15 mức: 6/15 là 40%. |
 | `announce_repeat` | Báo lại sau mỗi (giây) | không | Đọc xong thông báo thì chờ chừng này giây rồi đọc lại, cứ thế tới khi có người nghe máy hoặc cuộc gọi kết thúc. 0 = chỉ báo một lần. |
 | `connect_now` | Thiết bị nhà dùng NGAY khi người nhận nghe máy | không | Tích ô nào thì thứ đó bật ngay khi người nhận nghe máy, không chờ người nhà nói trực tiếp (ví dụ tích Camera để người nhận thấy hình trong nhà ngay, còn Mic và Loa chỉ bật khi người nhà nói). Tích Camera = cuộc gọi VIDEO. Không tích gì = chưa bật gì (mặc định). Chỉ bật được thiết bị đã chọn ở các ô Loa, Mic, Camera. |
-| `video_request` | Khi người gọi xin chuyển sang video | không | Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng tư): chỉ báo cho automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn đồng ý nếu muốn tự động. |
+| `video_request` | Khi người gọi xin chuyển sang video | không | Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng tư): chỉ báo cho automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn đồng ý nếu muốn tự động, nhưng chỉ có tác dụng khi công tắc «Cho phép đồng ý chuyển sang video» trên thiết bị Zalo Call đang BẬT (mặc định TẮT). |
 | `connect` | Thiết bị nhà dùng khi người nhà nói trực tiếp | không | Tích ô nào thì dùng thứ đó: tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = dùng cả 3. Không tích gì = không dùng thiết bị nào (mặc định, người lạ không nghe hay thấy được trong nhà). Tích Camera = cuộc gọi VIDEO. «AI tự chọn» = AI quyết dùng mic và loa hay thêm cả camera, chỉ trong các ô đã tích. Chỉ dùng được thiết bị đã chọn ở các ô Loa, Mic, Camera bên dưới. Thiết bị chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật. |
 | `speaker` | Loa trong nhà | không | Loa phát tiếng người gọi khi người nhà nói trực tiếp. |
 | `mic` | Mic trong nhà | không | Camera hoặc vệ tinh Assist có mic, gửi tiếng trong nhà cho người gọi khi người nhà nói trực tiếp. |
@@ -1074,6 +1084,7 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | [Xem ảnh đại diện đã dùng](docs/DICH-VU.md#get_avatar_list) | `zalo_call.get_avatar_list` | Lấy danh sách các ảnh đại diện đã sử dụng |
 | [Xem hoạt động cuối](docs/DICH-VU.md#last_online) | `zalo_call.last_online` | Xem thời gian hoạt động cuối cùng của một người dùng |
 | [Từ chối lời mời kết bạn](docs/DICH-VU.md#reject_friend_request) | `zalo_call.reject_friend_request` | Từ chối lời mời kết bạn |
+| [Xem cài đặt riêng tư](docs/DICH-VU.md#get_settings) | `zalo_call.get_settings` | Xem cài đặt riêng tư |
 | **Nhóm** | | |
 | [Tạo nhóm mới](docs/DICH-VU.md#create_group) | `zalo_call.create_group` | Tạo group mới |
 | [Xem thông tin nhóm](docs/DICH-VU.md#get_group_info) | `zalo_call.get_group_info` | Lấy info group |
@@ -1237,7 +1248,6 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | [getProfileExtra](docs/DICH-VU.md#get_profile_extra) | `zalo_call.get_profile_extra` | getProfileExtra — Lấy thông tin mở rộng của hồ sơ cá nhân (command 11864) |
 | [getProfileRank](docs/DICH-VU.md#get_profile_rank) | `zalo_call.get_profile_rank` | getProfileRank — Lấy hạng tài khoản Zalo của một người dùng (ví dụ "WHITE", "GOLD" - command 12012) |
 | [getProfileVerificationStatus](docs/DICH-VU.md#get_profile_verification_status) | `zalo_call.get_profile_verification_status` | getProfileVerificationStatus — Kiểm tra trạng thái xác thực định danh (eKYC) của tài khoản Zalo (command... |
-| [getSettings](docs/DICH-VU.md#get_settings) | `zalo_call.get_settings` | getSettings — Lấy toàn bộ cấu hình quyền riêng tư và cài đặt của tài khoản hiện tại. (chưa tự động: khong... |
 | [pushProfileVerificationMessage](docs/DICH-VU.md#push_profile_verification_message) | `zalo_call.push_profile_verification_message` | pushProfileVerificationMessage — Yêu cầu đẩy tin nhắn hướng dẫn xác thực tài khoản (eKYC) từ Official Account... |
 | [registerTrialBizAccount](docs/DICH-VU.md#register_trial_biz_account) | `zalo_call.register_trial_biz_account` | registerTrialBizAccount — Đăng ký dùng thử gói Zalo Business V2 cho tài khoản (command 12152) |
 | [reuseAvatar](docs/DICH-VU.md#reuse_avatar) | `zalo_call.reuse_avatar` | reuseAvatar — Sử dụng lại một ảnh đại diện cũ từ kho lịch sử ảnh đại diện. |

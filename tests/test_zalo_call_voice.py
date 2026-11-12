@@ -1284,3 +1284,15 @@ async def test_incoming_call_is_announced_on_every_listed_speaker_with_volume_pe
     assert sorted(v for v in vols if v[1] == 0.4) == [(a, 0.4), (b, 0.4)], vols                       # âm lượng báo đặt cho từng loa
     assert sorted(v for v in vols if v[1] != 0.4) == [(a, 0.2), (b, 0.7)], vols                       # không ai nghe: mỗi loa về đúng mức cũ của nó
 
+
+def test_rule_without_ai_connects_the_now_devices_at_answer_time():
+    """Quy tắc KHÔNG AI có «nối ngay» (noi_ngay) mà «khi chuyển máy» (noi_khi_chuyen) để trống: nghe máy phải nối mic/loa/camera đã chọn (trước đây bị tắt
+    hết nên cuộc gọi im lặng). Không đặt gì cả thì vẫn tắt hết; AI giữ máy thì vẫn chỉ nối thứ connect_now cho phép."""
+    rule = {"ai": False, "connect": [], "connect_now": ["mic", "speaker", "camera"], "speaker": "media_player.r1_loa",
+            "mic": "assist_satellite.r1", "camera": "camera.go2rtc_phong_khach"}
+    got = cv._devices_override(rule)
+    assert got["speaker"] == "media_player.r1_loa" and got["mic"] == "assist_satellite.r1" and got["camera"] == "camera.go2rtc_phong_khach", got
+    assert cv._devices_override({**rule, "connect_now": []}) == dict(cv.HELD_DEVICES) or all(
+        v == "" for v in cv._devices_override({**rule, "connect_now": []}).values()), "không đặt gì thì phải tắt hết"
+    only_speaker = cv._devices_override({**rule, "connect_now": ["speaker"]})
+    assert only_speaker["speaker"] == "media_player.r1_loa" and only_speaker["mic"] == "" and only_speaker["camera"] == "", only_speaker

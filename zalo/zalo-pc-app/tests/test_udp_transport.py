@@ -1425,6 +1425,59 @@ def test_send_payload_keeps_wire_order_under_concurrent_senders():
         "seq tren day khong theo thu tu"
 
 
+def test_on_init_sent_hook_fires_right_after_setup_init_and_cannot_break_start():
+    """Cuoc goi den: 11303 nghe may gui NGAY SAU Init (khong cho type-02). Hook goi sau khi Init da gui, truoc khi vao «handshaking»;
+    hook nem loi thi start() van chay tiep."""
+    fabric = _Fabric()
+    relay = ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4200)
+    seen = {}
+    tr = ut.Udp4200Transport(make_config([relay]), socket_factory=fabric.new_socket)
+
+    def hook():
+        seen["init_tx"] = tr.counters["setup_init_tx"]
+        seen["state"] = tr.state
+    tr.on_init_sent = hook
+    try:
+        tr.start()
+        assert seen == {"init_tx": 1, "state": "probing"}, seen
+        assert tr.state == "handshaking"
+    finally:
+        tr.stop()
+
+    tr2 = ut.Udp4200Transport(make_config([relay]), socket_factory=fabric.new_socket)
+
+    def boom():
+        raise RuntimeError("hook hong")
+    tr2.on_init_sent = boom
+    try:
+        tr2.start()
+        assert tr2.state == "handshaking" and tr2.counters["setup_init_tx"] == 1
+    finally:
+        tr2.stop()
+
+
+def test_hold_media_blocks_all_audio_until_released():
+    """Cuoc goi den: hold_media chan MOI goi tieng (keepalive im lang lan mic) cho toi khi 11303 co ket qua; tha ra thi gui lai binh thuong."""
+    fabric = _Fabric()
+    relay = ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4200)
+    tr = ut.Udp4200Transport(make_config([relay]), socket_factory=fabric.new_socket)
+    tr.hold_media = True
+    try:
+        tr.start()
+        tr.selected_relay, tr.relay_session = relay, b"\x01\x02\x03\x04"
+        before = tr.counters["keepalive_tx"] + tr.counters["rtp_tx"]
+        tr._send_payload(ut.OPUS_SILENCE_FRAME, keepalive=True)
+        tr.send_pcm(b"\x00" * ut.FRAME_BYTES)
+        assert tr.counters["keepalive_tx"] + tr.counters["rtp_tx"] == before, "dang giu: khong duoc gui goi tieng nao"
+        assert tr.counters["held_tx"] == 2, tr.counters
+        tr.hold_media = False
+        tr._send_payload(ut.OPUS_SILENCE_FRAME, keepalive=True)
+        assert tr.counters["keepalive_tx"] == 1, tr.counters
+        assert tr.counters["held_tx"] == 2
+    finally:
+        tr.stop()
+
+
 def main():
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_")]

@@ -687,6 +687,8 @@ function renderServices() {
   Object.keys(byDomain).sort().forEach((d) => addSection("Mở rộng · " + d, byDomain[d], "zca-" + d));
   $("svc-counts").textContent = total + " dịch vụ, mỗi dịch vụ có form hoặc nút ngay trên trang này ("
     + cat.services.length + " dịch vụ gốc + " + extras.length + " API mở rộng). Gõ vào ô tìm để lọc.";
+  if (svcGroupFilter && !box.querySelector('.svc-group[data-group="' + svcGroupFilter + '"]')) svcGroupFilter = "";
+  renderSvcTabs();
   svcFilter();
   syncSvcThreadBox();
 }
@@ -699,6 +701,33 @@ function svcWithExtras(s) {
   return Object.assign({}, s, { fields });
 }
 
+// Thanh nhom: «Tat ca» + moi nhom mot nut; bam nut nao thi chi hien nhom do (ket hop voi o tim). Truoc day moi nhom chi la mot tieu de
+// trong MOT trang dai nen bam khong thay doi gi (loi chu may 12/11: «phan chia ra nhung kich vao chi ra mot trang»).
+let svcGroupFilter = "";
+function renderSvcTabs() {
+  const bar = $("svc-tabs");
+  if (!bar) return;
+  bar.innerHTML = "";
+  const sections = Array.from(document.querySelectorAll("#svc-groups .svc-group"));
+  const make = (id, label, count) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "svc-tab" + (svcGroupFilter === id ? " on" : "");
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(svcGroupFilter === id));
+    b.dataset.group = id;
+    b.textContent = label + (count != null ? " (" + count + ")" : "");
+    b.onclick = () => { svcGroupFilter = id; renderSvcTabs(); svcFilter(); };
+    bar.appendChild(b);
+  };
+  make("", "Tất cả", sections.reduce((n, s) => n + s.querySelectorAll(".svc-row").length, 0));
+  sections.forEach((sec) => {
+    const title = sec.querySelector(".svc-group-title");
+    const label = (title ? title.textContent : sec.dataset.group || "").replace(/\s*\(\d+\)\s*$/, "");
+    make(sec.dataset.group || "", label, sec.querySelectorAll(".svc-row").length);
+  });
+}
+
 function svcFilter() {
   const q = (($("svc-search") && $("svc-search").value) || "").trim().toLowerCase();
   document.querySelectorAll("#svc-groups .svc-row").forEach((li) => {
@@ -706,7 +735,8 @@ function svcFilter() {
   });
   document.querySelectorAll("#svc-groups .svc-group").forEach((sec) => {
     const any = Array.from(sec.querySelectorAll(".svc-row")).some((li) => li.style.display !== "none");
-    sec.style.display = any ? "" : "none";
+    const wanted = !svcGroupFilter || sec.dataset.group === svcGroupFilter;
+    sec.style.display = (any && wanted) ? "" : "none";
   });
 }
 
@@ -1280,6 +1310,7 @@ function openThread(row) {
     (row.type === "group" && row.members && row.members.length > 0)
       ? (" · " + row.members.length + " thành viên") : "";
   $("chat-input").value = "";
+  setReplyTo(null);                              // doi cuoc tro chuyen: bo tra loi dang cho
   chatLastTime = 0;
   show("view-chat");
   loadThreadHistory();
@@ -1757,12 +1788,138 @@ async function loadThreadHistory() {
   }
 }
 
+// -- Tra loi (quote) + Thu hoi tin: nhu Zalo PC. Dung dich vu san co cua app: /api/svc/quote_message, /api/svc/undo_message. --
+// Chi tin CHU (kind text) moi tra loi duoc: kieu tin khac (anh, file...) can ma qmsgType rieng chua xac minh. Thu hoi can ca msgId lan
+// cliMsgId cua tin goc (co o tin da dong bo tu Zalo; tin vua gui tu day chua co thi khong hien nut — tai lai lich su de thay).
+let _replyTo = null;
+function msgRaw(m) { return (m && m.raw && typeof m.raw === "object") ? m.raw : {}; }
+function canReply(m) {
+  const raw = msgRaw(m);
+  return !!(m && m.id && (m.kind || "text") === "text" && raw.cliMsgId && (raw.uidFrom || m.sender_id));
+}
+function canUndo(m) {
+  const raw = msgRaw(m);
+  const out = m && (m.direction === "out" || m.sender_id === "me");
+  return !!(out && (m.kind || "text") !== "system" && raw.msgId && raw.cliMsgId);
+}
+// Cam xuc nhanh: bang icon cua app (services.REACTION_ICONS, khop bundle Zalo PC); 'like' da thu that, cac icon khac cung endpoint.
+const QUICK_REACTIONS = [["like", "👍"], ["heart", "❤️"], ["haha", "😆"], ["wow", "😮"], ["cry", "😢"], ["angry", "😡"]];
+function canReact(m) {
+  const raw = msgRaw(m);
+  return !!(m && m.kind !== "system" && raw.msgId && raw.cliMsgId);
+}
+async function sendReaction(m, icon, picker) {
+  const raw = msgRaw(m);
+  const r = await api("/api/svc/add_reaction", "POST", Object.assign(threadParams(), {
+    icon: icon, msg_id: String(raw.msgId), cli_msg_id: String(raw.cliMsgId),
+  }));
+  if (r && r.error) {
+    $("chat-notice").hidden = false;
+    $("chat-notice").textContent = "Lỗi thả cảm xúc: " + r.error;
+    return;
+  }
+  $("chat-notice").hidden = true;
+  if (picker) picker.hidden = true;
+}
+function replyBar() {
+  let bar = document.getElementById("chat-reply-bar");
+  if (bar) return bar;
+  bar = document.createElement("div");
+  bar.id = "chat-reply-bar";
+  bar.className = "reply-bar";
+  bar.hidden = true;
+  const anchor = $("chat-rec-state");
+  anchor.parentNode.insertBefore(bar, anchor);
+  return bar;
+}
+function setReplyTo(m) {
+  _replyTo = m || null;
+  const bar = replyBar();
+  bar.innerHTML = "";
+  if (!_replyTo) { bar.hidden = true; return; }
+  const label = document.createElement("span");
+  const who = _replyTo.sender_name || (currentThread && currentThread.name) || "";
+  label.textContent = "Trả lời" + (who ? " " + who : "") + ": " + String(_replyTo.text || "").slice(0, 80);
+  const x = document.createElement("button");
+  x.type = "button"; x.className = "btn-text"; x.textContent = "✕ Bỏ"; x.onclick = () => setReplyTo(null);
+  bar.appendChild(label); bar.appendChild(x);
+  bar.hidden = false;
+  $("chat-input").focus();
+}
+function threadParams() { return { thread_id: String(currentThread.id), type: currentThread.type === "group" ? "group" : "user" }; }
+async function sendReply(text, input) {
+  const m = _replyTo, raw = msgRaw(m);
+  const r = await api("/api/svc/quote_message", "POST", Object.assign(threadParams(), {
+    text: text, msg_id: String(m.id), qmsg_owner: String(raw.uidFrom || m.sender_id), qmsg_cli_id: String(raw.cliMsgId),
+    qmsg_type: 1, qmsg_ts: Number(raw.ts || 0) || 0, qmsg: String(m.text || ""),
+  }));
+  if (r && r.error) {
+    $("chat-notice").hidden = false;
+    $("chat-notice").textContent = "Lỗi trả lời: " + r.error;
+    input.value = text;
+    return;
+  }
+  setReplyTo(null);
+  $("chat-notice").hidden = true;
+  await loadThreadHistory();
+}
+async function undoMessage(m) {
+  if (!currentThread || !confirm("Thu hồi tin này? Người nhận sẽ thấy tin đã bị thu hồi.")) return;
+  const raw = msgRaw(m);
+  const r = await api("/api/svc/undo_message", "POST", Object.assign(threadParams(), { msg_id: String(raw.msgId), cli_msg_id: String(raw.cliMsgId) }));
+  if (r && r.error) {
+    $("chat-notice").hidden = false;
+    $("chat-notice").textContent = "Lỗi thu hồi: " + r.error;
+    return;
+  }
+  $("chat-notice").hidden = true;
+  await loadThreadHistory();
+}
+function decorateBubbles(messages) {
+  const bubbles = Array.from($("chat-history").querySelectorAll(".bubble"));
+  const shown = (messages || []).filter((m) => m.kind !== "system");        // moi tin khong phai he thong ve dung mot .bubble, cung thu tu
+  if (bubbles.length !== shown.length) return;                                // lech (vd. dang cap nhat): khong gan nut con hon gan nham
+  shown.forEach((m, i) => {
+    const wantReply = canReply(m), wantUndo = canUndo(m), wantReact = canReact(m);
+    if (!wantReply && !wantUndo && !wantReact) return;
+    const row = document.createElement("div");
+    row.className = "bubble-actions bubble-act";
+    if (wantReact) {
+      const picker = document.createElement("span");
+      picker.className = "react-picker";
+      picker.hidden = true;
+      QUICK_REACTIONS.forEach(([icon, emoji]) => {
+        const e = document.createElement("button");
+        e.type = "button"; e.className = "btn-text"; e.textContent = emoji; e.title = icon;
+        e.onclick = () => sendReaction(m, icon, picker);
+        picker.appendChild(e);
+      });
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn-text"; b.textContent = "Cảm xúc"; b.onclick = () => { picker.hidden = !picker.hidden; };
+      row.appendChild(b);
+      row.appendChild(picker);
+    }
+    if (wantReply) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn-text"; b.textContent = "Trả lời"; b.onclick = () => setReplyTo(m);
+      row.appendChild(b);
+    }
+    if (wantUndo) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn-text"; b.textContent = "Thu hồi"; b.onclick = () => undoMessage(m);
+      row.appendChild(b);
+    }
+    bubbles[i].appendChild(row);
+  });
+}
+
 async function sendChatText() {
   if (!currentThread) return;
   const input = $("chat-input");
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
+  if (_replyTo) return sendReply(text, input);                                // dang tra loi mot tin: gui kieu quote
   const r = await api("/api/thread/" + encodeURIComponent(currentThread.id) + "/send",
     "POST", { type: currentThread.type === "group" ? "group" : "user", message: text });
   if (r.error) {
@@ -1795,6 +1952,7 @@ renderMessages = function (messages) {
     if (m.time && m.time > chatLastTime) chatLastTime = m.time;
   }
   _renderMessagesOrig(messages);
+  decorateBubbles(_rendered);
 };
 
 // -- dinh kem file/anh: phan loai + gioi han theo Node.js (zalobot) --

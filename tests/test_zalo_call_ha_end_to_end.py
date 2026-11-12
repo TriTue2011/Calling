@@ -133,6 +133,14 @@ async def test_send_message_with_format_emphasis_and_emoji_reaches_the_app(hass,
                                          "auto_emphasis": "orange", "emoji": "ok", "auto_emoji": True}
 
 
+async def test_send_message_mentions_reach_the_app_and_plain_messages_do_not_carry_them(hass, setup, app):
+    mentions = [{"uid": "123456", "name": "Nam"}, {"uid": "-1"}]
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "group", "message": "Chào @Nam và @All", "mentions": mentions})
+    assert app.last("/send")["json"] == {"type": "group", "message": "Chào @Nam và @All", "mentions": mentions}
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "group", "message": "Chào cả nhóm"})
+    assert "mentions" not in app.last("/send")["json"], "tin không nhắc ai thì không kèm trường mentions"
+
+
 async def test_send_file_and_link_and_reaction_and_undo_reach_the_app(hass, setup, app, tmp_path):
     f = tmp_path / "bao-cao.txt"
     f.write_bytes(b"NOI-DUNG")

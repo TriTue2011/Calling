@@ -261,6 +261,33 @@ def test_server_sendfile_forwards_bundle():
         mock.stop()
 
 
+def test_server_sendfile_forwards_caption():
+    """Anh don kem `desc`: chu thich di vao params AES cua Zalo va hien o tin cuc bo; khong co desc thi desc rong (nhu cu)."""
+    mock = MockZalo().start()
+    mock.poll_mode = "empty"
+    tmp = tempfile.mkdtemp(prefix="zalo-pc-photo-caption-")
+    try:
+        httpd, state = _start_app(mock, tmp)
+        try:
+            mbody, mctype = chat_mod.build_multipart(
+                {"type": "user", "kind": "photo", "width": "800", "height": "600", "desc": "  Ghi chú cho ảnh  "},
+                [("file", "anh.jpg", "image/jpeg", JPEG)])
+            status, body = api("POST", "/api/thread/20001/sendfile", mbody, {"Content-Type": mctype})
+            assert status == 200 and body["ok"] is True, (status, body)
+            assert last_photo_body(mock)["desc"] == "Ghi chú cho ảnh", last_photo_body(mock)
+            assert body["message"]["text"] == "Ghi chú cho ảnh" and body["message"]["file_name"] == "anh.jpg", body["message"]
+            mbody, mctype = chat_mod.build_multipart(
+                {"type": "user", "kind": "photo", "width": "800", "height": "600"},
+                [("file", "anh2.jpg", "image/jpeg", JPEG)])
+            status, body = api("POST", "/api/thread/20001/sendfile", mbody, {"Content-Type": mctype})
+            assert status == 200 and last_photo_body(mock)["desc"] == "", (status, last_photo_body(mock))
+            assert body["message"]["text"] == "anh2.jpg", body["message"]
+        finally:
+            _stop_app(httpd, state, mock)
+    finally:
+        mock.stop()
+
+
 def test_server_sendfile_partial_bundle_400():
     """Chi gui mot vai field nhom -> 400 ro, khong goi Zalo
     (khong gui khong bundle)."""

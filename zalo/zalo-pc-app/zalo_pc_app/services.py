@@ -360,9 +360,10 @@ def _b_seen(p, tid, tt):
     # Body 1-1 CHUA trich truc tiep (SERVICE-MAP.md §6: chi co
     # delivered 1-1 {msg_ids, seen}); giu body cua audit cu, danh
     # dau body_unverified=True.
-    return _toid_or_grid(tid, tt, {
-        "msg_ids": _csv(_need(p, "msg_ids", "mark_seen")),
-        "seen": True, "imei": p["_imei"]})
+    ids = [int(i) if i.isdigit() else i for i in _csv(_need(p, "msg_ids", "mark_seen"))]
+    if tt == "group":
+        return {"msg_ids": ids, "grid": tid}
+    return {"msg_ids": ids, "senderId": tid}
 
 
 def _b_parse_link(p, tid, tt):
@@ -601,11 +602,16 @@ def _b_poll_create(p, tid, tt):
     return {"group_id": tid,
             "question": _need(p, "question", "create_poll"),
             "options": _csv(_need(p, "options", "create_poll")),
+            "expired_time": _int_param(p, "expired_time", 0, "create_poll"),
+            "pinAct": False,
             "allow_multi_choices": _bool_param(
                 p, "allow_multi_choices"),
-            "allow_add_new_option": True,
-            "is_anonymous": False,
-            "poll_type": 0, "expired_time": 0, "pinAct": 0,
+            "allow_add_new_option": _bool_param(
+                p, "allow_add_new_option", True),
+            "is_hide_vote_preview": _bool_param(
+                p, "hide_vote_preview"),
+            "is_anonymous": _bool_param(p, "is_anonymous"),
+            "poll_type": 0, "src": 1,
             "imei": p["_imei"]}
 
 
@@ -703,21 +709,26 @@ def _b_reaction(p, tid, tt):
 
 # --- Hoi thoai / trang thai ---
 def _b_unread_add(p, tid, tt):
-    # POST /api/conv/addUnreadMark 12013: {param: JSON-str(
-    # {convsGroup:[], convsUser:[], imei})}.
-    inner = {"convsGroup": [tid] if tt == "group" else [],
-             "convsUser": [] if tt == "group" else [tid],
+    # POST /api/conv/addUnreadMark 12013: {param: JSON-str({convsGroup, convsUser, imei})}; moi muc la DOI TUONG {id, cliMsgId, fromUid:"0",
+    # ts} (zca-js addUnreadMark; ban cu gui chuoi id tro nen khong khop dang Zalo PC).
+    now = int(time.time() * 1000)
+    entry = {"id": tid, "cliMsgId": str(now), "fromUid": "0", "ts": now}
+    inner = {"convsGroup": [entry] if tt == "group" else [],
+             "convsUser": [] if tt == "group" else [entry],
              "imei": p["_imei"]}
     return {"param": json.dumps(inner, separators=(",", ":"),
                                 ensure_ascii=False)}
 
 
 def _b_unread_remove(p, tid, tt):
-    # POST /api/conv/removeUnreadMark 12014: {param: JSON-str(
-    # {convsGroup, convsUser})} (convsGroupData/convsUserData chua
-    # biet — khong gui).
-    inner = {"convsGroup": [tid] if tt == "group" else [],
-             "convsUser": [] if tt == "group" else [tid]}
+    # POST /api/conv/removeUnreadMark 12014: {param: JSON-str({convsGroup, convsUser, convsGroupData, convsUserData})} — bundle
+    # `removeMarkAsUnread(e,t,n,a)`; *Data la [{id, ts}] (zca-js removeUnreadMark). Ban cu thieu hai truong *Data.
+    now = int(time.time() * 1000)
+    group = tt == "group"
+    inner = {"convsGroup": [tid] if group else [],
+             "convsUser": [] if group else [tid],
+             "convsGroupData": [{"id": tid, "ts": now}] if group else [],
+             "convsUserData": [] if group else [{"id": tid, "ts": now}]}
     return {"param": json.dumps(inner, separators=(",", ":"),
                                 ensure_ascii=False)}
 
@@ -762,10 +773,13 @@ def _b_mute(p, tid, tt):
 
 
 def _b_user_info(p, tid, tt):
-    # GET /api/social/friend/getprofiles/v2 11140: body chua trich
-    # duoc caller — giu body cua audit cu, danh dau unverified.
-    return {"userId": _need(p, "user_id", "get_user_info"),
-            "imei": p["_imei"]}
+    # POST /api/social/friend/getprofiles/v2: bundle `getFriendProfilev2` + zca-js getUserInfo — {phonebook_version, friend_pversion_map:
+    # ["<id>_0", ...], avatar_size, language, show_online_status, imei}. Ban cu gui GET {userId, imei} — khong dung dang Zalo.
+    ids = _csv(_need(p, "user_id", "get_user_info"))
+    return {"phonebook_version": 0,
+            "friend_pversion_map": [i if "_" in i else "%s_0" % i for i in ids],
+            "avatar_size": AVATAR_SIZE, "language": LANGUAGE,
+            "show_online_status": 1, "imei": p["_imei"]}
 
 
 def _b_find_user(p, tid, tt):
@@ -779,32 +793,37 @@ def _b_last_online(p, tid, tt):
     # GET /api/social/profile/lastOnline 12090 (conv_type chua
     # biet gia tri — khong gui).
     return {"uid": _need(p, "user_id", "last_online"),
-            "imei": p["_imei"]}
+            "conv_type": 1, "imei": p["_imei"]}
 
 
 def _b_update_profile(p, tid, tt):
     # POST /api/social/profile/update 12075: fields cu the chua
     # lan — giu body cua audit cu, danh dau unverified.
-    body = {"imei": p["_imei"]}
+    # zca-js updateProfile (profile la CHUOI JSON, kem biz + language; khong imei); ban cu gui name/dob/gender o cap ngoai cung.
+    profile = {}
     if p.get("name"):
-        body["name"] = p["name"]
+        profile["name"] = p["name"]
     if p.get("dob"):
-        body["dob"] = p["dob"]
-    if p.get("gender") in ("0", "1"):
-        body["gender"] = int(p["gender"])
-    if not any(k in body for k in ("name", "dob", "gender")):
+        profile["dob"] = p["dob"]
+    if str(p.get("gender")) in ("0", "1"):
+        profile["gender"] = int(p["gender"])
+    if not profile:
         raise ValueError("update_profile: cần ít nhất name, dob "
                          "hoặc gender")
-    return body
+    return {"profile": json.dumps(profile, separators=(",", ":"), ensure_ascii=False),
+            "biz": "{}", "language": LANGUAGE}
 
 
 def _b_update_settings(p, tid, tt):
     # GET wpa.zalo.me /api/setting/update 12033: object truyen
     # thang, key that chua lan — giu body cua audit cu, danh dau
     # unverified.
-    return {"settingType": _need(p, "setting_type", "update_settings"),
-            "status": int(_need(p, "status", "update_settings")),
-            "imei": p["_imei"]}
+    # Bundle `setSettings(e)` + zca-js updateSettings: body la {<ten cai dat>: gia tri}, vd {"show_online_status": 1}. Ban cu gui
+    # {settingType, status, imei} (ten khoa gia) nen Zalo khong doi cai dat nao.
+    key = str(_need(p, "setting_type", "update_settings")).strip()
+    if not key.replace("_", "").isalnum():
+        raise ValueError("update_settings: setting_type không hợp lệ")
+    return {key: _int_param({"status": _need(p, "status", "update_settings")}, "status", None, "update_settings")}
 
 
 def _b_change_avatar(p, tid, tt):
@@ -828,7 +847,7 @@ def _b_avatar_list(p, tid, tt):
         page = int(p.get("page") or 1)
     except ValueError:
         page = 1
-    return {"count": count, "page": page, "imei": p["_imei"]}
+    return {"page": page, "albumId": "0", "count": count, "imei": p["_imei"]}
 
 
 def _b_sticker_list(p, tid, tt):
@@ -877,6 +896,8 @@ def _reminder_objectdata_1_1(p, tid, for_update=False):
            "creatorUid": p.get("_uid", "")}
     if for_update:
         obj["reminderId"] = _need(p, "topic_id", "edit_reminder")
+    else:
+        obj["src"] = 1                      # zca-js createReminder; update khong co src (bundle updateOneOneGroupTopic)
     return obj
 
 
@@ -899,7 +920,8 @@ def _b_reminder_create(p, tid, tt):
             "params": json.dumps(_topic_params(p),
                                  separators=(",", ":"),
                                  ensure_ascii=False),
-            "needPin": False, "repeat": 0, "imei": p["_imei"]}
+            "needPin": False, "repeat": 0, "src": 1,
+            "imei": p["_imei"]}
 
 
 def _b_reminder_remove(p, tid, tt):
@@ -923,11 +945,20 @@ def _b_reminder_edit(p, tid, tt):
         return {"objectData": json.dumps(
             _reminder_objectdata_1_1(p, tid, for_update=True),
             separators=(",", ":"), ensure_ascii=False)}
-    # Nhom: POST board /api/board/topic/updateEventResponse 12087:
-    # {grid, eventId, imei} (type chua biet gia tri — khong gui).
-    return {"grid": tid,
-            "eventId": _need(p, "topic_id", "edit_reminder"),
-            "imei": p["_imei"]}
+    # Nhom: POST board /api/board/topic/update 12142 — bundle `updateGroupTopicv2` (nhanh cu) + zca-js editReminder: {grid, type, color, emoji,
+    # startTime, duration, params: JSON-str, needPin, topicId, repeat, imei}. Ban cu goi /topic/updateEventResponse (12087) la «tra loi su kien»
+    # (RSVP) — khong sua nhac hen nao.
+    start = -1
+    if p.get("remind_time") not in (None, ""):
+        start = _parse_remind_ms(p["remind_time"], "edit_reminder")
+    return {"grid": tid, "type": TOPIC_TEXT,
+            "color": TOPIC_COLOR_DEFAULT,
+            "emoji": TOPIC_EMOJI_REMINDER, "startTime": start,
+            "duration": -1,
+            "params": json.dumps(_topic_params(p), separators=(",", ":"), ensure_ascii=False),
+            "needPin": False,
+            "topicId": _need(p, "topic_id", "edit_reminder"),
+            "repeat": 0, "imei": p["_imei"]}
 
 
 def _b_reminder_get(p, tid, tt):
@@ -942,6 +973,8 @@ def _board_list_objectdata(p, tid, tt):
     (uid/group_id + phan trang neu caller truyen); cac key khac
     client that gui undefined thi JSON.stringify bo qua."""
     inner = {"group_id": tid} if tt == "group" else {"uid": tid}
+    # Mac dinh nhu zca-js getListReminder: board_type 1 (nhac hen), page 1, count 20, last_id 0, last_type 0.
+    inner.update({"board_type": 1, "page": 1, "count": 20, "last_id": 0, "last_type": 0})
     for key in ("board_type", "page", "count", "last_id",
                 "last_type"):
         if p.get(key) not in (None, ""):
@@ -984,7 +1017,7 @@ def _b_note_create(p, tid, tt):
                 {"title": _need(p, "title", "create_note_group")},
                 separators=(",", ":"), ensure_ascii=False),
             "needPin": _bool_param(p, "pin_act"),
-            "repeat": 0, "imei": p["_imei"]}
+            "repeat": 0, "src": 1, "imei": p["_imei"]}
 
 
 def _b_note_edit(p, tid, tt):
@@ -1009,7 +1042,8 @@ def _b_board_list(p, tid, tt):
     # GET board /api/board/list 12140: {group_id, imei} (+ phan
     # trang neu caller truyen; board_type/last_* chua biet — chi
     # gui khi co).
-    body = {"group_id": tid, "imei": p["_imei"]}
+    # Mac dinh nhu zca-js getListBoard: board_type 0, page 1, count 20, last_id 0, last_type 0 (bundle listBoard gui du 5 khoa).
+    body = {"group_id": tid, "board_type": 0, "page": 1, "count": 20, "last_id": 0, "last_type": 0, "imei": p["_imei"]}
     for key in ("board_type", "page", "count", "last_id",
                 "last_type"):
         if p.get(key) not in (None, ""):
@@ -1031,11 +1065,20 @@ def _b_keepalive(p, tid, tt):
 
 
 def _b_label_update(p, tid, tt):
-    # POST /api/convlabel/update 12160: {labelData, version, imei}
-    # chua lan — giu body cua audit cu, danh dau unverified.
-    return {"threadId": tid, "type": 1 if tt == "group" else 0,
-            "labelIds": _csv(_need(p, "label_ids", "update_label")),
-            "imei": p["_imei"]}
+    # POST /api/convlabel/update 12160: {labelData: JSON-str(danh sach nhan), version, imei} — bundle `updateConversationLabel(e,t)` +
+    # zca-js updateLabels. labelData la TOAN BO danh sach nhan (id, text, color, emoji, conversations...) lay tu get_labels; version la so
+    # phien ban cua danh sach do. Ban cu gui {threadId, type, labelIds} — khong phai dang Zalo.
+    raw = _need(p, "label_data", "update_label")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raise ValueError("update_label: label_data phải là JSON danh sách nhãn")
+    if not isinstance(raw, list):
+        raise ValueError("update_label: label_data phải là danh sách nhãn (lấy từ get_labels)")
+    version = _int_param({"version": _need(p, "version", "update_label")}, "version", None, "update_label")
+    return {"labelData": json.dumps(raw, separators=(",", ":"), ensure_ascii=False),
+            "version": version, "imei": p["_imei"]}
 
 # ------------------------------------------------------------------ OPS
 # action -> spec. domain: "chat" | "group" | "profile" | "convers"
@@ -1092,16 +1135,18 @@ OPS = {
         _b_delete_msg, body_unverified=False),
     "forward_message": _op(
         69, "forward_message", "tin_nhan", "Chuyển tiếp tin nhắn",
-        "Chuyển tiếp tới nhiều thread (1-1: 11199; nhóm: 11818). "
-        "Khung {toId|grid, imei} đã xác minh; transform theo loại "
-        "tin (msgType, msgs/totalIds) CHƯA lần — chỉ gửi khung.",
+        "Chuyển tiếp NỘI DUNG CHỮ tới nhiều thread bằng mforward (1-1: "
+        "/api/message/mforward 12440; nhóm: /api/group/mforward 12442, "
+        "domain file) — bundle Zalo PC + zca-js. Ảnh/file chưa hỗ trợ.",
         None, None, None, "POST", "none",
-        [{"key": "message", "label": "Nội dung tin"},
+        [{"key": "message", "label": "Nội dung chữ cần chuyển tiếp",
+          "required": True},
+         {"key": "ttl", "label": "TTL (ms, 0 = không tự xóa)"},
          {"key": "dest_thread_ids",
           "label": "Thread đích (cách nhau bằng dấu phẩy)",
           "required": True},
          {"key": "type", "label": "Loại thread đích (user/group)"}],
-        _b_forward),
+        _b_forward, body_unverified=False),
     "quote_message": _op(
         None, "(quote — trong send_message)", "tin_nhan",
         "Trích dẫn tin nhắn",
@@ -1122,18 +1167,19 @@ OPS = {
     "mark_seen": _op(
         None, "(seen/delivered — ngoài 96)", "tin_nhan",
         "Đánh dấu đã xem / đã nhận",
-        "1-1: /api/message/seen 11150, delivered 11153; nhóm: "
-        "/api/group/seen 11167, delivered 11166. Body 1-1 CHƯA "
-        "trích trực tiếp (chỉ có delivered) — xem SERVICE-MAP §6.",
+        "1-1: /api/message/seen 11150 {msg_ids:[số], senderId}; nhóm: "
+        "/api/group/seen 11167 {msg_ids, grid} — bundle sendSeen / "
+        "sendGroupSeen. Dịch vụ HA mark_seen đi đường seenv2 (tin gốc "
+        "từ kho) và chỉ rơi về bản này khi không có tin gốc.",
         None, None, None, "POST", "both",
         [{"key": "msg_ids", "label": "ID tin nhắn (cách nhau bằng "
           "dấu phẩy)", "required": True}],
-        _b_seen),
+        _b_seen, body_unverified=False),
     "parse_link": _op(
         70, "parse_link", "tin_nhan", "Phân tích link lấy preview",
         "GET files-wpa /api/message/parselink (11285) "
         "{link, version:1, imei}.",
-        "file", "/api/message/parselink", 11285, "POST", "none",
+        "file", "/api/message/parselink", 11285, "GET", "none",
         [{"key": "link", "label": "Link", "required": True}],
         _b_parse_link, body_unverified=False),
     "fetch_important": _op(
@@ -1258,12 +1304,13 @@ OPS = {
     "create_group": _op(
         9, "create_group", "nhom", "Tạo nhóm mới",
         "GET group-wpa /api/group/create (11185) {clientId, gname, "
-        "members, nameChanged} (suggestionId chưa biết — không gửi).",
+        "members, nameChanged} — đúng nhánh cũ `createGroup` của bundle "
+        "(suggestionId bỏ trống như bundle khi không có).",
         "group", "/api/group/create", 11185, "GET", "none",
         [{"key": "name", "label": "Tên nhóm", "required": True},
          {"key": "member_ids",
           "label": "Thành viên (userId, cách nhau bằng dấu phẩy)"}],
-        _b_create_group),
+        _b_create_group, body_unverified=False),
     "get_group_info": _op(
         10, "get_group_info", "nhom", "Xem thông tin nhóm",
         "POST group-wpa /api/group/getmg (12604) {grids, "
@@ -1352,10 +1399,11 @@ OPS = {
         body_unverified=False),
     "get_group_link": _op(
         None, "(link nhóm — ngoài 96)", "nhom", "Xem link nhóm",
-        "GET /api/group/link/detail (11821) {grid, imei} — body "
-        "chưa lần hết.",
+        "GET /api/group/link/detail (11821) {grid, imei} — bundle "
+        "getGroupLinkDetail + zca-js.",
         "group", "/api/group/link/detail", 11821, "GET", "group", [],
-        lambda p, t, tt: _b_group_only(p, t, tt, "get_group_link")),
+        lambda p, t, tt: _b_group_only(p, t, tt, "get_group_link"),
+        body_unverified=False),
     "join_group": _op(
         48, "join_group", "nhom", "Tham gia nhóm bằng link",
         "GET /api/group/link/join (11825) {link, clientLang}.",
@@ -1373,12 +1421,12 @@ OPS = {
         76, "create_note_group", "nhom", "Tạo ghi chú trong nhóm",
         "POST board /api/board/topic/create (12141) {grid, "
         "type:0, color, emoji, startTime:-1, duration:-1, params, "
-        "needPin, repeat:0, imei} (src chưa biết — không gửi).",
+        "needPin, repeat:0, src:1, imei} — bundle + zca-js.",
         "board", "/api/board/topic/create", 12141, "POST", "group",
         [{"key": "title", "label": "Tiêu đề ghi chú",
           "required": True},
          {"key": "pin_act", "label": "Ghim (true/false)"}],
-        _b_note_create),
+        _b_note_create, body_unverified=False),
     "edit_note_group": _op(
         77, "edit_note_group", "nhom", "Sửa ghi chú trong nhóm",
         "POST board /api/board/topic/update (12142) — như create "
@@ -1388,13 +1436,14 @@ OPS = {
           "required": True},
          {"key": "title", "label": "Tiêu đề mới", "required": True},
          {"key": "pin_act", "label": "Ghim (true/false)"}],
-        _b_note_edit),
+        _b_note_edit, body_unverified=False),
     "get_list_board": _op(
         78, "get_list_board", "nhom", "Xem bảng tin của nhóm",
-        "GET board /api/board/list (12140) {group_id, imei} "
-        "(board_type/page/count/last_* chưa biết giá trị).",
+        "GET board /api/board/list (12140) {group_id, board_type:0, "
+        "page:1, count:20, last_id:0, last_type:0, imei} — bundle "
+        "listBoard + zca-js getListBoard.",
         "board", "/api/board/list", 12140, "GET", "group", [],
-        _b_board_list),
+        _b_board_list, body_unverified=False),
     # --- Hội thoại / trạng thái (nhóm D) ---
     "set_pinned_conversation": _op(
         53, "set_pinned_conversation", "hoi_thoai",
@@ -1472,10 +1521,10 @@ OPS = {
         56, "remove_unread_mark", "hoi_thoai",
         "Bỏ đánh dấu chưa đọc",
         "POST convers-wpa /api/conv/removeUnreadMark (12014) "
-        "{param: JSON-str({convsGroup, convsUser})} "
-        "(convsGroupData/convsUserData chưa biết — không gửi).",
+        "{param: JSON-str({convsGroup, convsUser, convsGroupData, "
+        "convsUserData})} — *Data là [{id, ts}] (bundle + zca-js).",
         "convers", "/api/conv/removeUnreadMark", 12014, "POST",
-        "both", [], _b_unread_remove),
+        "both", [], _b_unread_remove, body_unverified=False),
     "delete_chat": _op(
         57, "delete_chat", "hoi_thoai", "Xóa hội thoại",
         "1-1: /api/message/deleteconver (11778); nhóm: "
@@ -1531,41 +1580,58 @@ OPS = {
         _b_find_user, body_unverified=False),
     "get_user_info": _op(
         7, "get_user_info", "ho_so", "Xem thông tin người dùng",
-        "GET profile-wpa /api/social/friend/getprofiles/v2 "
-        "(11140) — body chưa trích được caller.",
+        "POST profile-wpa /api/social/friend/getprofiles/v2 "
+        "(11140) {phonebook_version, friend_pversion_map, "
+        "avatar_size, language, show_online_status, imei} — bundle "
+        "getFriendProfilev2 + zca-js getUserInfo.",
         "profile", "/api/social/friend/getprofiles/v2", 11140,
-        "GET", "none",
-        [{"key": "user_id", "label": "UserId", "required": True}],
-        _b_user_info),
+        "POST", "none",
+        [{"key": "user_id", "label": "UserId (nhiều id cách nhau bằng dấu phẩy)", "required": True}],
+        _b_user_info, body_unverified=False),
     "last_online": _op(
         94, "last_online", "ho_so", "Xem hoạt động cuối",
         "GET profile-wpa /api/social/profile/lastOnline (12090) "
-        "{uid, imei} (conv_type chưa biết — không gửi).",
+        "{uid, conv_type:1, imei} — bundle getOnlinStatus + zca-js.",
         "profile", "/api/social/profile/lastOnline", 12090, "GET",
         "none",
         [{"key": "user_id", "label": "UserId", "required": True}],
-        _b_last_online),
+        _b_last_online, body_unverified=False),
     "update_profile": _op(
         50, "update_profile", "ho_so", "Cập nhật thông tin cá nhân",
-        "POST profile-wpa /api/social/profile/update (12075) — "
-        "fields cụ thể chưa lần.",
+        "POST profile-wpa /api/social/profile/update (12075) "
+        "{profile: JSON-str({name, dob, gender}), biz, language} — "
+        "zca-js updateProfile.",
         "profile", "/api/social/profile/update", 12075, "POST",
         "none",
         [{"key": "name", "label": "Tên hiển thị"},
          {"key": "dob", "label": "Ngày sinh (yyyy-mm-dd)"},
          {"key": "gender", "label": "Giới tính (0=Nam, 1=Nữ)"}],
-        _b_update_profile),
+        _b_update_profile, body_unverified=False),
     "update_settings": _op(
         51, "update_settings", "ho_so", "Cập nhật cài đặt riêng tư",
-        "GET wpa.zalo.me /api/setting/update (12033) — object "
-        "truyền thẳng, key thật chưa lần.",
+        "GET wpa.zalo.me /api/setting/update (12033) — body "
+        "{<setting_type>: status}; các loại đã biết (zca-js): "
+        "view_birthday, show_online_status, display_seen_status, "
+        "receive_message, accept_stranger_call, add_friend_via_phone, "
+        "add_friend_via_qr, add_friend_via_group, "
+        "add_friend_via_contact, display_on_recommend_friend, "
+        "archivedChatStatus, quickMessageStatus.",
         "auth", "/api/setting/update", 12033, "GET", "none",
         [{"key": "setting_type",
-          "label": "Loại (online_status/seen_status/receive_message/"
-          "phone_search)", "required": True},
-         {"key": "status", "label": "Trạng thái (1=bật, 0=tắt)",
+          "label": "Tên cài đặt (vd show_online_status, "
+          "display_seen_status, receive_message...)", "required": True},
+         {"key": "status", "label": "Giá trị (1=bật, 0=tắt)",
           "required": True}],
-        _b_update_settings),
+        _b_update_settings, body_unverified=False),
+    "get_settings": _op(
+        None, "(đọc cài đặt riêng tư — ngoài 96)", "ho_so", "Xem cài đặt riêng tư",
+        "GET /api/setting/me (12113) — bundle `getSettings()`: CHỈ tham số chung, không params. Đo trên Zalo thật 12/11/2026: trả 14 cài đặt "
+        "(add_friend_via_contact/group/qr/phone, display_on_recommend_friend, display_seen_status, show_online_status, receive_message, "
+        "accept_stranger_call, setting_show_stranger_msg_directly, view_birthday, quick_message_status, archived_chat_status, "
+        "setting_2FA_status). Đọc xong sửa bằng update_settings.",
+        "auth", "/api/setting/me", 12113, "GET", "none",
+        [], lambda p, t, tt: None, body_unverified=False,
+        no_params=True),
     "change_account_avatar": _op(
         92, "change_account_avatar", "ho_so", "Đổi ảnh đại diện",
         "POST files-wpa /api/profile/upavatar (11819). Client thật "
@@ -1578,12 +1644,12 @@ OPS = {
         _b_change_avatar),
     "get_avatar_list": _op(
         93, "get_avatar_list", "ho_so", "Xem ảnh đại diện đã dùng",
-        "GET profile-wpa /api/social/avatar-list (12451) — body "
-        "chưa lần hết.",
+        "GET profile-wpa /api/social/avatar-list (12451) {page, "
+        "albumId:\"0\", count, imei} — zca-js getAvatarList.",
         "profile", "/api/social/avatar-list", 12451, "GET", "none",
         [{"key": "count", "label": "Số lượng"},
          {"key": "page", "label": "Trang"}],
-        _b_avatar_list),
+        _b_avatar_list, body_unverified=False),
     # --- Sticker (nhóm H) ---
     "send_sticker": _op(
         27, "send_sticker", "sticker", "Gửi sticker",
@@ -1618,13 +1684,13 @@ OPS = {
         "{objectData, imei}; nhóm: POST board "
         "/api/board/topic/create (12141). objectData {toUid/grid, "
         "type:0, color, emoji, startTime, duration:-1, params, "
-        "needPin, repeat, creatorUid} (src chưa biết — không gửi).",
+        "needPin, repeat, creatorUid, src:1} — bundle + zca-js.",
         None, None, None, "POST", "both",
         [{"key": "title", "label": "Tiêu đề", "required": True},
          {"key": "content", "label": "Nội dung"},
          {"key": "remind_time", "label": "Thời gian nhắc "
           "(ISO-8601 hoặc epoch)", "required": True}],
-        _b_reminder_create),
+        _b_reminder_create, body_unverified=False),
     "remove_reminder": _op(
         30, "remove_reminder", "nhac", "Xóa nhắc hẹn",
         "1-1: POST board /api/board/oneone/remove (12431) {uid, "
@@ -1637,15 +1703,16 @@ OPS = {
     "edit_reminder": _op(
         82, "edit_reminder", "nhac", "Sửa nhắc hẹn",
         "1-1: POST board /api/board/oneone/update (12430) "
-        "{objectData}; nhóm: POST board "
-        "/api/board/topic/updateEventResponse (12087) {grid, "
-        "eventId, imei} (type chưa biết — không gửi).",
+        "{objectData}; nhóm: POST board /api/board/topic/update "
+        "(12142) {grid, type, color, emoji, startTime, duration, "
+        "params, needPin, topicId, repeat, imei} — bundle "
+        "updateGroupTopicv2 + zca-js editReminder.",
         None, None, None, "POST", "both",
         [{"key": "topic_id", "label": "ID nhắc hẹn",
           "required": True},
          {"key": "title", "label": "Tiêu đề mới", "required": True},
          {"key": "remind_time", "label": "Thời gian nhắc mới"}],
-        _b_reminder_edit),
+        _b_reminder_edit, body_unverified=False),
     "get_reminder": _op(
         83, "get_reminder", "nhac", "Xem chi tiết nhắc hẹn",
         "GET board /api/board/topic/getReminder (12088) {eventId, "
@@ -1659,8 +1726,10 @@ OPS = {
         84, "get_list_reminder", "nhac", "Xem danh sách nhắc hẹn",
         "1-1: GET board /api/board/oneone/list (12432); nhóm: GET "
         "board /api/board/listReminder (12425). objectData "
-        "JSON-str({uid|group_id, ...}) — chỉ gửi key đã biết.",
-        None, None, None, "GET", "both", [], _b_reminder_list),
+        "JSON-str({uid|group_id, board_type:1, page, count, last_id, "
+        "last_type}) — zca-js getListReminder.",
+        None, None, None, "GET", "both", [], _b_reminder_list,
+        body_unverified=False),
     "get_reminder_responses": _op(
         85, "get_reminder_responses", "nhac", "Xem phản hồi nhắc hẹn",
         "GET board /api/board/topic/listResponseEvent (12086) "
@@ -1674,17 +1743,24 @@ OPS = {
     "create_poll": _op(
         79, "create_poll", "nhom", "Tạo bình chọn",
         "POST group-wpa /api/poll/create (12080) {group_id, "
-        "question, options, allow_multi_choices, "
-        "allow_add_new_option:true, is_anonymous:false, "
-        "poll_type:0, expired_time:0, pinAct:0, imei} (src chưa "
-        "biết — không gửi).",
+        "question, options, expired_time, pinAct:false, "
+        "allow_multi_choices, allow_add_new_option, "
+        "is_hide_vote_preview, is_anonymous, poll_type:0, src:1, "
+        "imei} — theo bundle Zalo PC + zca-js createPoll.",
         "group", "/api/poll/create", 12080, "POST", "group",
         [{"key": "question", "label": "Câu hỏi", "required": True},
          {"key": "options", "label": "Lựa chọn (cách nhau bằng dấu "
           "phẩy)", "required": True},
          {"key": "allow_multi_choices",
-          "label": "Cho chọn nhiều (true/false)"}],
-        _b_poll_create),
+          "label": "Cho chọn nhiều (true/false)"},
+         {"key": "allow_add_new_option",
+          "label": "Cho thêm lựa chọn mới (mặc định true)"},
+         {"key": "is_anonymous", "label": "Bình chọn ẩn danh (true/false)"},
+         {"key": "hide_vote_preview",
+          "label": "Ẩn kết quả khi chưa bình chọn (true/false)"},
+         {"key": "expired_time",
+          "label": "Hạn chót (ms epoch, 0 = không hết hạn)"}],
+        _b_poll_create, body_unverified=False),
     "get_poll_detail": _op(
         80, "get_poll_detail", "nhom", "Xem chi tiết bình chọn",
         "GET group-wpa /api/poll/detail (12081) {poll_id, imei}.",
@@ -1716,13 +1792,13 @@ OPS = {
     "add_quick_message": _op(
         86, "add_quick_message", "nhac", "Thêm tin nhắn nhanh",
         "GET QUICK_MESSAGE /api/quickmessage/create (12029) "
-        "{keyword, message, imei} (media/type chưa biết — không "
-        "gửi). Domain lấy từ services map lúc login.",
+        "{keyword, message, imei} (media/type tùy chọn, bundle "
+        "createQuickReplyItem). Domain lấy từ services map lúc login.",
         "quick_message", "/api/quickmessage/create", 12029, "GET",
         "none",
         [{"key": "keyword", "label": "Từ khóa", "required": True},
          {"key": "title", "label": "Nội dung", "required": True}],
-        _b_qm_add),
+        _b_qm_add, body_unverified=False),
     "get_quick_message": _op(
         87, "get_quick_message", "nhac", "Xem tin nhắn nhanh",
         "GET QUICK_MESSAGE /api/quickmessage/list (12025) "
@@ -1741,14 +1817,14 @@ OPS = {
     "update_quick_message": _op(
         89, "update_quick_message", "nhac", "Sửa tin nhắn nhanh",
         "GET QUICK_MESSAGE /api/quickmessage/update (12026) "
-        "{itemId, keyword, message} (KHÔNG imei; media/type chưa "
-        "biết — không gửi).",
+        "{itemId, keyword, message} (KHÔNG imei; media/type tùy "
+        "chọn, bundle updateQuickReplyItem).",
         "quick_message", "/api/quickmessage/update", 12026, "GET",
         "none",
         [{"key": "item_id", "label": "ID", "required": True},
          {"key": "keyword", "label": "Từ khóa"},
          {"key": "title", "label": "Nội dung"}],
-        _b_qm_update),
+        _b_qm_update, body_unverified=False),
     # --- Nhãn (nhóm I) ---
     "get_labels": _op(
         90, "get_labels", "nhan", "Xem danh sách nhãn",
@@ -1758,11 +1834,14 @@ OPS = {
     "update_label": _op(
         None, "(gắn nhãn — ngoài 96)", "nhan", "Gắn nhãn cho hội thoại",
         "POST label-wpa /api/convlabel/update (12160) "
-        "{labelData, version, imei} — labelData chưa lần.",
-        "label", "/api/convlabel/update", 12160, "POST", "both",
-        [{"key": "label_ids", "label": "ID nhãn (cách nhau bằng dấu "
-          "phẩy)", "required": True}],
-        _b_label_update),
+        "{labelData, version, imei}: gửi TOÀN BỘ danh sách nhãn đã sửa "
+        "(lấy từ get_labels) cùng version của nó.",
+        "label", "/api/convlabel/update", 12160, "POST", "none",
+        [{"key": "label_data", "label": "Danh sách nhãn (JSON) đã sửa, "
+          "lấy từ get_labels", "required": True},
+         {"key": "version", "label": "Version của danh sách nhãn",
+          "required": True}],
+        _b_label_update, body_unverified=False),
     # --- Kiem chung phien (ngoai 96; loi H5 + I1) ---
     # zca-js auth/keepAlive (src/apis/auth/keepAlive.ts): GET
     # {zpwServiceMap.chat[0]}/keepalive, params AES {imei}, lenh
@@ -1803,8 +1882,7 @@ _SPLIT = {
     "remove_reminder": ("board", "/api/board/oneone/remove", 12431,
                         "board", "/api/board/topic/remove", 12143),
     "edit_reminder": ("board", "/api/board/oneone/update", 12430,
-                      "board", "/api/board/topic/updateEventResponse",
-                      12087),
+                      "board", "/api/board/topic/update", 12142),
     "get_list_reminder": ("board", "/api/board/oneone/list", 12432,
                           "board", "/api/board/listReminder", 12425),
     "add_reaction": ("reaction", "/api/message/reaction", 12410,
@@ -2182,27 +2260,39 @@ class Services:
         params["_pin_conversations"] = new_list
 
     def _forward_message(self, params):
-        """forward_message: khung {toId|grid, imei} da xac minh;
-        transform theo loai tin CHUA lan nen chi gui khung. Chuyen
-        toi tung dich mot (endpoint don 11199/11818); multi
-        12440/12442 chua lan duoc path."""
-        dests = _csv(_need(params, "dest_thread_ids",
-                           "forward_message"))
+        """forward_message: chuyen tiep NOI DUNG CHU toi nhieu thread bang mforward (bundle `forwardMultiMessage` 12440/12442 + zca-js
+        forwardMessage), domain FILE. Body: user {toIds:[{clientId,toUid,ttl}], imei, ttl, msgType:"1", totalIds, msgInfo:JSON({message}),
+        decorLog}; nhom {grids:[{clientId,grid,ttl}], ttl, msgType, totalIds, msgInfo, decorLog}. Ban cu chi gui khung {toId|grid, imei}
+        (khong co noi dung) toi endpoint don nen khong chuyen duoc gi. Anh/file can transform theo loai tin — chua ho tro."""
+        dests = _csv(_need(params, "dest_thread_ids", "forward_message"))
         dtype = (params.get("type") or "user").lower()
         if dtype not in ("user", "group"):
-            raise ValueError(
-                "forward_message: type phải là user hoặc group")
-        domain_key, path, _code = _resolve(
-            "forward_message", OPS["forward_message"], dtype)
-        domain = self._domain_for("forward_message", domain_key)
-        results = []
-        for dest in dests:
-            if dtype == "group":
-                body = {"grid": dest, "imei": self.device_id}
-            else:
-                body = {"toId": dest, "imei": self.device_id}
-            results.append(self._post(domain, path, body))
-        return {"results": results}
+            raise ValueError("forward_message: type phải là user hoặc group")
+        message = str(_need(params, "message", "forward_message")).strip()
+        if not message:
+            raise ValueError("forward_message: message (nội dung chữ cần chuyển tiếp) không được rỗng")
+        ttl = _int_param(params, "ttl", 0, "forward_message")
+        client_id = str(int(time.time() * 1000))
+        msg_info = {"message": message}
+        if params.get("reference"):                      # {id, ts, fwLvl} cua tin goc: Zalo hien nhan «Da chuyen tiep»
+            ref = params["reference"]
+            msg_info["reference"] = json.dumps({"type": 3, "data": json.dumps(ref, separators=(",", ":"))}, separators=(",", ":"))
+        decor = None
+        if params.get("reference"):
+            ref = params["reference"]
+            leg = {"st": 1, "ts": ref.get("ts"), "id": ref.get("id")}
+            decor = {"fw": {"pmsg": dict(leg), "rmsg": dict(leg), "fwLvl": ref.get("fwLvl")}}
+        common = {"ttl": ttl, "msgType": "1", "totalIds": len(dests),
+                  "msgInfo": json.dumps(msg_info, separators=(",", ":"), ensure_ascii=False),
+                  "decorLog": json.dumps(decor, separators=(",", ":"))}
+        if dtype == "group":
+            body = dict({"grids": [{"clientId": client_id, "grid": d, "ttl": ttl} for d in dests]}, **common)
+            path = "/api/group/mforward"
+        else:
+            body = dict({"toIds": [{"clientId": client_id, "toUid": d, "ttl": ttl} for d in dests], "imei": self.device_id}, **common)
+            path = "/api/message/mforward"
+        domain = self._domain_for("forward_message", "file")
+        return {"results": [self._post(domain, path, body)]}
 
     def dispatch(self, action, params, files=None):
         """Chạy một op: trả về data đã giải mã từ envelope hai lớp.
@@ -2290,6 +2380,19 @@ def handle_svc(state, action, body, files=None):
                    http_post_multipart=transport.http_post_multipart)
     params = dict(body or {})
     params["_uid"] = sess.get("uid", "")
+    if action == "mark_seen":
+        # «Da xem» di cung duong v2 nhu WebUI (tin goc lay tu kho tin); body cu cua op nay chua duoc xac minh (SERVICE-MAP §6).
+        try:
+            from . import chat as _chat_mod
+            tid, ttype = _thread(params, action)
+            chat = _chat_mod.Chat(transport, sess["device_id"], sess["zpw_enk"])
+            data = chat.mark_seen(ttype, tid, _csv(params.get("msg_ids")), store=getattr(state, "message_store", None),
+                                  own_uid=sess.get("uid", ""))
+        except ValueError as e:
+            return 400, {"error": str(e)}
+        except Exception as e:  # noqa: BLE001 - loi Zalo/mang -> 502
+            return 502, {"error": str(e)}
+        return 200, {"ok": True, "action": action, "data": data}
     try:
         data = svc.dispatch(action, params, files=files)
     except UnknownAction as e:

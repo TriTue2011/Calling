@@ -257,6 +257,42 @@ def _normalize_filename(filename):
         return name
 
 
+def _utf16_len(text):
+    return len(str(text).encode("utf-16-le")) // 2
+
+
+def build_mentions(message, mentions):
+    """Chuan hoa danh sach mention cua tin NHOM thanh mentionInfo cua Zalo: [{pos, uid, len, type}] (pos/len tinh theo UTF-16 nhu Zalo PC va
+    zca-js `handleMentions`; type 1 = @Tat ca khi uid "-1", con lai 0). Moi muc: {uid, pos, len} da biet vi tri, HOAC {uid, name} — tim
+    "@name" trong `message` (lan lan theo thu tu, khong chong len nhau). Nem ValueError khi khong khop / vuot do dai. None/rong -> []."""
+    if not mentions:
+        return []
+    if not isinstance(mentions, list):
+        raise ValueError("chat: mentions phai la danh sach")
+    total = _utf16_len(message)
+    out, cursor = [], 0
+    for m in mentions:
+        if not isinstance(m, dict) or not str(m.get("uid") or "").strip():
+            raise ValueError("chat: moi mention can uid")
+        uid = str(m["uid"]).strip()
+        if m.get("pos") is not None and m.get("len") is not None:
+            pos, length = int(m["pos"]), int(m["len"])
+        else:
+            name = str(m.get("name") or ("All" if uid == "-1" else "")).strip()
+            if not name:
+                raise ValueError("chat: mention %s can pos+len hoac name" % uid)
+            needle = "@" + name.lstrip("@")
+            at = str(message).find(needle, cursor)
+            if at < 0:
+                raise ValueError("chat: khong thay '%s' trong tin de mention" % needle)
+            pos, length = _utf16_len(str(message)[:at]), _utf16_len(needle)
+            cursor = at + len(needle)
+        if pos < 0 or length <= 0 or pos + length > total:
+            raise ValueError("chat: mention %s vuot do dai tin (pos=%d len=%d)" % (uid, pos, length))
+        out.append({"pos": pos, "uid": uid, "len": length, "type": 1 if uid == "-1" else 0})
+    return out
+
+
 class ZaloChatError(RuntimeError):
     """Loi Zalo tra ve qua envelope (error_code != 0), mang theo ma
     loi de caller quyet dinh co thu lai khong (vd. 112). Subclass
@@ -392,9 +428,9 @@ HISTORY_USER_UNAVAILABLE = (
 # DB chi co tin tu khi app bat dau luu (sau ban webhook), tin cu
 # hon van chua co — noi ro de khong tuong la day du.
 HISTORY_USER_DB_PARTIAL = (
-    "Lich su 1-1 chi co tu khi app bat dau luu tin xuong DB local "
-    "(tin cu hon chua co); tin den moi van hien truc tiep qua "
-    "kenh sync."
+    "Lịch sử 1-1 chỉ có từ khi app bắt đầu lưu tin xuống DB local "
+    "(tin cũ hơn chưa có); tin đến mới vẫn hiện trực tiếp qua "
+    "kênh sync."
 )
 
 # E2EE: hoi thoai 1-1 bat E2EE co the khong di duong sms thuong.
@@ -667,6 +703,73 @@ def _poll_ref(msg_type, content, item):
     return str(params["pollId"]), str(params.get("question") or "")
 
 
+def call_record_info(msg_type, content):
+    """Ban ghi cuoc goi Zalo tu tao: msgType `chat.recommended`, content {action: "recommened.calltime" | "recommened.misscall", title, params:
+    {callId, calltype, duration, isCaller, reason...}}. Tra ve {call_id, duration, missed, is_caller, text} hoac None (khong doan thang khac)."""
+    if str(msg_type) != "chat.recommended" or not isinstance(content, dict):
+        return None
+    action = str(content.get("action") or "")
+    if action not in ("recommened.calltime", "recommened.misscall"):
+        return None
+    params = content.get("params")
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except ValueError:
+            params = {}
+    params = params if isinstance(params, dict) else {}
+    missed = action == "recommened.misscall"
+    try:
+        duration = int(params.get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0
+    # `title` cua Zalo la placeholder «sendBubbleMessage» (do 12/11: moi ban ghi that), chu hien thi do CLIENT tu dung tu action + duration.
+    # KHONG phan biet thoai/video: ban ghi cua mot cuoc goi VIDEO that (callId 1304883739, 12/11) van mang calltype 0.
+    label = "Cuộc gọi"
+    if missed:
+        text = label + " nhỡ"
+    else:
+        text = label + ((" · %d:%02d" % (duration // 60, duration % 60)) if duration > 0 else "")
+    return {"call_id": str(params.get("callId") or ""), "duration": duration, "missed": missed,
+            "is_caller": bool(params.get("isCaller")), "text": text}
+
+
+def reply_info(item):
+    """Tin TRA LOI: Zalo gui kem `quote` = {ownerId, cliMsgId, globalMsgId, cliMsgType, ts, msg, attach, fromD, ttl} (zca-js TQuote).
+    Tra ve {owner, msg_id, cli_msg_id, ts, text, attach_kind, attach_url, attach_name} hoac None. `attach` la CHUOI JSON cua tep dinh kem
+    cua tin goc (anh/file/...): ta chi lay duong dan + ten de nguoi dung biet tin goc co tep — khong tai ve. Chiu moi dang (best-effort):
+    sai dang thi bo qua phan do, khong nem loi."""
+    q = item.get("quote") if isinstance(item, dict) else None
+    if isinstance(q, str):
+        try:
+            q = json.loads(q)
+        except ValueError:
+            q = None
+    if not isinstance(q, dict):
+        return None
+    attach = q.get("attach")
+    if isinstance(attach, str) and attach.strip():
+        try:
+            attach = json.loads(attach)
+        except ValueError:
+            attach = None
+    if isinstance(attach, list):
+        attach = attach[0] if attach and isinstance(attach[0], dict) else None
+    url = name = ""
+    if isinstance(attach, dict):
+        url = str(attach.get("href") or attach.get("hdUrl") or attach.get("normalUrl") or attach.get("thumb") or "")
+        name = str(attach.get("title") or attach.get("fileName") or "")
+    msg_type = str(q.get("cliMsgType") if q.get("cliMsgType") is not None else "")
+    ext = (name or url.split("?")[0]).rsplit(".", 1)[-1].lower() if (name or url) and "." in (name or url.split("?")[0]) else ""
+    by_ext = ("photo" if ext in ("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic") else "voice" if ext in ("mp3", "aac", "m4a", "amr", "ogg", "opus", "wav")
+              else "video" if ext in ("mp4", "mov", "mkv", "webm") else "file" if (name or ext) else "")
+    kind = _MSG_TYPE_KIND.get(msg_type) or (by_ext if (attach and url) else ("file" if name else ""))
+    return {"owner": str(q.get("ownerId") or q.get("fromD") or ""), "msg_id": str(q.get("globalMsgId") or ""),
+            "cli_msg_id": str(q.get("cliMsgId") or ""), "ts": q.get("ts"), "text": str(q.get("msg") or ""),
+            "attach_kind": kind if (attach or kind in ("photo", "file", "voice", "video")) else "",
+            "attach_url": url, "attach_name": name, "cli_msg_type": msg_type}
+
+
 def normalize_message(item, thread_type="user"):
     """Chuan hoa 1 tin (best-effort — shape lich su nhom that chua
     duoc thay truc tiep): {id, sender_id, text, time, kind, file_name,
@@ -715,6 +818,9 @@ def normalize_message(item, thread_type="user"):
     content_dict = content if isinstance(content, dict) else {}
     msg_type = str(item.get("msgType") or item.get("type") or "")
     kind = _MSG_TYPE_KIND.get(msg_type)
+    call_record = call_record_info(msg_type, content_dict)
+    if call_record:
+        kind, text = "system", call_record["text"]
     # Hanh vi cu: title/fileName o TOP-LEVEL thi la file (giữ
     # nguyên để không đổi kind của các shape cũ); content.title
     # CHỈ đọc khi tin đã là đính kèm theo msgType — tin text có
@@ -766,6 +872,8 @@ def normalize_message(item, thread_type="user"):
             "f_type": f_type,
             "sender_name": str(item.get("dName") or ""),
             "poll_id": poll_id, "poll_question": poll_question,
+            "reply_to": reply_info(item),
+            "call_record": call_record,
             "raw": item}
 
 
@@ -1066,7 +1174,7 @@ class Chat:
 
     # -- gui text --------------------------------------------------------
     def send_text(self, thread_type, thread_id, message,
-                  visibility=0, ttl=0, styles=None):
+                  visibility=0, ttl=0, styles=None, mentions=None):
         """11151 (1-1) / 11163 (nhom). Body {message, clientId:
         NUMBER, imei, toid|grid, visibility (nhom), ttl} — ttl =
         ms tu xoa cua hoi thoai, 0 = khong tu xoa (SERVICE-MAP.md
@@ -1079,7 +1187,15 @@ class Chat:
         # UTF-16, dung cach zca-js 2.1.2 (sendMessage.js handleStyles) va add-on zalo_bot cu. Xem rich_text.py.
         extra = {"textProperties": rich_text.text_properties(
             rich_text.validate_styles(message, styles))} if styles else {}
-        if thread_type == "group":
+        info = build_mentions(message, mentions) if thread_type == "group" else []        # 1-1 khong co mention (Zalo PC / zca-js bo qua)
+        if info:
+            # Nhu Zalo PC `sendMentionMessage`: POST /api/group/mention {grid, message, clientId, mentionInfo (chuoi JSON), language, visibility}
+            # (+ ttl / dinh dang chu neu co, nhu zca-js); khong kem imei.
+            body = {"grid": str(thread_id), "message": message, "clientId": client_id,
+                    "mentionInfo": json.dumps(info, separators=(",", ":"), ensure_ascii=False),
+                    "language": protocol.LANGUAGE, "visibility": visibility, "ttl": int(ttl), **extra}
+            data = self._post_form(GROUP_DOMAIN, "/api/group/mention", body, "POST /api/group/mention")
+        elif thread_type == "group":
             body = {"message": message, "clientId": client_id,
                     "imei": self.device_id, "visibility": visibility,
                     "grid": str(thread_id), "ttl": int(ttl), **extra}
@@ -1459,16 +1575,74 @@ class Chat:
              "imei": self.device_id}, self.zpw_enk)
         return self._get(url, "GET /api/message/typing")
 
+    @staticmethod
+    def msg_infos(raws, group, own_uid=""):
+        """`data` cua msgInfos (deliveredv2 / seenv2), dung nhu Zalo PC 26.11.10 (bundle `sendSeenV2` / zca-js sendDeliveredEvent): moi tin
+        {cmi: cliMsgId, gmi: msgId, si: nguoi gui, di: nguoi nhan ("0" khi la minh), mt: loai tin, st/at/cmd: gia tri that hoac -1, ts}.
+        `raws` la dict tin GOC Zalo gui ve (msg["raw"]); toi da 50."""
+        def num(v):
+            return -1 if v in (None, "") else v
+        out = []
+        for e in list(raws)[-50:]:
+            sender = str(e.get("uidFrom") or e.get("fromUid") or "")
+            to = str(e.get("idTo") or e.get("toUid") or "")
+            if group and to.startswith("g"):
+                to = to[1:]                             # GROUPID_PREFIX cua bundle
+            out.append({"cmi": e.get("cliMsgId"), "gmi": e.get("msgId"), "si": sender,
+                        "di": to if (group or (to and to != str(own_uid) and to != sender)) else "0",
+                        "mt": e.get("originMsgType") or e.get("msgType"),
+                        "st": num(e.get("st")), "at": num(e.get("at")), "cmd": num(e.get("cmd")),
+                        "ts": e.get("ts") or e.get("sendDttm") or -1})
+        return out
+
+    def send_delivered_v2(self, thread_type, thread_id, raws, seen=False, own_uid=""):
+        """POST /api/message/deliveredv2 (12117) / /api/group/deliveredv2 (12119): bao nguoi gui «da nhan». Zalo PC gui ngay khi tin den."""
+        group = thread_type == "group"
+        infos = {"seen": 1 if seen else 0, "data": self.msg_infos(raws, group, own_uid)}
+        body = {}
+        if group:
+            infos["grid"] = str(thread_id)
+            body["imei"] = self.device_id
+        body["msgInfos"] = json.dumps(infos, separators=(",", ":"), ensure_ascii=False)
+        domain, path = (GROUP_DOMAIN, "/api/group/deliveredv2") if group else (CHAT_DOMAIN, "/api/message/deliveredv2")
+        return self._post_form(domain, path, body, "POST " + path)
+
+    def send_seen_v2(self, thread_type, thread_id, raws, own_uid=""):
+        """POST /api/message/seenv2 (12118) / /api/group/seenv2 (12124): bao «da xem». Zalo PC luon kem imei."""
+        group = thread_type == "group"
+        infos = {"data": self.msg_infos(raws, group, own_uid)}
+        infos["grid" if group else "senderId"] = str(thread_id)
+        body = {"msgInfos": json.dumps(infos, separators=(",", ":"), ensure_ascii=False), "imei": self.device_id}
+        domain, path = (GROUP_DOMAIN, "/api/group/seenv2") if group else (CHAT_DOMAIN, "/api/message/seenv2")
+        return self._post_form(domain, path, body, "POST " + path)
+
+    def mark_seen(self, thread_type, thread_id, msg_ids=None, store=None, own_uid=""):
+        """Danh dau «da xem» nhu Zalo PC: tim tin DEN goc (msg["raw"]) trong kho `store` (message_store.MessageStore) — theo `msg_ids` neu co
+        (khop id / msgId / cliMsgId), khong co thi toi da 50 tin den moi nhat — roi gui seenv2. Khong tim duoc tin goc (kho trong) thi roi ve
+        send_seen v1."""
+        ids = {str(i) for i in (msg_ids or []) if str(i)}
+        raws = []
+        if store is not None:
+            for m in store.messages_for(thread_type, thread_id, 200):           # moi nhat truoc
+                raw = m.get("raw") if isinstance(m, dict) else None
+                if not isinstance(raw, dict) or m.get("is_self") or m.get("direction") == "out":
+                    continue
+                if ids and not ids & {str(m.get("id")), str(raw.get("msgId")), str(raw.get("cliMsgId"))}:
+                    continue
+                raws.append(raw)
+                if len(raws) >= 50:
+                    break
+        if raws:
+            raws.reverse()                                                          # cu -> moi, nhu Zalo PC
+            return self.send_seen_v2(thread_type, thread_id, raws, own_uid=own_uid)
+        return self.send_seen(thread_type, thread_id, msg_ids)
+
     def send_seen(self, thread_type, thread_id, msg_ids=None):
-        """11150 (1-1) / 11167 (nhom). msg_ids: list id tin da doc
-        (neu biet); rong thi chi gui danh dau chung."""
-        body = {"msg_ids": list(msg_ids or [])}
+        """v1 (11150 1-1 / 11167 nhom) — dang cua Zalo PC (bundle `sendSeen` / `sendGroupSeen`): POST params={msg_ids:[so], senderId | grid}.
+        Ban cu gui GET kem khoa `toid` (sai dang). Con dung lam du phong khi khong co tin goc de gui v2."""
+        ids = [int(i) if str(i).isdigit() else str(i) for i in (msg_ids or [])]
         if thread_type == "group":
-            body["grid"] = str(thread_id)
-            url = _url_with_params(GROUP_DOMAIN, "/api/group/seen",
-                                   body, self.zpw_enk)
-            return self._get(url, "GET /api/group/seen")
-        body["toid"] = str(thread_id)
-        url = _url_with_params(CHAT_DOMAIN, "/api/message/seen",
-                               body, self.zpw_enk)
-        return self._get(url, "GET /api/message/seen")
+            body = {"msg_ids": ids, "grid": str(thread_id)}
+            return self._post_form(GROUP_DOMAIN, "/api/group/seen", body, "POST /api/group/seen")
+        body = {"msg_ids": ids, "senderId": str(thread_id)}
+        return self._post_form(CHAT_DOMAIN, "/api/message/seen", body, "POST /api/message/seen")

@@ -7,14 +7,15 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN
+from .const import CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, CONF_VIDEO_CONSENT, DOMAIN
 from .entity import ZaloCallEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             add: AddEntitiesCallback) -> None:
     rt = hass.data[DOMAIN][entry.entry_id]
-    add([AutoSwitch(entry, rt, CONF_TEXT_AUTO_EMOJI, "Chữ: tự thêm emoji", "mdi:emoticon-happy-outline", push=False),
+    add([AutoSwitch(entry, rt, CONF_VIDEO_CONSENT, "Cho phép đồng ý chuyển sang video", "mdi:video-switch", push=False),
+         AutoSwitch(entry, rt, CONF_TEXT_AUTO_EMOJI, "Chữ: tự thêm emoji", "mdi:emoticon-happy-outline", push=False),
          AutoSwitch(entry, rt, CONF_TEXT_AI_INLINE, "Chữ: AI tự định dạng", "mdi:flash", push=False),
          AutoSwitch(entry, rt, CONF_TEXT_AI_SMART, "Chữ: AI đánh giá", "mdi:brain", push=False)])
 

@@ -33,6 +33,16 @@ send_message:
       selector:
         text: null
       example: Hello từ Home Assistant
+    mentions:
+      name: 'Nhắc người trong NHÓM (chỉ áp dụng khi gửi vào nhóm): danh sách, mỗi mục {uid, name} (tìm
+        «@name» trong tin) hoặc {uid, pos, len}; uid -1 = @Tất cả. Ví dụ: [{"uid": "123456", "name": "Nam"}]
+        với tin «Chào @Nam»'
+      description: 'Nhắc người trong NHÓM (chỉ áp dụng khi gửi vào nhóm): danh sách, mỗi mục {uid, name}
+        (tìm «@name» trong tin) hoặc {uid, pos, len}; uid -1 = @Tất cả. Ví dụ: [{"uid": "123456", "name":
+        "Nam"}] với tin «Chào @Nam»'
+      required: false
+      selector:
+        object: null
     format:
       name: 'Định dạng chữ: plain (mặc định) hoặc markdown — **đậm**, *nghiêng*, __gạch chân__, ~~gạch
         ngang~~, # tiêu đề (to + đậm), - mục / 1. mục (danh sách), {red}chữ đỏ{/} {orange} {yellow} {green}
@@ -456,10 +466,10 @@ get_user_info:
   fields:
     entry_id: *id001
     user_id:
-      name: UserId
+      name: UserId (nhiều id cách nhau bằng dấu phẩy)
       description: User ID
       required: true
-      selector: &id007
+      selector: &id008
         text: {}
       example: '987654321'
       default: ''
@@ -918,14 +928,14 @@ create_reminder:
       name: Tiêu đề
       description: Tiêu đề nhắc nhở
       required: true
-      selector: &id017
+      selector: &id018
         text: null
       example: Họp nhóm
     content:
       name: Nội dung
       description: Nội dung nhắc nhở
       required: false
-      selector: &id018
+      selector: &id019
         text: null
       example: Họp nhóm lúc 10h sáng
     remind_time:
@@ -1163,7 +1173,7 @@ get_group_chat_history:
       name: Số tin (tối đa 1000)
       description: Số lượng tin nhắn muốn lấy (mặc định 50, tối đa 1000)
       required: false
-      selector: &id012
+      selector: &id013
         number:
           min: 1
           max: 1000
@@ -1325,7 +1335,7 @@ join_group:
       name: Link mời
       description: Link mời tham gia nhóm
       required: true
-      selector: &id014
+      selector: &id015
         text: null
       example: https://zalo.me/g/abcxyz
 leave_group:
@@ -1395,7 +1405,7 @@ update_settings:
   fields:
     entry_id: *id001
     setting_type:
-      name: Loại (online_status/seen_status/receive_message/phone_search)
+      name: Tên cài đặt (vd show_online_status, display_seen_status, receive_message...)
       description: Loại cài đặt
       required: true
       selector:
@@ -1410,10 +1420,10 @@ update_settings:
           - label: Tìm kiếm bằng SĐT
             value: phone_search
     status:
-      name: Trạng thái (1=bật, 0=tắt)
+      name: Giá trị (1=bật, 0=tắt)
       description: Trạng thái
       required: true
-      selector: &id016
+      selector: &id017
         select:
           options:
           - label: Bật
@@ -1481,7 +1491,7 @@ set_pinned_conversation:
       name: Ghim (true/false)
       description: Ghim hay bỏ ghim
       required: true
-      selector: &id010
+      selector: &id011
         boolean: null
 get_unread_mark:
   name: Xem hội thoại chưa đọc
@@ -1885,11 +1895,21 @@ forward_message:
   fields:
     entry_id: *id001
     message:
-      name: Nội dung tin
+      name: Nội dung chữ cần chuyển tiếp
       description: Nội dung tin nhắn gốc (mã hóa)
-      required: false
+      required: true
       selector:
         text: null
+    ttl:
+      name: TTL (ms, 0 = không tự xóa)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector: &id007
+        number:
+          min: 0
+          max: 86400000
+      example: 0
+      default: 0
     dest_thread_ids:
       name: Thread đích (cách nhau bằng dấu phẩy)
       description: Thread đích (cách nhau bằng dấu phẩy)
@@ -2165,6 +2185,30 @@ create_poll:
       selector:
         boolean: null
       default: false
+    allow_add_new_option:
+      name: Cho thêm lựa chọn mới (mặc định true)
+      description: Cho thêm lựa chọn mới (mặc định true)
+      required: false
+      selector:
+        text: null
+    is_anonymous:
+      name: Bình chọn ẩn danh (true/false)
+      description: Bình chọn ẩn danh (true/false)
+      required: false
+      selector:
+        text: null
+    hide_vote_preview:
+      name: Ẩn kết quả khi chưa bình chọn (true/false)
+      description: Ẩn kết quả khi chưa bình chọn (true/false)
+      required: false
+      selector:
+        text: null
+    expired_time:
+      name: Hạn chót (ms epoch, 0 = không hết hạn)
+      description: Hạn chót (ms epoch, 0 = không hết hạn)
+      required: false
+      selector:
+        text: null
 get_poll_detail:
   name: Xem chi tiết bình chọn
   description: Lấy thông tin chi tiết của một cuộc bình chọn
@@ -2190,7 +2234,7 @@ get_poll_detail:
       name: ID bình chọn
       description: ID số của cuộc bình chọn (zca-js)
       required: true
-      selector: &id008
+      selector: &id009
         text: null
       example: 123456789
 lock_poll:
@@ -2421,7 +2465,7 @@ get_avatar_list:
       name: Trang
       description: Trang dữ liệu cần lấy
       required: false
-      selector: &id013
+      selector: &id014
         number:
           min: 1
       example: '1'
@@ -2531,10 +2575,7 @@ quote_message:
       name: TTL (1-1)
       description: Thời gian tự hủy (milliseconds)
       required: false
-      selector:
-        number:
-          min: 0
-          max: 86400000
+      selector: *id007
       example: 0
       default: 0
 mark_seen:
@@ -2594,7 +2635,7 @@ reject_friend_request:
       name: UserId
       description: User ID
       required: true
-      selector: *id007
+      selector: *id008
       example: '987654321'
       default: ''
 get_group_link:
@@ -2618,6 +2659,11 @@ get_group_link:
           options:
           - user
           - group
+get_settings:
+  name: Xem cài đặt riêng tư
+  description: Xem cài đặt riêng tư
+  fields:
+    entry_id: *id001
 vote_poll:
   name: Bỏ phiếu bình chọn
   description: Bỏ phiếu bình chọn
@@ -2643,7 +2689,7 @@ vote_poll:
       name: ID bình chọn
       description: ID số của cuộc bình chọn (zca-js)
       required: true
-      selector: *id008
+      selector: *id009
       example: 123456789
     option_ids:
       name: ID lựa chọn (cách nhau bằng dấu phẩy)
@@ -2656,25 +2702,15 @@ update_label:
   description: Gắn nhãn cho hội thoại
   fields:
     entry_id: *id001
-    thread_id:
-      name: Mã hội thoại (threadId)
-      description: UserId (1-1) hoặc GroupId (nhóm).
+    label_data:
+      name: Danh sách nhãn (JSON) đã sửa, lấy từ get_labels
+      description: Danh sách nhãn (JSON) đã sửa, lấy từ get_labels
       required: true
-      example: '5841349563795164131'
       selector:
         text: null
-    type:
-      name: Loại hội thoại
-      description: user = 1-1, group = nhóm.
-      default: user
-      selector:
-        select:
-          options:
-          - user
-          - group
-    label_ids:
-      name: ID nhãn (cách nhau bằng dấu phẩy)
-      description: ID nhãn (cách nhau bằng dấu phẩy)
+    version:
+      name: Version của danh sách nhãn
+      description: Version của danh sách nhãn
       required: true
       selector:
         text: null
@@ -2781,7 +2817,7 @@ update_lang:
       name: language
       description: language to update (VI, EN) (UpdateLangAvailableLanguages)
       required: false
-      selector: &id009
+      selector: &id010
         text: null
       example: vi
 get_block_sharing_conversations:
@@ -2907,7 +2943,7 @@ get_suggested_conversations:
       name: language
       description: Ngôn ngữ hiển thị (mặc định theo `ctx.language` hoặc `"vi"`) (string)
       required: false
-      selector: *id009
+      selector: *id010
       example: vi
     params:
       name: params
@@ -3021,7 +3057,7 @@ send_bank_card:
       name: type
       description: The type of thread to send the bank card to (ThreadType)
       required: false
-      selector: &id011
+      selector: &id012
         select:
           options:
           - label: User
@@ -3069,7 +3105,7 @@ set_pinned_conversations:
       name: pinned
       description: Should pin conversations (boolean)
       required: true
-      selector: *id010
+      selector: *id011
     threadId:
       name: threadId
       description: The ID(s) of the thread (string | string[])
@@ -3080,7 +3116,7 @@ set_pinned_conversations:
       name: type
       description: Type of thread, default User (ThreadType)
       required: false
-      selector: *id011
+      selector: *id012
       example: 0
       default: 0
     params:
@@ -3116,7 +3152,7 @@ translate_message:
       name: type
       description: type (number)
       required: false
-      selector: *id011
+      selector: *id012
       example: 0
       default: 0
     srcLang:
@@ -3173,7 +3209,7 @@ translate_message_auto:
       name: type
       description: type (number)
       required: false
-      selector: *id011
+      selector: *id012
       example: 0
       default: 0
     srcLang:
@@ -3223,7 +3259,7 @@ translate_message_suggest:
       name: type
       description: type (number)
       required: false
-      selector: *id011
+      selector: *id012
       example: 0
       default: 0
     srcLang:
@@ -3400,7 +3436,7 @@ update_translate_setting:
       name: type
       description: type (number)
       required: true
-      selector: *id011
+      selector: *id012
       example: 0
       default: 0
     settings:
@@ -3610,7 +3646,7 @@ get_group_cloud_message_jump:
       name: count
       description: Số lượng tin nhắn ngữ cảnh cần tải (mặc định `20`) (number)
       required: false
-      selector: *id012
+      selector: *id013
       example: 50
       default: 50
     msgJump:
@@ -3653,7 +3689,7 @@ get_group_cloud_message_path:
       name: count
       description: count (number)
       required: false
-      selector: *id012
+      selector: *id013
       example: 50
       default: 50
     reverse:
@@ -3731,7 +3767,7 @@ get_group_invite_box_list:
       name: page
       description: page (number)
       required: false
-      selector: *id013
+      selector: *id014
       example: '1'
       default: '1'
     invPerPage:
@@ -3762,7 +3798,7 @@ get_group_link_info:
       name: link
       description: link (string)
       required: true
-      selector: *id014
+      selector: *id015
       example: https://zalo.me/g/abcxyz
     memberPage:
       name: memberPage
@@ -3882,7 +3918,7 @@ get_quota_community:
       name: language
       description: 'Ngôn ngữ thông báo (mặc định: `"vi"`) (string)'
       required: false
-      selector: *id009
+      selector: *id010
       example: vi
     params:
       name: params
@@ -4059,7 +4095,7 @@ update_group_settings:
       name: options
       description: Options (UpdateGroupSettingsOptions)
       required: true
-      selector: &id015
+      selector: &id016
         object: null
       example: '{"voice": "nova"}'
     groupId:
@@ -4130,14 +4166,14 @@ get_alias_list:
       name: count
       description: 'Page size (default: 100) (number)'
       required: false
-      selector: *id012
+      selector: *id013
       example: 50
       default: 50
     page:
       name: page
       description: 'Page number (default: 1) (number)'
       required: false
-      selector: *id013
+      selector: *id014
       example: '1'
       default: '1'
 get_alias_list_v2:
@@ -4150,14 +4186,14 @@ get_alias_list_v2:
       name: page
       description: 'Trang cần lấy (mặc định: 1) (number)'
       required: false
-      selector: *id013
+      selector: *id014
       example: '1'
       default: '1'
     count:
       name: count
       description: 'Số lượng mục mỗi trang (mặc định: 100) (number)'
       required: false
-      selector: *id012
+      selector: *id013
       example: 50
       default: 50
 get_block_friends:
@@ -4170,14 +4206,14 @@ get_block_friends:
       name: page
       description: 'Trang cần lấy (mặc định: 1) (number)'
       required: false
-      selector: *id013
+      selector: *id014
       example: '1'
       default: '1'
     count:
       name: count
       description: 'Số lượng mỗi trang (mặc định: 50) (number)'
       required: false
-      selector: *id012
+      selector: *id013
       example: 50
       default: 50
     avatarSize:
@@ -4276,7 +4312,7 @@ get_friends_emoji_status:
       name: page
       description: page (number)
       required: false
-      selector: *id013
+      selector: *id014
       example: '1'
       default: '1'
 get_last_read_contact_tab:
@@ -4387,7 +4423,7 @@ remove_friend_recommendation_v2:
       name: type
       description: Loại gợi ý (mặc định `0`) (number)
       required: false
-      selector: *id011
+      selector: *id012
       example: 0
       default: 0
     confirm:
@@ -4435,7 +4471,7 @@ verify_friend:
       name: options
       description: Tùy chọn truy vấn (VerifyFriendOptions)
       required: false
-      selector: *id015
+      selector: *id016
       example: '{"voice": "nova"}'
     params:
       name: params
@@ -4614,12 +4650,6 @@ get_profile_verification_status:
     Zalo (command 12150)
   fields:
     entry_id: *id001
-get_settings:
-  name: getSettings
-  description: 'getSettings — Lấy toàn bộ cấu hình quyền riêng tư và cài đặt của tài khoản hiện tại. (chưa
-    tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))'
-  fields:
-    entry_id: *id001
 push_profile_verification_message:
   name: pushProfileVerificationMessage
   description: pushProfileVerificationMessage — Yêu cầu đẩy tin nhắn hướng dẫn xác thực tài khoản (eKYC)
@@ -4642,7 +4672,7 @@ push_profile_verification_message:
       name: type
       description: type (number)
       required: false
-      selector: *id011
+      selector: *id012
       example: 0
       default: 0
     params:
@@ -4689,7 +4719,7 @@ update_profile_bio:
       name: status
       description: status for update bio (string)
       required: true
-      selector: *id016
+      selector: *id017
 update_profile_mode:
   name: updateProfileMode
   description: updateProfileMode — Cập nhật chế độ hồ sơ người dùng (command 11865)
@@ -5496,7 +5526,7 @@ get_sticker_suggestion:
       name: options
       description: Từ khóa và tùy chọn kèm theo (`gif`, `guggy`) (GetStickerSuggestionOptions | string)
       required: true
-      selector: *id015
+      selector: *id016
       example: '{"voice": "nova"}'
     params:
       name: params
@@ -5634,7 +5664,7 @@ add_poll_options:
       name: options
       description: options (AddPollOptionsOption[])
       required: true
-      selector: *id015
+      selector: *id016
       example: '{"voice": "nova"}'
     votedOptionIds:
       name: votedOptionIds
@@ -5651,7 +5681,7 @@ create_note:
       name: options
       description: note options (CreateNoteOptions)
       required: true
-      selector: *id015
+      selector: *id016
       example: '{"voice": "nova"}'
     groupId:
       name: groupId
@@ -5674,13 +5704,13 @@ create_todo:
       name: title
       description: title (string)
       required: false
-      selector: *id017
+      selector: *id018
       example: Họp nhóm
     content:
       name: content
       description: content (string)
       required: false
-      selector: *id018
+      selector: *id019
       example: Họp nhóm lúc 10h sáng
     assignees:
       name: assignees
@@ -5710,7 +5740,7 @@ create_todo:
       name: status
       description: status (number)
       required: false
-      selector: *id016
+      selector: *id017
     schedule:
       name: schedule
       description: schedule (unknown)
@@ -5778,7 +5808,7 @@ edit_note:
       name: options
       description: Options for editing the note (EditNoteOptions)
       required: true
-      selector: *id015
+      selector: *id016
       example: '{"voice": "nova"}'
     groupId:
       name: groupId
@@ -5854,7 +5884,7 @@ get_todo_list:
       name: type
       description: type (number)
       required: false
-      selector: *id011
+      selector: *id012
       example: 0
       default: 0
     params:
@@ -5913,7 +5943,7 @@ pin_board_topic:
       name: type
       description: 'Loại chủ đề (ví dụ: ghi chú, bình chọn, nhắc hẹn) (number)'
       required: true
-      selector: *id011
+      selector: *id012
       example: 0
       default: 0
     params:
@@ -6094,13 +6124,13 @@ update_todo:
       name: title
       description: title (string)
       required: false
-      selector: *id017
+      selector: *id018
       example: Họp nhóm
     content:
       name: content
       description: content (string)
       required: false
-      selector: *id018
+      selector: *id019
       example: Họp nhóm lúc 10h sáng
     assignees:
       name: assignees
@@ -6130,7 +6160,7 @@ update_todo:
       name: status
       description: status (number)
       required: false
-      selector: *id016
+      selector: *id017
     schedule:
       name: schedule
       description: schedule (unknown)
@@ -6164,7 +6194,7 @@ update_todo_status:
       name: status
       description: 'Trạng thái mới (ví dụ: đang thực hiện, hoàn thành) (number)'
       required: true
-      selector: *id016
+      selector: *id017
 verify_todo:
   name: verifyTodo
   description: verifyTodo — Kiểm tra tính đồng bộ của danh sách công việc trong Zalo To-Do (command 12603)
@@ -6262,7 +6292,7 @@ create_auto_reply:
       name: content
       description: content (string)
       required: true
-      selector: *id018
+      selector: *id019
       example: Họp nhóm lúc 10h sáng
     isEnable:
       name: isEnable
@@ -6561,7 +6591,7 @@ get_catalog_list:
       name: page
       description: 'Page number (default: 0) (number)'
       required: false
-      selector: *id013
+      selector: *id014
       example: '1'
       default: '1'
     params:
@@ -6592,7 +6622,7 @@ get_list_bank_account:
       name: page
       description: 'Page number (default: 0) (number)'
       required: false
-      selector: *id013
+      selector: *id014
       example: '1'
       default: '1'
     limit:
@@ -6647,7 +6677,7 @@ get_product_catalog_list:
       name: page
       description: 'Page number (default: 0) (number)'
       required: false
-      selector: *id013
+      selector: *id014
       example: '1'
       default: '1'
 get_product_detail:
@@ -6724,7 +6754,7 @@ update_auto_reply:
       name: content
       description: content (string)
       required: true
-      selector: *id018
+      selector: *id019
       example: Họp nhóm lúc 10h sáng
     isEnable:
       name: isEnable
@@ -7027,14 +7057,14 @@ make_call:
         chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật.'
       selector:
         select:
-          options: &id022
-          - &id019
+          options: &id023
+          - &id020
             value: mic
             label: Mic - gửi tiếng trong nhà cho người gọi
-          - &id020
+          - &id021
             value: speaker
             label: Loa - phát tiếng người gọi ra loa trong nhà
-          - &id021
+          - &id022
             value: camera
             label: Camera - gửi hình trong nhà (tích ô này là cuộc gọi VIDEO)
           - value: ai
@@ -7048,10 +7078,10 @@ make_call:
         bị đã chọn ở các ô Loa, Mic, Camera.
       selector:
         select:
-          options: &id023
-          - *id019
+          options: &id024
           - *id020
           - *id021
+          - *id022
           multiple: true
     message:
       name: Nội dung đọc khi người nhận nghe máy
@@ -7176,7 +7206,7 @@ answer_call:
         chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật.'
       selector:
         select:
-          options: *id022
+          options: *id023
           multiple: true
     connect_now:
       name: Thiết bị nhà dùng NGAY khi người nhận nghe máy
@@ -7186,7 +7216,7 @@ answer_call:
         bị đã chọn ở các ô Loa, Mic, Camera.
       selector:
         select:
-          options: *id023
+          options: *id024
           multiple: true
     message:
       name: Nội dung đọc khi người nhận nghe máy
@@ -7411,8 +7441,17 @@ set_default_devices:
       selector:
         boolean: null
     auto_video:
-      name: Tự đồng ý khi bên kia xin gọi video
-      description: Bật thì khi bên kia xin chuyển sang video sẽ tự đồng ý và phát camera mặc định.
+      name: Tự đồng ý khi bên kia xin gọi video (mọi người)
+      description: Bật thì khi BẤT KỲ AI xin chuyển sang video app cũng tự đồng ý và phát camera mặc định,
+        không xét quy tắc từng người. Nên TẮT và dùng công tắc «Cho phép đồng ý chuyển sang video» cùng
+        quy tắc từng người (video_request) để chỉ người được phép mới tự đồng ý.
+      selector:
+        boolean: null
+    video_consent:
+      name: Cho phép đồng ý chuyển sang video (công tắc tổng)
+      description: Công tắc tổng, mặc định TẮT. Bật thì quy tắc video_request (accept, accept_camera)
+        của từng người/nhóm mới được tự đồng ý khi họ xin chuyển sang video; tắt thì mọi người chỉ bị
+        báo. Cũng là công tắc «Cho phép đồng ý chuyển sang video» trên thiết bị Zalo Call.
       selector:
         boolean: null
     echo_guard:
@@ -7525,7 +7564,7 @@ set_rule:
       required: true
       selector:
         select:
-          options: &id024
+          options: &id025
           - value: thread
             label: Một người hoặc một nhóm cụ thể
           - value: groups
@@ -7624,6 +7663,29 @@ set_rule:
       description: Tin thoại 1-1 được Zalo chuyển thành chữ, và Home Assistant bắn sự kiện zalo_call_voice_text.
       selector:
         boolean: null
+    reply_trigger:
+      name: Từ khóa gọi AI trong nhóm
+      description: Chỉ áp cho NHÓM. Tin có từ này (không phân biệt hoa thường, ví dụ `@Bot`) mới được
+        AI trả lời; từ khóa được bỏ khỏi câu hỏi. Để trống = AI trả lời mọi tin của nhóm.
+      selector:
+        text: null
+    reply_senders:
+      name: Người được gọi AI trong nhóm
+      description: Chỉ áp cho NHÓM. Mã Zalo (threadID) của những người được phép gọi AI, cách nhau dấu
+        phẩy. Để trống = mọi thành viên. Dán mã dài 19 chữ số hay mã số ngắn đều được.
+      selector:
+        text: null
+    reply_quote:
+      name: Trả lời kèm trích dẫn tin gốc
+      description: Câu trả lời của AI trích dẫn đúng tin vừa hỏi (như zalo_bot). Chỉ với tin chữ; không
+        trích được thì gửi tin thường.
+      selector:
+        boolean: null
+    reply_prefix:
+      name: Tiền tố câu trả lời
+      description: Chữ thêm vào đầu câu trả lời của AI, ví dụ `Bot-Hass:`.
+      selector:
+        text: null
     announce:
       name: Báo ra loa khi có cuộc gọi đến
       description: Bật thì khi người này gọi đến, một loa trong nhà đọc «Có cuộc gọi ... từ ...» để người
@@ -7671,13 +7733,14 @@ set_rule:
         bị đã chọn ở các ô Loa, Mic, Camera.
       selector:
         select:
-          options: *id023
+          options: *id024
           multiple: true
     video_request:
       name: Khi người gọi xin chuyển sang video
       description: 'Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng
         tư): chỉ báo cho automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn
-        đồng ý nếu muốn tự động.'
+        đồng ý nếu muốn tự động, nhưng chỉ có tác dụng khi công tắc «Cho phép đồng ý chuyển sang video»
+        trên thiết bị Zalo Call đang BẬT (mặc định TẮT).'
       selector:
         select:
           options:
@@ -7696,7 +7759,7 @@ set_rule:
         chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật.'
       selector:
         select:
-          options: *id022
+          options: *id023
           multiple: true
     speaker:
       name: Loa trong nhà
@@ -7756,7 +7819,7 @@ remove_rule:
       required: true
       selector:
         select:
-          options: *id024
+          options: *id025
     thread_id:
       name: Mã Zalo của người hoặc nhóm
       description: Chỉ cần khi chọn «Một người hoặc một nhóm cụ thể». Xem danh sách bằng dịch vụ «Xem
@@ -7871,7 +7934,7 @@ alert_call:
         thì».
       selector:
         select:
-          options: *id022
+          options: *id023
           multiple: true
     volume:
       name: Âm lượng loa (%)

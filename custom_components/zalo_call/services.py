@@ -96,7 +96,8 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
     if name == "send_message":
         return await api.thread_send(ttype, tid, str(d["message"]), d.get("format"),
                                      d.get("auto_emphasis"), d.get("emoji"),
-                                     d.get("auto_emoji"), d.get("zalo_emoji"), d.get("style"), d.get("ai_markup"))
+                                     d.get("auto_emoji"), d.get("zalo_emoji"), d.get("style"), d.get("ai_markup"),
+                                     d.get("mentions"))
     if name == "send_link":
         return await api.thread_sendlink(ttype, tid, str(d["link"]),
                                          str(d.get("message") or ""))
@@ -317,7 +318,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return next((p.name for p in pipeline_mod.async_get_pipelines(hass) if p.id == pid), pid)
 
     _RULE_FIELDS = ("name", "answer", "answer_delay", "call_types", "ai", "pipeline", "agent", "greeting", "handover_rule", "trusted",
-                    "reply_ai", "voice_text", "announce", "announce_to", "announce_text", "announce_repeat", "announce_volume", "connect", "connect_now", "video_request", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
+                    "reply_ai", "voice_text", "reply_trigger", "reply_senders", "reply_quote", "reply_prefix", "announce", "announce_to", "announce_text", "announce_repeat", "announce_volume", "connect", "connect_now", "video_request", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
 
     def _rules_copy(rt) -> dict:
         r = get_rules(rt.defaults)
@@ -384,7 +385,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
 
     async def get_default_devices(call: ServiceCall) -> dict:
         rt, _ = _api(hass, call)
-        return {k: rt.defaults.get(k) for k in ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video", "auto_video_delay",
+        return {k: rt.defaults.get(k) for k in ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video", "video_consent", "auto_video_delay",
                                                   "call_volume", "echo_guard", "ha_url")}
 
     async def take_over_call(call: ServiceCall) -> dict:
@@ -592,7 +593,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def set_default_devices(call: ServiceCall) -> None:
         rt, _ = _api(hass, call)
         patch = {k: call.data[k] for k in
-                 ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video",
+                 ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video", "video_consent",
                   "auto_video_delay",
                   "echo_guard", "call_volume")
                  if k in call.data}
@@ -624,6 +625,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
                            vol.Optional("camera"): cv.string,
                            vol.Optional("auto_mic"): cv.boolean,
                            vol.Optional("auto_video"): cv.boolean,
+                           vol.Optional("video_consent"): cv.boolean,
                            vol.Optional("echo_guard"): vol.In(list(ECHO_MODES)),
                            vol.Optional("call_volume"):
                                vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
@@ -664,6 +666,10 @@ async def async_register_services(hass: HomeAssistant) -> None:
                    vol.Optional("trusted"): cv.boolean,
                    vol.Optional("reply_ai"): cv.boolean,
                    vol.Optional("voice_text"): cv.boolean,
+                   vol.Optional("reply_trigger"): cv.string,
+                   vol.Optional("reply_senders"): vol.Any(cv.string, [cv.string]),
+                   vol.Optional("reply_quote"): cv.boolean,
+                   vol.Optional("reply_prefix"): cv.string,
                    vol.Optional("announce"): cv.boolean,
                    vol.Optional("announce_to"): cv.string,
                    vol.Optional("announce_text"): cv.string,

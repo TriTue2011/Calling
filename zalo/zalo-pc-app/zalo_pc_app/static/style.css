@@ -506,6 +506,10 @@ button { font-family: var(--font); }
 /* File den (file_inbox.py): the file + nut Tai xuong / Chuyen tiep. */
 .bubble-file { display: flex; flex-direction: column; gap: 6px; }
 .bubble-file-name { font-weight: 600; word-break: break-all; }
+.reply-bar { display: flex; gap: 12px; align-items: center; padding: 6px 12px; margin: 4px 0; border-left: 3px solid var(--accent, #0068ff); background: rgba(0, 104, 255, 0.08); font-size: 13px; }
+.bubble-act { margin-top: 4px; font-size: 12px; }
+.react-picker { display: inline-flex; gap: 4px; }
+.react-picker[hidden] { display: none; }
 .bubble-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .bubble-actions .btn-text { cursor: pointer; background: none; border: none; font: inherit; }
 .bubble-file-err { color: var(--negative); font-size: 13px; }
@@ -589,6 +593,9 @@ button { font-family: var(--font); }
 .svc-result.svc-ok { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
 .svc-result.svc-err { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
 .svc-group { margin-bottom: 24px; }
+.svc-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 16px; }
+.svc-tab { cursor: pointer; border: 1px solid var(--line, #d5d9e0); background: transparent; color: inherit; border-radius: 16px; padding: 4px 12px; font: inherit; font-size: 13px; }
+.svc-tab.on { background: var(--accent, #0068ff); border-color: var(--accent, #0068ff); color: #fff; }
 .svc-group-title { margin-bottom: 8px; }
 .svc-list { list-style: none; margin: 0; padding: 0; }
 .svc-row {

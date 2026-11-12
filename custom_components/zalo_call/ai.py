@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant
 
 from .api import ZaloCallError
 from .call_voice import PUBLIC_HINT, async_tts_audio, pipeline_agent, pipeline_tts
+from . import reply_policy
 from .rules import get_rules, resolve as resolve_rule
 from .styler import _speech, async_markup_for, auto_aspects, autos_off, build_inline_hint, looks_marked
 from .const import CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN
@@ -62,7 +63,10 @@ async def async_handle_message(hass: HomeAssistant, entry: ConfigEntry, event: d
                                                     "message_id": event.get("message_id"), "text": text})
         event = dict(event, content=text, from_voice=True)
     if rule.get("reply_ai") and event.get("content"):
-        await async_ai_reply(hass, entry, event, rule)
+        ok, text = reply_policy.evaluate(rule, event)           # nhóm: từ khóa gọi + người gửi được phép (xem reply_policy.py)
+        if not ok:
+            return
+        await async_ai_reply(hass, entry, dict(event, content=text, original_content=event.get("content")), rule)
 
 
 async def _async_voice_reply(hass: HomeAssistant, rt, thread_id: str, reply: str, rule: dict, thread_type: str) -> bool:
@@ -117,7 +121,7 @@ async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
                 return
             if reply:
                 emphasis = d.get(CONF_AI_EMPHASIS)
-                text = reply[:MAX_REPLY]
+                text = reply_policy.apply_prefix(rule, reply[:MAX_REPLY])
                 fmt, markup = d.get(CONF_AI_FORMAT) or "plain", None
                 if inline and looks_marked(text):
                     # Trợ lý đã tự định dạng trong cùng lượt: dùng luôn (markdown), không áp quy tắc cứng chồng lên các mục auto.
@@ -126,10 +130,19 @@ async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
                     # Chưa định dạng và bật «dùng AI đánh giá»: gọi thêm một lần (tối đa vài giây); app chỉ nhận khi chữ không đổi.
                     markup = await async_markup_for(hass, d, text, style, auto_emoji)
                 # còn lại: các mục auto dùng quy tắc cứng (tức thì) ở app
-                await rt.api.thread_send(
-                    thread_type, thread_id, text, fmt,
-                    None if emphasis in (None, "", "off") else emphasis,
-                    None, auto_emoji, None, style, markup)
+                quoted = False
+                qp = reply_policy.quote_payload(rule, event, thread_type, thread_id, text)
+                if qp is not None:                                  # trả lời KÈM TRÍCH DẪN tin gốc (như zalo_bot); lỗi thì gửi thường
+                    try:
+                        await rt.api.svc("quote_message", qp)
+                        quoted = True
+                    except ZaloCallError as err:
+                        _LOGGER.warning("Trích dẫn tin gốc không được (%s), gửi tin thường", err)
+                if not quoted:
+                    await rt.api.thread_send(
+                        thread_type, thread_id, text, fmt,
+                        None if emphasis in (None, "", "off") else emphasis,
+                        None, auto_emoji, None, style, markup)
         except ZaloCallError as err:
             _LOGGER.warning("AI không gửi được trả lời cho %s: %s", thread_id, err)
         except Exception:  # noqa: BLE001 - agent lỗi không được làm sập webhook

@@ -61,11 +61,30 @@ MAX_RECORDS = 50
 LIVE_STATUSES = ("sent", "answered", "incoming")
 
 
+def _notifies(fn):
+    """Sau moi thay doi so cuoc goi goi `on_change` (neu co) NGOAI khoa — de giao dien nhan su kien tuc thi (SSE «call»). Loi o callback bi bo qua."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(self, *a, **k):
+        result = fn(self, *a, **k)
+        cb = getattr(self, "on_change", None)
+        if cb is not None:
+            try:
+                cb()
+            except Exception:  # noqa: BLE001 - UI khong duoc lam hong so cuoc goi
+                pass
+        return result
+    return wrapper
+
+
 class CallLog:
     def __init__(self):
         self._lock = threading.Lock()
         self._calls = []
+        self.on_change = None       # callable() sau moi thay doi (xem _notifies)
 
+    @_notifies
     def record_start(self, call_id, peer, thread_id, call_type):
         """A requestcall was accepted: log it live, and close any
         earlier live call (starting a new call supersedes it).
@@ -83,7 +102,7 @@ class CallLog:
                     c["detail"] = "superseded_by_new_call"
             entry = {"call_id": str(call_id), "peer": peer or "",
                      "thread_id": str(thread_id), "type": call_type,
-                     "status": "sent", "started_at": now,
+                     "direction": "out", "status": "sent", "started_at": now,
                      "ended_at": None, "detail": "",
                      "request_sent": None, "request_detail": "",
                      "answered_at": None, "answer_source": "",
@@ -92,6 +111,7 @@ class CallLog:
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
 
+    @_notifies
     def record_incoming(self, call_id, peer, thread_id, call_type):
         """A call is coming IN: the peer called us (call_event act
         "request" on ctrl 99101). Log it live with status
@@ -107,7 +127,7 @@ class CallLog:
                     c["detail"] = "superseded_by_new_call"
             entry = {"call_id": str(call_id), "peer": peer or "",
                      "thread_id": str(thread_id), "type": call_type,
-                     "status": "incoming", "started_at": now,
+                     "direction": "in", "status": "incoming", "started_at": now,
                      "ended_at": None, "detail": "",
                      "request_sent": None, "request_detail": "",
                      "answered_at": None, "answer_source": "",
@@ -121,18 +141,20 @@ class CallLog:
         with self._lock:
             return any(c["call_id"] == str(call_id) for c in self._calls)
 
+    @_notifies
     def record_busy_rejected(self, call_id, peer, thread_id, call_type):
         """Cuoc goi DEN luc ta dang ban (dang noi / dang goi di): ghi mot entry da KET THUC ngay ("busy_rejected"),
         KHONG dung vao cuoc dang song (khac record_incoming: no don cuoc cu)."""
         now = time.time()
         with self._lock:
             entry = {"call_id": str(call_id), "peer": peer or "", "thread_id": str(thread_id), "type": call_type,
-                     "status": "ended", "started_at": now, "ended_at": now, "detail": "busy_rejected",
+                     "status": "ended", "started_at": now, "ended_at": now, "direction": "in", "detail": "busy_rejected",
                      "request_sent": None, "request_detail": "", "answered_at": None, "answer_source": "", "diag": {}}
             self._calls.append(entry)
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
 
+    @_notifies
     def record_answered(self, call_id, source=""):
         """Mark a live (ringing) call answered: the peer picked up
         and the call is connected. "sent" -> "answered" (outgoing)
@@ -156,6 +178,7 @@ class CallLog:
                     return dict(c)
             return None
 
+    @_notifies
     def record_request(self, call_id, sent, detail=""):
         """Record the outcome of the follow-up `request` step
         (11301 / 12434) for a live call: whether the media request
@@ -185,12 +208,13 @@ class CallLog:
                     return dict(c)
             return None
 
+    @_notifies
     def record_error(self, call_id, peer, thread_id, call_type, detail):
         now = time.time()
         with self._lock:
             entry = {"call_id": str(call_id), "peer": peer or "",
                      "thread_id": str(thread_id), "type": call_type,
-                     "status": "error", "started_at": now,
+                     "direction": "out", "status": "error", "started_at": now,
                      "ended_at": now, "detail": detail or "",
                      "request_sent": None, "request_detail": "",
                      "answered_at": None, "answer_source": "",
@@ -199,6 +223,7 @@ class CallLog:
             del self._calls[:-MAX_RECORDS]
             return dict(entry)
 
+    @_notifies
     def record_end(self, call_id, detail=""):
         """Mark a live call ended. Unknown ids are ignored (the end
         endpoint still answers ok — ending is best-effort). `detail`
@@ -215,6 +240,7 @@ class CallLog:
                     return dict(c)
             return None
 
+    @_notifies
     def end_active(self, detail=""):
         """End the live call, if any (there is at most one:
         starting a new call closes the earlier live one). Used when
@@ -230,6 +256,7 @@ class CallLog:
                     return dict(c)
             return None
 
+    @_notifies
     def record_end_error(self, call_id, detail):
         """Attach a Zalo endcall failure to an entry (already ended
         locally), so the history/detail can show why the

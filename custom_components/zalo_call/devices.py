@@ -15,12 +15,12 @@ from .rules import DEFAULT_RULE, RULES_KEY, empty_rules, get_rules
 
 from .const import (TEXT_STYLE_KEYS, AI_EMPHASIS, AI_FORMATS, CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_AUTO_MIC, CONF_AUTO_VIDEO,
                     CONF_AUTO_VIDEO_DELAY, CONF_CALL_VOLUME, CONF_CAMERA, CONF_ECHO_GUARD, CONF_HA_URL, CONF_MIC, CONF_MIC_URL, CONF_SPEAKER,
-                    CONF_TEXT_AI_AGENT, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, MAX_AUTO_VIDEO_DELAY,
-                    MAX_CALL_VOLUME, STORAGE_VERSION)
+                    CONF_TEXT_AI_AGENT, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, CONF_VIDEO_CONSENT, DOMAIN, ECHO_MODES,
+                    MAX_AUTO_VIDEO_DELAY, MAX_CALL_VOLUME, STORAGE_VERSION)
 
 # Mic/loa/camera mặc định, quy tắc người gọi và AI chỉ đặt bằng DỊCH VỤ (set_default_devices, set_rule…), không có ô cài đặt.
 DEFAULTS: dict[str, Any] = {"speaker": "", "mic": "", "mic_url": "", "camera": "", CONF_AUTO_MIC: True,
-                            CONF_AUTO_VIDEO: False, CONF_AUTO_VIDEO_DELAY: 0, CONF_CALL_VOLUME: 0, CONF_ECHO_GUARD: "auto",
+                            CONF_AUTO_VIDEO: False, CONF_VIDEO_CONSENT: False, CONF_AUTO_VIDEO_DELAY: 0, CONF_CALL_VOLUME: 0, CONF_ECHO_GUARD: "auto",
                             CONF_HA_URL: "", RULES_KEY: empty_rules(),
                             CONF_AI_FORMAT: "markdown", CONF_AI_EMPHASIS: "off",
                             CONF_TEXT_AUTO_EMOJI: False, CONF_TEXT_AI_AGENT: "", CONF_TEXT_AI_INLINE: True, CONF_TEXT_AI_SMART: False,
@@ -70,7 +70,7 @@ class DeviceDefaults:
                 self.data[key] = str(patch[key] or "").strip()
         if CONF_HA_URL in patch:
             self.data[CONF_HA_URL] = self.data[CONF_HA_URL].rstrip("/")
-        for key in (CONF_AUTO_MIC, CONF_AUTO_VIDEO, CONF_TEXT_AUTO_EMOJI, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART):
+        for key in (CONF_AUTO_MIC, CONF_AUTO_VIDEO, CONF_VIDEO_CONSENT, CONF_TEXT_AUTO_EMOJI, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART):
             if key in patch:
                 self.data[key] = bool(patch[key])
         for key, (_, options, _) in TEXT_STYLE_KEYS.items():

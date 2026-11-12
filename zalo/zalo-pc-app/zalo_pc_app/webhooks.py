@@ -296,6 +296,16 @@ def build_message_event(msg, account_id):
         "received_at": round(time.time(), 3),
         "is_stranger": bool(msg.get("isStranger", msg.get("is_stranger", False))),
     })
+    # Ma goc cua tin (de HA TRICH DAN khi tra loi, nhu zalo_bot: can message_id + cli_msg_id + uid_from; msg_ts = gio goc ms).
+    raw = msg.get("raw") if isinstance(msg.get("raw"), dict) else {}
+    if raw.get("cliMsgId") not in (None, ""):
+        payload["cli_msg_id"] = str(raw["cliMsgId"])
+    if raw.get("uidFrom") not in (None, ""):
+        payload["uid_from"] = str(raw["uidFrom"])
+    if raw.get("ts") not in (None, ""):
+        payload["msg_ts"] = str(raw["ts"])
+    if raw.get("msgType"):
+        payload["zalo_msg_type"] = str(raw["msgType"])
     if msg.get("contactStatus"):
         payload["contact_status"] = str(msg["contactStatus"])      # group / friend / stranger / unknown (chua tai duoc danh ba)
     if msg.get("kind"):

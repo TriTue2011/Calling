@@ -133,7 +133,8 @@ RULE_FIELDS = {
     "connect": (CONNECT_NAME, CONNECT_HELP),
     "connect_now": CONNECT_NOW,
     "video_request": ("Khi người gọi xin chuyển sang video", "Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng tư): chỉ báo cho "
-                      "automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn đồng ý nếu muốn tự động."),
+                      "automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn đồng ý nếu muốn tự động, nhưng chỉ có tác dụng khi công tắc "
+                      "«Cho phép đồng ý chuyển sang video» trên thiết bị Zalo Call đang BẬT (mặc định TẮT)."),
     "handover_rule": HANDOVER, "pipeline": PIPELINE, "agent": AGENT,
 }
 VIDEO_REQUEST_OPTIONS = [

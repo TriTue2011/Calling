@@ -12,7 +12,7 @@ Có **364 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi,
 - **Quy tắc cho cuộc gọi đến và tin nhắn** (4): [`set_rule`](#set_rule), [`remove_rule`](#remove_rule), [`list_rules`](#list_rules), [`list_contacts`](#list_contacts)
 - **Tin nhắn** (20): [`send_message`](#send_message), [`send_file`](#send_file), [`send_image`](#send_image), [`send_image_to_user`](#send_image_to_user), [`send_images_to_user`](#send_images_to_user), [`send_image_to_group`](#send_image_to_group), [`send_images_to_group`](#send_images_to_group), [`undo_message`](#undo_message), [`send_voice`](#send_voice), [`get_group_chat_history`](#get_group_chat_history), [`add_reaction`](#add_reaction), [`delete_message`](#delete_message), [`forward_message`](#forward_message), [`parse_link`](#parse_link), [`send_card`](#send_card), [`send_link`](#send_link), [`send_video`](#send_video), [`quote_message`](#quote_message), [`mark_seen`](#mark_seen), [`fetch_important`](#fetch_important)
 - **Tài khoản và webhook** (10): [`get_logged_accounts`](#get_logged_accounts), [`get_account_details`](#get_account_details), [`get_account_webhooks`](#get_account_webhooks), [`get_account_webhook`](#get_account_webhook), [`set_account_webhook`](#set_account_webhook), [`delete_account_webhook`](#delete_account_webhook), [`get_proxies`](#get_proxies), [`add_proxy`](#add_proxy), [`remove_proxy`](#remove_proxy), [`get_login_qr`](#get_login_qr)
-- **Hồ sơ và bạn bè** (20): [`find_user`](#find_user), [`get_user_info`](#get_user_info), [`send_friend_request`](#send_friend_request), [`accept_friend_request`](#accept_friend_request), [`block_user`](#block_user), [`unblock_user`](#unblock_user), [`get_all_friends`](#get_all_friends), [`get_sent_friend_requests`](#get_sent_friend_requests), [`undo_friend_request`](#undo_friend_request), [`remove_friend`](#remove_friend), [`change_friend_alias`](#change_friend_alias), [`remove_friend_alias`](#remove_friend_alias), [`get_all_groups`](#get_all_groups), [`update_profile`](#update_profile), [`update_settings`](#update_settings), [`block_view_feed`](#block_view_feed), [`change_account_avatar`](#change_account_avatar), [`get_avatar_list`](#get_avatar_list), [`last_online`](#last_online), [`reject_friend_request`](#reject_friend_request)
+- **Hồ sơ và bạn bè** (21): [`find_user`](#find_user), [`get_user_info`](#get_user_info), [`send_friend_request`](#send_friend_request), [`accept_friend_request`](#accept_friend_request), [`block_user`](#block_user), [`unblock_user`](#unblock_user), [`get_all_friends`](#get_all_friends), [`get_sent_friend_requests`](#get_sent_friend_requests), [`undo_friend_request`](#undo_friend_request), [`remove_friend`](#remove_friend), [`change_friend_alias`](#change_friend_alias), [`remove_friend_alias`](#remove_friend_alias), [`get_all_groups`](#get_all_groups), [`update_profile`](#update_profile), [`update_settings`](#update_settings), [`block_view_feed`](#block_view_feed), [`change_account_avatar`](#change_account_avatar), [`get_avatar_list`](#get_avatar_list), [`last_online`](#last_online), [`reject_friend_request`](#reject_friend_request), [`get_settings`](#get_settings)
 - **Nhóm** (22): [`create_group`](#create_group), [`get_group_info`](#get_group_info), [`add_user_to_group`](#add_user_to_group), [`remove_user_from_group`](#remove_user_from_group), [`change_group_name`](#change_group_name), [`change_group_avatar`](#change_group_avatar), [`add_group_deputy`](#add_group_deputy), [`remove_group_deputy`](#remove_group_deputy), [`change_group_owner`](#change_group_owner), [`disperse_group`](#disperse_group), [`enable_group_link`](#enable_group_link), [`disable_group_link`](#disable_group_link), [`join_group`](#join_group), [`leave_group`](#leave_group), [`create_note_group`](#create_note_group), [`edit_note_group`](#edit_note_group), [`get_list_board`](#get_list_board), [`create_poll`](#create_poll), [`get_poll_detail`](#get_poll_detail), [`lock_poll`](#lock_poll), [`get_group_link`](#get_group_link), [`vote_poll`](#vote_poll)
 - **Sticker** (3): [`send_sticker`](#send_sticker), [`get_stickers`](#get_stickers), [`get_stickers_detail`](#get_stickers_detail)
 - **Nhắc hẹn** (10): [`create_reminder`](#create_reminder), [`remove_reminder`](#remove_reminder), [`edit_reminder`](#edit_reminder), [`get_reminder`](#get_reminder), [`get_list_reminder`](#get_list_reminder), [`get_reminder_responses`](#get_reminder_responses), [`add_quick_message`](#add_quick_message), [`get_quick_message`](#get_quick_message), [`remove_quick_message`](#remove_quick_message), [`update_quick_message`](#update_quick_message)
@@ -22,7 +22,7 @@ Có **364 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi,
 - **Chat (nâng cao)** (26): [`get_block_sharing_conversations`](#get_block_sharing_conversations), [`get_conv_offline_messages`](#get_conv_offline_messages), [`get_direct_message_status`](#get_direct_message_status), [`get_last_seen`](#get_last_seen), [`get_last_seen_reaction`](#get_last_seen_reaction), [`get_recent_search_list`](#get_recent_search_list), [`get_suggested_conversations`](#get_suggested_conversations), [`get_translate_setting`](#get_translate_setting), [`mark_sub_tab_seen`](#mark_sub_tab_seen), [`preload_conversations`](#preload_conversations), [`renew_message_link`](#renew_message_link), [`send_bank_card`](#send_bank_card), [`send_delivered_event`](#send_delivered_event), [`send_report`](#send_report), [`send_seen_event`](#send_seen_event), [`set_pinned_conversations`](#set_pinned_conversations), [`translate_message`](#translate_message), [`translate_message_auto`](#translate_message_auto), [`translate_message_suggest`](#translate_message_suggest), [`undo`](#undo), [`undo_multi_message`](#undo_multi_message), [`update_archived_chat_list`](#update_archived_chat_list), [`update_block_sharing_conversation`](#update_block_sharing_conversation), [`update_pin_conversations`](#update_pin_conversations), [`update_recent_search`](#update_recent_search), [`update_translate_setting`](#update_translate_setting)
 - **Nhóm (nâng cao)** (28): [`add_group_blocked_member`](#add_group_blocked_member), [`analyse_group`](#analyse_group), [`check_quota_community_member`](#check_quota_community_member), [`delete_group_invite_box`](#delete_group_invite_box), [`get_e2ee_group_list`](#get_e2ee_group_list), [`get_extra_group_info`](#get_extra_group_info), [`get_group_blocked_member`](#get_group_blocked_member), [`get_group_cloud_message_jump`](#get_group_cloud_message_jump), [`get_group_cloud_message_path`](#get_group_cloud_message_path), [`get_group_info_v2`](#get_group_info_v2), [`get_group_invite_box_info`](#get_group_invite_box_info), [`get_group_invite_box_list`](#get_group_invite_box_list), [`get_group_link_info`](#get_group_link_info), [`get_group_list_v3`](#get_group_list_v3), [`get_group_members_info`](#get_group_members_info), [`get_group_message_status`](#get_group_message_status), [`get_multi_group_cloud_messages`](#get_multi_group_cloud_messages), [`get_pending_group_members`](#get_pending_group_members), [`get_quota_community`](#get_quota_community), [`get_related_friend_group`](#get_related_friend_group), [`invite_user_to_groups`](#invite_user_to_groups), [`join_group_invite_box`](#join_group_invite_box), [`remove_group_blocked_member`](#remove_group_blocked_member), [`remove_group_topic`](#remove_group_topic), [`remove_user_from_groups`](#remove_user_from_groups), [`review_pending_member_request`](#review_pending_member_request), [`update_group_settings`](#update_group_settings), [`upgrade_group_to_community`](#upgrade_group_to_community)
 - **Bạn bè (nâng cao)** (22): [`clear_unread_friend_requests`](#clear_unread_friend_requests), [`find_user_by_username`](#find_user_by_username), [`get_alias_list`](#get_alias_list), [`get_alias_list_v2`](#get_alias_list_v2), [`get_block_friends`](#get_block_friends), [`get_close_friends`](#get_close_friends), [`get_extra_friend_info`](#get_extra_friend_info), [`get_friend_board_list`](#get_friend_board_list), [`get_friend_onlines`](#get_friend_onlines), [`get_friend_recommendations`](#get_friend_recommendations), [`get_friend_request_status`](#get_friend_request_status), [`get_friends_active_p_c_web`](#get_friends_active_p_c_web), [`get_friends_emoji_status`](#get_friends_emoji_status), [`get_last_read_contact_tab`](#get_last_read_contact_tab), [`get_multi_user_q_r_codes`](#get_multi_user_q_r_codes), [`get_multi_users_by_phones`](#get_multi_users_by_phones), [`get_phonebook_v2`](#get_phonebook_v2), [`read_contact_tab`](#read_contact_tab), [`remove_friend_recommendation`](#remove_friend_recommendation), [`remove_friend_recommendation_v2`](#remove_friend_recommendation_v2), [`update_close_friend`](#update_close_friend), [`verify_friend`](#verify_friend)
-- **Hồ sơ (nâng cao)** (17): [`delete_avatar`](#delete_avatar), [`disable_limit_search_phone_reminder`](#disable_limit_search_phone_reminder), [`fetch_account_info`](#fetch_account_info), [`get_avatar_url_profile`](#get_avatar_url_profile), [`get_emoji_status_config`](#get_emoji_status_config), [`get_enterprise_profiles`](#get_enterprise_profiles), [`get_full_avatar`](#get_full_avatar), [`get_mini_profile`](#get_mini_profile), [`get_profile_extra`](#get_profile_extra), [`get_profile_rank`](#get_profile_rank), [`get_profile_verification_status`](#get_profile_verification_status), [`get_settings`](#get_settings), [`push_profile_verification_message`](#push_profile_verification_message), [`register_trial_biz_account`](#register_trial_biz_account), [`reuse_avatar`](#reuse_avatar), [`update_profile_bio`](#update_profile_bio), [`update_profile_mode`](#update_profile_mode)
+- **Hồ sơ (nâng cao)** (16): [`delete_avatar`](#delete_avatar), [`disable_limit_search_phone_reminder`](#disable_limit_search_phone_reminder), [`fetch_account_info`](#fetch_account_info), [`get_avatar_url_profile`](#get_avatar_url_profile), [`get_emoji_status_config`](#get_emoji_status_config), [`get_enterprise_profiles`](#get_enterprise_profiles), [`get_full_avatar`](#get_full_avatar), [`get_mini_profile`](#get_mini_profile), [`get_profile_extra`](#get_profile_extra), [`get_profile_rank`](#get_profile_rank), [`get_profile_verification_status`](#get_profile_verification_status), [`push_profile_verification_message`](#push_profile_verification_message), [`register_trial_biz_account`](#register_trial_biz_account), [`reuse_avatar`](#reuse_avatar), [`update_profile_bio`](#update_profile_bio), [`update_profile_mode`](#update_profile_mode)
 - **Đồng bộ (nâng cao)** (10): [`cancel_pull_mobile`](#cancel_pull_mobile), [`delete_mobile_msg_snapshot`](#delete_mobile_msg_snapshot), [`download_transfer_sync`](#download_transfer_sync), [`get_backup_msg_info`](#get_backup_msg_info), [`get_cross_db_info`](#get_cross_db_info), [`get_sync_data`](#get_sync_data), [`pull_mobile`](#pull_mobile), [`request_sync_from_phone`](#request_sync_from_phone), [`submit_sync_media_actions`](#submit_sync_media_actions), [`upload_backup_chunk`](#upload_backup_chunk)
 - **Zalo Cloud** (16): [`ack_cloud_onboarding`](#ack_cloud_onboarding), [`get_cloud_download_urls`](#get_cloud_download_urls), [`get_cloud_info`](#get_cloud_info), [`get_cloud_settings`](#get_cloud_settings), [`get_cloud_upload_url`](#get_cloud_upload_url), [`get_cloud_viewer_key`](#get_cloud_viewer_key), [`get_family_profile`](#get_family_profile), [`get_family_usage`](#get_family_usage), [`get_family_viewer_key`](#get_family_viewer_key), [`get_usage_my_cloud`](#get_usage_my_cloud), [`get_usage_z_cloud`](#get_usage_z_cloud), [`migrate_cloud_recent`](#migrate_cloud_recent), [`reset_cloud_queue`](#reset_cloud_queue), [`submit_cloud_media_ext_info`](#submit_cloud_media_ext_info), [`submit_cloud_verify_action`](#submit_cloud_verify_action), [`verify_cloud_media`](#verify_cloud_media)
 - **Cuộc gọi theo thư viện zca-js (nâng cao)** (30): [`add_user_group_call`](#add_user_group_call), [`answer_ack_voice_call`](#answer_ack_voice_call), [`answer_group_call`](#answer_group_call), [`answer_voice_call`](#answer_voice_call), [`broadcast_group_call_state`](#broadcast_group_call_state), [`cancel_group_call`](#cancel_group_call), [`cancel_voice_call`](#cancel_voice_call), [`create_controller`](#create_controller), [`create_rtc_session`](#create_rtc_session), [`end_group_call`](#end_group_call), [`end_voice_call`](#end_voice_call), [`finish_group_call`](#finish_group_call), [`get_group_call_state`](#get_group_call_state), [`hold_voice_call`](#hold_voice_call), [`join_group_call`](#join_group_call), [`log_end_voice_call`](#log_end_voice_call), [`notify_group_call`](#notify_group_call), [`ping_group_call`](#ping_group_call), [`request_audio_to_video_call`](#request_audio_to_video_call), [`request_group_call`](#request_group_call), [`request_share_screen_call`](#request_share_screen_call), [`request_voice_call`](#request_voice_call), [`ring_ring_group_call`](#ring_ring_group_call), [`ring_ring_voice_call`](#ring_ring_voice_call), [`send_request_group_call`](#send_request_group_call), [`send_request_voice_call`](#send_request_voice_call), [`send_voice_call`](#send_voice_call), [`share_screen_group_call`](#share_screen_group_call), [`unhold_voice_call`](#unhold_voice_call), [`update_call_media_state`](#update_call_media_state)
@@ -473,7 +473,8 @@ data:
   mic_url: "..."                 # tuỳ chọn - Mic mặc định từ URL
   camera: "camera.vi_du"         # tuỳ chọn - Camera mặc định
   auto_mic: false                # tuỳ chọn - Tự phát mic khi nghe máy
-  auto_video: false              # tuỳ chọn - Tự đồng ý khi bên kia xin gọi video
+  auto_video: false              # tuỳ chọn - Tự đồng ý khi bên kia xin gọi video (mọi người)
+  video_consent: false           # tuỳ chọn - Cho phép đồng ý chuyển sang video (công tắc tổng)
   echo_guard: "auto"             # tuỳ chọn - Chống vọng
   auto_video_delay: 0            # tuỳ chọn - Chờ trước khi tự đồng ý (giây)
   call_volume: 0                 # tuỳ chọn - Âm lượng cuộc gọi mặc định
@@ -486,7 +487,8 @@ data:
 | `mic_url` | Mic mặc định từ URL | không | rtsp/rtsps/http/https/rtmp, hoặc luồng PCM của loa R1 (thắng ô Mic). |
 | `camera` | Camera mặc định | không | Camera HA phát hình lên cuộc gọi video. |
 | `auto_mic` | Tự phát mic khi nghe máy | không | Bật thì tự phát mic mặc định ngay khi cuộc gọi được nghe máy. |
-| `auto_video` | Tự đồng ý khi bên kia xin gọi video | không | Bật thì khi bên kia xin chuyển sang video sẽ tự đồng ý và phát camera mặc định. |
+| `auto_video` | Tự đồng ý khi bên kia xin gọi video (mọi người) | không | Bật thì khi BẤT KỲ AI xin chuyển sang video app cũng tự đồng ý và phát camera mặc định, không xét quy tắc từng người. Nên TẮT và dùng công tắc «Cho phép đồng ý chuyển sang video» cùng quy tắc từng người (video_request) để chỉ người được phép mới tự đồng ý. |
+| `video_consent` | Cho phép đồng ý chuyển sang video (công tắc tổng) | không | Công tắc tổng, mặc định TẮT. Bật thì quy tắc video_request (accept, accept_camera) của từng người/nhóm mới được tự đồng ý khi họ xin chuyển sang video; tắt thì mọi người chỉ bị báo. Cũng là công tắc «Cho phép đồng ý chuyển sang video» trên thiết bị Zalo Call. |
 | `echo_guard` | Chống vọng | không | auto = chỉ chặn mic khi mic và loa là cùng một thiết bị (ví dụ R1); on = luôn chặn mic khi loa đang phát tiếng bên kia; duplex = song công, nói chen được (loa R1 dùng khử vọng của nó); off = tắt. |
 | `auto_video_delay` | Chờ trước khi tự đồng ý (giây) | không | Số giây chờ rồi mới tự đồng ý lời xin chuyển sang video (0 = đồng ý ngay; chỉ áp dụng khi cuộc gọi còn đang nói). |
 | `call_volume` | Âm lượng cuộc gọi mặc định | không | 1-100 % — âm lượng loa đặt khi nghe máy rồi trả lại khi cuộc gọi kết thúc; 0 = giữ nguyên âm lượng loa. |
@@ -540,6 +542,10 @@ data:
   trusted: false                     # tuỳ chọn - Người tin cậy
   reply_ai: false                    # tuỳ chọn - AI trả lời tin nhắn
   voice_text: false                  # tuỳ chọn - Chuyển tin thoại thành chữ
+  reply_trigger: "..."               # tuỳ chọn - Từ khóa gọi AI trong nhóm
+  reply_senders: "..."               # tuỳ chọn - Người được gọi AI trong nhóm
+  reply_quote: false                 # tuỳ chọn - Trả lời kèm trích dẫn tin gốc
+  reply_prefix: "..."                # tuỳ chọn - Tiền tố câu trả lời
   announce: false                    # tuỳ chọn - Báo ra loa khi có cuộc gọi đến
   announce_to: "media_player.vi_du"  # tuỳ chọn - Loa dùng để báo
   announce_text: "..."               # tuỳ chọn - Câu báo ra loa
@@ -572,13 +578,17 @@ data:
 | `trusted` | Người tin cậy | không | Tin cậy thì AI nói chuyện bình thường. Không tin cậy (mặc định) thì AI được dặn không tiết lộ thông tin gia đình và không điều khiển thiết bị. |
 | `reply_ai` | AI trả lời tin nhắn | không | AI trả lời tin chữ (và tin thoại nếu bật chuyển tin thoại thành chữ) của người hoặc nhóm này. Cần chọn Trợ lý giọng nói hoặc Trợ lý AI riêng. |
 | `voice_text` | Chuyển tin thoại thành chữ | không | Tin thoại 1-1 được Zalo chuyển thành chữ, và Home Assistant bắn sự kiện zalo_call_voice_text. |
+| `reply_trigger` | Từ khóa gọi AI trong nhóm | không | Chỉ áp cho NHÓM. Tin có từ này (không phân biệt hoa thường, ví dụ `@Bot`) mới được AI trả lời; từ khóa được bỏ khỏi câu hỏi. Để trống = AI trả lời mọi tin của nhóm. |
+| `reply_senders` | Người được gọi AI trong nhóm | không | Chỉ áp cho NHÓM. Mã Zalo (threadID) của những người được phép gọi AI, cách nhau dấu phẩy. Để trống = mọi thành viên. Dán mã dài 19 chữ số hay mã số ngắn đều được. |
+| `reply_quote` | Trả lời kèm trích dẫn tin gốc | không | Câu trả lời của AI trích dẫn đúng tin vừa hỏi (như zalo_bot). Chỉ với tin chữ; không trích được thì gửi tin thường. |
+| `reply_prefix` | Tiền tố câu trả lời | không | Chữ thêm vào đầu câu trả lời của AI, ví dụ `Bot-Hass:`. |
 | `announce` | Báo ra loa khi có cuộc gọi đến | không | Bật thì khi người này gọi đến, một loa trong nhà đọc «Có cuộc gọi ... từ ...» để người trong nhà biết (kể cả khi không tự nghe máy). Mặc định TẮT. |
 | `announce_to` | Loa dùng để báo | không | Loa đọc thông báo cuộc gọi đến (bắt buộc khi bật báo ra loa). Giọng đọc lấy từ Trợ lý giọng nói của quy tắc. |
 | `announce_text` | Câu báo ra loa | không | Có thể dùng {ten} (tên người gọi) và {loai} (thoại hoặc video). Bỏ trống = «Có cuộc gọi {loai} từ {ten}.» |
 | `announce_volume` | Âm lượng lúc báo (%) | không | Âm lượng của loa khi đọc thông báo có cuộc gọi đến. 0 = giữ nguyên. Không ai nghe máy thì loa trở về mức cũ; có người nghe thì cuộc gọi tự đặt âm lượng của nó. Loa R1 có 15 mức: 6/15 là 40%. |
 | `announce_repeat` | Báo lại sau mỗi (giây) | không | Đọc xong thông báo thì chờ chừng này giây rồi đọc lại, cứ thế tới khi có người nghe máy hoặc cuộc gọi kết thúc. 0 = chỉ báo một lần. |
 | `connect_now` | Thiết bị nhà dùng NGAY khi người nhận nghe máy | không | Tích ô nào thì thứ đó bật ngay khi người nhận nghe máy, không chờ người nhà nói trực tiếp (ví dụ tích Camera để người nhận thấy hình trong nhà ngay, còn Mic và Loa chỉ bật khi người nhà nói). Tích Camera = cuộc gọi VIDEO. Không tích gì = chưa bật gì (mặc định). Chỉ bật được thiết bị đã chọn ở các ô Loa, Mic, Camera. |
-| `video_request` | Khi người gọi xin chuyển sang video | không | Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng tư): chỉ báo cho automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn đồng ý nếu muốn tự động. |
+| `video_request` | Khi người gọi xin chuyển sang video | không | Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng tư): chỉ báo cho automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn đồng ý nếu muốn tự động, nhưng chỉ có tác dụng khi công tắc «Cho phép đồng ý chuyển sang video» trên thiết bị Zalo Call đang BẬT (mặc định TẮT). |
 | `connect` | Thiết bị nhà dùng khi người nhà nói trực tiếp | không | Tích ô nào thì dùng thứ đó: tích 1 = dùng 1, tích 2 = dùng 2, tích 3 = dùng cả 3. Không tích gì = không dùng thiết bị nào (mặc định, người lạ không nghe hay thấy được trong nhà). Tích Camera = cuộc gọi VIDEO. «AI tự chọn» = AI quyết dùng mic và loa hay thêm cả camera, chỉ trong các ô đã tích. Chỉ dùng được thiết bị đã chọn ở các ô Loa, Mic, Camera bên dưới. Thiết bị chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật. |
 | `speaker` | Loa trong nhà | không | Loa phát tiếng người gọi khi người nhà nói trực tiếp. |
 | `mic` | Mic trong nhà | không | Camera hoặc vệ tinh Assist có mic, gửi tiếng trong nhà cho người gọi khi người nhà nói trực tiếp. |
@@ -688,6 +698,7 @@ data:
   thread_id: "5841349563795164131"    # bắt buộc - Mã hội thoại (threadId)
   type: "user"                        # tuỳ chọn - Loại hội thoại
   message: "Hello từ Home Assistant"  # bắt buộc - Nội dung tin nhắn
+  mentions: {}                        # tuỳ chọn - Nhắc người trong NHÓM (chỉ áp dụng khi gửi vào nhóm): danh s
   format: "plain"                     # tuỳ chọn - Định dạng chữ: plain (mặc định) hoặc markdown — **đậm**, *ng
   auto_emphasis: "red"                # tuỳ chọn - Tự nhấn mạnh con số (29°C, 75%, 15:30) và chữ đậm bằng màu: 
   emoji: "ok"                         # tuỳ chọn - Emoji chèn vào đầu tin: chọn trong bảng hoặc gõ emoji bất kỳ
@@ -708,6 +719,7 @@ data:
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
 | `message` | Nội dung tin nhắn | có | Nội dung tin nhắn |
+| `mentions` | Nhắc người trong NHÓM (chỉ áp dụng khi gửi vào nhóm): danh sách, mỗi mục {uid, name} (tìm «@name» trong tin) hoặc {uid, pos, len}; uid -1 = @Tất cả. Ví dụ: [{"uid": "123456", "name": "Nam"}] với tin «Chào @Nam» | không | Nhắc người trong NHÓM (chỉ áp dụng khi gửi vào nhóm): danh sách, mỗi mục {uid, name} (tìm «@name» trong tin) hoặc {uid, pos, len}; uid -1 = @Tất cả. Ví dụ: [{"uid": "123456", "name": "Nam"}] với tin «Chào @Nam» |
 | `format` | Định dạng chữ: plain (mặc định) hoặc markdown — **đậm**, *nghiêng*, __gạch chân__, ~~gạch ngang~~, # tiêu đề (to + đậm), - mục / 1. mục (danh sách), {red}chữ đỏ{/} {orange} {yellow} {green} (hoặc {đỏ} {cam} {vàng} {xanh}), {big}..{/} {small}..{/} | không | Định dạng chữ: plain (mặc định) hoặc markdown — **đậm**, *nghiêng*, __gạch chân__, ~~gạch ngang~~, # tiêu đề (to + đậm), - mục / 1. mục (danh sách), {red}chữ đỏ{/} {orange} {yellow} {green} (hoặc {đỏ} {cam} {vàng} {xanh}), {big}..{/} {small}..{/} |
 | `auto_emphasis` | Tự nhấn mạnh con số (29°C, 75%, 15:30) và chữ đậm bằng màu: red, orange, yellow, green (hoặc đỏ, cam, vàng, xanh) hoặc true = đỏ. Để trống = tắt | không | Tự nhấn mạnh con số (29°C, 75%, 15:30) và chữ đậm bằng màu: red, orange, yellow, green (hoặc đỏ, cam, vàng, xanh) hoặc true = đỏ. Để trống = tắt |
 | `emoji` | Emoji chèn vào đầu tin: chọn trong bảng hoặc gõ emoji bất kỳ (🎉). Mã :ten: trong chữ (ví dụ :ok:) cũng được đổi thành emoji | không | Emoji chèn vào đầu tin: chọn trong bảng hoặc gõ emoji bất kỳ (🎉). Mã :ten: trong chữ (ví dụ :ok:) cũng được đổi thành emoji |
@@ -1262,14 +1274,16 @@ Chuyển tiếp một tin nhắn
 ```yaml
 action: zalo_call.forward_message
 data:
-  message: "..."          # tuỳ chọn - Nội dung tin
+  message: "..."          # bắt buộc - Nội dung chữ cần chuyển tiếp
+  ttl: 0                  # tuỳ chọn - TTL (ms, 0 = không tự xóa)
   dest_thread_ids: "..."  # bắt buộc - Thread đích (cách nhau bằng dấu phẩy)
   type: "user"            # tuỳ chọn - Loại thread đích (user/group)
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
 |---|---|---|---|
-| `message` | Nội dung tin | không | Nội dung tin nhắn gốc (mã hóa) |
+| `message` | Nội dung chữ cần chuyển tiếp | có | Nội dung tin nhắn gốc (mã hóa) |
+| `ttl` | TTL (ms, 0 = không tự xóa) | không | Thời gian tự hủy (milliseconds) |
 | `dest_thread_ids` | Thread đích (cách nhau bằng dấu phẩy) | có | Thread đích (cách nhau bằng dấu phẩy) |
 | `type` | Loại thread đích (user/group) | không | Loại cuộc trò chuyện nhận tin nhắn |
 
@@ -1663,12 +1677,12 @@ Lấy thông tin user
 ```yaml
 action: zalo_call.get_user_info
 data:
-  user_id: ""  # bắt buộc - UserId
+  user_id: ""  # bắt buộc - UserId (nhiều id cách nhau bằng dấu phẩy)
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
 |---|---|---|---|
-| `user_id` | UserId | có | User ID |
+| `user_id` | UserId (nhiều id cách nhau bằng dấu phẩy) | có | User ID |
 
 ---
 
@@ -1908,23 +1922,23 @@ Cập nhật cài đặt riêng tư
 ```yaml
 action: zalo_call.update_settings
 data:
-  setting_type: "online_status"  # bắt buộc - Loại (online_status/seen_status/receive_message/phone_search
-  status: 1                      # bắt buộc - Trạng thái (1=bật, 0=tắt)
+  setting_type: "online_status"  # bắt buộc - Tên cài đặt (vd show_online_status, display_seen_status, rec
+  status: 1                      # bắt buộc - Giá trị (1=bật, 0=tắt)
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
 |---|---|---|---|
-| `setting_type` | Loại (online_status/seen_status/receive_message/phone_search) | có | Loại cài đặt |
-| `status` | Trạng thái (1=bật, 0=tắt) | có | Trạng thái |
+| `setting_type` | Tên cài đặt (vd show_online_status, display_seen_status, receive_message...) | có | Loại cài đặt |
+| `status` | Giá trị (1=bật, 0=tắt) | có | Trạng thái |
 
 **Các lựa chọn:**
 
-- **Loại (online_status/seen_status/receive_message/phone_search)** (`setting_type`)
+- **Tên cài đặt (vd show_online_status, display_seen_status, receive_message...)** (`setting_type`)
   - `online_status`: cài đặt hiện trạng thái đang hoạt động
   - `seen_status`: cài đặt hiện «đã xem» tin nhắn
   - `receive_message`: cài đặt ai được nhắn tin cho mình
   - `phone_search`: cài đặt cho người khác tìm mình bằng số điện thoại
-- **Trạng thái (1=bật, 0=tắt)** (`status`)
+- **Giá trị (1=bật, 0=tắt)** (`status`)
   - `1`: bật
   - `0`: tắt
 
@@ -2026,6 +2040,19 @@ data:
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
 |---|---|---|---|
 | `user_id` | UserId | có | User ID |
+
+---
+
+<a id="get_settings"></a>
+#### Xem cài đặt riêng tư — `zalo_call.get_settings`
+
+Xem cài đặt riêng tư
+
+**Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
+
+```yaml
+action: zalo_call.get_settings
+```
 
 ---
 
@@ -2529,6 +2556,10 @@ data:
   question: "Chọn thời gian họp?"   # bắt buộc - Câu hỏi
   options: "Thứ 2,Thứ 3,Thứ 4"      # bắt buộc - Lựa chọn (cách nhau bằng dấu phẩy)
   allow_multi_choices: false        # tuỳ chọn - Cho chọn nhiều (true/false)
+  allow_add_new_option: "..."       # tuỳ chọn - Cho thêm lựa chọn mới (mặc định true)
+  is_anonymous: "..."               # tuỳ chọn - Bình chọn ẩn danh (true/false)
+  hide_vote_preview: "..."          # tuỳ chọn - Ẩn kết quả khi chưa bình chọn (true/false)
+  expired_time: "..."               # tuỳ chọn - Hạn chót (ms epoch, 0 = không hết hạn)
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -2538,6 +2569,10 @@ data:
 | `question` | Câu hỏi | có | Câu hỏi bình chọn |
 | `options` | Lựa chọn (cách nhau bằng dấu phẩy) | có | Các lựa chọn (phân cách bởi dấu phẩy) |
 | `allow_multi_choices` | Cho chọn nhiều (true/false) | không | Cho phép chọn nhiều lựa chọn |
+| `allow_add_new_option` | Cho thêm lựa chọn mới (mặc định true) | không | Cho thêm lựa chọn mới (mặc định true) |
+| `is_anonymous` | Bình chọn ẩn danh (true/false) | không | Bình chọn ẩn danh (true/false) |
+| `hide_vote_preview` | Ẩn kết quả khi chưa bình chọn (true/false) | không | Ẩn kết quả khi chưa bình chọn (true/false) |
+| `expired_time` | Hạn chót (ms epoch, 0 = không hết hạn) | không | Hạn chót (ms epoch, 0 = không hết hạn) |
 
 **Các lựa chọn:**
 
@@ -3351,22 +3386,14 @@ Gắn nhãn cho hội thoại
 ```yaml
 action: zalo_call.update_label
 data:
-  thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
-  type: "user"                      # tuỳ chọn - Loại hội thoại
-  label_ids: "..."                  # bắt buộc - ID nhãn (cách nhau bằng dấu phẩy)
+  label_data: "..."  # bắt buộc - Danh sách nhãn (JSON) đã sửa, lấy từ get_labels
+  version: "..."     # bắt buộc - Version của danh sách nhãn
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
 |---|---|---|---|
-| `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
-| `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
-| `label_ids` | ID nhãn (cách nhau bằng dấu phẩy) | có | ID nhãn (cách nhau bằng dấu phẩy) |
-
-**Các lựa chọn:**
-
-- **Loại hội thoại** (`type`)
-  - `user`: trò chuyện 1-1 với một người
-  - `group`: nhóm
+| `label_data` | Danh sách nhãn (JSON) đã sửa, lấy từ get_labels | có | Danh sách nhãn (JSON) đã sửa, lấy từ get_labels |
+| `version` | Version của danh sách nhãn | có | Version của danh sách nhãn |
 
 ---
 
@@ -5508,19 +5535,6 @@ getProfileVerificationStatus — Kiểm tra trạng thái xác thực định da
 
 ```yaml
 action: zalo_call.get_profile_verification_status
-```
-
----
-
-<a id="get_settings"></a>
-#### getSettings — `zalo_call.get_settings`
-
-getSettings — Lấy toàn bộ cấu hình quyền riêng tư và cài đặt của tài khoản hiện tại. (chưa tự động: khong dung dich vu Zalo qua serviceMap (xu ly cuc bo/dac biet))
-
-**Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
-
-```yaml
-action: zalo_call.get_settings
 ```
 
 ---

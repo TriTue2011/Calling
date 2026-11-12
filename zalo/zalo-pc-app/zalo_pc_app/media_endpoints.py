@@ -1291,7 +1291,8 @@ class MediaEndpoints:
                  encode_frame=None, decode_frame=None,
                  selection_timeout=5.0, transport_factory=None,
                  on_first_media=None, advertise_srtp_key=False,
-                 extend_profile="pc", is_caller=True):
+                 extend_profile="pc", is_caller=True, on_init_sent=None,
+                 hold_media=False):
         """Media fields for one outgoing call's request step (11301).
 
         `is_caller=False` khi NGHE MÁY cuộc gọi đến: InitZRTP gửi lệnh 12 (callee) thay vì 11 (caller) và gói P2P mang role 1. Engine
@@ -1535,6 +1536,16 @@ class MediaEndpoints:
         if on_first_media is not None:
             try:
                 transport.on_first_media = on_first_media
+            except Exception:  # noqa: BLE001 - hook is optional
+                pass
+        if hold_media:
+            try:
+                transport.hold_media = True     # dat TRUOC transport.start(): khong goi tieng nao lot ra truoc khi 11303 co ket qua
+            except Exception:  # noqa: BLE001 - optional
+                pass
+        if on_init_sent is not None:
+            try:
+                transport.on_init_sent = on_init_sent
             except Exception:  # noqa: BLE001 - hook is optional
                 pass
 

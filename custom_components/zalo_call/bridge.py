@@ -25,6 +25,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .api import ZaloCallApi, ZaloCallError
+from . import echo_policy
 from .bridge_core import (PushPolicy, audio_out_url, dahua_mic_url, device_of_url, echo_guard_on,
                           entity_of_label, explicit_off, host_of, intercom_url,
                           localize_url, mic_format_for_url, pick_devices, r1_mic_url,
@@ -190,14 +191,15 @@ class CallAudioBridge:
                 "speaker_url": spk_url, "echo_guard": "true" if echo else "false"}
 
     # -- app -----------------------------------------------------------------
-    async def async_call_fields(self, override: dict[str, Any] | None) -> dict[str, str]:
+    async def async_call_fields(self, override: dict[str, Any] | None, echo_mode: str | None = None) -> dict[str, str]:
         """Truong thiet bi dinh kem make_call/answer_call (mic_url, mic_format, camera_url).
 
         Khong ghi de: dung ban phan giai cua mac dinh. Ghi de co gia tri: dung gia
         tri do. Ghi de RONG cho nhom do (mic / camera) va khong con nguon nao: gui
         "off" de app TAT thiet bi do cho rieng cuoc goi nay."""
         devices = self.devices_for(override)
-        res = await self.async_resolve(devices, str(self.defaults.get("echo_guard") or "auto"))
+        # Chống vọng của QUY TẮC (echo_mode) thắng; auto/trống thì theo mặc định thiết bị (xem echo_policy.py).
+        res = await self.async_resolve(devices, echo_policy.effective(echo_mode, self.defaults.get("echo_guard")))
         out: dict[str, str] = {}
         for field, keys in (("mic_url", ("mic", "mic_url")), ("camera_url", ("camera",)),
                             ("speaker_url", ("speaker",))):
