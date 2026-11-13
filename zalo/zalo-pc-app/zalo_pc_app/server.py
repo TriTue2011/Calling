@@ -89,6 +89,7 @@ from . import VERSION as _PKG_VERSION
 from . import app_auth
 from . import call_audio as call_audio_mod
 from . import account_health
+from . import privacy as privacy_mod
 from . import call_errors
 from . import call_log
 from . import chat as chat_mod
@@ -1698,6 +1699,9 @@ class AppState:
         # Nhat ky suc khoe tai khoan (account_health.py): khoi dong / dang nhap / mo kenh / phien ket thuc + ly do.
         self.health = account_health.HealthLog(os.path.join(data_dir, "health.jsonl"))
         self.health.record("start", VERSION)
+        # Ma PIN rieng tu (privacy.py): TAT neu khong dat ZALO_PC_APP_PIN / ZALO_PC_APP_PIN_HASH. Dat sai dinh dang thi ne loi luc khoi dong
+        # (khong am tham tat mot tinh nang bao mat).
+        self.privacy = privacy_mod.PrivacyGate.from_env()
         # Con tro sync tren dia (cursor_store.py) + ban ghi tin ben
         # (message_store.py) — webhook missing pieces: con tro poll
         # luu xuong dia sau moi batch (restart van poll tiep tu cho
@@ -3749,13 +3753,16 @@ class Handler(BaseHTTPRequestHandler):
         refuses to serve, so production never takes this path."""
         if STATE.auth is None:
             return ""
+        return STATE.auth.validate_token(self._app_token())
+
+    def _app_token(self):
+        """Token phien app trong cookie cua yeu cau ("" neu khong co)."""
         cookies = {}
         for part in (self.headers.get("Cookie") or "").split(";"):
             if "=" in part:
                 name, value = part.strip().split("=", 1)
                 cookies[name.strip()] = value.strip()
-        return STATE.auth.validate_token(
-            cookies.get(app_auth.COOKIE_NAME, ""))
+        return cookies.get(app_auth.COOKIE_NAME, "")
 
     def _require_app_login(self):
         """Username when the request carries a valid app session;
@@ -3767,7 +3774,26 @@ class Handler(BaseHTTPRequestHandler):
         if STATE.auth is None:
             return ""
         user = self._app_user()
-        return user if user else None
+        if not user:
+            return None
+        # Ma PIN rieng tu: MAC DINH CHAN. Phien chua mo khoa chi vao duoc danh sach cho phep; moi duong /api/* khac (lich su, cap nhat, SSE,
+        # tai tep, cong /api/svc...) deu di qua day nen khong co duong nao bi sot. Handler.handle_one_request doi ngoai le nay thanh HTTP 423.
+        gate = getattr(STATE, "privacy", None)
+        if gate is not None and gate.enabled:
+            path = self.path.split("?", 1)[0]
+            if not gate.allowed(path) and not gate.is_unlocked(self._app_token()):
+                raise privacy_mod.PrivacyLocked(path)
+        return user
+
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except privacy_mod.PrivacyLocked:
+            try:
+                self._send_json({"error": "privacy_locked"}, status=423)
+                self.wfile.flush()
+            except OSError:
+                pass
 
     def _unauthorized(self):
         return self._send_json({"error": "chua_dang_nhap_app"},
@@ -4092,6 +4118,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"error": "not_found"},
                                        status=404)
             return self._serve_static_file(resolved, "font/woff2")
+        if path == "/api/privacy/status":
+            if not self._app_user():
+                return self._unauthorized()
+            return self._send_json(STATE.privacy.status(self._app_token()))
         if path == "/api/app/status":
             # Public: the login page uses it to redirect when the
             # session is already valid. Never leaks anything else.
@@ -4798,6 +4828,19 @@ class Handler(BaseHTTPRequestHandler):
             body = {}
         else:
             body = self._read_json()
+        if path in ("/api/privacy/unlock", "/api/privacy/lock"):
+            if not self._app_user():
+                return self._unauthorized()
+            token = self._app_token()
+            if path.endswith("/lock"):
+                STATE.privacy.lock(token)
+                return self._send_json({"ok": True, **STATE.privacy.status(token)})
+            ok, why = STATE.privacy.unlock(token, body.get("pin"), self.client_address[0])
+            if ok:
+                STATE.health.record("note", "privacy_unlocked")
+                return self._send_json({"ok": True, **STATE.privacy.status(token)})
+            code = 429 if why == "qua_nhieu_lan_sai" else 400 if why == "chua_bat" else 401
+            return self._send_json({"error": why}, status=code)
         if path == "/api/app/login":
             # Public. One generic failure for a wrong user OR a wrong
             # password — never say which one exists.

@@ -66,11 +66,38 @@ document.querySelectorAll("[data-i]").forEach((n) => n.replaceWith(svg(n.dataset
 async function api(path, method, body) {
   const r = await fetch(path, { method: method || "GET", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
   if (r.status === 401) { location.href = "/login"; throw new Error("chua_dang_nhap_app"); }
+  if (r.status === 423) { showPrivacyLock(); throw new Error("privacy_locked"); }
   try { return await r.json(); } catch (e) { return { error: "HTTP " + r.status }; }
+}
+// ---- mã PIN riêng tư (chỉ hiện khi máy chủ bật ZALO_PC_APP_PIN / _HASH) ------------------------------------------------------------
+function showPrivacyLock() {
+  if (document.getElementById("privacy-lock")) return;
+  const msg = h("div", { style: "min-height:1.2em;margin:.6rem 0;color:#f87171" });
+  const pin = h("input", { type: "password", inputmode: "numeric", autocomplete: "off", placeholder: "Nhập mã PIN",
+    style: "width:100%;padding:.7rem;border-radius:.5rem;border:1px solid #475569;background:#0f172a;color:#e2e8f0;font-size:1.1rem;text-align:center" });
+  const go = async () => {
+    msg.textContent = "";
+    const r = await fetch("/api/privacy/unlock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: pin.value }) });
+    if (r.status === 401 && (await r.clone().json().catch(() => ({}))).error === "chua_dang_nhap_app") { location.href = "/login"; return; }
+    if (r.ok) { location.reload(); return; }
+    const e = (await r.json().catch(() => ({}))).error;
+    msg.textContent = e === "qua_nhieu_lan_sai" ? "Nhập sai quá nhiều lần, thử lại sau 15 phút." : "Sai mã PIN.";
+    pin.value = ""; pin.focus();
+  };
+  pin.addEventListener("keydown", (ev) => { if (ev.key === "Enter") go(); });
+  const box = h("div", { style: "background:#1e293b;color:#e2e8f0;padding:2rem;border-radius:1rem;width:min(22rem,90vw);text-align:center;box-shadow:0 10px 40px #0008" },
+    h("div", { style: "font-size:2rem" }, "🔒"), h("h2", { style: "margin:.5rem 0" }, "Màn hình riêng tư"),
+    h("p", { style: "opacity:.75;margin:0 0 1rem" }, "Nhập mã PIN để xem tin nhắn."), pin, msg,
+    h("button", { class: "btn primary", type: "button", style: "width:100%", onclick: go }, "Mở khoá"));
+  document.body.append(h("div", { id: "privacy-lock", style: "position:fixed;inset:0;z-index:99999;background:#020617f2;display:flex;align-items:center;justify-content:center" }, box));
+  pin.focus();
+}
+async function privacyInit() {
+  try { const r = await fetch("/api/privacy/status"); if (r.ok) { const st = await r.json(); S.privacy = st; if (st.enabled && !st.unlocked) showPrivacyLock(); } } catch (e) { /* khong co mang: bo qua */ }
 }
 async function apiForm(path, form, ms) {
   const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), ms || 90000);
-  try { const r = await fetch(path, { method: "POST", body: form, signal: ctrl.signal }); try { return await r.json(); } catch (e) { return { error: "HTTP " + r.status }; } }
+  try { const r = await fetch(path, { method: "POST", body: form, signal: ctrl.signal }); if (r.status === 423) { showPrivacyLock(); throw new Error("privacy_locked"); } try { return await r.json(); } catch (e) { return { error: "HTTP " + r.status }; } }
   catch (e) { if (e && e.name === "AbortError") return { error: "Hết thời gian chờ — máy chủ không trả lời." }; throw e; }
   finally { clearTimeout(t); }
 }
@@ -1045,6 +1072,7 @@ async function setSecurity() {
     h("div", { class: "field-row", style: "margin-top:.75rem;flex-wrap:wrap" },
       h("button", { class: "btn", type: "button", onclick: async () => { const r = await api("/api/security", "POST", { action: "revoke_others" }); toast("Đã đăng xuất " + (r.revoked || 0) + " thiết bị khác"); renderSettings("set-security"); } }, "Đăng xuất thiết bị khác"),
       h("button", { class: "btn", type: "button", onclick: async () => { await api("/api/security", "POST", { action: "revoke_all" }); location.href = "/login"; } }, "Đăng xuất mọi thiết bị"),
+      (S.privacy && S.privacy.enabled ? h("button", { class: "btn", type: "button", onclick: async () => { await fetch("/api/privacy/lock", { method: "POST" }); location.reload(); } }, "🔒 Khoá màn hình") : null),
       h("button", { class: "btn danger", type: "button", onclick: async () => { if (confirm("Đăng xuất Zalo? Phải quét lại QR để vào lại.")) { await api("/api/logout", "POST"); location.reload(); } } }, "Đăng xuất Zalo (xoá phiên QR)")));
 }
 
@@ -1176,5 +1204,5 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
 });
 try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
-applyScale(); setTab("chats"); updateSendButtons(); boot();
+applyScale(); setTab("chats"); updateSendButtons(); privacyInit(); boot();
 })();
