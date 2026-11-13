@@ -26,7 +26,7 @@ from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .api import ZaloCallApi, ZaloCallError
 from . import echo_policy
-from .bridge_core import (PushPolicy, audio_out_url, candidates, dahua_mic_url, device_of_url, echo_guard_on,
+from .bridge_core import (PushPolicy, audio_out_url, candidates, dahua_mic_url, device_of_url, echo_guard_on, speaker_kind,
                           entity_of_label, explicit_off, host_of, intercom_url,
                           localize_url, mic_format_for_url, pick_devices, r1_mic_url,
                           valid_url)
@@ -165,7 +165,7 @@ class CallAudioBridge:
         if not key or not base:
             _LOGGER.warning("Loa %s chua co khoa bo dam hoac HA chua co dia chi noi bo", entity_id)
             return ""
-        kind = "duplex" if (mode == "duplex" and cfg.domain == "r1_speaker") else "intercom"
+        kind = speaker_kind(mode, cfg.domain)
         return intercom_url(base, cfg.domain, cfg.entry_id, key, kind)
 
     def _same_device(self, speaker_id: str, mic_id: str, mic_url: str, sink_url: str) -> bool:
@@ -227,7 +227,7 @@ class CallAudioBridge:
                     spk_id, spk_url = entity_of_label(cand), sink
                     break
         mic_id = entity_of_label(mic_label)
-        echo = echo_guard_on(echo_mode, self._same_device(spk_id, mic_id, mic_url, spk_url)) \
+        echo = echo_guard_on(echo_mode, self._same_device(spk_id, mic_id, mic_url, spk_url), spk_url) \
             if spk_url else False
         return {"mic_url": mic_url, "mic_format": mic_fmt, "camera_url": cam_url,
                 "speaker_url": spk_url, "echo_guard": "true" if echo else "false"}

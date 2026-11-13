@@ -165,12 +165,24 @@ def device_of_url(url: str) -> tuple[str, str] | None:
     return (m.group(1), m.group(2)) if m else None
 
 
-def echo_guard_on(mode: str, same_device: bool) -> bool:
+def speaker_kind(mode: str, domain: str) -> str:
+    """Duong day tieng vao loa: «duplex» khi che do duplex, HOAC che do auto voi loa R1 (13/11/2026: nua cong chan 39% khung mic nha khi dien thoai noi,
+    nghe «tam tit»; phien song cong cua R1 co khu vong phan mem + loc giong nguoi — song_cong.py — nen mic van mo nhu mot chiec dien thoai).
+    Ep nua cong cho R1: dat echo_guard = on trong quy tac/mac dinh. Loa khac (camera Imou/Dahua): luon bo dam nua cong."""
+    if domain != "r1_speaker":
+        return "intercom"
+    return "duplex" if mode in ("duplex", "auto") else "intercom"
+
+
+def echo_guard_on(mode: str, same_device: bool, speaker_url: str = "") -> bool:
     """App co chan mic khi loa phat khong: on = luon; off va duplex = khong (duplex de loa R1 tu
-    khu vong, mic van mo); auto = chi khi mic va loa cung mot thiet bi."""
+    khu vong, mic van mo); auto = chi khi mic va loa cung mot thiet bi VA loa khong dung phien
+    song cong cua R1 (phien song cong tu khu vong nen khong chan mic)."""
     if mode == "on":
         return True
     if mode in ("off", "duplex"):
+        return False
+    if "/duplex/" in (speaker_url or ""):
         return False
     return bool(same_device)
 

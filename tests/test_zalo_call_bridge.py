@@ -136,10 +136,14 @@ def test_speaker_sink_resolution_and_echo_auto():
         r1.data = {"intercom_key": "KHOA", "intercom_key_x": 1}
         H["entries"]["r1entry"].data = {"intercom_key": "KHOA"}
         url = await br.async_speaker_sink("media_player.r1_loa")
-        assert url == "http://ha.lan:8123/api/r1_speaker/intercom/r1entry?k=KHOA"
-        # Loa va mic cung tich hop R1 -> auto bat chong vong; loa camera + mic camera khac thiet bi -> tat.
+        # 13/11/2026: loa R1 + che do auto -> phien SONG CONG (mic van mo, khu vong phan mem cua R1); nua cong chi khi dat echo_guard = on.
+        assert url == "http://ha.lan:8123/api/r1_speaker/duplex/r1entry?k=KHOA"
+        assert await br.async_speaker_sink("media_player.r1_loa", "on") == "http://ha.lan:8123/api/r1_speaker/intercom/r1entry?k=KHOA"
+        # Loa va mic cung tich hop R1: auto -> song cong, KHONG chan mic; on -> cua bo dam nua cong + chan mic.
         res = await br.async_resolve(br.devices_for(), "auto")
-        assert res["speaker_url"] == url and res["echo_guard"] == "true"
+        assert res["speaker_url"] == url and res["echo_guard"] == "false"
+        res_on = await br.async_resolve(br.devices_for(), "on")
+        assert "/intercom/" in res_on["speaker_url"] and res_on["echo_guard"] == "true"
         assert (await br.async_resolve(br.devices_for(), "off"))["echo_guard"] == "false"
         # Mic khac thiet bi (camera) -> auto KHONG bat.
         _ent("go2rtc", "camera.cam1", "gcfg")
@@ -148,7 +152,8 @@ def test_speaker_sink_resolution_and_echo_auto():
             br.devices_for({"mic": "camera.cam1"}), "on"))["echo_guard"] == "true"
         # Mic bang URL luong R1 cung entry voi cua bo dam -> cung thiet bi.
         d = br.devices_for({"mic": "", "mic_url": "http://ha/api/r1_speaker/mic/r1entry?k=x"})
-        assert (await br.async_resolve(d, "auto"))["echo_guard"] == "true"
+        assert (await br.async_resolve(d, "auto"))["echo_guard"] == "false"          # song cong tu khu vong
+        assert (await br.async_resolve(d, "on"))["echo_guard"] == "true"
         d = br.devices_for({"mic": "", "mic_url": "http://ha/api/r1_speaker/mic/KHAC?k=x"})
         assert (await br.async_resolve(d, "auto"))["echo_guard"] == "false"
         # Camera Imou/Dahua: loa cua dahua_talk cung co cua bo dam rieng.
@@ -180,8 +185,8 @@ def test_call_fields_and_start_use_sink_not_play_media():
         _ent("r1_speaker", "assist_satellite.r1", "r1entry")
         H["entries"]["r1entry"].data = {"intercom_key": "KHOA"}
         f = await br.async_call_fields(None)
-        assert f["speaker_url"].endswith("/api/r1_speaker/intercom/r1entry?k=KHOA")
-        assert f["echo_guard"] == "true" and f["mic_url"].endswith("/api/r1_speaker/mic/r1entry?k=KHOA")
+        assert f["speaker_url"].endswith("/api/r1_speaker/duplex/r1entry?k=KHOA")
+        assert f["echo_guard"] == "false" and f["mic_url"].endswith("/api/r1_speaker/mic/r1entry?k=KHOA")
         # Ghi de loa rong -> "off"; khong co echo_guard di kem.
         f = await br.async_call_fields({"speaker": ""})
         assert f["speaker_url"] == "off" and "echo_guard" not in f
@@ -725,7 +730,7 @@ def test_fallback_theo_duong_noi_that_loa_mic_camera():
         br._entity_alive = lambda e: e not in dead
 
         res = await br.async_resolve(br.devices_for(ov), "auto", br.slot_candidates(ov))
-        assert res["speaker_url"].endswith("/api/r1_speaker/intercom/r1entry?k=KHOA"), res           # R1 tốt: giữ R1
+        assert res["speaker_url"].endswith("/api/r1_speaker/duplex/r1entry?k=KHOA"), res           # R1 tốt: giữ R1 (auto = song công)
         assert res["mic_url"].endswith("/api/r1_speaker/mic/r1entry?k=KHOA") and res["camera_url"] == "rtsp://u:p@cam.local/stream"
 
         dead.update({"media_player.r1_loa", "assist_satellite.r1"})                  # R1 không khả dụng
@@ -741,6 +746,15 @@ def test_fallback_theo_duong_noi_that_loa_mic_camera():
         res = await br.async_resolve(br.devices_for(ov), "auto")                    # không truyền slots: hành vi cũ (không dự phòng theo đường nối)
         assert res["camera_url"] == "" and res["speaker_url"].endswith("/api/dahua_talk/intercom/dhentry?k=DK") is False
     asyncio.run(run())
+
+
+def test_speaker_kind_and_echo_guard_pure_rules_r1_auto_is_duplex():
+    assert core.speaker_kind("auto", "r1_speaker") == "duplex" and core.speaker_kind("duplex", "r1_speaker") == "duplex"
+    assert core.speaker_kind("on", "r1_speaker") == "intercom" and core.speaker_kind("off", "r1_speaker") == "intercom"
+    assert core.speaker_kind("auto", "dahua_talk") == "intercom" and core.speaker_kind("duplex", "dahua_talk") == "intercom"
+    assert core.echo_guard_on("auto", True, "http://ha/api/r1_speaker/duplex/e?k=1") is False      # song cong: khong chan mic
+    assert core.echo_guard_on("auto", True, "http://ha/api/r1_speaker/intercom/e?k=1") is True     # nua cong cung thiet bi: chan
+    assert core.echo_guard_on("auto", True) is True and core.echo_guard_on("on", True, "http://x/duplex/e") is True
 
 
 if __name__ == "__main__":
