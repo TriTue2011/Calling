@@ -187,6 +187,14 @@ def set_client(name):
     return client_name()
 
 
+def user_agent():
+    """User-Agent khai cho MỌI yêu cầu HTTP và WebSocket, theo kiểu đăng nhập. Zalo PC 26.11.10 thật khai «ZaloPC-win32-24v693»
+    (loại 24, bản 693; nhật ký mạng 13/11/2026: 62 yêu cầu) — nên kiểu «pc» khai y như vậy; kiểu «web» giữ UA cũ của app."""
+    if client_name() == "pc":
+        return "ZaloPC-win32-%dv%d" % (CLIENTS["pc"][0], CLIENTS["pc"][1])
+    return "zalo-pc-qr/1.0"
+
+
 def common_params(api_version=None, api_type=None):
     # Đọc hằng lúc GỌI (không buộc lúc nạp mô-đun) để set_client có hiệu lực ngay.
     return {"zpw_ver": API_VERSION if api_version is None else api_version,

@@ -451,7 +451,7 @@ class _Transport:
         state = globals().get("STATE")
         if state is not None and state.proxy_store.active_url():
             return None
-        headers = {"User-Agent": "zalo-pc-qr/1.0", "Connection": "keep-alive"}
+        headers = {"User-Agent": protocol.user_agent(), "Connection": "keep-alive"}
         if self.cookie_value:
             headers["Cookie"] = "%s=%s" % (COOKIE_NAME, self.cookie_value)
         status, raw = _KEEPALIVE_POOL.get(url, headers, timeout)
@@ -467,7 +467,7 @@ class _Transport:
 
     def _request(self, url, method, data, timeout, content_type=None):
         req = urllib.request.Request(url, method=method, data=data)
-        req.add_header("User-Agent", "zalo-pc-qr/1.0")
+        req.add_header("User-Agent", protocol.user_agent())
         if method == "POST":
             req.add_header("Content-Type",
                            content_type
@@ -524,7 +524,7 @@ class _Transport:
         zpw_sek kem theo nhu moi loi goi khac. HTTPError -> (code,
         b""); timeout -> TimeoutError."""
         req = urllib.request.Request(url, method="GET")
-        req.add_header("User-Agent", "zalo-pc-qr/1.0")
+        req.add_header("User-Agent", protocol.user_agent())
         if self.cookie_value:
             req.add_header("Cookie", "%s=%s" % (COOKIE_NAME,
                                                 self.cookie_value))
@@ -3297,7 +3297,7 @@ class AppState:
             except ValueError:
                 ping = ws_listener_mod.DEFAULT_PING_SECONDS
             ws = ws_listener_mod.WsListener(
-                urls, "zpw_sek=%s" % cur["zpw_sek"], "zalo-pc-qr/1.0", self._on_ws_event, protocol.API_VERSION, protocol.API_TYPE,
+                urls, "zpw_sek=%s" % cur["zpw_sek"], protocol.user_agent(), self._on_ws_event, protocol.API_VERSION, protocol.API_TYPE,
                 ping_seconds=ping, on_state=self._on_ws_state,
                 log=lambda m: print(m, flush=True))
             if ws.start():
