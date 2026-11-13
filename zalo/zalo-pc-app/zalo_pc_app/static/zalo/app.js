@@ -1143,7 +1143,7 @@ async function pollQr() {
 function startQr(client) {
   if (client) S.qrClient = client;
   $("qr").hidden = false; $("qr-again").hidden = true;
-  for (const b of document.querySelectorAll("#qr [data-client]")) b.classList.toggle("on", b.dataset.client === S.qrClient);
+  for (const b of document.querySelectorAll("#qr [data-client]")) { const on = b.dataset.client === S.qrClient; b.classList.toggle("on", on); b.setAttribute("aria-checked", on ? "true" : "false"); }
   if (!S.qrClient) { $("qr-slot").replaceChildren(h("div", { class: "qrph" }, "Chọn kiểu đăng nhập để lấy mã QR")); $("qr-status").textContent = ""; return; }   // chưa chọn: không tự tạo mã
   $("qr-slot").replaceChildren(h("div", { class: "qrph" }, "Đang tạo mã…"));
   api("/api/qr/new", "POST", { client: S.qrClient }).then(() => { clearInterval(S.qrT); S.qrT = setInterval(pollQr, 3000); pollQr(); });
