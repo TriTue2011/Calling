@@ -605,8 +605,13 @@ function renderInfo() {
 }
 
 // ---- cuộc gọi ------------------------------------------------------------------------------------------------
-const END_REASON = { ring_timeout: "Không ai nghe máy", user_end: "Đã kết thúc", server_rejected: "Máy chủ Zalo từ chối", superseded_by_new_call: "Bị thay bằng cuộc gọi mới", peer_ended: "Bên kia đã cúp", answered: "Đã nghe máy" };
+const END_REASON = { ring_timeout: "Không ai nghe máy", user_end: "Đã kết thúc", server_rejected: "Máy chủ Zalo từ chối", superseded_by_new_call: "Bị thay bằng cuộc gọi mới", peer_ended: "Bên kia đã cúp", answered: "Đã nghe máy",
+  missed: "Cuộc gọi nhỡ", peer_declined: "Bên kia từ chối", user_rejected: "Bạn đã từ chối", busy_rejected: "Đang có cuộc khác nên đã từ chối" };
+// Loại lỗi cuộc gọi đi (server ghi error_kind, xem call_errors.py); chuỗi kỹ thuật gốc nằm ở c.detail.
 const endText = (d) => END_REASON[d] || d || "";
+// Loại lỗi cuộc gọi đi (server ghi error_kind, xem call_errors.py); chuỗi kỹ thuật gốc nằm ở c.detail.
+const ERROR_KIND = { already_answered: "Cuộc gọi đã được nghe ở nơi khác", server_rejected: "Zalo từ chối cuộc gọi", timeout: "Hết thời gian chờ Zalo", network: "Lỗi mạng tới Zalo", unknown: "Lỗi không rõ" };
+const callResult = (c) => (c.error_kind ? (ERROR_KIND[c.error_kind] || "Lỗi") : endText(c.detail) || c.status);
 function syncCallButtons() { const busy = !!S.calls.active; $("btn-call").disabled = busy; $("btn-video").disabled = busy; }
 async function loadCalls() {
   let d; try { d = await api("/api/calls"); } catch (e) { return; }
@@ -665,7 +670,8 @@ function renderCallCard() {
 setInterval(() => { const c = $("callcard"), t = $("call-t"); if (t && c._since) t.textContent = fmtDur(Date.now() / 1000 - c._since); }, 1000);
 function callPill(c) {
   if (c.status === "answered" || c.answered_at) return h("span", { class: "pill ok" }, "Đã nghe máy");
-  if (c.status === "error" || c.detail === "server_rejected") return h("span", { class: "pill bad" }, "Lỗi");
+  if (c.status === "error" || c.detail === "server_rejected") return h("span", { class: "pill bad", title: String(c.detail || "") }, c.error_kind ? (ERROR_KIND[c.error_kind] || "Lỗi") : "Lỗi");
+  if (c.detail === "missed") return h("span", { class: "pill warn" }, "Cuộc gọi nhỡ");
   if (c.detail === "ring_timeout") return h("span", { class: "pill warn" }, "Không nghe máy");
   if (c.status === "sent") return h("span", { class: "pill" }, "Đang gọi");
   return h("span", { class: "pill" }, endText(c.detail) || "Đã kết thúc");
@@ -682,7 +688,7 @@ function renderCallRows(ul) {
     const row = rowOf(c.type === "group" ? "group" : "user", c.thread_id) || { id: String(c.thread_id), name: c.peer, type: c.type === "group" ? "group" : "user" };
     ul.append(h("li", {}, h("button", { class: "row", type: "button", onclick: () => openThread(row) }, avatar(row), h("div", { class: "row-main" },
       h("div", { class: "row-top" }, h("span", { class: "row-name" }, peerName(c)), h("span", { class: "row-time" }, fmtRel(c.started_at))),
-      h("div", { class: "row-sub" }, (c.type === "video" ? "Video · " : c.type === "group" ? "Nhóm · " : "Thoại · ") + (endText(c.detail) || c.status))))));
+      h("div", { class: "row-sub" }, (c.type === "video" ? "Video · " : c.type === "group" ? "Nhóm · " : "Thoại · ") + callResult(c))))));
   }
 }
 function renderCallsPage() {

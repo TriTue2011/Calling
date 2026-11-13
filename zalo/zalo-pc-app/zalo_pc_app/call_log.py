@@ -209,7 +209,7 @@ class CallLog:
             return None
 
     @_notifies
-    def record_error(self, call_id, peer, thread_id, call_type, detail):
+    def record_error(self, call_id, peer, thread_id, call_type, detail, kind=""):
         now = time.time()
         with self._lock:
             entry = {"call_id": str(call_id), "peer": peer or "",
@@ -219,6 +219,8 @@ class CallLog:
                      "request_sent": None, "request_detail": "",
                      "answered_at": None, "answer_source": "",
                      "diag": {}}
+            if kind:                       # loai loi co cau truc (call_errors.KINDS); chuoi goc van o `detail`
+                entry["error_kind"] = kind
             self._calls.append(entry)
             del self._calls[:-MAX_RECORDS]
             return dict(entry)

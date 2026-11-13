@@ -42,6 +42,7 @@ HASH_BYTES = 32
 DEFAULT_SESSION_HOURS = 8.0
 COOKIE_NAME = "zalo_pc_app"
 VERIFIER_FILENAME = "app_auth.json"
+SESSIONS_FILENAME = "app_sessions.json"   # phien WebUI con song qua khoi dong lai (chi luu BAM SHA-256 cua token, 0600)
 
 
 class MissingAppCredentials(Exception):
@@ -130,6 +131,20 @@ MIN_PASSWORD_LEN = 8
 MAX_PASSWORD_LEN = 256
 
 
+def _token_key(token):
+    """Khoa luu phien: SHA-256 cua token. Token goc chi nam trong cookie cua trinh duyet, khong bao gio ghi ra dia."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _atomic_write_private(path, text):
+    """Ghi tep quyen 0600 theo kieu ghi-tam-roi-doi-ten, de khong bao gio de lai tep ghi do."""
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+
 class PasswordChangeError(Exception):
     """Doi mat khau that bai; `code` la ma loi cho API."""
 
@@ -151,9 +166,46 @@ class AppAuth:
         self.managed_by_env_hash = managed_by_env_hash
         self.session_hours = (DEFAULT_SESSION_HOURS if session_hours is None
                               else session_hours)
-        self._sessions = {}  # token -> (username, expires_at)
+        self._sessions = {}  # sha256(token) -> (username, expires_at)
         import threading
         self._lock = threading.Lock()
+        self._load_sessions()
+
+    # -- phien ben (qua khoi dong lai) --------------------------------------
+    def _fingerprint(self):
+        """Dau van tay mat khau hien tai: doi mat khau thi moi phien da luu mat hieu luc."""
+        return hashlib.sha256(self.password_hash.encode("utf-8")).hexdigest()[:16]
+
+    def _sessions_path(self):
+        return os.path.join(self._data_dir, SESSIONS_FILENAME) if self._data_dir else ""
+
+    def _load_sessions(self):
+        path = self._sessions_path()
+        if not path or not os.path.exists(path):
+            return
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, dict) or data.get("fp") != self._fingerprint():
+                return                                   # mat khau da doi (hoac tep la): bo het
+            now = time.time()
+            for key, val in (data.get("sessions") or {}).items():
+                if isinstance(key, str) and isinstance(val, list) and len(val) == 2 \
+                        and isinstance(val[0], str) and isinstance(val[1], (int, float)) and val[1] > now:
+                    self._sessions[key] = (val[0], float(val[1]))
+        except (OSError, ValueError):
+            self._sessions.clear()                       # tep hong: nhu chua co phien, khong lam server chet
+
+    def _save_sessions(self):
+        """Goi KHI DANG GIU self._lock. Loi ghi tep khong lam hong dang nhap (phien van song trong bo nho)."""
+        path = self._sessions_path()
+        if not path:
+            return
+        try:
+            _atomic_write_private(path, json.dumps(
+                {"fp": self._fingerprint(), "sessions": {k: [u, e] for k, (u, e) in self._sessions.items()}}))
+        except OSError:
+            pass
 
     # -- khoi tao tu env -------------------------------------------------
     @classmethod
@@ -244,20 +296,23 @@ class AppAuth:
         token = secrets.token_urlsafe(32)
         expires = time.time() + self.session_hours * 3600
         with self._lock:
-            self._sessions[token] = (username, expires)
+            self._sessions[_token_key(token)] = (username, expires)
+            self._save_sessions()
         return token, expires
 
     def validate_token(self, token):
         """Tra ve username neu token con han, khong thi None."""
         if not token:
             return None
+        key = _token_key(token)
         with self._lock:
-            entry = self._sessions.get(token)
+            entry = self._sessions.get(key)
             if entry is None:
                 return None
             username, expires = entry
             if time.time() > expires:
-                del self._sessions[token]
+                del self._sessions[key]
+                self._save_sessions()
                 return None
             return username
 
@@ -265,7 +320,10 @@ class AppAuth:
         if not token:
             return False
         with self._lock:
-            return self._sessions.pop(token, None) is not None
+            removed = self._sessions.pop(_token_key(token), None) is not None
+            if removed:
+                self._save_sessions()
+            return removed
 
     def session_count(self):
         with self._lock:
@@ -273,10 +331,12 @@ class AppAuth:
 
     def revoke_all(self, keep_token=None):
         """Thu hoi moi phien (tru keep_token neu co). Tra so phien da xoa."""
+        keep = _token_key(keep_token) if keep_token else None
         with self._lock:
-            drop = [t for t in self._sessions if t != keep_token]
+            drop = [t for t in self._sessions if t != keep]
             for t in drop:
                 del self._sessions[t]
+            self._save_sessions()
             return len(drop)
 
 

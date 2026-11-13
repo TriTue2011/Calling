@@ -145,8 +145,8 @@ def test_sessions_create_validate_revoke_expiry():
     # Expired token is rejected (and purged).
     token2, _ = auth.create_session(TEST_USER)
     with auth._lock:
-        user, _exp = auth._sessions[token2]
-        auth._sessions[token2] = (user, time.time() - 1)
+        user, _exp = auth._sessions[app_auth._token_key(token2)]
+        auth._sessions[app_auth._token_key(token2)] = (user, time.time() - 1)
     assert auth.validate_token(token2) is None
     assert auth.session_count() == 0
 

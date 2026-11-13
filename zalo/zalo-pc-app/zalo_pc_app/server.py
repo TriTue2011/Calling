@@ -88,6 +88,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import VERSION as _PKG_VERSION
 from . import app_auth
 from . import call_audio as call_audio_mod
+from . import account_health
+from . import call_errors
 from . import call_log
 from . import chat as chat_mod
 from . import contacts as contacts_mod
@@ -1693,6 +1695,9 @@ class AppState:
         # 99100 (tin 1-1 + nhom, ca hai chieu) — nguon cho lich su
         # ghep + /api/thread/*/updates + /api/inbox/summary.
         self.inbox = sync_poll_mod.Inbox()
+        # Nhat ky suc khoe tai khoan (account_health.py): khoi dong / dang nhap / mo kenh / phien ket thuc + ly do.
+        self.health = account_health.HealthLog(os.path.join(data_dir, "health.jsonl"))
+        self.health.record("start", VERSION)
         # Con tro sync tren dia (cursor_store.py) + ban ghi tin ben
         # (message_store.py) — webhook missing pieces: con tro poll
         # luu xuong dia sau moi batch (restart van poll tiep tu cho
@@ -1871,7 +1876,9 @@ class AppState:
                 "keepalive": {"state": ka_state,
                               "checked_at": ka_at,
                               "auth_failures": ka_failures},
-                "app_user": app_user}
+                "app_user": app_user,
+                # Nhat ky suc khoe tai khoan: vai su kien cuoi + ly do phien ket thuc gan nhat (HA doc de bao).
+                "health": self.health.summary()}
         if self.sync_debug:
             base["sync_debug"] = dict(self.sync_debug)
         if logged:
@@ -2275,9 +2282,11 @@ class AppState:
             with self.lock:
                 self.qr = qr
                 self.qr_state = "waiting"
+            print("[qr] da tao ma QR (cho quet; het han sau ~%ss, toi da %s lan hoi)" % (qr.get("qr_timeout"), qr.get("qr_retry")), flush=True)
             qr_login.wait_scan(transport, qr, trust_enabled=False)
             with self.lock:
                 self.qr_state = "scanned"
+            print("[qr] dien thoai da quet, cho xac nhan", flush=True)
             grant = qr_login.wait_confirm(transport, qr)
             # Session established: fetch login info (login envelope +
             # session cookie, exactly as the PC client sends it).
@@ -2300,6 +2309,7 @@ class AppState:
             if self.qr_flags and self.qr_flags.get("known"):
                 sess["trusted_device"] = {k: bool(self.qr_flags[k]) for k in ("self_g", "qr_format_trust_device", "logo_qr")}
             self.store.save(sess)
+            self.health.record("login", "qr")
             with self.lock:
                 self.session = sess
                 self.qr_state = "done"
@@ -2311,13 +2321,16 @@ class AppState:
             # Phien moi co poll endpoints -> mo kenh sync nhan tin den.
             self.start_sync()
         except qr_login.RateLimited as e:
+            print("[qr] bi gioi han tan suat: phai cho %ss roi tao lai (Zalo tra time_left)" % e.wait_seconds, flush=True)
             with self.lock:
                 self.qr_state = "rate_limited"
                 self.qr_wait = e.wait_seconds
         except qr_login.UserRejected:
+            print("[qr] nguoi dung tu choi dang nhap tren dien thoai (18010)", flush=True)
             with self.lock:
                 self.qr_state = "rejected"
         except qr_login.QRExpired:
+            print("[qr] ma QR het han (khong ai quet/xac nhan kip)", flush=True)
             with self.lock:
                 self.qr_state = "expired"
         except qr_login.TrustFlowRequired as e:
@@ -2326,6 +2339,7 @@ class AppState:
                 self.qr_error = ("Zalo yêu cầu đăng nhập QR kiểu “thiết bị tin cậy” (QR2) mà app chưa hỗ trợ. %s "
                                  "Chi tiết kỹ thuật: %s" % (qr_login.describe_server_flags(self.qr_flags), e))
         except Exception as e:  # noqa: BLE001 - surface to UI, keep server up
+            print("[qr] loi dang nhap: %s: %s" % (type(e).__name__, str(e)[:200]), flush=True)
             with self.lock:
                 self.qr_state = "error"
                 self.qr_error = "%s: %s" % (type(e).__name__, e)
@@ -2428,6 +2442,7 @@ class AppState:
             return out
 
     def logout(self):
+        self.health.record("session_end", "local_logout")
         with self.lock:
             self.store.clear()
             self.session = None
@@ -3094,6 +3109,7 @@ class AppState:
             self.sync_error = ""
             print("[sync-poll] da mo kenh nhan tin den (%d endpoint)"
                   % len(poller.urls), flush=True)
+            self.health.record("channel_open", "sync")
             # Kenh ctrl (99101, zpw_ctrs_new): event
             # voice_aac_success mang URL ghi am cho send_voice (loi
             # 114) va file_done mang URL file cho send_file (loi 405
@@ -3149,6 +3165,7 @@ class AppState:
         self.ctrl = ctrl
         print("[sync-poll] da mo kenh ctrl (99101, %d endpoint)"
               % len(ctrl.urls), flush=True)
+        self.health.record("channel_open", "ctrl")
         return True
 
     def _ensure_ctrl_poller(self):
@@ -3348,7 +3365,7 @@ class AppState:
             self._ka_auth_failures = 0
         return True
 
-    def _expire_session(self, uid, reason):
+    def _expire_session(self, uid, reason, wipe=True, code="session_rejected"):
         """Xoa phien Zalo da het han (keepAlive bao loi auth du
         nguong) — giong logout nhung chi khi phien hien tai dung
         la phien da check (uid khop), de khong xoa nham mot lan
@@ -3365,14 +3382,18 @@ class AppState:
             self.qr_state = "idle"
             self.qr_error = reason
             self._ka_state = "expired"
+        self.health.record("session_end", code)
         # Du lieu cua tai khoan cu phai di theo phien (giong
         # logout): cache danh ba, kenh sync, tin den, con tro +
         # ban ghi tin — khong de tai khoan moi doc du lieu cu.
+        # wipe=False (bi thu hoi tu xa / het phien): GIU tin va con tro — message_store.set_account() tu xoa neu nguoi dang nhap
+        # sau la TAI KHOAN KHAC, con cung tai khoan thi khong mat lich su chi vi bi da.
         self._contacts_clear_cache()
         self.stop_sync()
         self.inbox.clear()
-        self.cursor_store.clear()
-        self.message_store.clear()
+        if wipe:
+            self.cursor_store.clear()
+            self.message_store.clear()
         return True
 
     def start_keepalive_thread(self):
@@ -3388,6 +3409,49 @@ class AppState:
                                       daemon=True)
             self._keepalive_thread = thread
             thread.start()
+            return True
+
+    # -- giam sat thu hoi phien (hoc tu app iOS «GiaNo»: remote_revoked) --
+    REVOKE_WATCH_INTERVAL_SECONDS = 10
+    _REVOKE_STATES = {
+        "kicked_out": ("remote_revoked",
+                       "Zalo báo dừng kênh nhận của phiên này (đăng nhập ở nơi khác hoặc bị thu hồi từ xa). Quét QR để đăng nhập lại."),
+        "auth_failed": ("session_rejected",
+                        "Zalo từ chối phiên này (hết hạn hoặc bị thu hồi). Quét QR để đăng nhập lại."),
+    }
+
+    def check_revoked(self):
+        """Mot lan kiem: neu kenh nhan tin hoac kenh ctrl da bao kicked_out (-69) / auth_failed (401, 403 sau khi da dem du) thi ket thuc phien NGAY
+        (hien lai QR, ghi ly do) thay vi cho keepAlive (5 phut/lan, can 2 lan loi) — truoc day app van bao «da dang nhap» trong khi khong
+        nhan duoc gi va gui tin deu loi. Tra ma ly do neu da ket thuc phien, "" neu khong."""
+        with self.lock:
+            sess = self.session
+        if not sess or not sess.get("zpw_sek"):
+            return ""
+        uid = sess.get("uid", "")
+        for state in (self.sync_status(), self.ctrl_status()):
+            hit = self._REVOKE_STATES.get(state)
+            if hit and self._expire_session(uid, hit[1], wipe=False, code=hit[0]):
+                print("[session] phien ket thuc: %s (kenh bao %s)" % (hit[0], state), flush=True)
+                return hit[0]
+        return ""
+
+    def _revoke_watch_loop(self):
+        while True:
+            time.sleep(self.REVOKE_WATCH_INTERVAL_SECONDS)
+            try:
+                self.check_revoked()
+            except Exception:  # noqa: BLE001 - vong nen khong chet
+                pass
+
+    def start_revoke_watchdog(self):
+        """Chi main() goi. An toan khi goi nhieu lan."""
+        with self.lock:
+            t = getattr(self, "_revoke_thread", None)
+            if t is not None and t.is_alive():
+                return False
+            self._revoke_thread = threading.Thread(target=self._revoke_watch_loop, daemon=True)
+            self._revoke_thread.start()
             return True
 
     def _keepalive_loop(self):
@@ -5413,7 +5477,8 @@ class Handler(BaseHTTPRequestHandler):
                      "request_error": request_error})
             except Exception as e:  # noqa: BLE001
                 err_entry = STATE.calls.record_error(call_id, peer, thread_id,
-                                         call_type, str(e))
+                                         call_type, str(e),
+                                         kind=call_errors.classify(e))
                 _log_call("error call_id=%s peer=%s thread=%s error=%s"
                           % (call_id, peer, thread_id, e))
                 # WEBHOOK HOOK (webhooks.py): call.error, same as above.
@@ -5824,6 +5889,11 @@ def main():
         STATE.start_keepalive_thread()
     except Exception as e:  # noqa: BLE001 - best-effort
         print("[keepalive] khong mo duoc vong kiem chung phien: %s"
+              % type(e).__name__, flush=True)
+    try:
+        STATE.start_revoke_watchdog()
+    except Exception as e:  # noqa: BLE001 - best-effort
+        print("[session] khong mo duoc vong giam sat thu hoi phien: %s"
               % type(e).__name__, flush=True)
     try:
         server.serve_forever()
