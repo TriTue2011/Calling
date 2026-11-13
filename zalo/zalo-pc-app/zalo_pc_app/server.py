@@ -78,6 +78,8 @@ import http.client
 import socket
 import sys
 import queue
+import shutil
+import subprocess
 import threading
 import time
 import urllib.error
@@ -89,6 +91,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import VERSION as _PKG_VERSION
 from . import app_auth
 from . import call_audio as call_audio_mod
+from . import ffmpeg_log as ffmpeg_log_mod
 from . import account_health
 from . import event_dedup as event_dedup_mod
 from . import ws_listener as ws_listener_mod
@@ -1567,6 +1570,14 @@ def _cleanup_call_media(entry):
 # Cuộc gọi ĐẾN mà sau khi nghe máy điện thoại KHÔNG gửi bất kỳ gói nào (rtp/rtcp/video đều 0) là cuộc «chết» (13/11: 12/20 cuộc khi gói đầu chưa tới
 # lúc chọn relay; gửi lại InitZRTP không cứu được). Nghe im lặng suốt cuộc thì vô ích và điện thoại báo «kết nối không ổn định» — tự kết thúc sớm
 # (lý do «dead_media» đi theo webhook cuộc gọi để HA báo/gọi lại) để người gọi gọi lại ngay. ZALO_PC_DEAD_MEDIA_SECONDS, 0 = tắt.
+VIDEO_VIEWERS_MAX = 2
+VIDEO_VIEW_LOCK = threading.Lock()
+VIDEO_VIEW_COUNT = [0]
+# Đo thật 14/11 trong container (ffmpeg 7): `-fflags nobuffer` + pipe H.264 -> KHÔNG ra khung nào; H.264 thô không có dấu thời gian nên bộ lọc fps cũng
+# không ra khung -> dùng `-framerate 15` ở đầu vào, `-flags low_delay`, giới hạn dò nhỏ; JPEG cần yuvj420p. 45/45 khung ra.
+VIDEO_VIEW_FFMPEG = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-flags", "low_delay", "-probesize", "16384", "-analyzeduration", "100000",
+                     "-framerate", "15", "-f", "h264", "-i", "pipe:0", "-vf", "scale=640:-2,format=yuvj420p", "-q:v", "7",
+                     "-f", "mpjpeg", "-boundary_tag", "frame", "pipe:1"]
 DEAD_MEDIA_SECONDS = float(os.environ.get("ZALO_PC_DEAD_MEDIA_SECONDS", "7") or 0)
 
 
@@ -4094,6 +4105,66 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return {}
 
+    def _serve_call_video_view(self):
+        """Xem hình điện thoại gửi sang (WebUI): khung H.264 đã giải mã SRTP + ghép (udp_transport add_video_tap) -> ffmpeg -> MJPEG nhiều phần
+        (multipart/x-mixed-replace) cho thẻ <img>. Mỗi người xem một ffmpeg (tối đa VIDEO_VIEWERS_MAX); ngắt kết nối thì dọn tiến trình."""
+        qs = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        call_id = _coerce_call_id((qs.get("call_id") or [""])[0])
+        if call_id is None:
+            live = STATE.calls.snapshot()["active"]
+            call_id = int(live["call_id"]) if live is not None else None
+        transport = _transport_for_call(call_id) if call_id is not None else None
+        if transport is None or not hasattr(transport, "add_video_tap"):
+            return self._send_json({"error": "chua_co_hinh"}, status=409)
+        if shutil.which("ffmpeg") is None:
+            return self._send_json({"error": "thieu_ffmpeg"}, status=503)
+        with VIDEO_VIEW_LOCK:
+            if VIDEO_VIEW_COUNT[0] >= VIDEO_VIEWERS_MAX:
+                return self._send_json({"error": "qua_nhieu_nguoi_xem"}, status=429)
+            VIDEO_VIEW_COUNT[0] += 1
+        tap = transport.add_video_tap()
+        proc = None
+        try:
+            proc = subprocess.Popen(VIDEO_VIEW_FFMPEG, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace;boundary=frame")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+
+            def feed():
+                try:
+                    while proc.poll() is None:
+                        if _transport_for_call(call_id) is not transport:        # cuộc gọi đã kết thúc
+                            break
+                        try:
+                            annexb, _key = tap.get(timeout=1)
+                        except queue.Empty:
+                            continue
+                        proc.stdin.write(annexb)
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    try:
+                        proc.stdin.close()
+                    except (OSError, ValueError):
+                        pass
+            threading.Thread(target=feed, daemon=True, name="video-view-feed").start()
+            while True:
+                chunk = proc.stdout.read(65536)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except OSError:
+            pass                            # trình duyệt đóng thẻ: bình thường
+        finally:
+            transport.remove_video_tap(tap)
+            ffmpeg_log_mod.kill_and_reap(proc)
+            with VIDEO_VIEW_LOCK:
+                VIDEO_VIEW_COUNT[0] -= 1
+
     def _serve_call_audio_tap(self, token):
         """Nhu /api/call/audio/out nhung doc BAN SAO khung (tap) — dung cho nguoi nghe thu hai (AI trong cuoc goi) ma khong
         tranh khung voi loa."""
@@ -4473,6 +4544,10 @@ class Handler(BaseHTTPRequestHandler):
             if got is None:
                 return self._send_json({"ok": True, "done": False})
             return self._send_json({"ok": True, "done": True, **got})
+        if path == "/api/call/video/view":
+            if self._require_login() is None:
+                return self._send_json({"error": "chua_dang_nhap"}, status=401)
+            return self._serve_call_video_view()
         if path == "/api/calls":
             sess = self._require_login()
             if sess is None:

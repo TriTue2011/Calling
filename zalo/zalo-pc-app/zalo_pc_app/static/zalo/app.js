@@ -697,6 +697,18 @@ async function toggleMedia(target) {
     if (r.error || r.ok === false) refreshCallMedia();
   } catch (e) { S.cm.busy = ""; toast("Lỗi mạng khi điều khiển cuộc gọi", 4000); renderCallCard(); }
 }
+// Hình điện thoại gửi sang: <img> MJPEG (/api/call/video/view). Giữ MỘT nút ảnh suốt cuộc gọi (thẻ vẽ lại mỗi vài giây — tạo ảnh mới sẽ nối lại luồng liên tục).
+S.vv = null;
+function videoView(a, mc) {
+  if (!(a.type === "video" || (mc && mc.video_rx > 0))) { S.vv = null; return null; }
+  if (!S.vv || S.vv.id !== String(a.call_id)) {
+    const url = () => "/api/call/video/view?call_id=" + encodeURIComponent(a.call_id) + "&t=" + Date.now();
+    const el = h("img", { class: "vview", alt: "Hình từ điện thoại", src: url() });
+    el.addEventListener("error", () => setTimeout(() => { if (S.vv && S.vv.el === el) el.src = url(); }, 3000));   // chưa có hình (409) / ffmpeg đang dậy: thử lại
+    S.vv = { id: String(a.call_id), el };
+  }
+  return S.vv.el;
+}
 function mediaToggles() {
   const row = [["mic", "mic", "Mic"], ["speaker", "speaker", "Loa"], ["video", "cam", "Camera"]].map(([key, icon, label]) =>
     h("button", { class: "tg" + (S.cm[key] ? " on" : ""), type: "button", "aria-pressed": S.cm[key] ? "true" : "false", disabled: !!S.cm.busy,
@@ -708,7 +720,7 @@ setInterval(() => { const a = S.calls.active; if (a && (a.status === "answered" 
 async function endCall() { const a = S.calls.active; if (!a) return; const r = await api("/api/call/end", "POST", { call_id: a.call_id }); if (r.error) toast("Lỗi kết thúc cuộc gọi: " + r.error, 5000); await loadCalls(); }
 function renderCallCard() {
   const card = $("callcard"), a = S.calls.active;
-  if (!a) { card.hidden = true; card.replaceChildren(); return; }
+  if (!a) { S.vv = null; card.hidden = true; card.replaceChildren(); return; }
   const row = rowOf(a.type === "group" ? "group" : "user", a.thread_id) || { id: String(a.thread_id), name: a.peer, type: a.type === "group" ? "group" : "user" };
   if (a.direction === "in" && a.status === "incoming" && !a.answered_at) {       // cuộc gọi ĐẾN, chưa ai nghe: popup hai nút như Zalo PC
     card.hidden = false; card._since = a.started_at;
@@ -726,6 +738,7 @@ function renderCallCard() {
     h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, (a.type === "video" ? "Video · " : "") + peerName(a)), h("div", { class: "st" }, answered ? "Đang trong cuộc gọi" : ringing ? "Đang đổ chuông…" : "Đang kết nối…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - since)))),
     answered && noMedia ? h("div", { class: "warn" }, "Đã nối hơn 8 giây nhưng chưa thấy gói tiếng/hình nào chạy qua; bên kia có thể báo “kết nối không ổn định”.") : null,
     a.request_sent === false ? h("div", { class: "warn" }, "Bước 2 chưa gửi được, bên kia có thể chưa đổ chuông.") : null,
+    answered ? videoView(a, mc) : null,
     answered ? mediaToggles() : null,
     h("div", { class: "acts" }, h("button", { class: "end", type: "button", onclick: endCall }, svg("hang"), "Kết thúc")));
   if (answered && S.cm.id !== String(a.call_id)) { S.cm.id = String(a.call_id); S.cm.mic = S.cm.speaker = S.cm.video = false; refreshCallMedia(); }
