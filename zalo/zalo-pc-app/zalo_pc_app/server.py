@@ -451,7 +451,8 @@ class _Transport:
         state = globals().get("STATE")
         if state is not None and state.proxy_store.active_url():
             return None
-        headers = {"User-Agent": protocol.user_agent(), "Connection": "keep-alive"}
+        url = protocol.adapt_url(url)
+        headers = {"User-Agent": protocol.user_agent_for(url), "Connection": "keep-alive"}
         if self.cookie_value:
             headers["Cookie"] = "%s=%s" % (COOKIE_NAME, self.cookie_value)
         status, raw = _KEEPALIVE_POOL.get(url, headers, timeout)
@@ -466,8 +467,23 @@ class _Transport:
             raise sync_poll_mod.NonJsonResponse(status, text)
 
     def _request(self, url, method, data, timeout, content_type=None):
+        """Áp kiểu theo dịch vụ (gọi điện luôn PC). Kiểu web mà Zalo từ chối vì chính zpw_type/zpw_ver thì học máy chủ đó cần PC rồi thử lại 1 lần."""
+        url = protocol.adapt_url(url)
+        status, body = self._request_once(url, method, data, timeout, content_type)
+        if protocol.client_name() == "web" and not protocol.uses_pc_identity(url) and protocol.type_rejected(body):
+            retry_url = protocol.to_pc(url)
+            if retry_url != url:
+                status2, body2 = self._request_once(retry_url, method, data, timeout, content_type, force_pc=True)
+                if not protocol.type_rejected(body2):      # PC được chấp nhận -> máy chủ này dùng kiểu PC từ giờ (chưa chắc thì không học)
+                    if protocol.learn_pc(url):
+                        print("[zpw] %s từ chối zpw_type/zpw_ver của web (%s): máy chủ này dùng kiểu PC từ giờ" % (
+                            urllib.parse.urlsplit(url).netloc, str(body.get("error_message", ""))[:60]), flush=True)
+                    return status2, body2
+        return status, body
+
+    def _request_once(self, url, method, data, timeout, content_type=None, force_pc=False):
         req = urllib.request.Request(url, method=method, data=data)
-        req.add_header("User-Agent", protocol.user_agent())
+        req.add_header("User-Agent", protocol.user_agent_for(url, force_pc=force_pc))
         if method == "POST":
             req.add_header("Content-Type",
                            content_type
@@ -523,8 +539,9 @@ class _Transport:
         (neu co) de khong doi day RAM vi file qua lon; cookie
         zpw_sek kem theo nhu moi loi goi khac. HTTPError -> (code,
         b""); timeout -> TimeoutError."""
+        url = protocol.adapt_url(url)
         req = urllib.request.Request(url, method="GET")
-        req.add_header("User-Agent", protocol.user_agent())
+        req.add_header("User-Agent", protocol.user_agent_for(url))
         if self.cookie_value:
             req.add_header("Cookie", "%s=%s" % (COOKIE_NAME,
                                                 self.cookie_value))

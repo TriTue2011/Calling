@@ -195,6 +195,67 @@ def user_agent():
     return "zalo-pc-qr/1.0"
 
 
+# ---- Kiểu web nhưng DỊCH VỤ NÀO KHÔNG DÙNG ĐƯỢC với zpw_type/zpw_ver của web thì dùng của PC (chủ máy chốt 13/11/2026) ----
+# Hai nguồn: (1) gọi điện (đường /api/voicecall/) LUÔN khai kiểu PC; (2) dịch vụ khác bị Zalo từ chối vì chính kiểu/bản (thông báo của Zalo
+# nhắc zpw_type/zpw_ver) thì máy chủ đó được HỌC là cần PC và các yêu cầu sau đi bằng PC. Kiểu «pc» đăng nhập thì mọi thứ đã là PC.
+_PC_HOSTS = set()
+
+
+def _split(url):
+    return urllib.parse.urlsplit(url)
+
+
+def is_call_url(url):
+    return "/api/voicecall/" in _split(url).path
+
+
+def uses_pc_identity(url):
+    """Yêu cầu tới `url` sẽ khai kiểu PC (kiểu pc đăng nhập, đường gọi điện, hay máy chủ đã học là cần PC)?"""
+    return client_name() == "pc" or is_call_url(url) or _split(url).netloc.lower() in _PC_HOSTS
+
+
+def adapt_url(url):
+    """Đổi zpw_type/zpw_ver trong URL sang giá trị PC nếu yêu cầu này phải khai kiểu PC; không có hai tham số đó thì giữ nguyên."""
+    if client_name() == "pc" or not (is_call_url(url) or _split(url).netloc.lower() in _PC_HOSTS):
+        return url
+    return to_pc(url)
+
+
+def to_pc(url):
+    """Ép URL sang zpw_type/zpw_ver của PC (không điều kiện); không có hai tham số đó thì giữ nguyên."""
+    parts = _split(url)
+    q = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    if not any(k in ("zpw_type", "zpw_ver") for k, _ in q):
+        return url
+    t, v = CLIENTS["pc"]
+    q = [(k, str(t) if k == "zpw_type" else str(v) if k == "zpw_ver" else val) for k, val in q]
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(q), parts.fragment))
+
+
+def user_agent_for(url, force_pc=False):
+    """User-Agent của yêu cầu tới `url`: PC nếu yêu cầu khai kiểu PC (force_pc: đang thử lại bằng PC), không thì theo kiểu đăng nhập."""
+    if force_pc or uses_pc_identity(url):
+        return "ZaloPC-win32-%dv%d" % (CLIENTS["pc"][0], CLIENTS["pc"][1])
+    return user_agent()
+
+
+def type_rejected(payload):
+    """Zalo từ chối vì chính kiểu/bản khai (thông báo của Zalo nhắc zpw_type/zpw_ver, ví dụ «zpw_type bị thiếu hoặc không đúng»)?"""
+    if not isinstance(payload, dict) or payload.get("error_code") in (0, None):
+        return False
+    msg = str(payload.get("error_message") or "").lower()
+    return "zpw_type" in msg or "zpw_ver" in msg
+
+
+def learn_pc(url):
+    """Ghi nhớ máy chủ của `url` cần kiểu PC. True nếu là điều mới học."""
+    host = _split(url).netloc.lower()
+    if host and host not in _PC_HOSTS:
+        _PC_HOSTS.add(host)
+        return True
+    return False
+
+
 def common_params(api_version=None, api_type=None):
     # Đọc hằng lúc GỌI (không buộc lúc nạp mô-đun) để set_client có hiệu lực ngay.
     return {"zpw_ver": API_VERSION if api_version is None else api_version,

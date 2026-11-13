@@ -631,8 +631,10 @@ def test_contacts_error_attribution():
         # init=1 on the two friends loads that followed a failed first
         # load (flag stays pending until a friends call succeeds), and
         # absent on the third load (after a success).
+        # Chỉ đếm yêu cầu khai kiểu web (30): khi Zalo từ chối kiểu, transport thử thêm 1 lần bằng kiểu PC (24) — yêu cầu thử đó
+        # không phải một lần tải danh bạ riêng (13/11/2026).
         fqs = [qs for p, qs, _ in mock.seen
-               if p == "/api/social/friend/getfriends"]
+               if p == "/api/social/friend/getfriends" and qs.get("zpw_type") == "30"]
         assert [q.get("init") for q in fqs] == ["1", "1", None], fqs
     finally:
         if httpd:

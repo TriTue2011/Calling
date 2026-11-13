@@ -1139,21 +1139,22 @@ class MockZalo:
         return self._postlogin_envelope(
             {"ok": True, "path": path, "body": body})
 
-    def _check_common(self, qs, headers, name, strict_type=True):
+    def _check_common(self, qs, headers, name, strict_type=True, pc=False):
         """Cookie + zpw_ver=695/zpw_type=30 (strict) or "30"/"embed"
         (lenient, friends only). Shared by GET endpoints with and
-        without a params body."""
+        without a params body. pc=True (đường gọi điện, 13/11/2026): kiểu web vẫn khai PC = zpw_ver 693/zpw_type 24."""
         assert headers.get("Cookie"), "%s needs Cookie" % name
-        assert qs.get("zpw_ver") == "695", "%s common params: %s" % (name, qs)
+        ver, typ = ("693", "24") if pc else ("695", "30")
+        assert qs.get("zpw_ver") == ver, "%s common params: %s" % (name, qs)
         if strict_type:
-            assert qs.get("zpw_type") == "30", \
+            assert qs.get("zpw_type") == typ, \
                 "%s common params: %s" % (name, qs)
         else:
             assert qs.get("zpw_type") in ("30", "embed"), \
                 "%s common params: %s" % (name, qs)
 
     def _check_postlogin(self, qs, headers, raw_qs, name,
-                         strict_type=True):
+                         strict_type=True, pc=False):
         """Strict contract shared by post-login GET endpoints (lesson
         from bug 102: a loose mock lets a wrong request slip through).
         Cookie + zpw_ver=695/zpw_type=30 + the params value fully
@@ -1166,7 +1167,7 @@ class MockZalo:
         with 602 — observed live twice (v1 and v3). So friends is
         checked lenient (strict_type=False: accepts "30" or "embed"),
         while groups/voicecall are strict (only "30")."""
-        self._check_common(qs, headers, name, strict_type)
+        self._check_common(qs, headers, name, strict_type, pc)
         m = re.search(r"(?:^|&)params=([^&]*)", raw_qs or "")
         assert m, "%s needs raw params value" % name
         assert "/" not in m.group(1) and "+" not in m.group(1), \
@@ -1392,7 +1393,7 @@ class MockZalo:
         return {"error_code": 0, "data": base64.b64encode(enc).decode()}
 
     def _voicecall(self, path, qs, headers, raw_qs=""):
-        self._check_postlogin(qs, headers, raw_qs, "voicecall")
+        self._check_postlogin(qs, headers, raw_qs, "voicecall", pc=True)
         key = base64.b64decode(TEST_SESSION_KEY)
         plain = _openssl_aes(key, base64.b64decode(qs["params"]),
                              decrypt=True)

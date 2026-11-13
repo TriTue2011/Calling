@@ -108,6 +108,111 @@ def test_user_agent_follows_the_client_like_real_zalo_pc():
     assert src.count('"zalo-pc-qr/1.0"') == 1, src.count('"zalo-pc-qr/1.0"')
 
 
+def test_web_mode_calls_and_rejected_services_use_pc_identity():
+    """Kiểu web: dịch vụ nào không dùng được với zpw_type/zpw_ver của web thì dùng của PC."""
+    protocol._PC_HOSTS.clear()
+    try:
+        protocol.set_client("web")
+        call = "https://voicecall-wpa.chat.zalo.me/api/voicecall/answer?zpw_ver=695&zpw_type=30&params=abc"
+        chat = "https://tt-chat1-wpa.chat.zalo.me/api/message/sms?zpw_ver=695&zpw_type=30&params=abc"
+        nop = "https://tt-chat1-wpa.chat.zalo.me/api/x?params=abc"
+        assert _q(protocol.adapt_url(call))["zpw_type"] == "24" and _q(protocol.adapt_url(call))["zpw_ver"] == "693"
+        assert _q(protocol.adapt_url(call))["params"] == "abc"
+        assert protocol.adapt_url(chat) == chat and protocol.adapt_url(nop) == nop
+        assert protocol.user_agent_for(call) == "ZaloPC-win32-24v693" and protocol.user_agent_for(chat) == "zalo-pc-qr/1.0"
+        # máy chủ bị từ chối vì kiểu -> học -> các yêu cầu sau của máy chủ đó đi bằng PC
+        assert protocol.type_rejected({"error_code": 602, "error_message": "zpw_type bị thiếu hoặc không đúng"})
+        assert protocol.type_rejected({"error_code": 1, "error_message": "ZPW_VER sai"})
+        assert not protocol.type_rejected({"error_code": 0, "error_message": "zpw_type"})
+        assert not protocol.type_rejected({"error_code": 600, "error_message": "zpw_sek bị thiếu hoặc không đúng"})
+        assert not protocol.type_rejected("x") and not protocol.type_rejected({})
+        assert protocol.learn_pc(chat) is True and protocol.learn_pc(chat) is False
+        assert _q(protocol.adapt_url(chat))["zpw_type"] == "24" and protocol.user_agent_for(chat) == "ZaloPC-win32-24v693"
+        assert protocol.adapt_url(nop) == nop                    # không có tham số kiểu thì giữ nguyên
+        # kiểu pc: không đổi gì
+        protocol.set_client("pc")
+        assert protocol.adapt_url(call) == call and protocol.adapt_url(chat) == chat
+    finally:
+        protocol._PC_HOSTS.clear()
+        protocol.set_client("web")
+
+
+def test_transport_retries_once_with_pc_when_zalo_rejects_the_web_type():
+    import contextlib
+    import io
+    import json as _json
+    from zalo_pc_app import server as app_server
+    protocol._PC_HOSTS.clear()
+    protocol.set_client("web")
+    sent = []
+
+    class Resp:
+        def __init__(self, body):
+            self.status, self._b = 200, _json.dumps(body).encode()
+
+        def read(self):
+            return self._b
+
+    orig = app_server._zalo_urlopen
+
+    def fake(req, timeout):
+        q = _q(req.full_url)
+        sent.append((q.get("zpw_type"), q.get("zpw_ver"), req.get_header("User-agent")))
+        if q.get("zpw_type") == "30" and "group-wpa" in req.full_url:       # chỉ máy chủ nhóm từ chối kiểu web
+            return contextlib.nullcontext(Resp({"error_code": 602, "error_message": "zpw_type bị thiếu hoặc không đúng"}))
+        return contextlib.nullcontext(Resp({"error_code": 0, "data": "ok"}))
+    app_server._zalo_urlopen = fake
+    try:
+        tr = app_server.make_transport("sek")
+        url = "https://group-wpa.chat.zalo.me/api/group/getlg/v4?zpw_ver=695&zpw_type=30&params=a"
+        st, body = tr.http_get(url)
+        assert body["error_code"] == 0, body
+        assert sent == [("30", "695", "zalo-pc-qr/1.0"), ("24", "693", "ZaloPC-win32-24v693")], sent
+        sent.clear()
+        tr.http_get(url)                                        # máy chủ đã học: đi thẳng bằng PC, không thử 2 lần
+        assert sent == [("24", "693", "ZaloPC-win32-24v693")], sent
+        sent.clear()
+        tr.http_get("https://voicecall-wpa.chat.zalo.me/api/voicecall/ringring?zpw_ver=695&zpw_type=30&params=a")
+        assert sent == [("24", "693", "ZaloPC-win32-24v693")], sent      # gọi điện luôn PC
+        sent.clear()
+        tr.http_get("https://profile-wpa.chat.zalo.me/api/x?zpw_ver=695&zpw_type=30&params=a")
+        assert sent[0][:2] == ("30", "695") and len(sent) == 1, sent       # dịch vụ khác vẫn web
+    finally:
+        app_server._zalo_urlopen = orig
+        protocol._PC_HOSTS.clear()
+        protocol.set_client("web")
+
+
+def test_transport_does_not_learn_pc_when_pc_is_rejected_too():
+    import contextlib
+    import json as _json
+    from zalo_pc_app import server as app_server
+    protocol._PC_HOSTS.clear()
+    protocol.set_client("web")
+    sent = []
+
+    class Resp:
+        status = 200
+
+        def read(self):
+            return _json.dumps({"error_code": 602, "error_message": "zpw_type bị thiếu hoặc không đúng"}).encode()
+    orig = app_server._zalo_urlopen
+    app_server._zalo_urlopen = lambda req, timeout: (sent.append(_q(req.full_url)["zpw_type"]) or contextlib.nullcontext(Resp()))
+    try:
+        tr = app_server.make_transport("sek")
+        url = "https://group-wpa.chat.zalo.me/api/group/getlg/v4?zpw_ver=695&zpw_type=30"
+        st, body = tr.http_get(url)
+        assert body["error_code"] == 602 and sent == ["30", "24"], sent        # thử PC 1 lần, vẫn bị từ chối
+        assert not protocol._PC_HOSTS, "PC cũng bị từ chối thì KHÔNG học (lỗi không do kiểu)"
+        sent.clear()
+        tr.http_get(url)
+        assert sent == ["30", "24"], sent                                      # vẫn bắt đầu bằng web
+    finally:
+        app_server._zalo_urlopen = orig
+        protocol._PC_HOSTS.clear()
+        protocol.set_client("web")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
