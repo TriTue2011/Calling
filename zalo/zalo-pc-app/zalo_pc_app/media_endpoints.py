@@ -169,6 +169,7 @@ import base64
 import binascii
 import ipaddress
 import json
+import os
 import re
 import time
 
@@ -1038,6 +1039,17 @@ def zca_extend_data(rtp, rtcp, is_video=False, srtp_mode=0, srtp_key=None):
     return out
 
 
+def _platform():
+    """Giá trị `platform` khai trong extendData. Mặc định 2 (như engine Zalo-Linux). Điện thoại khai 1 và hiện
+    «Phiên bản của <tên> chưa hỗ trợ tính năng chuyển video» khi xin chuyển thoại sang video với bên khai 2 (Zalo PC
+    cũng không có nút chuyển) — thử đặt ZALO_PC_PLATFORM=1 (13/11, CHƯA đo thật)."""
+    try:
+        v = int(os.environ.get("ZALO_PC_PLATFORM", "2"))
+    except ValueError:
+        return 2
+    return v if v in (0, 1, 2, 3) else 2
+
+
 def native_extend_data(rtp, rtcp, is_video=False, rtp_v6="", rtcp_v6=""):
     """extendData cua 416 y het engine zcall-native (Zalo-Linux, chay that voi
     dien thoai): newZrtc 1, platform 2, packetMode 2, gcc bat, spTcp 1,
@@ -1047,7 +1059,7 @@ def native_extend_data(rtp, rtcp, is_video=False, rtp_v6="", rtcp_v6=""):
     return {
         "callType": 1 if is_video else 0, "fecTP": 0, "gccAudio": 1,
         "gccEarlyCall": 0, "gccMode": 1, "gccSVLR": 1, "maxFT": 60,
-        "newZrtc": 1, "p2p": [], "packetMode": 2, "platform": 2, "sP2P": 0,
+        "newZrtc": 1, "p2p": [], "packetMode": 2, "platform": _platform(), "sP2P": 0,
         "serverAddr": [{"rtcp": rtcp, "rtcpIPv6": rtcp_v6 or "::FFFF:%s" % rtcp,
                         "rtp": rtp, "rtpIPv6": rtp_v6 or "::FFFF:%s" % rtp,
                         "tpType": 0}],
