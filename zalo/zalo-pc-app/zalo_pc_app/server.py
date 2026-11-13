@@ -91,6 +91,8 @@ from . import call_audio as call_audio_mod
 from . import account_health
 from . import event_dedup as event_dedup_mod
 from . import ws_listener as ws_listener_mod
+from . import recall_queue as recall_mod
+from . import conv_ttl as conv_ttl_mod
 from . import privacy as privacy_mod
 from . import call_errors
 from . import call_log
@@ -1362,6 +1364,36 @@ def _prune_say_files(folder):
             pass
 
 
+# Bao «camera bat» (12006) CHI MOT LAN la hay hut: dien thoai co the chua san sang nhan luc ta vua nghe may (13/11: bao luc +2 giay sau answerack,
+# dien thoai van giu «BenBap dang tat camera» du nhan du goi hinh, TWCC ok lost=0). Gui lai theo nhip thua dan cho toi khi hinh dung; trang thai la
+# idempotent (isOnCam=1 nhieu lan khong hai gi).
+CAMERA_STATE_REPEAT = (2.0, 4.0, 8.0, 15.0)
+CAMERA_STATE_KEEP_SECONDS = 20.0
+
+
+def _repeat_camera_state(call_id, sender, delays=CAMERA_STATE_REPEAT, keep=CAMERA_STATE_KEEP_SECONDS, sleep=time.sleep):
+    def run():
+        waits = list(delays)
+        while True:
+            sleep(waits.pop(0) if waits else keep)
+            if VIDEO_SENDERS.get(str(call_id)) is not sender:        # hinh da dung / cuoc goi da ket thuc / thay nguon
+                return
+            _send_camera_state_async(call_id, _thread_of_call(call_id), True)
+    threading.Thread(target=run, daemon=True, name="camera-state-repeat").start()
+
+
+def _schedule_recall(thread_type, thread_id, res, after):
+    """Hẹn thu hồi tin vừa gửi sau `after` giây (0 = không). Trả thời điểm thu hồi (epoch giây) hoặc 0 khi không hẹn được."""
+    if not after:
+        return 0
+    data = res.get("data") if isinstance(res, dict) else None
+    msg_id = (data.get("msgId") or data.get("globalMsgId") or "") if isinstance(data, dict) else ""
+    if not msg_id:
+        print("[recall] khong hen duoc thread=%s: Zalo khong tra ma tin" % thread_id, flush=True)
+        return 0
+    return STATE.recall.add(thread_type, thread_id, msg_id, res.get("client_id"), after)
+
+
 def _start_video(call_id, source, params=None):
     """Phat hinh `source` len cuoc goi (+ bao camera bat). Nem ValueError/RuntimeError."""
     transport = _transport_for_call(call_id)
@@ -1377,6 +1409,7 @@ def _start_video(call_id, source, params=None):
     sender.start()
     VIDEO_SENDERS[str(call_id)] = sender
     _send_camera_state_async(call_id, _thread_of_call(call_id), True)
+    _repeat_camera_state(call_id, sender)
     _log_call("video start call_id=%s source=%s" % (
         call_id, "test" if (source or "test") == "test" else "stream"))
     return sender
@@ -1705,6 +1738,8 @@ class AppState:
         self.event_dedup = event_dedup_mod.EventDedup()
         self.ws = None
         self._revoke_hits = {}                 # trang thai kenh -> so lan kiem lien tiep (xem check_revoked)
+        self.recall = recall_mod.RecallQueue(os.path.join(data_dir, "recall_queue.json"), self._recall_undo, log=lambda m: print(m, flush=True))
+        self.conv_ttl = conv_ttl_mod.ConvTtl(self._fetch_conv_ttl, log=lambda m: print(m, flush=True))
         # Ma PIN rieng tu (privacy.py): TAT neu khong dat ZALO_PC_APP_PIN / ZALO_PC_APP_PIN_HASH. Dat sai dinh dang thi ne loi luc khoi dong
         # (khong am tham tat mot tinh nang bao mat).
         self.privacy = privacy_mod.PrivacyGate.from_env()
@@ -2258,8 +2293,23 @@ class AppState:
         if not sess or not sess.get("zpw_sek"):
             raise RuntimeError("chưa đăng nhập Zalo")
         transport = make_transport(sess["zpw_sek"])
-        return services_mod.Services(transport, transport.http_post, sess["device_id"], sess["zpw_enk"],
-                                     service_map=sess.get("service_map"))
+        svc = services_mod.Services(transport, transport.http_post, sess["device_id"], sess["zpw_enk"],
+                                    service_map=sess.get("service_map"))
+        svc.uid = str(sess.get("uid") or "")
+        return svc
+
+    def _recall_undo(self, thread_type, thread_id, msg_id, cli_msg_id):
+        """Thu hồi một tin đã hẹn. Chưa đăng nhập -> NotReady (mục giữ lại, không tính lỗi)."""
+        try:
+            svc = self._history_services()
+        except RuntimeError as e:
+            raise recall_mod.NotReady(str(e))
+        svc.dispatch("undo_message", {"thread_id": thread_id, "type": thread_type, "msg_id": msg_id, "cli_msg_id": cli_msg_id})
+
+    def _fetch_conv_ttl(self):
+        """{thread_id: ttl_ms} của các cuộc trò chuyện đang bật tự xoá (xem conv_ttl.py)."""
+        res = self._history_services().dispatch("get_auto_delete_chat", {})
+        return {str(c["destId"]): int(c["ttl"]) for c in (res or {}).get("convers", []) if c.get("ttl")}
 
     # -- QR flow (background thread) ------------------------------------
     def start_qr(self):
@@ -4664,6 +4714,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"error": "type phai la user|group"},
                                    status=400)
         try:
+            recall_after = recall_mod.parse_after(body["_fields"].get("recall_after") if "_fields" in body else body.get("recall_after"))
+        except ValueError as exc:
+            return self._send_json({"error": str(exc)}, status=400)
+        try:
             chat = self._chat_client(sess)
             if action == "send":
                 raw_msg = body.get("message") or ""
@@ -4726,6 +4780,7 @@ class Handler(BaseHTTPRequestHandler):
                                            local)
                 return self._send_json({"ok": True, "data": res["data"],
                                         "message": local,
+                                        "recall_at": _schedule_recall(thread_type, thread_id, res, recall_after),
                                         "ai_style": ai_used})
             if action == "sendlink":
                 link = (body.get("link") or "").strip()
@@ -4755,7 +4810,8 @@ class Handler(BaseHTTPRequestHandler):
                 STATE.message_store.record(thread_type, thread_id,
                                            local)
                 return self._send_json({"ok": True, "data": res["data"],
-                                        "message": local})
+                                        "message": local,
+                                        "recall_at": _schedule_recall(thread_type, thread_id, res, recall_after)})
             if action == "typing":
                 data = chat.send_typing(thread_type, thread_id)
                 return self._send_json({"ok": True, "data": data})
@@ -4820,7 +4876,8 @@ class Handler(BaseHTTPRequestHandler):
                                               filename, data_bytes, mime,
                                               width, height,
                                               desc=caption_text,
-                                              photo_bundle=bundle)
+                                              photo_bundle=bundle,
+                                              ttl=STATE.conv_ttl.get(thread_id))
                         local_kind = "photo"
                     else:
                         res = chat.send_file(thread_type, thread_id,
@@ -4846,7 +4903,8 @@ class Handler(BaseHTTPRequestHandler):
                 STATE.message_store.record(thread_type, thread_id,
                                            local)
                 return self._send_json({"ok": True, "data": res["data"],
-                                        "message": local})
+                                        "message": local,
+                                        "recall_at": _schedule_recall(thread_type, thread_id, res, recall_after)})
             # sendvoice: file ghi am cua trinh duyet (MediaRecorder) hoac TTS.
             # Chrome cho webm/opus, Safari cho mp4/aac: doi sang AAC o
             # server (ensure_voice_aac), roi chat.send_voice tai .aac len
@@ -4872,7 +4930,7 @@ class Handler(BaseHTTPRequestHandler):
                     {"error": "khong_chuyen_duoc_sang_aac: %s" % e},
                     status=502)
             res = chat.send_voice(thread_type, thread_id, aac_name,
-                                  aac_bytes, aac_mime)
+                                  aac_bytes, aac_mime, ttl=STATE.conv_ttl.get(thread_id))
             local = STATE.chat_store.local_message(
                 thread_type, thread_id, "voice", text=aac_name,
                 file_name=aac_name, client_id=res["client_id"])
@@ -4880,6 +4938,7 @@ class Handler(BaseHTTPRequestHandler):
             STATE.message_store.record(thread_type, thread_id, local)
             return self._send_json({"ok": True, "data": res["data"],
                                     "message": local,
+                                    "recall_at": _schedule_recall(thread_type, thread_id, res, recall_after),
                                     "voice_url": res.get("voice_url"),
                                     "converted_to_aac": converted,
                                     "note": "Thu am tai trinh duyet, "
@@ -6025,6 +6084,7 @@ def main():
               % type(e).__name__, flush=True)
     try:
         STATE.start_revoke_watchdog()
+        STATE.recall.start()
     except Exception as e:  # noqa: BLE001 - best-effort
         print("[session] khong mo duoc vong giam sat thu hoi phien: %s"
               % type(e).__name__, flush=True)

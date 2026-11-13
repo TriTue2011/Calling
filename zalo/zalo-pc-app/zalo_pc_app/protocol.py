@@ -32,6 +32,8 @@ AUTH_DOMAIN = "https://wpa.zalo.me"
 CHAT_DOMAIN = "https://chat-wpa.zalo.me"
 VOICECALL_DOMAIN = "https://voicecall-wpa.zalo.me"
 CONVERS_DOMAIN = "https://convers-wpa.api.zalo.me"
+# Cài đặt tự xoá (getConvers/updateConvers) của phiên kiểu web nằm ở máy chủ này; `convers-wpa.api.zalo.me` trả 404/405 (đo 13/11).
+CONVERS_WEB_DOMAIN = "https://tt-convers-wpa.chat.zalo.me"
 PROFILE_DOMAIN = "https://profile-wpa.zalo.me"
 GROUP_DOMAIN = "https://group-wpa.zalo.me"
 # Cac domain con lai trong bang lenh (SERVICE-MAP.md §1): chi

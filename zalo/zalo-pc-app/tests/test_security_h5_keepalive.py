@@ -72,6 +72,7 @@ def patch_domains(mock):
     protocol.GROUP_DOMAIN = mock.base
     protocol.CHAT_DOMAIN = mock.base
     protocol.CONVERS_DOMAIN = mock.base
+    protocol.CONVERS_WEB_DOMAIN = mock.base
     protocol.FRIEND_DOMAIN = mock.base
     protocol.ALIAS_DOMAIN = mock.base
     protocol.LABEL_DOMAIN = mock.base

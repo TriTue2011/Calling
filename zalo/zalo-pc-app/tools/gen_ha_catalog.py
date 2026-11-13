@@ -60,6 +60,12 @@ CHAT_FIELDS = {
                   ("message", "Lời nhắn kèm theo", False)],
     "send_video": [("file", "Tệp video (đường dẫn hoặc URL)", True)],
 }
+# Tu thu hoi sau N giay cho moi service gui tin (13/11). Zalo khong cho dat tu xoa theo giay (chi 1/7/14/30 ngay), nen app hen gio roi THU HOI.
+RECALL_FIELD = ("recall_after", "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng "
+                "«tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)", False)
+for _name in ("send_message", "send_file", "send_image", "send_image_to_user", "send_images_to_user", "send_image_to_group", "send_images_to_group",
+              "send_voice", "send_link", "send_video"):
+    CHAT_FIELDS[_name].append(RECALL_FIELD)
 # 10 service chi co o may chu zalobot: tich hop tu tra loi tu trang thai app.
 ACCT = {
     "get_logged_accounts": [], "get_account_details": [],
@@ -90,6 +96,9 @@ def _reaction_options():
 
 # Truong co danh sach chon (select) thay cho o go chu: bang emoji va bang bieu tuong cam xuc.
 SELECTOR_OVERRIDES = {
+    **{(n, "recall_after"): {"number": {"min": 0, "max": 86400, "step": 1, "unit_of_measurement": "s", "mode": "box"}}
+       for n in ("send_message", "send_file", "send_image", "send_image_to_user", "send_images_to_user", "send_image_to_group",
+                 "send_images_to_group", "send_voice", "send_link", "send_video")},
     ("send_message", "emoji"): {"select": {"options": _emoji_options(), "custom_value": True, "mode": "dropdown"}},
     ("send_message", "auto_emoji"): {"boolean": None},
     ("send_message", "mentions"): {"object": None},

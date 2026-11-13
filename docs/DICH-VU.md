@@ -718,6 +718,7 @@ data:
   ai_style: false                     # tuỳ chọn - true = nhờ trợ lý AI đánh giá ngữ cảnh cho các mục auto của 
   auto_color: "red"                   # tuỳ chọn - Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow,
   zalo_emoji: "afraid"                # tuỳ chọn - Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (hea
+  recall_after: 0                     # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -739,6 +740,7 @@ data:
 | `ai_style` | true = nhờ trợ lý AI đánh giá ngữ cảnh cho các mục auto của tin này (thêm vài giây; quá 8 giây thì dùng quy tắc tức thì); false = quy tắc tức thì; bỏ trống = theo công tắc «Chữ: dùng AI đánh giá…» trên thiết bị | không | true = nhờ trợ lý AI đánh giá ngữ cảnh cho các mục auto của tin này (thêm vài giây; quá 8 giây thì dùng quy tắc tức thì); false = quy tắc tức thì; bỏ trống = theo công tắc «Chữ: dùng AI đánh giá…» trên thiết bị |
 | `auto_color` | Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow, green. Bỏ trống = theo mặc định | không | Màu dùng cho chế độ auto của «Màu chữ»: red, orange, yellow, green. Bỏ trống = theo mặc định |
 | `zalo_emoji` | Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để chèn mã tương ứng vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji. | không | Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để chèn mã tương ứng vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji. |
+| `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
 
@@ -893,6 +895,7 @@ data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
   file: "/config/www/document.pdf"  # bắt buộc - Đường dẫn tệp trong HA hoặc URL
+  recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -900,6 +903,7 @@ data:
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
 | `file` | Đường dẫn tệp trong HA hoặc URL | có | Đường dẫn file trên Home Assistant hoặc URL của file cần gửi. |
+| `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
 
@@ -922,6 +926,7 @@ data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
   file: "/config/www/img.png"       # bắt buộc - Ảnh (đường dẫn trong HA hoặc URL)
+  recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -929,6 +934,7 @@ data:
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
 | `file` | Ảnh (đường dẫn trong HA hoặc URL) | có | Đường dẫn file ảnh trên Home Assistant |
+| `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
 
@@ -951,6 +957,7 @@ data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
   file: ""                          # bắt buộc - Ảnh (đường dẫn hoặc URL)
+  recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -958,6 +965,7 @@ data:
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
 | `file` | Ảnh (đường dẫn hoặc URL) | có | Đường dẫn ảnh |
+| `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
 
@@ -980,6 +988,7 @@ data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
   files: ""                         # bắt buộc - Các ảnh, cách nhau dấu phẩy
+  recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -987,6 +996,7 @@ data:
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
 | `files` | Các ảnh, cách nhau dấu phẩy | có | Danh sách paths (comma-separated) |
+| `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
 
@@ -1009,6 +1019,7 @@ data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
   file: ""                          # bắt buộc - Ảnh (đường dẫn hoặc URL)
+  recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -1016,6 +1027,7 @@ data:
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
 | `file` | Ảnh (đường dẫn hoặc URL) | có | Đường dẫn ảnh |
+| `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
 
@@ -1038,6 +1050,7 @@ data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
   files: ""                         # bắt buộc - Các ảnh, cách nhau dấu phẩy
+  recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -1045,6 +1058,7 @@ data:
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
 | `files` | Các ảnh, cách nhau dấu phẩy | có | Danh sách paths (comma-separated) |
+| `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
 
@@ -1098,6 +1112,7 @@ data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
   file: "/config/www/voice.mp3"     # bắt buộc - Tệp âm thanh (đường dẫn hoặc URL)
+  recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -1105,6 +1120,7 @@ data:
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
 | `file` | Tệp âm thanh (đường dẫn hoặc URL) | có | Tệp âm thanh: đường dẫn trong HA, URL http(s):// hoặc media-source://. Bỏ trống nếu dùng message |
+| `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
 
@@ -1363,6 +1379,7 @@ data:
   type: "user"                      # tuỳ chọn - Loại hội thoại
   link: "https://example.com"       # bắt buộc - Đường link
   message: ""                       # tuỳ chọn - Lời nhắn kèm theo
+  recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -1371,6 +1388,7 @@ data:
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
 | `link` | Đường link | có | URL cần gửi |
 | `message` | Lời nhắn kèm theo | không | Nội dung tin nhắn đi kèm |
+| `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
 
@@ -1393,6 +1411,7 @@ data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
   file: "/config/www/video.mp4"     # bắt buộc - Tệp video (đường dẫn hoặc URL)
+  recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
@@ -1400,6 +1419,7 @@ data:
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
 | `file` | Tệp video (đường dẫn hoặc URL) | có | Đường dẫn file video trên Home Assistant hoặc URL của video cần gửi |
+| `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
 

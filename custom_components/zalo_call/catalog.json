@@ -83,6 +83,11 @@
     "key": "zalo_emoji",
     "label": "Emoji của Zalo (bảng emoji trong ô chat Zalo): chọn tên (heart, haha, wow, cry…) để chèn mã tương ứng vào đầu tin; Zalo hiện thành ảnh emoji. Dùng được cùng ô Emoji.",
     "required": false
+   },
+   {
+    "key": "recall_after",
+    "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
+    "required": false
    }
   ]
  },
@@ -100,6 +105,11 @@
     "key": "file",
     "label": "Đường dẫn tệp trong HA hoặc URL",
     "required": true
+   },
+   {
+    "key": "recall_after",
+    "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
+    "required": false
    }
   ]
  },
@@ -117,6 +127,11 @@
     "key": "file",
     "label": "Ảnh (đường dẫn trong HA hoặc URL)",
     "required": true
+   },
+   {
+    "key": "recall_after",
+    "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
+    "required": false
    }
   ]
  },
@@ -279,6 +294,11 @@
     "key": "file",
     "label": "Ảnh (đường dẫn hoặc URL)",
     "required": true
+   },
+   {
+    "key": "recall_after",
+    "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
+    "required": false
    }
   ]
  },
@@ -296,6 +316,11 @@
     "key": "files",
     "label": "Các ảnh, cách nhau dấu phẩy",
     "required": true
+   },
+   {
+    "key": "recall_after",
+    "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
+    "required": false
    }
   ]
  },
@@ -313,6 +338,11 @@
     "key": "file",
     "label": "Ảnh (đường dẫn hoặc URL)",
     "required": true
+   },
+   {
+    "key": "recall_after",
+    "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
+    "required": false
    }
   ]
  },
@@ -330,6 +360,11 @@
     "key": "files",
     "label": "Các ảnh, cách nhau dấu phẩy",
     "required": true
+   },
+   {
+    "key": "recall_after",
+    "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
+    "required": false
    }
   ]
  },
@@ -643,6 +678,11 @@
     "key": "file",
     "label": "Tệp âm thanh (đường dẫn hoặc URL)",
     "required": true
+   },
+   {
+    "key": "recall_after",
+    "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
+    "required": false
    }
   ]
  },
@@ -1296,6 +1336,11 @@
     "key": "message",
     "label": "Lời nhắn kèm theo",
     "required": false
+   },
+   {
+    "key": "recall_after",
+    "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
+    "required": false
    }
   ]
  },
@@ -1341,6 +1386,11 @@
     "key": "file",
     "label": "Tệp video (đường dẫn hoặc URL)",
     "required": true
+   },
+   {
+    "key": "recall_after",
+    "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
+    "required": false
    }
   ]
  },

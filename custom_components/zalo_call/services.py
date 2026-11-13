@@ -97,13 +97,13 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
         return await api.thread_send(ttype, tid, str(d["message"]), d.get("format"),
                                      d.get("auto_emphasis"), d.get("emoji"),
                                      d.get("auto_emoji"), d.get("zalo_emoji"), d.get("style"), d.get("ai_markup"),
-                                     d.get("mentions"))
+                                     d.get("mentions"), d.get("recall_after"))
     if name == "send_link":
         return await api.thread_sendlink(ttype, tid, str(d["link"]),
-                                         str(d.get("message") or ""))
+                                         str(d.get("message") or ""), d.get("recall_after"))
     if name == "send_voice":
         fn, data, mime = await _read_source(hass, d["file"])
-        return await api.thread_sendvoice(ttype, tid, fn, data, mime)
+        return await api.thread_sendvoice(ttype, tid, fn, data, mime, d.get("recall_after"))
     if name == "send_card":
         raise ServiceValidationError(
             "send_card chưa hỗ trợ: app Zalo PC chưa có đường gửi danh thiếp")
@@ -112,12 +112,12 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
         for src in _split(d["files"]):
             fn, data, mime = await _read_source(hass, src)
             results.append(await api.thread_sendfile(ttype, tid, fn, data, mime,
-                                                     "photo"))
+                                                     "photo", d.get("recall_after")))
         return {"sent": len(results)}
     # send_file / send_image / send_image_to_* / send_video
     kind = "photo" if "image" in name else "file"
     fn, data, mime = await _read_source(hass, d["file"])
-    return await api.thread_sendfile(ttype, tid, fn, data, mime, kind)
+    return await api.thread_sendfile(ttype, tid, fn, data, mime, kind, d.get("recall_after"))
 
 
 async def _do_acct(hass, rt, api: ZaloCallApi, e: dict, d: dict) -> Any:

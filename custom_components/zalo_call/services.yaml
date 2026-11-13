@@ -381,6 +381,21 @@ send_message:
             label: wow
           custom_value: false
           mode: dropdown
+    recall_after:
+      name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
+        Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
+        lại; tối đa 86400 giây (1 ngày)
+      description: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ,
+        nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi
+        động lại; tối đa 86400 giây (1 ngày)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
 send_file:
   name: send_file
   description: Gửi một file bất kỳ qua URL hoặc từ đường dẫn cục bộ.
@@ -409,6 +424,21 @@ send_file:
       selector:
         text: null
       example: /config/www/document.pdf
+    recall_after:
+      name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
+        Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
+        lại; tối đa 86400 giây (1 ngày)
+      description: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ,
+        nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi
+        động lại; tối đa 86400 giây (1 ngày)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
 send_image:
   name: send_image
   description: Gửi ảnh Zalo
@@ -437,6 +467,21 @@ send_image:
       selector:
         text: null
       example: /config/www/img.png
+    recall_after:
+      name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
+        Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
+        lại; tối đa 86400 giây (1 ngày)
+      description: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ,
+        nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi
+        động lại; tối đa 86400 giây (1 ngày)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
 get_logged_accounts:
   name: get_logged_accounts
   description: Lấy danh sách tài khoản Zalo đã login
@@ -621,6 +666,21 @@ send_image_to_user:
         text: {}
       example: /config/www/img.png
       default: ''
+    recall_after:
+      name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
+        Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
+        lại; tối đa 86400 giây (1 ngày)
+      description: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ,
+        nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi
+        động lại; tối đa 86400 giây (1 ngày)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
 send_images_to_user:
   name: send_images_to_user
   description: Gửi nhiều ảnh đến user
@@ -650,6 +710,21 @@ send_images_to_user:
         text: {}
       example: path1,path2
       default: ''
+    recall_after:
+      name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
+        Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
+        lại; tối đa 86400 giây (1 ngày)
+      description: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ,
+        nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi
+        động lại; tối đa 86400 giây (1 ngày)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
 send_image_to_group:
   name: send_image_to_group
   description: Gửi 1 ảnh đến group
@@ -679,6 +754,21 @@ send_image_to_group:
         text: {}
       example: /config/www/img.png
       default: ''
+    recall_after:
+      name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
+        Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
+        lại; tối đa 86400 giây (1 ngày)
+      description: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ,
+        nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi
+        động lại; tối đa 86400 giây (1 ngày)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
 send_images_to_group:
   name: send_images_to_group
   description: Gửi nhiều ảnh đến group
@@ -708,6 +798,21 @@ send_images_to_group:
         text: {}
       example: path1,path2
       default: ''
+    recall_after:
+      name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
+        Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
+        lại; tối đa 86400 giây (1 ngày)
+      description: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ,
+        nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi
+        động lại; tối đa 86400 giây (1 ngày)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
 get_account_webhooks:
   name: get_account_webhooks
   description: Lấy tất cả config webhook
@@ -1078,6 +1183,21 @@ send_voice:
       selector:
         text: null
       example: /config/www/voice.mp3
+    recall_after:
+      name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
+        Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
+        lại; tối đa 86400 giây (1 ngày)
+      description: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ,
+        nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi
+        động lại; tối đa 86400 giây (1 ngày)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
 get_all_friends:
   name: get_all_friends
   description: Lấy danh sách tất cả bạn bè
@@ -2003,6 +2123,21 @@ send_link:
         text: null
       example: Xem link này nhé
       default: ''
+    recall_after:
+      name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
+        Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
+        lại; tối đa 86400 giây (1 ngày)
+      description: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ,
+        nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi
+        động lại; tối đa 86400 giây (1 ngày)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
 get_stickers:
   name: Xem danh mục sticker
   description: Tìm kiếm sticker theo từ khóa
@@ -2048,6 +2183,21 @@ send_video:
       selector:
         text: null
       example: /config/www/video.mp4
+    recall_after:
+      name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
+        Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
+        lại; tối đa 86400 giây (1 ngày)
+      description: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ,
+        nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi
+        động lại; tối đa 86400 giây (1 ngày)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
 create_note_group:
   name: Tạo ghi chú trong nhóm
   description: Tạo ghi chú mới trong nhóm

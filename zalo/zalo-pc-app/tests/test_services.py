@@ -105,6 +105,7 @@ def patch_domains(mock):
     protocol.GROUP_DOMAIN = mock.base
     protocol.CHAT_DOMAIN = mock.base
     protocol.CONVERS_DOMAIN = mock.base
+    protocol.CONVERS_WEB_DOMAIN = mock.base
     protocol.FRIEND_DOMAIN = mock.base
     protocol.ALIAS_DOMAIN = mock.base
     protocol.LABEL_DOMAIN = mock.base
@@ -215,13 +216,15 @@ def test_dispatch_message_ops_both_threads():
         assert d2["body"]["clientId"] > d["body"]["clientId"], d
         assert "cliMsgIdUndo" not in d2["body"], d2
         # delete: {toid|grid, msgs:[], onlyMe, imei}.
+        # (13/11) msgs la danh sach DOI TUONG: voi [msgId] tron Zalo tra 114; ownerId = nguoi gui tin.
         d = svc.dispatch("delete_message", {
             "thread_id": "30001", "type": "group", "msg_id": "m3",
-            "cli_msg_id": "1234567890124"})
+            "cli_msg_id": "1234567890124", "owner_id": "20001"})
         assert d["path"] == "/api/group/deletemsg", d
-        assert d["body"] == {"grid": "30001", "msgs": ["m3"],
-                             "onlyMe": 1, "cliMsgId": 1234567890124,
-                             "imei": "dev-1"}, d
+        b = dict(d["body"])
+        assert str(b.pop("cliMsgId")).isdigit(), d
+        assert b == {"grid": "30001", "onlyMe": 1, "imei": "dev-1",
+                     "msgs": [{"cliMsgId": "1234567890124", "globalMsgId": "m3", "ownerId": "20001", "destId": "30001"}]}, d
         # forward: mforward co NOI DUNG (bundle forwardMultiMessage + zca-js forwardMessage), mot lan goi cho nhieu dich.
         d = svc.dispatch("forward_message", {
             "message": "xin chao",
@@ -738,7 +741,7 @@ def test_dispatch_conversation_profile_sticker():
         d = svc.dispatch("update_auto_delete_chat",
                          dict(u, ttl="86400000"))
         assert d["path"] == "/api/conv/autodelete/updateConvers", d
-        assert d["body"] == {"threadId": "20001", "isGroup": False,
+        assert d["body"] == {"threadId": "20001", "isGroup": 0,
                              "ttl": 86400000, "clientLang": "vi"}, d
         assert "/api/conv/autodelete/updateConvers" in \
             seen_post_paths(mock), "auto-delete update must be POST"
@@ -747,7 +750,7 @@ def test_dispatch_conversation_profile_sticker():
         assert seen_q and "params" in seen_q[0], seen_q
         d = svc.dispatch("update_auto_delete_chat", {
             "thread_id": "30001", "type": "group", "ttl": "0"})
-        assert d["body"]["isGroup"] is True, d
+        assert d["body"]["isGroup"] == 1 and type(d["body"]["isGroup"]) is int, d   # 13/11: so 0/1, bool -> Zalo tra 114
         assert d["body"]["ttl"] == 0, d
         d = svc.dispatch("get_mute", {})
         assert d["path"] == "/api/social/profile/getmute", d

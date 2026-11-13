@@ -1441,7 +1441,7 @@ class Chat:
 
     def send_photo(self, thread_type, thread_id, filename, data,
                    mime="image/jpeg", width=0, height=0, visibility=0,
-                   desc="", photo_bundle=None):
+                   desc="", photo_bundle=None, ttl=0):
         """11152 (1-1) / 11164 (nhom): multipart fileContent +
         params AES {clientId, desc, width, height, toid|grid}.
         width/height lay tu anh that o UI; 0 = khong biet (best
@@ -1486,6 +1486,8 @@ class Chat:
             if photo_bundle is not None:
                 params.update(photo_bundle)
             params["visibility"] = visibility
+            if ttl:                                  # cuoc tro chuyen dang bat tu xoa: Zalo doi anh kem dung ttl cua no (thieu -> inner 801)
+                params["ttl"] = int(ttl)
             params["grid"] = str(thread_id)
             url = _multipart_url(FILES_DOMAIN, "/api/group/sendpt",
                                  params, self.zpw_enk, TYPE_FILE_GROUP)
@@ -1495,6 +1497,8 @@ class Chat:
                       "width": int(width), "height": int(height)}
             if photo_bundle is not None:
                 params.update(photo_bundle)
+            if ttl:
+                params["ttl"] = int(ttl)
             params["toid"] = str(thread_id)
             url = _multipart_url(FILES_DOMAIN, "/api/message/photo",
                                  params, self.zpw_enk, TYPE_FILE_USER)

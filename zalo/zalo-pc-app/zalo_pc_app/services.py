@@ -310,14 +310,19 @@ def _b_undo(p, tid, tt):
 
 
 def _b_delete_msg(p, tid, tt):
-    # {toid|grid, cliMsgId?, msgs:[msgId], onlyMe:0|1, imei}.
-    body = _toid_or_grid(tid, tt, {
-        "msgs": [_need(p, "msg_id", "delete_message")],
+    # {toid|grid, cliMsgId, msgs:[{cliMsgId, globalMsgId, ownerId, destId}], onlyMe:0|1, imei}. Zalo web gửi `msgs` là danh sách ĐỐI TƯỢNG: với
+    # [msgId] trơn Zalo trả 114 «Tham số không hợp lệ» (cả onlyMe=0 lẫn 1), với đối tượng trả status 0 (đo 13/11). ownerId = người GỬI tin
+    # (mặc định: chính phiên này, tức tin của ta). onlyMe=0 chỉ xoá phía mình — bên kia vẫn giữ tin (đo 13/11), muốn mất cả hai bên phải thu hồi.
+    msg_id = str(_need(p, "msg_id", "delete_message"))
+    cli_id = str(_need(p, "cli_msg_id", "delete_message"))
+    owner = str(p.get("owner_id") or p.get("_uid") or "")
+    if not owner:
+        raise ValueError("delete_message: thieu owner_id (nguoi gui tin) va phien khong co uid")
+    return _toid_or_grid(tid, tt, {
+        "cliMsgId": str(int(time.time() * 1000)),
+        "msgs": [{"cliMsgId": cli_id, "globalMsgId": msg_id, "ownerId": owner, "destId": str(tid)}],
         "onlyMe": 1 if _bool_param(p, "only_me", True) else 0,
         "imei": p["_imei"]})
-    if p.get("cli_msg_id") not in (None, ""):
-        body["cliMsgId"] = _cli_int(p["cli_msg_id"], "delete_message")
-    return body
 
 
 def _b_forward(p, tid, tt):
@@ -751,7 +756,8 @@ def _b_auto_delete(p, tid, tt):
     # isGroup:bool, ttl, clientLang} — params trong QUERY URL,
     # KHONG co form body (method POST_QUERY).
     ttl = _need(p, "ttl", "update_auto_delete_chat")
-    return {"threadId": tid, "isGroup": tt == "group",
+    # isGroup phải là SỐ 0/1: gửi true/false -> Zalo trả 114 (đo 13/11). Zalo chỉ nhận ttl 0 / 1 / 7 / 14 / 30 ngày (1 giờ chỉ zBusiness).
+    return {"threadId": tid, "isGroup": 1 if tt == "group" else 0,
             "ttl": int(ttl), "clientLang": LANGUAGE}
 
 
@@ -1540,7 +1546,7 @@ OPS = {
         "Xem hội thoại đang tự xóa",
         "GET convers-wpa /api/conv/autodelete/getConvers (12022) "
         "{} (params rỗng).",
-        "convers", "/api/conv/autodelete/getConvers", 12022, "GET",
+        "convers_web", "/api/conv/autodelete/getConvers", 12022, "GET",
         "none", [], lambda p, t, tt: {}, body_unverified=False),
     "update_auto_delete_chat": _op(
         60, "update_auto_delete_chat", "hoi_thoai",
@@ -1548,7 +1554,7 @@ OPS = {
         "POST convers-wpa /api/conv/autodelete/updateConvers "
         "(12023) {threadId, isGroup:bool, ttl, clientLang} — "
         "params trong QUERY URL, không có form body.",
-        "convers", "/api/conv/autodelete/updateConvers", 12023,
+        "convers_web", "/api/conv/autodelete/updateConvers", 12023,
         "POST_QUERY", "both",
         [{"key": "ttl", "label": "TTL (0=tắt, 86400000=1 ngày, "
           "604800000=7 ngày)", "required": True}],
@@ -1894,6 +1900,7 @@ _DOMAINS = {
     "group": lambda: protocol.GROUP_DOMAIN,
     "profile": lambda: protocol.PROFILE_DOMAIN,
     "convers": lambda: protocol.CONVERS_DOMAIN,
+    "convers_web": lambda: protocol.CONVERS_WEB_DOMAIN,
     "friend": lambda: protocol.FRIEND_DOMAIN,
     "alias": lambda: protocol.ALIAS_DOMAIN,
     "label": lambda: protocol.LABEL_DOMAIN,
@@ -2099,6 +2106,7 @@ class Services:
         # zpw_service_map_new) — chi dung de resolve REACTION /
         # QUICK_MESSAGE, khong hard-code domain (xem _domain_for).
         self.service_map = service_map or {}
+        self.uid = ""                      # uid của phiên (server gán): mặc định ownerId cho tin của ta
         if http_post_multipart is None:
             http_post_multipart = getattr(
                 http_get, "http_post_multipart", None)
@@ -2311,6 +2319,8 @@ class Services:
             raise UnknownAction("svc: không có thao tác %s" % action)
         params = dict(params or {})
         params["_imei"] = self.device_id
+        if self.uid:
+            params["_uid"] = self.uid
         if files and "file" in files:
             params["_file"] = files["file"]
         if action == "forward_message":

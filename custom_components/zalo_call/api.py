@@ -97,8 +97,11 @@ class ZaloCallApi:
                           zalo_emoji: str | None = None,
                           style: dict | None = None,
                           ai_markup: str | None = None,
-                          mentions: list | None = None) -> Any:
+                          mentions: list | None = None,
+                          recall_after: Any = None) -> Any:
         body: dict[str, Any] = {"type": ttype, "message": message}
+        if recall_after not in (None, "", 0, "0"):
+            body["recall_after"] = recall_after
         if mentions:
             body["mentions"] = list(mentions)
         if fmt:
@@ -115,16 +118,20 @@ class ZaloCallApi:
             "POST", "/api/thread/%s/send" % thread_id, json=body)
 
     async def thread_sendlink(self, ttype: str, thread_id: str, link: str,
-                              message: str = "") -> Any:
+                              message: str = "", recall_after: Any = None) -> Any:
+        body: dict[str, Any] = {"type": ttype, "link": link, "message": message}
+        if recall_after not in (None, "", 0, "0"):
+            body["recall_after"] = recall_after
         return await self._request(
-            "POST", "/api/thread/%s/sendlink" % thread_id,
-            json={"type": ttype, "link": link, "message": message})
+            "POST", "/api/thread/%s/sendlink" % thread_id, json=body)
 
     async def _multipart(self, action: str, ttype: str, thread_id: str,
                          filename: str, data: bytes, mime: str,
-                         kind: str | None) -> Any:
+                         kind: str | None, recall_after: Any = None) -> Any:
         form = aiohttp.FormData()
         form.add_field("type", ttype)
+        if recall_after not in (None, "", 0, "0"):
+            form.add_field("recall_after", str(recall_after))
         if kind:
             form.add_field("kind", kind)
         form.add_field("file", data, filename=filename, content_type=mime)
@@ -132,14 +139,14 @@ class ZaloCallApi:
             "POST", "/api/thread/%s/%s" % (thread_id, action), data=form)
 
     async def thread_sendfile(self, ttype, thread_id, filename, data, mime,
-                              kind="file") -> Any:
+                              kind="file", recall_after=None) -> Any:
         return await self._multipart("sendfile", ttype, thread_id, filename,
-                                     data, mime, kind)
+                                     data, mime, kind, recall_after)
 
     async def thread_sendvoice(self, ttype, thread_id, filename, data,
-                               mime) -> Any:
+                               mime, recall_after=None) -> Any:
         return await self._multipart("sendvoice", ttype, thread_id, filename,
-                                     data, mime, None)
+                                     data, mime, None, recall_after)
 
     # -- cuoc goi -----------------------------------------------------------
     async def call_request(self, thread_id: str, call_type: str,
