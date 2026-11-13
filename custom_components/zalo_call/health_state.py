@@ -30,6 +30,9 @@ def attributes(status: dict[str, Any] | None) -> dict[str, Any]:
     end = health.get("last_session_end") if isinstance(health.get("last_session_end"), dict) else None
     out: dict[str, Any] = {"sync": status.get("sync"), "ctrl": status.get("ctrl"),
                            "keepalive": (status.get("keepalive") or {}).get("state") if isinstance(status.get("keepalive"), dict) else None}
+    ws = status.get("ws") if isinstance(status.get("ws"), dict) else {}
+    out["ws"] = ws.get("state") or "off"                      # kênh WebSocket (poll luôn chạy song song làm dự phòng)
+    out["ws_active"] = bool(ws.get("active"))
     if end:
         out["last_session_end"] = SESSION_END_TEXT.get(str(end.get("detail")), str(end.get("detail")))
         out["last_session_end_at"] = end.get("t")

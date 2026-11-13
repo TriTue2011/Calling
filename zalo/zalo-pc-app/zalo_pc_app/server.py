@@ -89,6 +89,8 @@ from . import VERSION as _PKG_VERSION
 from . import app_auth
 from . import call_audio as call_audio_mod
 from . import account_health
+from . import event_dedup as event_dedup_mod
+from . import ws_listener as ws_listener_mod
 from . import privacy as privacy_mod
 from . import call_errors
 from . import call_log
@@ -1699,6 +1701,9 @@ class AppState:
         # Nhat ky suc khoe tai khoan (account_health.py): khoi dong / dang nhap / mo kenh / phien ket thuc + ly do.
         self.health = account_health.HealthLog(os.path.join(data_dir, "health.jsonl"))
         self.health.record("start", VERSION)
+        # Kenh WebSocket (ws_listener.py) + loc trung giua WebSocket va long-poll (event_dedup.py). ZALO_PC_WS=off de tat.
+        self.event_dedup = event_dedup_mod.EventDedup()
+        self.ws = None
         # Ma PIN rieng tu (privacy.py): TAT neu khong dat ZALO_PC_APP_PIN / ZALO_PC_APP_PIN_HASH. Dat sai dinh dang thi ne loi luc khoi dong
         # (khong am tham tat mot tinh nang bao mat).
         self.privacy = privacy_mod.PrivacyGate.from_env()
@@ -1882,7 +1887,8 @@ class AppState:
                               "auth_failures": ka_failures},
                 "app_user": app_user,
                 # Nhat ky suc khoe tai khoan: vai su kien cuoi + ly do phien ket thuc gan nhat (HA doc de bao).
-                "health": self.health.summary()}
+                "health": self.health.summary(),
+                "ws": (self.ws.status() if self.ws is not None else {"state": "off"})}
         if self.sync_debug:
             base["sync_debug"] = dict(self.sync_debug)
         if logged:
@@ -2626,6 +2632,14 @@ class AppState:
             call_id = (event or {}).get("call_id")
             if call_id is None:
                 return
+            _d, _ts = (event or {}).get("data"), None
+            if isinstance(_d, dict):
+                _p = _d.get("params")
+                _ts = _d.get("ts") or (_p.get("ts") if isinstance(_p, dict) else None)
+            # Khoa = act + call_id + TOAN BO noi dung data (ts, params...): hai su kien cung ts nhung khac noi dung (tat roi bat camera) la hai su kien.
+            # Khong co ts thi KHONG loc (khong the phan biet hai lan bam giong het nhau).
+            if _ts and self.event_dedup.seen("call:%s:%s:%s" % (act, call_id, event_dedup_mod.EventDedup.digest(_d))):
+                return                              # cung mot su kien den hai nguon (WebSocket + poll): chi xu ly mot lan
             if act != "request":      # «request» da co dong «incoming offer» + «offer-params»; cac su kien con lai ghi day du de xem Zalo bao gi khi thiet bi KHAC nghe may / tu choi
                 try:
                     def _clean(o, k=""):
@@ -3110,6 +3124,7 @@ class AppState:
                 self.sync_error = self._sync_error_text(e)
                 print("[sync-poll] %s" % self.sync_error, flush=True)
                 return False
+            poller.dedup, poller.dedup_check = self.event_dedup, self._ws_active
             poller.start()
             self.sync = poller
             self.sync_error = ""
@@ -3131,7 +3146,49 @@ class AppState:
             if ctrl is None or (not _poller_is_alive(ctrl)
                                 and not ctrl.kicked_out):
                 self._spawn_ctrl_poller_locked()
+            self._start_ws_locked(cur)
             return True
+
+    # -- kenh WebSocket (hoc tu app iOS «GiaNo» + zca-js): du phong = hai bo poll luon chay song song ---------------------
+    def _ws_active(self):
+        ws = self.ws
+        return bool(ws is not None and ws.active)
+
+    def _start_ws_locked(self, cur):
+        """Mo bo nghe WebSocket neu chua chay. CHI goi khi dang giu _sync_lock; khong goi mang (bo nghe tu chay trong luong rieng).
+        Loi o day KHONG bao gio lam hong viec mo kenh poll."""
+        try:
+            if os.environ.get("ZALO_PC_WS", "on").strip().lower() in ("0", "off", "false", "no"):
+                return
+            if self.ws is not None and self.ws.state not in ("idle", "disabled"):
+                return
+            urls = cur.get("ws_endpoint") or []
+            urls = [urls] if isinstance(urls, str) else list(urls)
+            try:
+                ping = float(os.environ.get("ZALO_PC_WS_PING_SECONDS") or ws_listener_mod.DEFAULT_PING_SECONDS)
+            except ValueError:
+                ping = ws_listener_mod.DEFAULT_PING_SECONDS
+            ws = ws_listener_mod.WsListener(
+                urls, "zpw_sek=%s" % cur["zpw_sek"], "zalo-pc-qr/1.0", self._on_ws_event, protocol.API_VERSION, protocol.API_TYPE,
+                ping_seconds=ping, on_state=self._on_ws_state,
+                log=lambda m: print(m, flush=True))
+            if ws.start():
+                self.ws = ws
+        except Exception as e:  # noqa: BLE001 - WebSocket la phan them: loi thi chi ghi log, poll van chay
+            print("[ws] khong mo duoc: %s" % type(e).__name__, flush=True)
+
+    def _on_ws_state(self, state, note=""):
+        try:
+            self.health.record("ws", ("%s: %s" % (state, note)) if note else state)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _on_ws_event(self, kind, data):
+        """Su kien da giai ma tu WebSocket -> CUNG ham xu ly voi long-poll (extract_messages / extract_call_events...)."""
+        with self._sync_lock:
+            poller = self.sync if kind == "sync" else self.ctrl
+        if poller is not None and hasattr(poller, "handle_decoded"):
+            poller.handle_decoded(data, via="ws")
 
     def _spawn_ctrl_poller_locked(self):
         """Tao + start CtrlPoller tu phien hien tai. CHI goi khi
@@ -3167,6 +3224,7 @@ class AppState:
             print("[sync-poll] kenh ctrl khong mo duoc: %s"
                   % e, flush=True)
             return False
+        ctrl.dedup, ctrl.dedup_check = self.event_dedup, self._ws_active
         ctrl.start()
         self.ctrl = ctrl
         print("[sync-poll] da mo kenh ctrl (99101, %d endpoint)"
@@ -3483,6 +3541,9 @@ class AppState:
         with self._sync_lock:
             poller, self.sync = self.sync, None
             ctrl, self.ctrl = self.ctrl, None
+            ws, self.ws = self.ws, None
+        if ws is not None:
+            ws.stop()
         if poller is not None:
             poller.stop()
         if ctrl is not None:

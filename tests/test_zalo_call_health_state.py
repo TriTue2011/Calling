@@ -27,3 +27,11 @@ def test_attributes_name_the_reason_and_tolerate_missing_or_bad_health():
     assert hs.attributes({"health": {"last_session_end": {"detail": "ly_do_la"}}})["last_session_end"] == "ly_do_la"
     for bad in (None, {}, {"health": "x"}, {"health": {"events": None}}, {"keepalive": "x"}):
         assert isinstance(hs.attributes(bad), dict) and "recent_events" in hs.attributes(bad), bad
+
+
+def test_attributes_report_websocket_state_and_default_off():
+    a = hs.attributes({"login": True, "sync": "running", "ctrl": "running", "ws": {"state": "connected", "active": True}})
+    assert a["ws"] == "connected" and a["ws_active"] is True
+    for st in ({}, {"ws": None}, {"ws": "x"}, {"ws": {}}):
+        b = hs.attributes(st)
+        assert b["ws"] == "off" and b["ws_active"] is False, st

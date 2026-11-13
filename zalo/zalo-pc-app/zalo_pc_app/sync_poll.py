@@ -466,6 +466,8 @@ class SyncPoller:
         self._stop = threading.Event()
         self._thread = None
         self.kicked_out = False
+        self.dedup = None                 # EventDedup do server gan (event_dedup.py)
+        self.dedup_check = None           # callable: True khi WebSocket dang chay (bat loc trung cho duong poll)
         self.last_error = ""
         self.polls = 0  # dem so lan poll (chan doan, khong log nd)
         # Chan doan loi keo dai (loi live 08/11): dem loi lien
@@ -582,7 +584,19 @@ class SyncPoller:
             self.consec_errors = 0
             self.last_error = ""
             return "empty"
+        self.handle_decoded(data, wait=time.time() - _t0)
+        self.consec_errors = 0
+        self.last_error = ""
+        return "ok"
+
+    def handle_decoded(self, data, wait=0.0, via="poll"):
+        """Xu ly mot batch DA GIAI MA (dict co msgs / pageMsgs / groupMsgs...): dung chung cho long-poll va WebSocket (ws_listener).
+        `wait` = giay da cho phan hoi (chi de ghi chan doan). Tra so tin trong batch. Khong dong vao bo dem loi cua poll.
+        Co event_dedup (server gan) thi bo muc da thay: bat «check» khi di qua WebSocket, hoac khi WebSocket dang chay (xem event_dedup.py)."""
+        if self.dedup is not None:
+            data = self.dedup.filter(data, check=(via == "ws") or bool(self.dedup_check and self.dedup_check()))
         _t1 = time.time()
+        _t0 = _t1 - wait
         messages = extract_messages(data, self.own_id)
         before = self.cursor.to_dict()
         self.cursor.update_from(data)
@@ -623,9 +637,7 @@ class SyncPoller:
                 self.on_cursor(self.cursor)
             except Exception:  # noqa: BLE001 - luu con tro loi
                 pass
-        self.consec_errors = 0
-        self.last_error = ""
-        return "ok"
+        return len(messages)
 
     def run(self):
         """Vong poll lien tuc cho toi stop(): poll xong poll lai

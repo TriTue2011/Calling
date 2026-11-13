@@ -814,6 +814,8 @@ class CtrlPoller:
         self._stop = threading.Event()
         self._thread = None
         self.kicked_out = False
+        self.dedup = None                 # EventDedup do server gan (event_dedup.py)
+        self.dedup_check = None           # callable: True khi WebSocket dang chay
         self.last_error = ""
         self._bad_shape_logs = 0
         self.polls = 0  # dem so lan poll (chan doan, khong log nd)
@@ -911,6 +913,16 @@ class CtrlPoller:
             self.consec_errors = 0
             self.last_error = ""
             return "empty"
+        self.handle_decoded(data)
+        self.consec_errors = 0
+        self.last_error = ""
+        return "ok"
+
+    def handle_decoded(self, data, via="poll"):
+        """Xu ly mot batch DA GIAI MA cua kenh dieu khien (controls, reacts...): dung chung cho long-poll va WebSocket. Khong dong vao bo dem loi cua poll.
+        Loc trung nhu SyncPoller.handle_decoded."""
+        if self.dedup is not None:
+            data = self.dedup.filter(data, check=(via == "ws") or bool(self.dedup_check and self.dedup_check()))
         for event in extract_voice_async(data):
             self.registry.deliver(event["fileId"], event["amr"],
                                   event["aac"])
@@ -965,9 +977,6 @@ class CtrlPoller:
                 self.on_cursor(self.cursor)
             except Exception:  # noqa: BLE001 - luu con tro loi
                 pass
-        self.consec_errors = 0
-        self.last_error = ""
-        return "ok"
 
     def run(self):
         """Vong poll lien tuc cho toi stop() — giong SyncPoller.run
