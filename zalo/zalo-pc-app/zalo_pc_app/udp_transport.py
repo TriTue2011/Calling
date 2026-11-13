@@ -1619,6 +1619,9 @@ class Udp4200Transport:
         self._rx_mark_n = 0
         self._rx_last_sec = 0
         self._sub8_due = None               # gui ReqForward sub 8 mot lan
+        self._relay_selected_at = None      # lúc chọn relay (để thử gửi lại InitZRTP khi điện thoại chưa gửi gói nào)
+        self._setup_retries = 0
+        self._setup_retry_max = max(0, int(os.environ.get("ZALO_PC_SETUP_RETRY", "3") or 0))   # 0 = tắt
         self._hello_count = 0
         self._p2p_acked = False
         self._p2p_cands = []            # [(ip, port, index)] ứng viên P2P bên gọi khai (cuộc gọi ĐẾN); rỗng = đường cũ
@@ -2232,11 +2235,31 @@ class Udp4200Transport:
                         cfg.local_ssrc, self.relay_session, 0, 8,
                         struct.pack("<II", 4, 0)),
                         self.selected_relay.rtp_addr())
+                self._maybe_retry_setup(now)
                 self._maybe_send_keepalive_media(now)
             except Exception as exc:  # noqa: BLE001 - scheduler survives
                 self._last_error = "scheduler: %s" % exc
             # 10 ms: du min cho nhip 20 ms cua goi am thanh giu ket noi.
             self._stop.wait(0.01)
+
+    def _maybe_retry_setup(self, now):
+        """Cuộc gọi ĐẾN: 13/11 đo 65 cuộc — điện thoại gửi gói đầu trước lúc chọn relay (≈0,65 s) thì 0/45 cuộc mất media; chưa thấy
+        gói nào lúc đó thì 12/20 cuộc mất hẳn. Nên khi đã chọn relay mà ĐIỆN THOẠI VẪN CHƯA GỬI GÓI NÀO, gửi lại InitZRTP tới relay đã chọn
+        (0,8 s, 1,6 s, 2,4 s; tối đa ZALO_PC_SETUP_RETRY lần, 0 = tắt) — thử phục hồi ghép cặp ở relay. Có gói đầu là dừng ngay."""
+        if (self._setup_retry_max <= 0 or self._first_media_seen or self._relay_selected_at is None
+                or self._setup_retries >= self._setup_retry_max or self.selected_relay is None):
+            return
+        if now - self._relay_selected_at < 0.8 * (self._setup_retries + 1):
+            return
+        self._setup_retries += 1
+        cfg = self.config
+        pkt = build_setup_init(cfg.local_ssrc, cfg.call_counter, cfg.call_session,
+                               cfg.peer_session if cfg.peer_session is not None else 0, cfg.token)
+        if self._send_to(pkt, self.selected_relay.rtp_addr()):
+            self.counters["setup_init_tx"] += 1
+            self.counters["setup_retry_tx"] = self.counters.get("setup_retry_tx", 0) + 1
+        print("[media] setup-retry %d/%d: chua co goi nao tu dien thoai sau %.1fs ke tu luc chon relay" % (
+            self._setup_retries, self._setup_retry_max, now - self._relay_selected_at), flush=True)
 
     def send_camera_state(self, on):
         """Báo camera của TA bật (ReqForward sub 7) hoặc tắt (sub 8) NGAY TRONG kênh relay UDP, như zca-js `sendCameraState`
@@ -2399,6 +2422,8 @@ class Udp4200Transport:
                 self.selected_relay = relay
                 self.relay_session = info["relay_session"]
             self.state = "connected"
+            if self._relay_selected_at is None:
+                self._relay_selected_at = time.monotonic()
             print("[media] relay selected %s:%s preferred=%s" % (
                 relay.rtp_ip, relay.rtp_port, is_pref), flush=True)
             # NO begin_p2p() here (2026-11-08, step 3): the P2P

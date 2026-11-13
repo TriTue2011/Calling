@@ -589,6 +589,29 @@ def test_send_camera_state_inband_sub7_on_sub8_off_three_times():
         close()
 
 
+def test_setup_retry_when_phone_sends_nothing_after_relay_selected():
+    """Chọn relay xong mà điện thoại chưa gửi gói nào: gửi lại InitZRTP (0,8/1,6/2,4 s, tối đa 3 lần), chỉ tới relay đã chọn."""
+    tr, received, close = _connected(_Fabric(), keepalive_media_interval=3600.0)
+    try:
+        base = tr.counters["setup_init_tx"]
+        time.sleep(3.0)
+        assert tr._setup_retries == 3, tr._setup_retries
+        assert tr.counters["setup_init_tx"] == base + 3 and tr.counters["setup_retry_tx"] == 3
+    finally:
+        close()
+
+
+def test_no_setup_retry_once_phone_media_arrived():
+    tr, received, close = _connected(_Fabric(), keepalive_media_interval=3600.0)
+    try:
+        tr._on_media(ut.build_rtp(1, 0, PEER_SSRC, b"\x48\x01"), ("127.0.0.1", 9), "relay")
+        assert tr._first_media_seen
+        time.sleep(1.8)
+        assert tr._setup_retries == 0 and tr.counters.get("setup_retry_tx", 0) == 0
+    finally:
+        close()
+
+
 def test_rtcp_compound_sr_sdes_like_zca():
     pkt = ut.build_rtcp_compound(SSRC, 320000, 141, 1590, peer_ssrc=PEER_SSRC,
                                  highest_seq=99, last_sr_mid=0xE2E359AD,
