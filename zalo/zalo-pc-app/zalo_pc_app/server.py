@@ -2232,6 +2232,8 @@ class AppState:
                 detail = "Đã nhập %d tin mới (%d tin trùng/bỏ qua) vào %d cuộc trò chuyện%s%s." % (
                     res["inserted"], res["skipped"], res["threads"], (", %d chưa đổi được mã" % res["unmapped"]) if res["unmapped"] else "",
                     (", %d tin cũ hơn %d ngày bị bỏ qua theo cài đặt tự xóa" % (res["old_skipped"], days)) if res["old_skipped"] else "")
+                if res.get("upgraded"):
+                    detail += " Đã cập nhật %d tin thành ảnh/tệp có link." % res["upgraded"]
                 hs._set(import_state=dict(res, stage="done", detail=detail))
                 self.events.publish({"type": "history_imported", "at": time.time()})
             except Exception as e:  # noqa: BLE001

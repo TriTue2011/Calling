@@ -195,7 +195,7 @@ def test_group_row_from_info():
                       {"id": "20002", "displayName": "Ban B"}],
         "totalMember": 2, "type": 1})
     assert row == {"id": "30001", "name": "Nhom X", "avatar": "avt-x",
-                   "members": ["20001", "20002"], "member_count": 2}, row
+                   "members": ["20001", "20002"], "member_ids": ["20001", "20002"], "member_count": 2}, row
     # Member entries may carry userId instead of id; a missing info
     # dict still yields a row with the id (name empty).
     row = contacts_mod._group_row("30002", {
@@ -204,7 +204,7 @@ def test_group_row_from_info():
     assert row["members"] == ["20001"], row
     assert row["member_count"] == 1, row
     assert contacts_mod._group_row("30003", None) == {
-        "id": "30003", "name": "", "avatar": "", "members": [],
+        "id": "30003", "name": "", "avatar": "", "members": [], "member_ids": [],
         "member_count": 0}
 
 

@@ -171,8 +171,18 @@ def _group_row(group_id, info):
                 members.append(str(mid))
         elif isinstance(m, str):
             members.append(m)
+    # member_ids: danh sach DE HIEN THI (WebUI). Hop topMember + memberIds + currentMems vi Zalo khi thi chi tra mot trong ba
+    # (truoc day WebUI chi doc topMember nen hien «Thanh vien (0)»). KHONG doi `members` vi no la danh sach nguoi can GOI khi goi nhom.
+    seen, member_ids = set(), []
+    for src in (members, info.get("memberIds") or [], info.get("currentMems") or []):
+        for m in src if isinstance(src, list) else []:
+            mid = (m.get("id") or m.get("userId") or m.get("uid")) if isinstance(m, dict) else m
+            mid = str(mid or "")
+            if mid and mid not in seen and len(member_ids) < 1000:
+                seen.add(mid)
+                member_ids.append(mid)
     return {"id": str(group_id), "name": name, "avatar": avatar,
-            "members": members, "member_count": _member_count(info, members)}
+            "members": members, "member_ids": member_ids, "member_count": _member_count(info, members)}
 
 
 def describe_shape(data):

@@ -206,6 +206,37 @@ class MessageStore:
             except sqlite3.Error:
                 return False
 
+    def upgrade_media(self, thread_type, thread_id, msgs):
+        """Nâng cấp các tin ĐÃ nhập dạng chữ thành ảnh/tệp khi bản nhập mới giải được link (BinNet). CHỈ chạm dòng đang là 'text' và cùng khoá
+        chống trùng; không thêm tin mới, không đụng tin ảnh/tệp/hệ thống đã có. Trả số dòng được nâng cấp. Không bao giờ ném lỗi."""
+        thread_type, thread_id = str(thread_type or ""), str(thread_id or "")
+        media = [m for m in (msgs or []) if isinstance(m, dict) and m.get("kind") in ("photo", "file") and m.get("file_url")]
+        if not thread_type or not thread_id or not media:
+            return 0
+        from .sync_poll import Inbox
+        done = 0
+        with self._lock:
+            if not self._connect():
+                return 0
+            try:
+                for msg in media:
+                    dedup = Inbox._key(msg)
+                    if not dedup:
+                        continue
+                    cur = self._conn.execute(
+                        "UPDATE messages SET msg_type=?, content=?, raw_json=? WHERE thread_type=? AND thread_id=? AND dedup_key=? AND msg_type='text'",
+                        (str(msg["kind"]), str(msg.get("text") or msg.get("file_name") or ""), json.dumps(msg, ensure_ascii=False),
+                         thread_type, thread_id, dedup))
+                    done += cur.rowcount
+                self._conn.commit()
+            except sqlite3.Error:
+                try:
+                    self._conn.rollback()
+                except sqlite3.Error:
+                    pass
+                return 0
+        return done
+
     def bulk_record(self, thread_type, thread_id, msgs):
         """Ghi nhieu tin trong MOT giao dich (nhap lich su tu dien thoai). Khong cat theo gioi han (retention.py lo). Cung khoa chong trung voi
         record() nen chay lai khong nhan doi. Tin nhap vao duoc coi la DA DOC (dau «da doc» cua hoi thoai nang len moc tin moi nhat vua nhap).

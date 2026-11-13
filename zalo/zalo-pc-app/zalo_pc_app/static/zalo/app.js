@@ -326,6 +326,7 @@ const downloadUrl = (m) => "/api/file/download?thread_type=" + typeParam() + "&t
 function photoSrc(m) { const rec = S.files[m._id]; return m.localUrl || (rec && rec.status === "downloaded" ? downloadUrl(m) : ""); }
 function bubbleBody(m) {
   const rec = S.files[m._id], dl = rec && rec.status === "downloaded";
+  if (m.kind === "photo" && !photoSrc(m) && m.thumb_url) { const cap = m.text && m.text !== m.file_name ? m.text : ""; const img = h("img", { class: "photo", src: m.thumb_url, alt: m.file_name || "Ảnh", loading: "lazy" }); const a = h("a", { href: m.file_url, target: "_blank", rel: "noopener" }, img); return cap ? h("div", {}, a, h("div", { class: "photo-cap" }, cap)) : a; }
   if (m.kind === "photo") { const src = photoSrc(m); if (src) { const cap = m.text && m.text !== m.file_name ? m.text : ""; const img = h("img", { class: "photo", src, alt: m.file_name || "Ảnh" }); return cap ? h("div", {}, img, h("div", { class: "photo-cap" }, cap)) : img; } }
   if (m.kind === "voice") return h("div", { class: "filecard" }, h("span", { class: "ficon" }, svg("mic")), h("div", {}, h("div", { class: "fname" }, "Tin nhắn thoại"), m.file_url ? h("audio", { controls: true, preload: "none", src: m.file_url, style: "height:2rem;margin-top:.25rem;max-width:100%" }) : h("div", { class: "fmeta" }, m.file_name || "")));
   if (m.kind === "file" || m.kind === "photo") {
@@ -586,9 +587,9 @@ function syncInfo() {
 function infoSection(title, ...body) { return h("section", { class: "isec" }, h("h4", {}, title), ...body); }
 function renderInfo() {
   const row = S.cur, box = $("info"), isGroup = row.type === "group", c = S.conv[rowKey(row)] || {};
-  const members = (row.members || []).map((m) => typeof m === "object" ? { id: String(m.id || m.userId || ""), name: m.name || m.dName || m.displayName || "" } : { id: String(m), name: "" });
+  const members = ((row.member_ids && row.member_ids.length ? row.member_ids : row.members) || []).map((m) => typeof m === "object" ? { id: String(m.id || m.userId || ""), name: m.name || m.dName || m.displayName || "" } : { id: String(m), name: "" });
   const nameOf = (m) => m.name || (rowOf("user", m.id) || {}).name || m.id;
-  const photos = S.msgs.filter((m) => m.kind === "photo" && photoSrc(m)).slice(-8).reverse();
+  const photos = S.msgs.filter((m) => m.kind === "photo" && (photoSrc(m) || m.thumb_url)).slice(-8).reverse();
   const files = S.msgs.filter((m) => m.kind === "file").slice(-6).reverse();
   put(box,
     h("div", { class: "info-h" }, isGroup ? "Thông tin nhóm" : "Thông tin hội thoại"),
@@ -600,7 +601,7 @@ function renderInfo() {
         isGroup ? null : h("button", { class: "iact", type: "button", disabled: !!S.calls.active, onclick: () => startCall(true) }, h("span", { class: "c" }, svg("video")), "Gọi video"),
         h("button", { class: "iact", type: "button", onclick: () => setTab("services") }, h("span", { class: "c" }, svg("grid")), "Dịch vụ"))),
     isGroup ? infoSection("Thành viên (" + members.length + ")", members.length ? h("div", { class: "imembers" }, members.slice(0, 100).map((m) => h("div", { class: "imember" }, avatar({ id: m.id, name: nameOf(m), avatar: (rowOf("user", m.id) || {}).avatar }, "sm"), h("span", {}, nameOf(m))))) : h("p", { class: "inote" }, "Chưa tải được danh sách thành viên.")) : null,
-    infoSection("Ảnh/Video", photos.length ? h("div", { class: "igrid" }, photos.map((m) => h("a", { href: photoSrc(m), target: "_blank", rel: "noopener" }, h("img", { src: photoSrc(m), alt: m.file_name || "Ảnh", loading: "lazy" })))) : h("p", { class: "inote" }, "Chưa có ảnh nào được tải trong cuộc trò chuyện này.")),
+    infoSection("Ảnh/Video", photos.length ? h("div", { class: "igrid" }, photos.map((m) => h("a", { href: photoSrc(m) || m.file_url, target: "_blank", rel: "noopener" }, h("img", { src: photoSrc(m) || m.thumb_url, alt: m.file_name || "Ảnh", loading: "lazy" })))) : h("p", { class: "inote" }, "Chưa có ảnh nào được tải trong cuộc trò chuyện này.")),
     infoSection("Tệp", files.length ? h("div", { class: "imembers" }, files.map((m) => h("div", { class: "imember" }, svg("file"), h("span", { style: "flex:1;min-width:0;overflow-wrap:anywhere" }, m.file_name || m.text || "Tệp"), h("span", { class: "inote" }, fmtSize(m.file_size))))) : h("p", { class: "inote" }, "Chưa có tệp nào.")));
 }
 
@@ -1138,7 +1139,7 @@ async function loadContacts(force) {
   S.contactsErr = ""; S.contactsMeta = d;
   const rows = (x) => (x && x.rows) || [];
   S.friends = rows(d.friends).map((r) => ({ id: String(r.id), name: r.name || "", avatar: r.avatar || "", type: "user" }));
-  S.groups = rows(d.groups).map((r) => ({ id: String(r.id), name: r.name || "", avatar: r.avatar || "", type: "group", members: r.members || [] }));
+  S.groups = rows(d.groups).map((r) => ({ id: String(r.id), name: r.name || "", avatar: r.avatar || "", type: "group", members: r.members || [], member_ids: r.member_ids || [] }));
   if (S.cur) { const again = rowOf(S.cur.type, S.cur.id); if (again) S.cur = again; }
   renderList(); if (S.tab === "contacts") renderContactsPage();
   if (d.stale) setTimeout(() => loadContacts(false), 3000);

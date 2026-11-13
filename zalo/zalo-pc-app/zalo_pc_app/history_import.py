@@ -13,6 +13,8 @@ import os
 import re
 import sqlite3
 
+from . import binnet as binnet_mod
+
 SYSTEM_TYPES = (20,)
 SKIP_EMPTY_TYPES = (36,)
 CHUNK = 100
@@ -73,6 +75,46 @@ def noise_ids(services, fids, gids, domain):
     return fmap, gmap
 
 
+PHOTO_PREFIX = "[Hình ảnh]"
+
+
+def _media_fields(mtype, text, binnet):
+    """Ảnh (MsgType 3) / tệp (22) có BinNet giải được -> các trường để WebUI hiện ảnh thu nhỏ và mở/tải tệp; không thì None (giữ dạng chữ)."""
+    if mtype not in (3, 22) or not binnet:
+        return None
+    info = binnet_mod.decode(binnet)
+    if not info["urls"]:
+        return None
+    params = info["params"]
+    size = params.get("fileSize")
+    try:
+        size = int(size)
+    except (TypeError, ValueError):
+        size = None
+    out = {"file_url": info["urls"][0]}
+    if size:
+        out["file_size"] = size
+    if mtype == 3:
+        out["kind"] = "photo"
+        out["text"] = text[len(PHOTO_PREFIX):].strip() if text.startswith(PHOTO_PREFIX) else text
+        if len(info["urls"]) > 1:
+            out["thumb_url"] = info["urls"][1]
+        for key in ("width", "height"):
+            if isinstance(params.get(key), int):
+                out[key] = params[key]
+        out["file_name"] = info["urls"][0].rsplit("/", 1)[-1].split("?", 1)[0]
+    else:
+        out["kind"] = "file"
+        name = text[len(FILE_PREFIX):] if text.startswith(FILE_PREFIX) else text
+        ext = str(params.get("fileExt") or "").strip(".")
+        if ext and not name.lower().endswith("." + ext.lower()):
+            name = "%s.%s" % (name, ext)
+        out["file_name"] = name
+        if params.get("checksum"):
+            out["file_checksum"] = str(params["checksum"])
+    return out
+
+
 def build_message(row, own_short, own_noised, sender_noised):
     """Mot dong ChatContent -> dict tin (cung dang tin ghi truc tiep) hoac None (bo qua)."""
     sender, cli, glb, status, mtype, ts, ttl, content, ref, binnet, localpath, seq, flstatus, e2ee = row
@@ -81,6 +123,7 @@ def build_message(row, own_short, own_noised, sender_noised):
         return None
     if not text.strip():
         return None
+    media = _media_fields(mtype, text, binnet)
     out = own_short is not None and sender == own_short
     mid = str(glb) if isinstance(glb, int) and glb > 0 else ""
     kind = "system" if mtype in SYSTEM_TYPES else "text"
@@ -89,6 +132,8 @@ def build_message(row, own_short, own_noised, sender_noised):
            "file_name": text[len(FILE_PREFIX):] if (mtype == 22 and text.startswith(FILE_PREFIX)) else "",
            "direction": "out" if out else "in", "is_self": bool(out), "imported": True,
            "raw": {"msgId": mid, "cliMsgId": str(cli), "uidFrom": str(sender), "ts": str(ts), "msgType": "backup:%s" % mtype}}
+    if media:                       # ảnh / tệp có link thật: kind + file_url (+ thumb_url, file_size ...); không có thì vẫn là chữ như trước
+        msg.update(media)
     return msg
 
 
@@ -131,6 +176,7 @@ def import_run(run_dir, store, services, domain, own_noised, log=print, progress
             rows = fresh
         msgs = [m for m in (build_message(r, own_short, own_noised, fmap) for r in rows) if m]
         ins, skip = store.bulk_record(ttype, thread_id, msgs)
+        result["upgraded"] = result.get("upgraded", 0) + store.upgrade_media(ttype, thread_id, msgs)
         result["files"] += 1
         result["threads"] += 1 if ins else 0
         result["inserted"] += ins
