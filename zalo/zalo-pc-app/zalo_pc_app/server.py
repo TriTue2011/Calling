@@ -1582,7 +1582,11 @@ DEAD_MEDIA_SECONDS = float(os.environ.get("ZALO_PC_DEAD_MEDIA_SECONDS", "7") or 
 
 
 def _media_is_dead(counters):
-    return not any((counters or {}).get(k, 0) for k in ("rtp_rx", "rtcp_rx", "video_rx"))
+    """Chết = chưa nhận gói tiếng/hình nào GIẢI MÃ ĐƯỢC. rtp_rx đếm cả gói bị loại (xác thực SRTP hỏng) nên trừ rtp_rx_dropped;
+    RTCP không tính (điện thoại vẫn gửi RTCP dù không gửi tiếng). Cuộc 14/11 23:14: 12 gói đều bị loại + 2 RTCP, điện thoại
+    không gửi tiếng và tự cúp sau 17 giây, mà bộ canh cũ tưởng còn sống."""
+    c = counters or {}
+    return not (max(0, c.get("rtp_rx", 0) - c.get("rtp_rx_dropped", 0)) or c.get("video_rx", 0))
 
 
 def _watch_dead_media(call_id, delay=None, sleep=time.sleep):

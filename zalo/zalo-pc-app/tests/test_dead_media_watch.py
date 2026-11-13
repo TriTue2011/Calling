@@ -47,9 +47,17 @@ def test_ends_call_when_phone_sent_nothing():
 
 
 def test_keeps_call_when_any_packet_arrived():
-    for k in ("rtp_rx", "rtcp_rx", "video_rx"):
+    for k in ("rtp_rx", "video_rx"):
         ended, _ = _run({"rtp_rx": 0, "rtcp_rx": 0, "video_rx": 0, k: 3})
         assert ended == [], k
+
+
+def test_dropped_rtp_and_rtcp_only_count_as_dead():
+    # cuộc 14/11 23:14: 12 gói RTP đều bị loại (SRTP hỏng) + RTCP, không có tiếng nào giải mã được
+    ended, _ = _run({"rtp_rx": 12, "rtp_rx_dropped": 12, "rtcp_rx": 2, "video_rx": 0})
+    assert ended == [(7, "dead_media")]
+    ended, _ = _run({"rtp_rx": 275, "rtp_rx_dropped": 9, "rtcp_rx": 25})
+    assert ended == []
 
 
 def test_ignores_calls_not_answered_anymore_or_without_transport_or_disabled():
