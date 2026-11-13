@@ -993,9 +993,22 @@ def _send_answerack_async(call_id, thread_id):
                   % (call_id, e))
 
 
+def _send_camera_inband(call_id, cam_on):
+    """Bao camera bat/tat NGAY TRONG kenh relay UDP (ReqForward sub 7/8) — duong Zalo PC that dung (khong co 12006 qua HTTPS)."""
+    try:
+        tr = _transport_for_call(call_id)
+        ok = bool(tr is not None and tr.send_camera_state(bool(cam_on)))
+        _log_call("camera state inband call_id=%s on=%s ok=%s" % (call_id, bool(cam_on), ok))
+        return ok
+    except Exception as e:  # noqa: BLE001 - best-effort
+        _log_call("camera state inband call_id=%s on=%s ok=False error=%s" % (call_id, bool(cam_on), str(e)[:100]))
+        return False
+
+
 def _send_camera_state_async(call_id, thread_id, cam_on):
-    """Bao dien thoai camera cua ta bat/tat (12006). Chay luong rieng, khong
-    nem loi: hinh van gui duoc du bao that bai, chi la dien thoai khong ve."""
+    """Bao dien thoai camera cua ta bat/tat: trong kenh relay UDP (ReqForward sub 7/8, nhu Zalo PC that) VA 12006 qua HTTPS (giu nhu cu).
+    Chay luong rieng, khong nem loi: hinh van gui duoc du bao that bai, chi la dien thoai khong ve."""
+    _send_camera_inband(call_id, cam_on)
     def run():
         sess = STATE.session
         if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
@@ -2856,6 +2869,7 @@ class AppState:
         entry = next((c for c in STATE.calls.snapshot()["calls"] if str(c["call_id"]) == str(call_id)), None)
         already_video = bool(entry is not None and (entry.get("video") or entry.get("is_video") or entry.get("call_type") == "video"))
         _log_call("call_event camera call_id=%s %s%s" % (call_id, "bat" if cam_on else "tat", " (cuoc da la video)" if already_video else ""))
+        _send_camera_inband(call_id, str(call_id) in VIDEO_SENDERS)       # zca-js: bên kia đổi camera thì gửi lại trạng thái camera của ta ngay
         if not cam_on or already_video:
             return
         self._on_video_request(dict(event, data=dict(data, params=dict(params, status=1))))

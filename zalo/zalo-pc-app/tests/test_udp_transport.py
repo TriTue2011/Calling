@@ -566,6 +566,29 @@ def test_ping_reports_audio_received_per_second_and_sub8_sent_once():
         close()
 
 
+def test_send_camera_state_inband_sub7_on_sub8_off_three_times():
+    """Báo camera ta bật/tắt NGAY TRONG kênh relay (ReqForward sub 7/8, như zca-js sendCameraState): gửi ngay + lặp 60/150 ms.
+    Zalo PC thật không dùng HTTPS 12006 để báo camera (pcap 13/11/2026)."""
+    tr, received, close = _connected(_Fabric(), keepalive_media_interval=3600.0)
+    try:
+        before = len([d for d in list(received) if len(d) == 29 and d[20] in (7, 8)])
+        assert tr.send_camera_state(True) is True
+        time.sleep(0.4)
+        on = [d for d in list(received) if len(d) == 29 and d[20] == 7]
+        assert len(on) == 3, len(on)                                   # ngay + 60 ms + 150 ms
+        pkt = on[0]
+        assert pkt[0] == 0x01 and pkt[1] == 0x01 and struct.unpack_from("<H", pkt, 18)[0] == 32
+        assert pkt[21:] == struct.pack("<II", 4, 0)                    # độ dài 4 + lý do 0 (như zca-js)
+        assert tr.counters["camera_state_tx"] == 1
+        assert tr.send_camera_state(False) is True
+        time.sleep(0.4)
+        off = [d for d in list(received) if len(d) == 29 and d[20] == 8]
+        assert len(off) >= 3                                           # (cộng gói sub 8 đầu cuộc nếu có)
+        assert before == 0
+    finally:
+        close()
+
+
 def test_rtcp_compound_sr_sdes_like_zca():
     pkt = ut.build_rtcp_compound(SSRC, 320000, 141, 1590, peer_ssrc=PEER_SSRC,
                                  highest_seq=99, last_sr_mid=0xE2E359AD,

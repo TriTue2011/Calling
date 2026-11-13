@@ -50,6 +50,47 @@ def test_stops_immediately_when_video_already_stopped():
     assert sleeps == [1.0] and sent == [], (sleeps, sent)
 
 
+class _FakeTr:
+    def __init__(self, ok=True):
+        self.calls, self.ok = [], ok
+
+    def send_camera_state(self, on):
+        self.calls.append(bool(on))
+        return self.ok
+
+
+def test_camera_state_goes_inband_over_relay_like_real_zalo_pc():
+    """Báo camera bật phải đi NGAY TRONG kênh relay UDP (sub 7), không chỉ HTTPS 12006 (Zalo PC thật không dùng 12006)."""
+    tr = _FakeTr()
+    orig_tr, orig_thread = server._transport_for_call, server.threading.Thread
+    server._transport_for_call = lambda cid: tr
+
+    class NoRun:                                    # không chạy luồng 12006 HTTPS thật
+        def __init__(self, target=None, **kw): pass
+
+        def start(self): pass
+    server.threading.Thread = NoRun
+    try:
+        server._send_camera_state_async("9", "peer", True)
+        server._send_camera_state_async("9", "peer", False)
+    finally:
+        server._transport_for_call, server.threading.Thread = orig_tr, orig_thread
+    assert tr.calls == [True, False], tr.calls
+
+
+def test_inband_failure_is_swallowed_and_no_transport_is_fine():
+    orig = server._transport_for_call
+    try:
+        server._transport_for_call = lambda cid: None
+        assert server._send_camera_inband("9", True) is False
+        class Boom:
+            def send_camera_state(self, on): raise RuntimeError("x")
+        server._transport_for_call = lambda cid: Boom()
+        assert server._send_camera_inband("9", True) is False        # lỗi không lan ra ngoài
+    finally:
+        server._transport_for_call = orig
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

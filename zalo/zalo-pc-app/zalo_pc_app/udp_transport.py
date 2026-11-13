@@ -1677,7 +1677,7 @@ class Udp4200Transport:
             "confirm_tx": 0, "type02_rx": 0, "keepalive_rx": 0,
             "ping_reply_rx": 0, "rtp_tx": 0, "rtp_rx": 0,
             "rtp_rx_dropped": 0, "keepalive_tx": 0, "p2p_rx": 0, "p2p_media_rx": 0,
-            "unknown_rx": 0, "send_errors": 0, "recv_errors": 0,
+            "unknown_rx": 0, "send_errors": 0, "recv_errors": 0, "camera_state_tx": 0,
         }
         # Last unrecognized packets (bounded, scrubbed — see
         # _record_unknown): the wait-failure diagnostics show the
@@ -2237,6 +2237,27 @@ class Udp4200Transport:
                 self._last_error = "scheduler: %s" % exc
             # 10 ms: du min cho nhip 20 ms cua goi am thanh giu ket noi.
             self._stop.wait(0.01)
+
+    def send_camera_state(self, on):
+        """Báo camera của TA bật (ReqForward sub 7) hoặc tắt (sub 8) NGAY TRONG kênh relay UDP, như zca-js `sendCameraState`
+        (ZRTPForwardSubCommand.OnCamera/OffCamera): gửi ngay rồi lặp sau 60 ms và 150 ms. Zalo PC thật KHÔNG gửi yêu cầu HTTPS 12006 nào
+        để báo camera (pcap 13/11/2026); app trước chỉ gửi sub 8 («tắt») một lần lúc đầu và 12006 — nên điện thoại giữ «BenBap đang tắt camera».
+        Trả True nếu đã gửi gói đầu (có relay + phiên relay)."""
+        if self.selected_relay is None or not self.relay_session:
+            return False
+        pkt = build_req_forward(self.config.local_ssrc, self.relay_session, 0, 7 if on else 8, struct.pack("<II", 4, 0))
+        addr = self.selected_relay.rtp_addr()
+        ok = self._send_to(pkt, addr)
+        self.counters["camera_state_tx"] += 1
+
+        def later():
+            if self.selected_relay is not None and not self._stop.is_set():
+                self._send_to(pkt, addr)
+        for delay in (0.06, 0.15):
+            t = threading.Timer(delay, later)
+            t.daemon = True
+            t.start()
+        return bool(ok)
 
     def _maybe_send_keepalive_media(self, now):
         """Khung Opus im lang 50 goi/giay khi KHONG co tieng that.
