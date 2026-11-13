@@ -83,23 +83,30 @@
   <div class="qrbox">
     <div class="brand" aria-hidden="true">Z</div>
     <h2 style="margin:0 0 4px">Đăng nhập Zalo</h2>
-    <p style="margin:0 0 16px;color:var(--muted)">Mở Zalo trên điện thoại → Quét mã QR.</p>
-    <p class="qrkind-label" id="qrkind-label">Chọn kiểu đăng nhập</p>
-    <div class="qrkind" role="radiogroup" aria-labelledby="qrkind-label">
-      <button class="kind" id="qr-web" type="button" role="radio" aria-checked="false" data-client="web">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.7 3.9 5.7 3.9 9s-1.3 6.3-3.9 9c-2.6-2.7-3.9-5.7-3.9-9s1.3-6.3 3.9-9z"/></svg>
-        <span class="kt">Qua Web</span>
-        <span class="kd">Đăng nhập Zalo Web ở nơi khác sẽ đá app ra</span>
-      </button>
-      <button class="kind" id="qr-pc" type="button" role="radio" aria-checked="false" data-client="pc">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
-        <span class="kt">Qua PC</span>
-        <span class="kd">Mở Zalo PC cùng tài khoản sẽ đá app ra</span>
-      </button>
+    <div id="qr-choose">
+      <p style="margin:0 0 16px;color:var(--muted)">Chọn kiểu đăng nhập, rồi quét mã QR bằng Zalo trên điện thoại.</p>
+      <div class="qrkind" role="radiogroup" aria-label="Kiểu đăng nhập">
+        <button class="kind" id="qr-web" type="button" role="radio" aria-checked="false" data-client="web">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.7 3.9 5.7 3.9 9s-1.3 6.3-3.9 9c-2.6-2.7-3.9-5.7-3.9-9s1.3-6.3 3.9-9z"/></svg>
+          <span class="kt">Qua Web</span>
+          <span class="kd">Đăng nhập Zalo Web ở nơi khác sẽ đá app ra</span>
+        </button>
+        <button class="kind" id="qr-pc" type="button" role="radio" aria-checked="false" data-client="pc">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+          <span class="kt">Qua PC</span>
+          <span class="kd">Mở Zalo PC cùng tài khoản sẽ đá app ra</span>
+        </button>
+      </div>
     </div>
-    <div id="qr-slot"><div class="qrph">Chọn kiểu đăng nhập để lấy mã QR</div></div>
-    <p id="qr-status" style="margin:14px 0 8px;color:var(--muted);min-height:20px"></p>
-    <button class="btn primary" id="qr-again" hidden>Lấy mã mới</button>
+    <div id="qr-scan" hidden>
+      <p style="margin:0 0 14px;color:var(--muted)">Mở Zalo trên điện thoại → <b>Quét mã QR</b>.</p>
+      <div id="qr-slot"><div class="qrph">Đang tạo mã…</div></div>
+      <p id="qr-status" style="margin:14px 0 8px;color:var(--muted);min-height:20px"></p>
+      <div class="qracts">
+        <button class="btn" id="qr-back" type="button">← Quay lại</button>
+        <button class="btn primary" id="qr-again" hidden>Lấy mã mới</button>
+      </div>
+    </div>
   </div>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>

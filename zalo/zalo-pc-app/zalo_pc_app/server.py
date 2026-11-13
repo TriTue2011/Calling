@@ -2348,23 +2348,32 @@ class AppState:
         return {str(c["destId"]): int(c["ttl"]) for c in (res or {}).get("convers", []) if c.get("ttl")}
 
     # -- QR flow (background thread) ------------------------------------
-    def start_qr(self, client=None):
+    def start_qr(self, client=None, restart=False):
+        """restart=True (UI chọn kiểu đăng nhập): bỏ QR đang chờ, lấy QR mới theo kiểu vừa chọn (luồng cũ bị đánh dấu «cũ» và im lặng thoát)."""
         with self.lock:
-            if self.thread and self.thread.is_alive():
+            running = bool(self.thread and self.thread.is_alive())
+            if running and not restart:
                 return False
+            if not running:
+                self._qr_prev_client = protocol.client_name()     # kiểu cần trả lại nếu QR hỏng/hết hạn
+            self.qr_gen = getattr(self, "qr_gen", 0) + 1
+            gen = self.qr_gen
             self.qr_client = client if client in protocol.CLIENTS else None     # None = giữ kiểu hiện tại
             self.qr_state = "waiting"
             self.qr_error = ""
             self.qr_warning = ""
             self.qr = None
-        self.thread = threading.Thread(target=self._qr_worker, daemon=True)
+        self.thread = threading.Thread(target=self._qr_worker, args=(gen,), daemon=True)
         self.thread.start()
         return True
 
-    def _qr_worker(self):
-        prev_client = protocol.client_name()
+    def _qr_worker(self, gen=None):
+        prev_client = getattr(self, "_qr_prev_client", None) or protocol.client_name()
         chosen = getattr(self, "qr_client", None)
         logged_in = False
+
+        def _stale():        # đã có QR mới thay thế luồng này (người dùng bấm quay lại rồi chọn kiểu khác)
+            return gen is not None and gen != getattr(self, "qr_gen", gen)
         try:
             if chosen:
                 protocol.set_client(chosen)          # phong bì đăng nhập + mọi yêu cầu sau đó khai kiểu này
@@ -2376,6 +2385,8 @@ class AppState:
             # Doc co may chu TRUOC khi lay ma, y nhu Zalo PC (do 12/11: PC chon QR loai cu/tu dung/thiet bi tin cay theo cac co nay).
             # Khong doc duoc thi van di tiep loai cu (nhu truoc), chi ghi ro vao nhat ky.
             flags = qr_login.fetch_server_flags(transport, device_id, computer)
+            if _stale():
+                return
             warning = qr_login.flags_warning(flags)
             with self.lock:
                 self.qr_flags = flags
@@ -2384,15 +2395,21 @@ class AppState:
             qr = qr_login.fetch_qr(
                 transport, device_id, computer, logged_uids,
                 param_cipher_key=PARAM_CIPHER_KEY, self_g=0, qr_form=0)
+            if _stale():
+                return
             with self.lock:
                 self.qr = qr
                 self.qr_state = "waiting"
             print("[qr] da tao ma QR (cho quet; het han sau ~%ss, toi da %s lan hoi)" % (qr.get("qr_timeout"), qr.get("qr_retry")), flush=True)
             qr_login.wait_scan(transport, qr, trust_enabled=False)
+            if _stale():
+                return
             with self.lock:
                 self.qr_state = "scanned"
             print("[qr] dien thoai da quet, cho xac nhan", flush=True)
             grant = qr_login.wait_confirm(transport, qr)
+            if _stale():
+                return
             # Session established: fetch login info (login envelope +
             # session cookie, exactly as the PC client sends it).
             login_info = self._fetch_login_info(grant, device_id, computer)
@@ -2428,30 +2445,40 @@ class AppState:
             self.start_sync()
             logged_in = True
         except qr_login.RateLimited as e:
+            if _stale():
+                return
             print("[qr] bi gioi han tan suat: phai cho %ss roi tao lai (Zalo tra time_left)" % e.wait_seconds, flush=True)
             with self.lock:
                 self.qr_state = "rate_limited"
                 self.qr_wait = e.wait_seconds
         except qr_login.UserRejected:
+            if _stale():
+                return
             print("[qr] nguoi dung tu choi dang nhap tren dien thoai (18010)", flush=True)
             with self.lock:
                 self.qr_state = "rejected"
         except qr_login.QRExpired:
+            if _stale():
+                return
             print("[qr] ma QR het han (khong ai quet/xac nhan kip)", flush=True)
             with self.lock:
                 self.qr_state = "expired"
         except qr_login.TrustFlowRequired as e:
+            if _stale():
+                return
             with self.lock:
                 self.qr_state = "error"
                 self.qr_error = ("Zalo yêu cầu đăng nhập QR kiểu “thiết bị tin cậy” (QR2) mà app chưa hỗ trợ. %s "
                                  "Chi tiết kỹ thuật: %s" % (qr_login.describe_server_flags(self.qr_flags), e))
         except Exception as e:  # noqa: BLE001 - surface to UI, keep server up
+            if _stale():
+                return
             print("[qr] loi dang nhap: %s: %s" % (type(e).__name__, str(e)[:200]), flush=True)
             with self.lock:
                 self.qr_state = "error"
                 self.qr_error = "%s: %s" % (type(e).__name__, e)
         finally:
-            if chosen and not logged_in:
+            if chosen and not logged_in and not _stale():
                 protocol.set_client(prev_client)     # QR hỏng/hết hạn: phiên đang sống (nếu có) giữ nguyên kiểu cũ
 
     def _fetch_login_info(self, grant, device_id, computer_name):
@@ -5209,7 +5236,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, "status": STATE.history_sync.status()})
         if path == "/api/qr/new":
             # body {"client": "web"|"pc"}: kiểu đăng nhập người dùng chọn (không gửi = giữ kiểu hiện tại).
-            STATE.start_qr((body if isinstance(body, dict) else {}).get("client"))     # body: do_POST đã đọc sẵn, KHÔNG đọc rfile lần hai (sẽ treo)     # body: do_POST đã đọc sẵn, KHÔNG đọc rfile lần hai (sẽ treo)
+            _c = (body if isinstance(body, dict) else {}).get("client")
+            STATE.start_qr(_c, restart=bool(_c))     # body: do_POST đã đọc sẵn, KHÔNG đọc rfile lần hai (sẽ treo)     # body: do_POST đã đọc sẵn, KHÔNG đọc rfile lần hai (sẽ treo)
             return self._send_json({"ok": True})
         if path.startswith("/api/svc/"):
             # MÓC DỊCH VỤ (services.py): POST /api/svc/<action>.

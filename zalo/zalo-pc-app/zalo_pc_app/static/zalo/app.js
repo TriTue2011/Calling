@@ -1140,14 +1140,17 @@ async function pollQr() {
   else if (s.state === "expired") stop("Mã đã hết hạn."); else if (s.state === "rejected") stop("Bạn đã từ chối trên điện thoại.");
   else if (s.state === "rate_limited") stop("Tạo mã quá nhanh, chờ " + (s.wait_seconds || 90) + " giây rồi thử lại."); else if (s.state === "error") stop("Lỗi: " + (s.error || "không rõ"));
 }
+function qrView(scan) { $("qr-choose").hidden = scan; $("qr-scan").hidden = !scan; }
 function startQr(client) {
-  if (client) S.qrClient = client;
   $("qr").hidden = false; $("qr-again").hidden = true;
+  if (client) S.qrClient = client;
   for (const b of document.querySelectorAll("#qr [data-client]")) { const on = b.dataset.client === S.qrClient; b.classList.toggle("on", on); b.setAttribute("aria-checked", on ? "true" : "false"); }
-  if (!S.qrClient) { $("qr-slot").replaceChildren(h("div", { class: "qrph" }, "Chọn kiểu đăng nhập để lấy mã QR")); $("qr-status").textContent = ""; return; }   // chưa chọn: không tự tạo mã
+  if (!S.qrClient) { clearInterval(S.qrT); S.qrT = null; qrView(false); return; }   // chưa chọn kiểu: chỉ hiện hai thẻ, KHÔNG tự tạo mã
+  qrView(true); $("qr-status").textContent = "";
   $("qr-slot").replaceChildren(h("div", { class: "qrph" }, "Đang tạo mã…"));
   api("/api/qr/new", "POST", { client: S.qrClient }).then(() => { clearInterval(S.qrT); S.qrT = setInterval(pollQr, 3000); pollQr(); });
 }
+function qrBack() { clearInterval(S.qrT); S.qrT = null; S.qrClient = null; startQr(); }
 for (const b of document.querySelectorAll("#qr [data-client]")) b.addEventListener("click", () => startQr(b.dataset.client));
 
 // ---- khởi động ------------------------------------------------------------------------------------------------------------------------------------
@@ -1203,7 +1206,7 @@ $("btn-thread-svc").addEventListener("click", () => setTab("services"));
 $("btn-send").addEventListener("click", sendText); $("btn-like").addEventListener("click", () => sendRaw("👍"));
 $("btn-attach").addEventListener("click", () => $("file-in").click()); $("btn-img").addEventListener("click", () => $("img-in").click());
 for (const id of ["file-in", "img-in"]) $(id).addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) stageFiles(f); });
-$("btn-sticker").addEventListener("click", toggleStickers); $("btn-rec").addEventListener("click", toggleRecord); $("btn-emoji").addEventListener("click", toggleEmoji); $("qr-again").addEventListener("click", () => startQr());
+$("btn-sticker").addEventListener("click", toggleStickers); $("btn-rec").addEventListener("click", toggleRecord); $("btn-emoji").addEventListener("click", toggleEmoji); $("qr-again").addEventListener("click", () => startQr()); $("qr-back").addEventListener("click", qrBack);
 { const comp = $("composer"); comp.insertBefore(h("div", { class: "attach-tray", id: "attach-tray", hidden: true }), comp.firstChild); comp.insertBefore(h("div", { class: "replybar", id: "reply-bar", hidden: true }), comp.firstChild); document.querySelector(".cinput").append(h("div", { class: "mentions", id: "mentions", role: "listbox", hidden: true })); }
 $("msg-in").addEventListener("input", autosize);
 for (const ev of ["input", "click", "keyup"]) $("msg-in").addEventListener(ev, updateMentions);

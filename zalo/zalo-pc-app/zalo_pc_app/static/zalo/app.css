@@ -356,8 +356,8 @@ pre.out { margin: 0.5rem 0 0; padding: 0.625rem; border-radius: 0.5rem; backgrou
 .qrbox { background: var(--surface); border: 1px solid var(--line); border-radius: 1.25rem; padding: 1.75rem; text-align: center; max-width: 23.75rem; width: 100%; box-shadow: var(--shadow); }
 .qrbox .brand { width: 3.5rem; height: 3.5rem; border-radius: 1rem; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 600; font-size: 1.75rem; margin: 0 auto 0.875rem; }
 .qrbox { max-width: 25rem; }
-.qrkind-label { margin: 0 0 0.5rem; font-size: 0.8125rem; font-weight: 500; color: var(--muted); text-align: left; }
-.qrkind { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; margin: 0 0 1.125rem; }
+.qracts { display: flex; gap: 0.5rem; justify-content: center; }
+.qrkind { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; margin: 0; }
 .qrkind .kind { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; padding: 0.875rem 0.625rem; border: 1px solid var(--line); border-radius: 0.875rem; background: var(--surface); cursor: pointer; text-align: center; transition: border-color .15s, background .15s; }
 .qrkind .kind svg { width: 1.5rem; height: 1.5rem; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-bottom: 0.125rem; }
 .qrkind .kt { font-size: 0.9375rem; font-weight: 600; color: var(--text); }

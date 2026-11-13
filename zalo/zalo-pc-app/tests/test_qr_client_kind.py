@@ -165,6 +165,50 @@ def test_zalo_logout_clears_zalo_session_but_keeps_app_login_route():
         _reset()
 
 
+def test_restart_replaces_pending_qr_and_stale_worker_stays_silent():
+    """Bấm Quay lại rồi chọn kiểu khác khi QR cũ còn chờ quét: QR mới lấy ngay theo kiểu mới; luồng cũ (còn kẹt ở long-poll) thoát
+    im lặng, KHÔNG ghi đè trạng thái/kiểu và KHÔNG tạo phiên."""
+    import threading
+    _reset()
+    st = _state()
+    release_old = threading.Event()
+    calls = []
+    orig = (qr_login.fetch_server_flags, qr_login.fetch_qr, qr_login.wait_scan, qr_login.wait_confirm, st._fetch_login_info)
+    try:
+        qr_login.fetch_server_flags = lambda *a, **k: {"known": False}
+
+        def fake_qr(*a, **k):
+            calls.append(protocol.client_name())
+            return {"base64_qr": "QR%d" % len(calls), "qr_timeout": 90, "qr_retry": 1}
+        qr_login.fetch_qr = fake_qr
+
+        def fake_wait_scan(*a, **k):
+            if len(calls) == 1:
+                release_old.wait(5)          # QR đầu: kẹt chờ quét
+                raise qr_login.QRExpired("hết hạn")      # khi được thả: báo hết hạn (nếu không im lặng sẽ ghi state=expired)
+            return {}
+        qr_login.wait_scan = fake_wait_scan
+        qr_login.wait_confirm = lambda *a, **k: {"uid": "9", "dkey": "d", "phonenum": "84", "zpw_sek": "s", "zpw_kt": "k"}
+        st._fetch_login_info = lambda *a, **k: {"zpw_enk": "", "config": {}}
+        st.start_sync = lambda *a, **k: None
+        assert st.start_qr("web", restart=True) is True
+        end = time.time() + 5
+        while time.time() < end and not calls:
+            time.sleep(0.02)
+        assert calls == ["web"]
+        assert st.start_qr("pc") is False, "không restart thì vẫn từ chối khi QR đang chạy (hành vi cũ)"
+        assert st.start_qr("pc", restart=True) is True
+        assert _wait(st, ("done", "error")) == "done", st.qr_error
+        assert calls == ["web", "pc"] and st.session["client"] == "pc" and protocol.client_name() == "pc"
+        release_old.set()                    # thả luồng cũ: phải im lặng
+        time.sleep(0.4)
+        assert st.qr_state == "done" and st.session["client"] == "pc" and protocol.client_name() == "pc", (st.qr_state, protocol.client_name())
+    finally:
+        release_old.set()
+        (qr_login.fetch_server_flags, qr_login.fetch_qr, qr_login.wait_scan, qr_login.wait_confirm, st._fetch_login_info) = orig
+        _reset()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
