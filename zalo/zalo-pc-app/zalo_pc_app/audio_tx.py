@@ -80,6 +80,7 @@ class AudioSender:
         self.frames = 0
         self.dropped = 0
         self.gated = 0
+        self.gated_voiced = 0           # trong so khung bi chan echo, bao nhieu khung nguon mic CO tieng that (= tieng nha bi cat mat)
         self.in_voiced = 0              # so khung nguon mic co tieng that (dinh >= IN_VOICED_PEAK) TRUOC khi bi chan echo
         self.in_peak = 0                # dinh bien do lon nhat cua nguon mic (0..32767): nguon mic co thuc su ra tieng khong
         self.errors = 0
@@ -149,17 +150,21 @@ class AudioSender:
             elif due > now:
                 self._sleep(due - now)
             due += FRAME_SECONDS
+            _voiced = False
             try:
                 _pk = max(abs(x) for x in struct.unpack("<%dh" % (len(frame) // 2), frame[:len(frame) // 2 * 2])) if frame else 0
                 if _pk > self.in_peak:
                     self.in_peak = _pk
                 if _pk >= IN_VOICED_PEAK:
                     self.in_voiced += 1
+                    _voiced = True
             except struct.error:
                 pass
             gated = self._gate is not None and self._gate()
             if gated:
                 self.gated += 1                  # loa dang phat: KHONG gui tieng mic, nhung van gui khung im lang de luong RTP lien tuc
+                if _voiced:
+                    self.gated_voiced += 1
                 frame = bytes(len(frame))        # (bo han khung thi ben kia thay mat goi: Zalo bao «ket noi khong on dinh»)
             try:
                 self._send(frame)
@@ -183,7 +188,7 @@ class AudioSender:
         # alive: con nguon HOAC con khung cho gui (tep ket thuc truoc khi khung cuoi duoc gui het ~0,5 s) — de nguoi poll
         # trang thai (HA doi doc xong TTS) khong cat cau.
         return {"alive": self.alive or len(self._queue) > 0, "frames": self.frames,
-                "dropped": self.dropped, "gated": self.gated, "in_voiced": self.in_voiced, "in_peak": self.in_peak,
+                "dropped": self.dropped, "gated": self.gated, "gated_voiced": self.gated_voiced, "in_voiced": self.in_voiced, "in_peak": self.in_peak,
                 "errors": self.errors,
                 "last_error": self.last_error,
                 "ffmpeg_err": self.stderr_tail(),

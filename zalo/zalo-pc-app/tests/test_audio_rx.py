@@ -168,8 +168,29 @@ def test_mic_sender_reports_source_level_before_the_echo_gate():
     time.sleep(0.5)
     st = s.status()
     assert st["in_voiced"] == 2 and st["in_peak"] == 12000, st
+    assert st["gated_voiced"] == 2, st                       # ca 2 khung co tieng deu bi chan: tieng nha bi cat mat
     assert st["gated"] >= 6 and all(f == bytes(640) for f in sent), "khung gui di van la im lang khi bi chan"
     s.stop()
+
+
+def test_guard_counts_far_levels_and_sink_counts_silence_frames():
+    """Do cho lan sau: nen tieng ben kia roi vao bac nao (nguong 180 co hop khong), va bao nhieu khung loa la im lang."""
+    import struct as _st
+    g = audio_rx.EchoGuard(clock=lambda: 0.0)
+    for amp in (50, 150, 250, 400, 800, 3000):
+        g.note_far(_st.pack("<320h", *([amp, -amp] * 160)))
+    assert g.levels == [1, 1, 1, 1, 1, 1], g.levels
+
+    class P:
+        def __init__(self):
+            self.stdin = type("S", (), {"write": lambda self, b: None})()
+    from zalo_pc_app import call_audio as _ca
+    k = audio_rx.AudioSink(None, "http://x/y", guard=g, popen=lambda *a, **k2: P())
+    k._proc = P()
+    k._write(_ca.SILENCE)
+    k._write(b"\x01\x00" * 320)
+    st = k.status()
+    assert st["silence"] == 1 and st["frames"] == 2 and st["far_levels"].startswith("3/1/1/1/1/1"), st
 
 
 def test_real_ffmpeg_posts_alaw_to_local_server():

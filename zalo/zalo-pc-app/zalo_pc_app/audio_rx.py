@@ -27,6 +27,7 @@ from . import call_audio, ffmpeg_log
 
 RMS_THRESHOLD = 180.0       # duoi muc nay coi la im lang (nen cua luong Opus/DTX)
 HOLD_SECONDS = 0.25         # het tieng that van chan mic them chung nay (duoi vong phong). 0,5 -> 0,25 (13/11): chu may bao mic loa chuyen qua lai bi tre
+LEVEL_EDGES = (100, 180, 300, 500, 1000)   # ranh gioi cac bac RMS cua tieng ben kia (khung loa)
 DUPLEX_SETTLE_SECONDS = 0.8  # cho phien song cong cua R1 mo xong roi moi mo mic
 
 
@@ -46,9 +47,12 @@ class EchoGuard:
         self.threshold, self.hold, self._clock = threshold, hold, clock
         self._until = 0.0
         self.suppressed = 0
+        self.levels = [0] * (len(LEVEL_EDGES) + 1)    # so khung loa theo muc RMS (do nen tieng ben kia de biet nguong co hop khong)
 
     def note_far(self, frame):
-        if frame_rms(frame) >= self.threshold:
+        rms = frame_rms(frame)
+        self.levels[sum(1 for e in LEVEL_EDGES if rms >= e)] += 1
+        if rms >= self.threshold:
             self._until = self._clock() + self.hold
 
     def blocked(self):
@@ -93,6 +97,7 @@ class AudioSink:
         self._thread = None
         self._stop = threading.Event()
         self.frames = 0
+        self.silence = 0                # khung im lang phat ra vi hang doi can (khung den tre / ben kia im)
         self.errors = 0
         self.last_error = ""
         self.started_at = None
@@ -116,6 +121,8 @@ class AudioSink:
         try:
             self._proc.stdin.write(frame)
             self.frames += 1
+            if frame == call_audio.SILENCE:
+                self.silence += 1
         except (OSError, ValueError) as exc:        # ffmpeg dong (thiet bi tu choi / het cho)
             self.errors += 1
             self.last_error = str(exc)[:60]
@@ -159,10 +166,11 @@ class AudioSink:
         self._kill()
 
     def status(self):
-        return {"alive": self.alive, "frames": self.frames, "errors": self.errors,
+        return {"alive": self.alive, "frames": self.frames, "silence": self.silence, "errors": self.errors,
                 "last_error": self.last_error,
                 "ffmpeg_err": self.stderr_tail(),
                 "echo_guard": self._guard is not None,
                 "mic_suppressed": self._guard.suppressed if self._guard else 0,
+                "far_levels": ("/".join(str(n) for n in self._guard.levels) if self._guard else "-"),   # <100/<180/<300/<500/<1000/>=1000
                 "seconds": (round(time.time() - self.started_at, 1)
                             if self.started_at else 0)}
