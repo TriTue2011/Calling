@@ -90,6 +90,10 @@ from .chat import normalize_message
 
 # Ma loi server bao dung retry (bundle: polling handler).
 ERR_STOP_RETRY = -69
+# error_code trong payload nghia la PHIEN KHONG CON HOP LE («zpw_sek bi thieu hoac khong dung»): dang nhap o noi khac / bi thu hoi tu xa lam
+# Zalo tra 600 cho moi lenh (do 13/11 12:44: WebSocket bi dong 3003, 9 giay sau poll tra 600, lam moi tra 102). Cung nhom «auth» voi keepAlive
+# (server.KEEPALIVE_AUTH_CODES) — truoc day ma nay chi duoc retry mai nen app khong tu thoat.
+SESSION_INVALID_CODES = (600,)
 
 # Backoff khi poll loi (khong phai timeout cuc bo): bat dau 3 giay,
 # nhan doi moi lan, tran 60 giay — giong nhip retry cua client
@@ -287,7 +291,10 @@ def extract_messages(data, own_id):
             if not text and item.get("message"):
                 text = str(item.get("message"))
             msg = normalize_message(item, thread_type)
-            msg["text"] = text or msg.get("text", "")
+            # Bản ghi cuộc gọi (chat.recommended) đã có chữ hiển thị đúng («Cuộc gọi nhỡ», «Cuộc gọi · 1:02»); `title` thô của Zalo chỉ là chữ giữ chỗ
+            # «sendBubbleMessage», KHÔNG được ghi đè lên (13/11: WebUI hiện chữ thô khi tin vừa đến, chỉ đúng sau khi tải lại trang).
+            if not msg.get("call_record"):
+                msg["text"] = text or msg.get("text", "")
             msg["direction"] = "out" if is_self else "in"
             msg["is_self"] = is_self
             msg["thread_type"] = thread_type
@@ -573,6 +580,8 @@ class SyncPoller:
         if code == ERR_STOP_RETRY:
             self.kicked_out = True
             raise KickOut("sync_poll: server tra -69, dung retry")
+        if code in SESSION_INVALID_CODES:
+            self.auth_failed = True            # server.check_revoked() doc co nay: 2 lan lien tiep thi ket thuc phien (hien lai QR)
         if code not in (0, None):
             # error_code khac 0 (ke ca ERR_KICK_OUT neu gap): chua
             # phan biet duoc kick-out that voi loi tam — retry voi

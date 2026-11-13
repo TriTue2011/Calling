@@ -1704,6 +1704,7 @@ class AppState:
         # Kenh WebSocket (ws_listener.py) + loc trung giua WebSocket va long-poll (event_dedup.py). ZALO_PC_WS=off de tat.
         self.event_dedup = event_dedup_mod.EventDedup()
         self.ws = None
+        self._revoke_hits = {}                 # trang thai kenh -> so lan kiem lien tiep (xem check_revoked)
         # Ma PIN rieng tu (privacy.py): TAT neu khong dat ZALO_PC_APP_PIN / ZALO_PC_APP_PIN_HASH. Dat sai dinh dang thi ne loi luc khoi dong
         # (khong am tham tat mot tinh nang bao mat).
         self.privacy = privacy_mod.PrivacyGate.from_env()
@@ -3182,6 +3183,9 @@ class AppState:
             self.health.record("ws", ("%s: %s" % (state, note)) if note else state)
         except Exception:  # noqa: BLE001
             pass
+        ws = self.ws
+        if state == "disabled" and ws is not None and (ws.last_close or {}).get("code") == ws_listener_mod.CLOSE_KICK:
+            threading.Thread(target=self._probe_after_kick, daemon=True, name="probe-after-kick").start()
 
     def _on_ws_event(self, kind, data):
         """Su kien da giai ma tu WebSocket -> CUNG ham xu ly voi long-poll (extract_messages / extract_call_events...)."""
@@ -3415,7 +3419,7 @@ class AppState:
                     sess.get("uid"),
                     "Phiên Zalo đã hết hạn (keepAlive báo lỗi xác "
                     "thực %d lần liên tiếp) — quét lại QR để đăng "
-                    "nhập." % KEEPALIVE_AUTH_FAILURES_TO_EXPIRE)
+                    "nhập." % KEEPALIVE_AUTH_FAILURES_TO_EXPIRE, wipe=False)     # giữ tin: set_account tự xoá nếu người đăng nhập sau là tài khoản khác
             return False
         with self.lock:
             cur = self.session
@@ -3493,12 +3497,35 @@ class AppState:
         if not sess or not sess.get("zpw_sek"):
             return ""
         uid = sess.get("uid", "")
+        seen = set()
         for state in (self.sync_status(), self.ctrl_status()):
             hit = self._REVOKE_STATES.get(state)
-            if hit and self._expire_session(uid, hit[1], wipe=False, code=hit[0]):
-                print("[session] phien ket thuc: %s (kenh bao %s)" % (hit[0], state), flush=True)
-                return hit[0]
+            if not hit:
+                continue
+            seen.add(state)
+            # kicked_out (-69) la lenh ro rang cua may chu: thoat ngay. auth_failed can 2 lan kiem lien tiep (>= 10 giay) de mot loi thoang qua
+            # khong dang xuat nham (co se tu xoa khi poll thanh cong lai).
+            self._revoke_hits[state] = self._revoke_hits.get(state, 0) + 1
+            if state == "kicked_out" or self._revoke_hits[state] >= 2:
+                if self._expire_session(uid, hit[1], wipe=False, code=hit[0]):
+                    self._revoke_hits.clear()
+                    print("[session] phien ket thuc: %s (kenh bao %s)" % (hit[0], state), flush=True)
+                    return hit[0]
+        for state in list(self._revoke_hits):
+            if state not in seen:
+                del self._revoke_hits[state]
         return ""
+
+    def _probe_after_kick(self, gap=3.0):
+        """WebSocket bi da (3003) = tin hieu thu hoi som nhat (som hon poll ~9 giay, hon keepAlive vai phut): hoi keepAlive NGAY hai lan cach nhau `gap` giay
+        (dung nguong KEEPALIVE_AUTH_FAILURES_TO_EXPIRE) thay vi cho vong 5 phut. Neu phien van song (3003 vi ly do khac) thi keepAlive tra OK va khong lam gi."""
+        for i in range(KEEPALIVE_AUTH_FAILURES_TO_EXPIRE):
+            try:
+                self.check_keepalive()
+            except Exception:  # noqa: BLE001
+                pass
+            if i + 1 < KEEPALIVE_AUTH_FAILURES_TO_EXPIRE:
+                time.sleep(gap)
 
     def _revoke_watch_loop(self):
         while True:

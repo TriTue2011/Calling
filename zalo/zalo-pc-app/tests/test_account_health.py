@@ -64,8 +64,48 @@ def test_auth_failed_on_ctrl_channel_ends_session_with_session_rejected():
     state = _state(tempfile.mkdtemp(prefix="rev-"))
     state.sync = _poller()
     state.ctrl = _poller(auth_failed=True)
-    assert state.check_revoked() == "session_rejected"
+    assert state.check_revoked() == "" and state.session is not None             # lần 1: chưa đủ ngưỡng (lỗi thoáng qua không được đăng xuất nhầm)
+    assert state.check_revoked() == "session_rejected"                           # lần 2 liên tiếp: phiên chết thật
     assert state.health.last("session_end")["detail"] == "session_rejected"
+
+
+def test_auth_failed_that_clears_between_checks_does_not_end_the_session():
+    state = _state(tempfile.mkdtemp(prefix="rev-"))
+    state.sync = _poller(auth_failed=True)
+    assert state.check_revoked() == ""
+    state.sync = _poller()                                                       # poll thành công lại: cờ tự xoá
+    assert state.check_revoked() == ""
+    state.sync = _poller(auth_failed=True)                                       # đếm lại từ đầu, không cộng dồn qua khoảng sạch
+    assert state.check_revoked() == "" and state.session is not None
+
+
+def test_poll_error_600_marks_auth_failed_on_both_pollers():
+    from zalo_pc_app import ctrl_poll, sync_poll
+    assert 600 in sync_poll.SESSION_INVALID_CODES and ctrl_poll.SESSION_INVALID_CODES is sync_poll.SESSION_INVALID_CODES
+    for mod, cls in ((sync_poll, "SyncPoller"), (ctrl_poll, "CtrlPoller")):
+        src = open(mod.__file__, encoding="utf-8").read()
+        assert "if code in SESSION_INVALID_CODES:\n            self.auth_failed = True" in src, (mod.__name__, cls)
+
+
+def test_ws_kick_3003_probes_keepalive_twice_and_expires_a_dead_session():
+    state = _state(tempfile.mkdtemp(prefix="rev-"))
+    from zalo_pc_app import services as svc_mod
+    calls = {"n": 0}
+
+    def _dead(sess):
+        calls["n"] += 1
+        raise svc_mod.ServiceError("keepAlive", 600, "het phien")
+    state._keepalive_probe = _dead
+    state._probe_after_kick(gap=0)
+    assert calls["n"] == 2 and state.session is None                             # 3003 -> hai lần hỏi ngay, không chờ vòng 5 phút
+    assert state.health.last("session_end") is not None
+
+
+def test_ws_kick_3003_with_live_session_changes_nothing():
+    state = _state(tempfile.mkdtemp(prefix="rev-"))
+    state._keepalive_probe = lambda sess: {"ok": True}
+    state._probe_after_kick(gap=0)
+    assert state.session is not None
 
 
 def test_healthy_or_stopped_channels_never_end_the_session():

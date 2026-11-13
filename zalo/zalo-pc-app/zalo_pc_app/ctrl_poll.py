@@ -69,7 +69,7 @@ import urllib.parse
 
 from . import protocol
 from .crypto import decode_postlogin_data
-from .sync_poll import (ERR_STOP_RETRY, KickOut,
+from .sync_poll import (ERR_STOP_RETRY, SESSION_INVALID_CODES, KickOut,
                         MAX_CONSEC_ERRORS, NonJsonResponse,
                         PollCursor, RETRY_BASE_SECONDS,
                         RETRY_MAX_SECONDS)
@@ -898,6 +898,8 @@ class CtrlPoller:
         if code == ERR_STOP_RETRY:
             self.kicked_out = True
             raise KickOut("ctrl_poll: server tra -69, dung retry")
+        if code in SESSION_INVALID_CODES:
+            self.auth_failed = True
         if code not in (0, None):
             raise RuntimeError("ctrl_poll: error_code=%s" % code)
         _raw = payload.get("data")
