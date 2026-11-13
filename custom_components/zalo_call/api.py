@@ -98,10 +98,12 @@ class ZaloCallApi:
                           style: dict | None = None,
                           ai_markup: str | None = None,
                           mentions: list | None = None,
-                          recall_after: Any = None) -> Any:
+                          recall_after: Any = None, ttl: Any = None) -> Any:
         body: dict[str, Any] = {"type": ttype, "message": message}
         if recall_after not in (None, "", 0, "0"):
             body["recall_after"] = recall_after
+        if ttl not in (None, "", 0, "0"):
+            body["ttl"] = int(float(ttl))            # tự huỷ phía Zalo (mili giây, như zalo_bot cũ)
         if mentions:
             body["mentions"] = list(mentions)
         if fmt:
@@ -118,16 +120,20 @@ class ZaloCallApi:
             "POST", "/api/thread/%s/send" % thread_id, json=body)
 
     async def thread_sendlink(self, ttype: str, thread_id: str, link: str,
-                              message: str = "", recall_after: Any = None) -> Any:
+                              message: str = "", recall_after: Any = None, thumbnail: str = "", ttl: Any = None) -> Any:
         body: dict[str, Any] = {"type": ttype, "link": link, "message": message}
         if recall_after not in (None, "", 0, "0"):
             body["recall_after"] = recall_after
+        if thumbnail:
+            body["thumbnail"] = str(thumbnail)
+        if ttl not in (None, "", 0, "0"):
+            body["ttl"] = int(float(ttl))
         return await self._request(
             "POST", "/api/thread/%s/sendlink" % thread_id, json=body)
 
     async def thread_sendvideo(self, ttype: str, thread_id: str, video_url: str, thumbnail_url: str = "",
                                message: str = "", width: Any = None, height: Any = None, duration_s: Any = None,
-                               recall_after: Any = None) -> Any:
+                               recall_after: Any = None, ttl: Any = None) -> Any:
         """Video thật (khung phát được trong chat), không phải tệp đính kèm: gửi ĐỊA CHỈ video, Zalo tự tải về."""
         body: dict[str, Any] = {"type": ttype, "video_url": video_url}
         if thumbnail_url:
@@ -142,6 +148,8 @@ class ZaloCallApi:
             body["duration"] = int(float(duration_s) * 1000)
         if recall_after not in (None, "", 0, "0"):
             body["recall_after"] = recall_after
+        if ttl not in (None, "", 0, "0"):
+            body["ttl"] = int(float(ttl))
         return await self._request("POST", "/api/thread/%s/sendvideo" % thread_id, json=body)
 
     async def _multipart(self, action: str, ttype: str, thread_id: str,

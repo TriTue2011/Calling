@@ -1136,7 +1136,9 @@ OPS = {
         "Xóa tin chỉ ở phía mình (1-1: 11779; nhóm: 11834). "
         "Body {toid|grid, msgs:[msgId], onlyMe, imei}.",
         None, None, None, "POST", "both",
-        F_MSG_CLI + [{"key": "only_me",
+        F_MSG_CLI + [{"key": "owner_id",
+                      "label": "Mã người gửi tin (bỏ trống = tin của chính tài khoản; xoá tin người khác trong nhóm thì điền)"},
+                     {"key": "only_me",
                       "label": "Chỉ xóa phía mình (true/false)"}],
         _b_delete_msg, body_unverified=False),
     "forward_message": _op(

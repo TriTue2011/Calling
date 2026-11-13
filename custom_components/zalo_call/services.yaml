@@ -30,7 +30,7 @@ send_message:
       name: Nội dung tin nhắn
       description: Nội dung tin nhắn
       required: true
-      selector:
+      selector: &id002
         text: null
       example: Hello từ Home Assistant
     mentions:
@@ -381,6 +381,22 @@ send_message:
             label: wow
           custom_value: false
           mode: dropdown
+    quote:
+      name: 'Trích dẫn trả lời một tin: {content, uidFrom, msgId, cliMsgId, msgType, ts}'
+      description: 'Trích dẫn trả lời tin nhắn (cần có 2 trường bắt buộc: content và uidFrom)'
+      required: false
+      selector:
+        object: null
+    ttl:
+      name: Thời gian tự hủy (mili giây)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector: &id003
+        number:
+          min: 0
+          max: 86400000
+      example: 0
+      default: 0
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
@@ -424,6 +440,23 @@ send_file:
       selector:
         text: null
       example: /config/www/document.pdf
+    message:
+      name: Chú thích kèm tệp/ảnh
+      description: Nội dung tin nhắn gửi kèm (tùy chọn)
+      required: false
+      selector:
+        text: null
+      example: Check out this file!
+    ttl:
+      name: Thời gian tự hủy (mili giây)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400000
+      example: 0
+      default: 0
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
@@ -467,6 +500,23 @@ send_image:
       selector:
         text: null
       example: /config/www/img.png
+    message:
+      name: Chú thích kèm tệp/ảnh
+      description: Nội dung tin nhắn gửi kèm ảnh (tùy chọn)
+      required: false
+      selector:
+        text: null
+      example: Check out this image!
+    ttl:
+      name: Thời gian tự hủy (mili giây)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400000
+      example: 0
+      default: 0
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
@@ -514,7 +564,7 @@ get_user_info:
       name: UserId (nhiều id cách nhau bằng dấu phẩy)
       description: User ID
       required: true
-      selector: &id008
+      selector: &id010
         text: {}
       example: '987654321'
       default: ''
@@ -666,6 +716,19 @@ send_image_to_user:
         text: {}
       example: /config/www/img.png
       default: ''
+    message:
+      name: Chú thích kèm tệp/ảnh
+      description: Nội dung tin nhắn
+      required: false
+      selector: *id002
+      example: Hello từ Home Assistant
+    ttl:
+      name: Thời gian tự hủy (mili giây)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector: *id003
+      example: 0
+      default: 0
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
@@ -711,6 +774,13 @@ send_images_to_user:
         text: {}
       example: path1,path2
       default: ''
+    ttl:
+      name: Thời gian tự hủy (mili giây)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector: *id003
+      example: 0
+      default: 0
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
@@ -755,6 +825,19 @@ send_image_to_group:
         text: {}
       example: /config/www/img.png
       default: ''
+    message:
+      name: Chú thích kèm tệp/ảnh
+      description: Nội dung tin nhắn
+      required: false
+      selector: *id002
+      example: Hello từ Home Assistant
+    ttl:
+      name: Thời gian tự hủy (mili giây)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector: *id003
+      example: 0
+      default: 0
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
@@ -800,6 +883,13 @@ send_images_to_group:
         text: {}
       example: path1,path2
       default: ''
+    ttl:
+      name: Thời gian tự hủy (mili giây)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector: *id003
+      example: 0
+      default: 0
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
@@ -961,7 +1051,7 @@ send_sticker:
       description: 'Gõ từ khoá (ví dụ: cảm ơn, haha, yêu) — tự tìm sticker rồi gửi; dùng thay cho Sticker
         ID / Cate ID.'
       required: false
-      selector: &id005
+      selector: &id008
         text: null
       example: /qm1
     pick:
@@ -999,7 +1089,7 @@ undo_message:
       name: ID tin nhắn
       description: ID của tin nhắn cần thu hồi
       required: true
-      selector: &id006
+      selector: &id009
         text: null
       example: msg123456
     cli_msg_id:
@@ -1007,7 +1097,7 @@ undo_message:
       description: cliMsgId của chính tin nhắn đó (Zalo cần cả hai mã mới thu hồi được). Sự kiện tin nhắn
         gửi về automation có sẵn trường này. Bỏ trống thì dùng lại msg_id, có trường hợp Zalo từ chối.
       required: false
-      selector: &id002
+      selector: &id004
         text: null
       example: '1712345678901'
 create_reminder:
@@ -1035,21 +1125,21 @@ create_reminder:
       name: Tiêu đề
       description: Tiêu đề nhắc nhở
       required: true
-      selector: &id018
+      selector: &id020
         text: null
       example: Họp nhóm
     content:
       name: Nội dung
       description: Nội dung nhắc nhở
       required: false
-      selector: &id019
+      selector: &id021
         text: null
       example: Họp nhóm lúc 10h sáng
     remind_time:
       name: Thời gian nhắc (ISO-8601 hoặc epoch)
       description: Thời gian nhắc nhở (timestamp)
       required: true
-      selector: &id004
+      selector: &id007
         text: null
       example: '1632739200000'
 remove_reminder:
@@ -1178,13 +1268,45 @@ send_voice:
           - user
           - group
     file:
-      name: Tệp âm thanh (đường dẫn hoặc URL)
+      name: 'Tệp âm thanh: đường dẫn trong HA, URL http(s):// hoặc media-source:// (bỏ trống nếu dùng
+        «Chữ để đọc»)'
       description: 'Tệp âm thanh: đường dẫn trong HA, URL http(s):// hoặc media-source://. Bỏ trống nếu
         dùng message'
-      required: true
+      required: false
       selector:
         text: null
       example: /config/www/voice.mp3
+    message:
+      name: Chữ để TTS của Home Assistant đọc thành tin thoại (thay cho tệp)
+      description: Chữ để TTS của Home Assistant đọc thành tin thoại (thay cho voice_path)
+      required: false
+      selector:
+        text:
+          multiline: true
+      example: Cửa chính đang mở quá mười phút
+    tts_entity:
+      name: Thực thể TTS dùng để đọc (bỏ trống = mặc định)
+      description: Thực thể TTS dùng để đọc (bỏ trống = TTS mặc định)
+      required: false
+      selector:
+        entity:
+          domain: tts
+      example: tts.google_translate_vi_com
+    language:
+      name: Ngôn ngữ đọc, ví dụ vi (bỏ trống = mặc định của TTS)
+      description: Ngôn ngữ đọc, ví dụ vi (bỏ trống = mặc định của TTS)
+      required: false
+      selector: &id012
+        text: null
+      example: vi
+    options:
+      name: Tuỳ chọn riêng của TTS (ví dụ giọng đọc)
+      description: 'Tuỳ chọn riêng của TTS, giống mục Options của tts.speak — ví dụ giọng đọc: {voice:
+        ...}'
+      required: false
+      selector: &id018
+        object: null
+      example: '{"voice": "nova"}'
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
@@ -1295,7 +1417,7 @@ get_group_chat_history:
       name: Số tin (tối đa 1000)
       description: Số lượng tin nhắn muốn lấy (mặc định 50, tối đa 1000)
       required: false
-      selector: &id013
+      selector: &id015
         number:
           min: 1
           max: 1000
@@ -1457,7 +1579,7 @@ join_group:
       name: Link mời
       description: Link mời tham gia nhóm
       required: true
-      selector: &id015
+      selector: &id017
         text: null
       example: https://zalo.me/g/abcxyz
 leave_group:
@@ -1545,7 +1667,7 @@ update_settings:
       name: Giá trị (1=bật, 0=tắt)
       description: Trạng thái
       required: true
-      selector: &id017
+      selector: &id019
         select:
           options:
           - label: Bật
@@ -1613,7 +1735,7 @@ set_pinned_conversation:
       name: Ghim (true/false)
       description: Ghim hay bỏ ghim
       required: true
-      selector: &id011
+      selector: &id013
         boolean: null
 get_unread_mark:
   name: Xem hội thoại chưa đọc
@@ -1688,7 +1810,7 @@ delete_chat:
       description: cliMsgId của chính tin nhắn đó (Zalo cần cả hai mã mới thu hồi được). Sự kiện tin nhắn
         gửi về automation có sẵn trường này. Bỏ trống thì dùng lại msg_id, có trường hợp Zalo từ chối.
       required: false
-      selector: *id002
+      selector: *id004
       example: '1712345678901'
     conver:
       name: Conver của tin cuối
@@ -2004,6 +2126,13 @@ delete_message:
       selector:
         text: null
       example: cli123456
+    owner_id:
+      name: Mã người gửi tin (bỏ trống = tin của chính tài khoản; xoá tin người khác trong nhóm thì điền)
+      description: Mã người gửi tin (bỏ trống = tin của chính tài khoản; xoá tin người khác trong nhóm
+        thì điền)
+      required: false
+      selector:
+        text: null
     only_me:
       name: Chỉ xóa phía mình (true/false)
       description: Chỉ xóa ở phía mình
@@ -2026,10 +2155,7 @@ forward_message:
       name: TTL (ms, 0 = không tự xóa)
       description: Thời gian tự hủy (milliseconds)
       required: false
-      selector: &id007
-        number:
-          min: 0
-          max: 86400000
+      selector: *id003
       example: 0
       default: 0
     dest_thread_ids:
@@ -2125,6 +2251,20 @@ send_link:
         text: null
       example: Xem link này nhé
       default: ''
+    ttl:
+      name: Thời gian tự hủy (mili giây)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector: *id003
+      example: 0
+      default: 0
+    thumbnail:
+      name: Ảnh xem trước (URL)
+      description: URL thumbnail tùy chỉnh
+      required: false
+      selector: &id005
+        text: null
+      default: ''
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
@@ -2145,6 +2285,13 @@ get_stickers:
   description: Tìm kiếm sticker theo từ khóa
   fields:
     entry_id: *id001
+    query:
+      name: Từ khoá tìm sticker (bỏ trống = xem danh mục)
+      description: Từ khóa tìm kiếm
+      required: false
+      selector:
+        text: null
+      example: vui
 get_stickers_detail:
   name: Xem chi tiết bộ sticker
   description: Lấy thông tin chi tiết của một bộ sticker
@@ -2192,8 +2339,7 @@ send_video:
         chính video'
       description: URL thumbnail tùy chỉnh
       required: false
-      selector:
-        text: null
+      selector: *id005
       default: ''
     message:
       name: Chú thích kèm video (bỏ trống = không)
@@ -2237,6 +2383,16 @@ send_video:
           step: 1
           unit_of_measurement: s
           mode: box
+    ttl:
+      name: Thời gian tự hủy (mili giây)
+      description: Thời gian tự hủy (milliseconds)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400000
+      example: 0
+      default: 0
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động
@@ -2283,7 +2439,7 @@ create_note_group:
       name: Ghim (true/false)
       description: Ghim ghi chú
       required: false
-      selector: &id003
+      selector: &id006
         boolean: null
       default: true
 edit_note_group:
@@ -2324,7 +2480,7 @@ edit_note_group:
       name: Ghim (true/false)
       description: Ghim ghi chú
       required: false
-      selector: *id003
+      selector: *id006
       default: true
 get_list_board:
   name: Xem bảng tin của nhóm
@@ -2438,7 +2594,7 @@ get_poll_detail:
       name: ID bình chọn
       description: ID số của cuộc bình chọn (zca-js)
       required: true
-      selector: &id009
+      selector: &id011
         text: null
       example: 123456789
 lock_poll:
@@ -2508,7 +2664,7 @@ edit_reminder:
       name: Thời gian nhắc mới
       description: Thời gian nhắc nhở (timestamp)
       required: false
-      selector: *id004
+      selector: *id007
       example: '1632739200000'
 get_reminder:
   name: Xem chi tiết nhắc hẹn
@@ -2564,7 +2720,7 @@ add_quick_message:
       name: Từ khóa
       description: Từ khóa để gọi tin nhắn nhanh
       required: true
-      selector: *id005
+      selector: *id008
       example: /qm1
     title:
       name: Nội dung
@@ -2669,7 +2825,7 @@ get_avatar_list:
       name: Trang
       description: Trang dữ liệu cần lấy
       required: false
-      selector: &id014
+      selector: &id016
         number:
           min: 1
       example: '1'
@@ -2737,7 +2893,7 @@ quote_message:
       name: ID tin nhắn
       description: ID của tin nhắn cần thu hồi
       required: true
-      selector: *id006
+      selector: *id009
       example: msg123456
     text:
       name: Nội dung trích dẫn
@@ -2779,7 +2935,7 @@ quote_message:
       name: TTL (1-1)
       description: Thời gian tự hủy (milliseconds)
       required: false
-      selector: *id007
+      selector: *id003
       example: 0
       default: 0
 mark_seen:
@@ -2839,7 +2995,7 @@ reject_friend_request:
       name: UserId
       description: User ID
       required: true
-      selector: *id008
+      selector: *id010
       example: '987654321'
       default: ''
 get_group_link:
@@ -2893,7 +3049,7 @@ vote_poll:
       name: ID bình chọn
       description: ID số của cuộc bình chọn (zca-js)
       required: true
-      selector: *id009
+      selector: *id011
       example: 123456789
     option_ids:
       name: ID lựa chọn (cách nhau bằng dấu phẩy)
@@ -3021,8 +3177,7 @@ update_lang:
       name: language
       description: language to update (VI, EN) (UpdateLangAvailableLanguages)
       required: false
-      selector: &id010
-        text: null
+      selector: *id012
       example: vi
 get_block_sharing_conversations:
   name: getBlockSharingConversations
@@ -3147,7 +3302,7 @@ get_suggested_conversations:
       name: language
       description: Ngôn ngữ hiển thị (mặc định theo `ctx.language` hoặc `"vi"`) (string)
       required: false
-      selector: *id010
+      selector: *id012
       example: vi
     params:
       name: params
@@ -3261,7 +3416,7 @@ send_bank_card:
       name: type
       description: The type of thread to send the bank card to (ThreadType)
       required: false
-      selector: &id012
+      selector: &id014
         select:
           options:
           - label: User
@@ -3309,7 +3464,7 @@ set_pinned_conversations:
       name: pinned
       description: Should pin conversations (boolean)
       required: true
-      selector: *id011
+      selector: *id013
     threadId:
       name: threadId
       description: The ID(s) of the thread (string | string[])
@@ -3320,7 +3475,7 @@ set_pinned_conversations:
       name: type
       description: Type of thread, default User (ThreadType)
       required: false
-      selector: *id012
+      selector: *id014
       example: 0
       default: 0
     params:
@@ -3356,7 +3511,7 @@ translate_message:
       name: type
       description: type (number)
       required: false
-      selector: *id012
+      selector: *id014
       example: 0
       default: 0
     srcLang:
@@ -3413,7 +3568,7 @@ translate_message_auto:
       name: type
       description: type (number)
       required: false
-      selector: *id012
+      selector: *id014
       example: 0
       default: 0
     srcLang:
@@ -3463,7 +3618,7 @@ translate_message_suggest:
       name: type
       description: type (number)
       required: false
-      selector: *id012
+      selector: *id014
       example: 0
       default: 0
     srcLang:
@@ -3640,7 +3795,7 @@ update_translate_setting:
       name: type
       description: type (number)
       required: true
-      selector: *id012
+      selector: *id014
       example: 0
       default: 0
     settings:
@@ -3850,7 +4005,7 @@ get_group_cloud_message_jump:
       name: count
       description: Số lượng tin nhắn ngữ cảnh cần tải (mặc định `20`) (number)
       required: false
-      selector: *id013
+      selector: *id015
       example: 50
       default: 50
     msgJump:
@@ -3893,7 +4048,7 @@ get_group_cloud_message_path:
       name: count
       description: count (number)
       required: false
-      selector: *id013
+      selector: *id015
       example: 50
       default: 50
     reverse:
@@ -3971,7 +4126,7 @@ get_group_invite_box_list:
       name: page
       description: page (number)
       required: false
-      selector: *id014
+      selector: *id016
       example: '1'
       default: '1'
     invPerPage:
@@ -4002,7 +4157,7 @@ get_group_link_info:
       name: link
       description: link (string)
       required: true
-      selector: *id015
+      selector: *id017
       example: https://zalo.me/g/abcxyz
     memberPage:
       name: memberPage
@@ -4122,7 +4277,7 @@ get_quota_community:
       name: language
       description: 'Ngôn ngữ thông báo (mặc định: `"vi"`) (string)'
       required: false
-      selector: *id010
+      selector: *id012
       example: vi
     params:
       name: params
@@ -4299,8 +4454,7 @@ update_group_settings:
       name: options
       description: Options (UpdateGroupSettingsOptions)
       required: true
-      selector: &id016
-        object: null
+      selector: *id018
       example: '{"voice": "nova"}'
     groupId:
       name: groupId
@@ -4370,14 +4524,14 @@ get_alias_list:
       name: count
       description: 'Page size (default: 100) (number)'
       required: false
-      selector: *id013
+      selector: *id015
       example: 50
       default: 50
     page:
       name: page
       description: 'Page number (default: 1) (number)'
       required: false
-      selector: *id014
+      selector: *id016
       example: '1'
       default: '1'
 get_alias_list_v2:
@@ -4390,14 +4544,14 @@ get_alias_list_v2:
       name: page
       description: 'Trang cần lấy (mặc định: 1) (number)'
       required: false
-      selector: *id014
+      selector: *id016
       example: '1'
       default: '1'
     count:
       name: count
       description: 'Số lượng mục mỗi trang (mặc định: 100) (number)'
       required: false
-      selector: *id013
+      selector: *id015
       example: 50
       default: 50
 get_block_friends:
@@ -4410,14 +4564,14 @@ get_block_friends:
       name: page
       description: 'Trang cần lấy (mặc định: 1) (number)'
       required: false
-      selector: *id014
+      selector: *id016
       example: '1'
       default: '1'
     count:
       name: count
       description: 'Số lượng mỗi trang (mặc định: 50) (number)'
       required: false
-      selector: *id013
+      selector: *id015
       example: 50
       default: 50
     avatarSize:
@@ -4516,7 +4670,7 @@ get_friends_emoji_status:
       name: page
       description: page (number)
       required: false
-      selector: *id014
+      selector: *id016
       example: '1'
       default: '1'
 get_last_read_contact_tab:
@@ -4627,7 +4781,7 @@ remove_friend_recommendation_v2:
       name: type
       description: Loại gợi ý (mặc định `0`) (number)
       required: false
-      selector: *id012
+      selector: *id014
       example: 0
       default: 0
     confirm:
@@ -4675,7 +4829,7 @@ verify_friend:
       name: options
       description: Tùy chọn truy vấn (VerifyFriendOptions)
       required: false
-      selector: *id016
+      selector: *id018
       example: '{"voice": "nova"}'
     params:
       name: params
@@ -4876,7 +5030,7 @@ push_profile_verification_message:
       name: type
       description: type (number)
       required: false
-      selector: *id012
+      selector: *id014
       example: 0
       default: 0
     params:
@@ -4923,7 +5077,7 @@ update_profile_bio:
       name: status
       description: status for update bio (string)
       required: true
-      selector: *id017
+      selector: *id019
 update_profile_mode:
   name: updateProfileMode
   description: updateProfileMode — Cập nhật chế độ hồ sơ người dùng (command 11865)
@@ -5730,7 +5884,7 @@ get_sticker_suggestion:
       name: options
       description: Từ khóa và tùy chọn kèm theo (`gif`, `guggy`) (GetStickerSuggestionOptions | string)
       required: true
-      selector: *id016
+      selector: *id018
       example: '{"voice": "nova"}'
     params:
       name: params
@@ -5769,7 +5923,7 @@ search_gifs:
       name: keyword
       description: Từ khóa tìm kiếm (string)
       required: true
-      selector: *id005
+      selector: *id008
       example: /qm1
     offset:
       name: offset
@@ -5792,7 +5946,7 @@ search_guggy_gifs:
       name: keyword
       description: Từ khóa tìm kiếm (string)
       required: true
-      selector: *id005
+      selector: *id008
       example: /qm1
     limit:
       name: limit
@@ -5809,7 +5963,7 @@ search_sticker:
       name: keyword
       description: Keyword to search stickers (string)
       required: true
-      selector: *id005
+      selector: *id008
       example: /qm1
     limit:
       name: limit
@@ -5868,7 +6022,7 @@ add_poll_options:
       name: options
       description: options (AddPollOptionsOption[])
       required: true
-      selector: *id016
+      selector: *id018
       example: '{"voice": "nova"}'
     votedOptionIds:
       name: votedOptionIds
@@ -5885,7 +6039,7 @@ create_note:
       name: options
       description: note options (CreateNoteOptions)
       required: true
-      selector: *id016
+      selector: *id018
       example: '{"voice": "nova"}'
     groupId:
       name: groupId
@@ -5908,13 +6062,13 @@ create_todo:
       name: title
       description: title (string)
       required: false
-      selector: *id018
+      selector: *id020
       example: Họp nhóm
     content:
       name: content
       description: content (string)
       required: false
-      selector: *id019
+      selector: *id021
       example: Họp nhóm lúc 10h sáng
     assignees:
       name: assignees
@@ -5944,7 +6098,7 @@ create_todo:
       name: status
       description: status (number)
       required: false
-      selector: *id017
+      selector: *id019
     schedule:
       name: schedule
       description: schedule (unknown)
@@ -6012,7 +6166,7 @@ edit_note:
       name: options
       description: Options for editing the note (EditNoteOptions)
       required: true
-      selector: *id016
+      selector: *id018
       example: '{"voice": "nova"}'
     groupId:
       name: groupId
@@ -6088,7 +6242,7 @@ get_todo_list:
       name: type
       description: type (number)
       required: false
-      selector: *id012
+      selector: *id014
       example: 0
       default: 0
     params:
@@ -6147,7 +6301,7 @@ pin_board_topic:
       name: type
       description: 'Loại chủ đề (ví dụ: ghi chú, bình chọn, nhắc hẹn) (number)'
       required: true
-      selector: *id012
+      selector: *id014
       example: 0
       default: 0
     params:
@@ -6328,13 +6482,13 @@ update_todo:
       name: title
       description: title (string)
       required: false
-      selector: *id018
+      selector: *id020
       example: Họp nhóm
     content:
       name: content
       description: content (string)
       required: false
-      selector: *id019
+      selector: *id021
       example: Họp nhóm lúc 10h sáng
     assignees:
       name: assignees
@@ -6364,7 +6518,7 @@ update_todo:
       name: status
       description: status (number)
       required: false
-      selector: *id017
+      selector: *id019
     schedule:
       name: schedule
       description: schedule (unknown)
@@ -6398,7 +6552,7 @@ update_todo_status:
       name: status
       description: 'Trạng thái mới (ví dụ: đang thực hiện, hoàn thành) (number)'
       required: true
-      selector: *id017
+      selector: *id019
 verify_todo:
   name: verifyTodo
   description: verifyTodo — Kiểm tra tính đồng bộ của danh sách công việc trong Zalo To-Do (command 12603)
@@ -6496,7 +6650,7 @@ create_auto_reply:
       name: content
       description: content (string)
       required: true
-      selector: *id019
+      selector: *id021
       example: Họp nhóm lúc 10h sáng
     isEnable:
       name: isEnable
@@ -6795,7 +6949,7 @@ get_catalog_list:
       name: page
       description: 'Page number (default: 0) (number)'
       required: false
-      selector: *id014
+      selector: *id016
       example: '1'
       default: '1'
     params:
@@ -6826,7 +6980,7 @@ get_list_bank_account:
       name: page
       description: 'Page number (default: 0) (number)'
       required: false
-      selector: *id014
+      selector: *id016
       example: '1'
       default: '1'
     limit:
@@ -6881,7 +7035,7 @@ get_product_catalog_list:
       name: page
       description: 'Page number (default: 0) (number)'
       required: false
-      selector: *id014
+      selector: *id016
       example: '1'
       default: '1'
 get_product_detail:
@@ -6958,7 +7112,7 @@ update_auto_reply:
       name: content
       description: content (string)
       required: true
-      selector: *id019
+      selector: *id021
       example: Họp nhóm lúc 10h sáng
     isEnable:
       name: isEnable
@@ -7261,14 +7415,14 @@ make_call:
         chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật.'
       selector:
         select:
-          options: &id023
-          - &id020
+          options: &id025
+          - &id022
             value: mic
             label: Mic - gửi tiếng trong nhà cho người gọi
-          - &id021
+          - &id023
             value: speaker
             label: Loa - phát tiếng người gọi ra loa trong nhà
-          - &id022
+          - &id024
             value: camera
             label: Camera - gửi hình trong nhà (tích ô này là cuộc gọi VIDEO)
           - value: ai
@@ -7282,10 +7436,10 @@ make_call:
         bị đã chọn ở các ô Loa, Mic, Camera.
       selector:
         select:
-          options: &id024
-          - *id020
-          - *id021
+          options: &id026
           - *id022
+          - *id023
+          - *id024
           multiple: true
     message:
       name: Nội dung đọc khi người nhận nghe máy
@@ -7410,7 +7564,7 @@ answer_call:
         chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật.'
       selector:
         select:
-          options: *id023
+          options: *id025
           multiple: true
     connect_now:
       name: Thiết bị nhà dùng NGAY khi người nhận nghe máy
@@ -7420,7 +7574,7 @@ answer_call:
         bị đã chọn ở các ô Loa, Mic, Camera.
       selector:
         select:
-          options: *id024
+          options: *id026
           multiple: true
     message:
       name: Nội dung đọc khi người nhận nghe máy
@@ -7768,7 +7922,7 @@ set_rule:
       required: true
       selector:
         select:
-          options: &id025
+          options: &id027
           - value: thread
             label: Một người hoặc một nhóm cụ thể
           - value: tag
@@ -7946,7 +8100,7 @@ set_rule:
         bị đã chọn ở các ô Loa, Mic, Camera.
       selector:
         select:
-          options: *id024
+          options: *id026
           multiple: true
     video_request:
       name: Khi người gọi xin chuyển sang video
@@ -7972,7 +8126,7 @@ set_rule:
         chỉ bật khi người nhà nói trực tiếp, lúc AI còn đang giữ máy thì chưa bật.'
       selector:
         select:
-          options: *id023
+          options: *id025
           multiple: true
     speaker:
       name: Loa trong nhà
@@ -8032,7 +8186,7 @@ remove_rule:
       required: true
       selector:
         select:
-          options: *id025
+          options: *id027
     thread_id:
       name: Mã Zalo của người hoặc nhóm
       description: Chỉ cần khi chọn «Một người hoặc một nhóm cụ thể». Xem danh sách bằng dịch vụ «Xem
@@ -8180,7 +8334,7 @@ alert_call:
         thì».
       selector:
         select:
-          options: *id023
+          options: *id025
           multiple: true
     volume:
       name: Âm lượng loa (%)

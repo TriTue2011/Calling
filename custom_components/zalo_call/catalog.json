@@ -85,6 +85,16 @@
     "required": false
    },
    {
+    "key": "quote",
+    "label": "Trích dẫn trả lời một tin: {content, uidFrom, msgId, cliMsgId, msgType, ts}",
+    "required": false
+   },
+   {
+    "key": "ttl",
+    "label": "Thời gian tự hủy (mili giây)",
+    "required": false
+   },
+   {
     "key": "recall_after",
     "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
     "required": false
@@ -107,6 +117,16 @@
     "required": true
    },
    {
+    "key": "message",
+    "label": "Chú thích kèm tệp/ảnh",
+    "required": false
+   },
+   {
+    "key": "ttl",
+    "label": "Thời gian tự hủy (mili giây)",
+    "required": false
+   },
+   {
     "key": "recall_after",
     "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
     "required": false
@@ -127,6 +147,16 @@
     "key": "file",
     "label": "Ảnh (đường dẫn trong HA hoặc URL)",
     "required": true
+   },
+   {
+    "key": "message",
+    "label": "Chú thích kèm tệp/ảnh",
+    "required": false
+   },
+   {
+    "key": "ttl",
+    "label": "Thời gian tự hủy (mili giây)",
+    "required": false
    },
    {
     "key": "recall_after",
@@ -296,6 +326,16 @@
     "required": true
    },
    {
+    "key": "message",
+    "label": "Chú thích kèm tệp/ảnh",
+    "required": false
+   },
+   {
+    "key": "ttl",
+    "label": "Thời gian tự hủy (mili giây)",
+    "required": false
+   },
+   {
     "key": "recall_after",
     "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
     "required": false
@@ -316,6 +356,11 @@
     "key": "files",
     "label": "Các ảnh, cách nhau dấu phẩy. Gửi MỘT LÚC thành một album: ảnh jpg/png/webp từ 2 tấm trở lên gộp chung, GIF và tệp khác gửi rời",
     "required": true
+   },
+   {
+    "key": "ttl",
+    "label": "Thời gian tự hủy (mili giây)",
+    "required": false
    },
    {
     "key": "recall_after",
@@ -340,6 +385,16 @@
     "required": true
    },
    {
+    "key": "message",
+    "label": "Chú thích kèm tệp/ảnh",
+    "required": false
+   },
+   {
+    "key": "ttl",
+    "label": "Thời gian tự hủy (mili giây)",
+    "required": false
+   },
+   {
     "key": "recall_after",
     "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
     "required": false
@@ -360,6 +415,11 @@
     "key": "files",
     "label": "Các ảnh, cách nhau dấu phẩy. Gửi MỘT LÚC thành một album: ảnh jpg/png/webp từ 2 tấm trở lên gộp chung, GIF và tệp khác gửi rời",
     "required": true
+   },
+   {
+    "key": "ttl",
+    "label": "Thời gian tự hủy (mili giây)",
+    "required": false
    },
    {
     "key": "recall_after",
@@ -676,8 +736,28 @@
   "fields": [
    {
     "key": "file",
-    "label": "Tệp âm thanh (đường dẫn hoặc URL)",
-    "required": true
+    "label": "Tệp âm thanh: đường dẫn trong HA, URL http(s):// hoặc media-source:// (bỏ trống nếu dùng «Chữ để đọc»)",
+    "required": false
+   },
+   {
+    "key": "message",
+    "label": "Chữ để TTS của Home Assistant đọc thành tin thoại (thay cho tệp)",
+    "required": false
+   },
+   {
+    "key": "tts_entity",
+    "label": "Thực thể TTS dùng để đọc (bỏ trống = mặc định)",
+    "required": false
+   },
+   {
+    "key": "language",
+    "label": "Ngôn ngữ đọc, ví dụ vi (bỏ trống = mặc định của TTS)",
+    "required": false
+   },
+   {
+    "key": "options",
+    "label": "Tuỳ chọn riêng của TTS (ví dụ giọng đọc)",
+    "required": false
    },
    {
     "key": "recall_after",
@@ -1245,6 +1325,11 @@
     "required": false
    },
    {
+    "key": "owner_id",
+    "label": "Mã người gửi tin (bỏ trống = tin của chính tài khoản; xoá tin người khác trong nhóm thì điền)",
+    "required": false
+   },
+   {
     "key": "only_me",
     "label": "Chỉ xóa phía mình (true/false)",
     "required": false
@@ -1338,6 +1423,16 @@
     "required": false
    },
    {
+    "key": "ttl",
+    "label": "Thời gian tự hủy (mili giây)",
+    "required": false
+   },
+   {
+    "key": "thumbnail",
+    "label": "Ảnh xem trước (URL)",
+    "required": false
+   },
+   {
     "key": "recall_after",
     "label": "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)",
     "required": false
@@ -1353,7 +1448,13 @@
   "label": "Xem danh mục sticker",
   "thread": "none",
   "danger": false,
-  "fields": []
+  "fields": [
+   {
+    "key": "query",
+    "label": "Từ khoá tìm sticker (bỏ trống = xem danh mục)",
+    "required": false
+   }
+  ]
  },
  {
   "name": "get_stickers_detail",
@@ -1410,6 +1511,11 @@
    {
     "key": "duration",
     "label": "Thời lượng (giây). Bỏ trống = tự đo bằng ffprobe",
+    "required": false
+   },
+   {
+    "key": "ttl",
+    "label": "Thời gian tự hủy (mili giây)",
     "required": false
    },
    {

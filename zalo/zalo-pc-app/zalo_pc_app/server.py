@@ -4941,6 +4941,10 @@ class Handler(BaseHTTPRequestHandler):
                           flush=True)
                     return self._send_json({"error": str(e)}, status=400)
                 try:
+                    try:                  # ttl (mili giay) do nguoi goi dat (zalo_bot cu); khong co thi theo cai dat tu xoa cua hoi thoai
+                        ttl_eff = max(0, int(float(fields.get("ttl") or 0))) or STATE.conv_ttl.get(thread_id)
+                    except (TypeError, ValueError):
+                        ttl_eff = STATE.conv_ttl.get(thread_id)
                     if kind == "photo":
                         try:
                             width = int(fields.get("width") or 0)
@@ -4961,12 +4965,12 @@ class Handler(BaseHTTPRequestHandler):
                                               width, height,
                                               desc=caption_text,
                                               photo_bundle=bundle,
-                                              ttl=STATE.conv_ttl.get(thread_id))
+                                              ttl=ttl_eff)
                         local_kind = "photo"
                     else:
                         res = chat.send_file(thread_type, thread_id,
                                              filename, data_bytes, mime,
-                                             ttl=STATE.conv_ttl.get(thread_id))
+                                             ttl=ttl_eff)
                         caption_text = ""
                         local_kind = "file"
                 except ValueError as e:

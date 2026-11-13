@@ -67,6 +67,19 @@ CHAT_FIELDS = {
                    ("height", "Độ cao (px). Bỏ trống = tự đo bằng ffprobe", False),
                    ("duration", "Thời lượng (giây). Bỏ trống = tự đo bằng ffprobe", False)],
 }
+# Truong cua zalo_bot cu ma luc dau chua co (13/11): trich dan, tu huy, chu thich, anh xem truoc, doc chu bang TTS. Mo ta + kieu nhap lay tu meta cua zalo_bot.
+CHAT_FIELDS["send_message"] += [("quote", "Trích dẫn trả lời một tin: {content, uidFrom, msgId, cliMsgId, msgType, ts}", False),
+                                ("ttl", "Thời gian tự hủy (mili giây)", False)]
+for _n in ("send_file", "send_image", "send_image_to_user", "send_image_to_group"):
+    CHAT_FIELDS[_n] += [("message", "Chú thích kèm tệp/ảnh", False), ("ttl", "Thời gian tự hủy (mili giây)", False)]
+for _n in ("send_images_to_user", "send_images_to_group", "send_link", "send_video"):
+    CHAT_FIELDS[_n] += [("ttl", "Thời gian tự hủy (mili giây)", False)]
+CHAT_FIELDS["send_link"] += [("thumbnail", "Ảnh xem trước (URL)", False)]
+CHAT_FIELDS["send_voice"] = [("file", "Tệp âm thanh: đường dẫn trong HA, URL http(s):// hoặc media-source:// (bỏ trống nếu dùng «Chữ để đọc»)", False),
+                             ("message", "Chữ để TTS của Home Assistant đọc thành tin thoại (thay cho tệp)", False),
+                             ("tts_entity", "Thực thể TTS dùng để đọc (bỏ trống = mặc định)", False),
+                             ("language", "Ngôn ngữ đọc, ví dụ vi (bỏ trống = mặc định của TTS)", False),
+                             ("options", "Tuỳ chọn riêng của TTS (ví dụ giọng đọc)", False)]
 # Tu thu hoi sau N giay cho moi service gui tin (13/11). Zalo khong cho dat tu xoa theo giay (chi 1/7/14/30 ngay), nen app hen gio roi THU HOI.
 RECALL_FIELD = ("recall_after", "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng "
                 "«tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày)", False)
@@ -264,6 +277,8 @@ def main():
                     f["required"] = False
             e["fields"] += [{"key": "keyword", "label": "Từ khoá sticker", "required": False},
                             {"key": "pick", "label": "Chọn kết quả", "required": False}]
+        if e["name"] == "get_stickers":               # zalo_bot cu: get_stickers(query) tim sticker theo tu khoa; HA chuyen sang search_sticker
+            e["fields"] += [{"key": "query", "label": "Từ khoá tìm sticker (bỏ trống = xem danh mục)", "required": False}]
     # Op co that trong app nhung nam ngoai 96 dich vu zalobot: van la service HA.
     have = {e["name"] for e in out} | {e["action"] for e in out if e["action"]}
     for action, spec in S.OPS.items():

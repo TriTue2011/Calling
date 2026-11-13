@@ -29,7 +29,9 @@ from .rules import MAX_NOTE_LEN, parse_tags, CALL_TYPES, CONNECT, CONNECT_PARTS,
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
 from .video_urls import local_to_public, sibling_thumb_candidates
-from .album import album_plan
+from .album import album_plan, is_album_photo
+from .call_voice import async_tts_audio
+from .compat import rename_aliases, unknown_keys
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +57,26 @@ def _api(hass: HomeAssistant, call: ServiceCall) -> tuple[Any, ZaloCallApi]:
 async def _read_source(hass: HomeAssistant, src: str) -> tuple[str, bytes, str]:
     """Đọc tệp từ đường dẫn HA (phải nằm trong thư mục được phép) hoặc URL."""
     src = str(src).strip()
+    if src.startswith("media-source://"):                  # kho phương tiện của HA (kể cả giọng TTS): như zalo_bot cũ
+        from homeassistant.components import media_source
+        from homeassistant.components.media_player import async_process_play_media_url
+        try:
+            play = await media_source.async_resolve_media(hass, src, None)
+        except Exception as err:  # noqa: BLE001 - mọi lỗi của nguồn phương tiện thành lỗi dễ hiểu
+            raise ServiceValidationError("Không mở được %s: %s" % (src, err)) from err
+        url = async_process_play_media_url(hass, play.url)
+        session = async_get_clientsession(hass)
+        try:
+            async with session.get(url) as r:
+                if r.status != 200:
+                    raise ServiceValidationError("Tải %s lỗi HTTP %s" % (src, r.status))
+                data = await r.content.read(MAX_FILE + 1)
+        except OSError as err:
+            raise ServiceValidationError("Không tải được %s: %s" % (src, err)) from err
+        if len(data) > MAX_FILE:
+            raise ServiceValidationError("Tệp lớn hơn 100 MB")
+        name = os.path.basename(url.split("?", 1)[0]) or "media"
+        return name, data, (getattr(play, "mime_type", "") or mimetypes.guess_type(name)[0] or "application/octet-stream")
     if src.startswith(("http://", "https://")):
         session = async_get_clientsession(hass)
         try:
@@ -118,7 +140,8 @@ async def _send_video(hass: HomeAssistant, api: ZaloCallApi, ttype: str, tid: st
         _LOGGER.warning("send_video: %s không có địa chỉ công khai (cần URL http(s), hoặc tệp trong www / thư mục media và HA có địa chỉ ngoài): "
                         "gửi dạng tệp đính kèm", src)
         fn, data, mime = await _read_source(hass, src)
-        return await api.thread_sendfile(ttype, tid, fn, data, mime, "file", d.get("recall_after"))
+        return await api.thread_sendfile(ttype, tid, fn, data, mime, "file", d.get("recall_after"),
+                                         {"ttl": int(float(d["ttl"]))} if d.get("ttl") else None)
     thumb = str(d.get("thumbnail") or "").strip()
     if not thumb and not src.startswith(("http://", "https://")):
         for cand in sibling_thumb_candidates(src):                  # ảnh bìa cạnh video: <tên>_thumb.jpg do bản thiết kế camera tạo sẵn
@@ -127,7 +150,7 @@ async def _send_video(hass: HomeAssistant, api: ZaloCallApi, ttype: str, tid: st
                 break
     thumb_url = (await _public_url(hass, thumb)) if thumb else None
     return await api.thread_sendvideo(ttype, tid, video_url, thumb_url or "", str(d.get("message") or ""),
-                                      d.get("width"), d.get("height"), d.get("duration"), d.get("recall_after"))
+                                      d.get("width"), d.get("height"), d.get("duration"), d.get("recall_after"), d.get("ttl"))
 
 
 async def _send_images(hass: HomeAssistant, api: ZaloCallApi, ttype: str, tid: str, d: dict) -> Any:
@@ -138,9 +161,40 @@ async def _send_images(hass: HomeAssistant, api: ZaloCallApi, ttype: str, tid: s
         raise ServiceValidationError("Chưa có ảnh nào để gửi")
     items = [await _read_source(hass, s) for s in srcs]
     plan = album_plan([(fn, mime) for fn, _data, mime in items], int(time.time() * 1000))
+    ttl = {"ttl": int(float(d["ttl"]))} if d.get("ttl") else {}
     for (fn, data, mime), fields in zip(items, plan):
-        await api.thread_sendfile(ttype, tid, fn, data, mime, "photo", d.get("recall_after"), fields)
+        await api.thread_sendfile(ttype, tid, fn, data, mime, "photo", d.get("recall_after"), {**ttl, **(fields or {})} or None)
     return {"sent": len(items), "album": sum(1 for f in plan if f)}
+
+
+async def _send_quote(api: ZaloCallApi, ttype: str, tid: str, d: dict) -> Any:
+    """send_message có `quote` (như zalo_bot cũ: {content, uidFrom, msgId, cliMsgId, msgType, ts}): trả lời kèm trích dẫn bằng quote_message của app.
+    Kiểu chữ (đậm, màu…) không áp dụng cho tin trích dẫn."""
+    q = d["quote"]
+    if isinstance(q, str):
+        try:
+            q = json.loads(q)
+        except ValueError:
+            q = None
+    if not isinstance(q, dict):
+        raise ServiceValidationError("quote phải là đối tượng {content, uidFrom, msgId, cliMsgId, msgType, ts}")
+    missing = [k for k in ("uidFrom", "msgId") if q.get(k) in (None, "")]
+    if missing:
+        raise ServiceValidationError("quote thiếu %s: cần mã người gửi (uidFrom) và mã tin (msgId) để trích dẫn" % ", ".join(missing))
+    content = q.get("content")
+    if isinstance(content, dict):
+        content = content.get("msg") or content.get("title") or ""
+    mtype = q.get("msgType")
+    try:
+        ts = int(float(q.get("ts") or 0))
+    except (TypeError, ValueError):
+        ts = 0
+    body = {"thread_id": tid, "type": ttype, "text": str(d["message"]), "qmsg_owner": str(q["uidFrom"]), "msg_id": str(q["msgId"]),
+            "qmsg_cli_id": str(q.get("cliMsgId") or 0), "qmsg_type": int(mtype) if str(mtype).isdigit() else 1, "qmsg_ts": ts,
+            "qmsg": str(content or "")}
+    if d.get("ttl"):
+        body["ttl"] = int(float(d["ttl"]))
+    return await api.svc("quote_message", body)
 
 
 async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> Any:
@@ -152,15 +206,28 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
     elif name.endswith("_to_group"):
         ttype = "group"
     if name == "send_message":
+        if d.get("quote"):
+            return await _send_quote(api, ttype, tid, d)
         return await api.thread_send(ttype, tid, str(d["message"]), d.get("format"),
                                      d.get("auto_emphasis"), d.get("emoji"),
                                      d.get("auto_emoji"), d.get("zalo_emoji"), d.get("style"), d.get("ai_markup"),
-                                     d.get("mentions"), d.get("recall_after"))
+                                     d.get("mentions"), d.get("recall_after"), d.get("ttl"))
     if name == "send_link":
         return await api.thread_sendlink(ttype, tid, str(d["link"]),
-                                         str(d.get("message") or ""), d.get("recall_after"))
+                                         str(d.get("message") or ""), d.get("recall_after"), str(d.get("thumbnail") or ""), d.get("ttl"))
     if name == "send_voice":
-        fn, data, mime = await _read_source(hass, d["file"])
+        text = str(d.get("message") or "").strip()
+        if text:                                           # chữ -> giọng đọc của TTS trong HA (như zalo_bot cũ; có chữ thì chữ thắng tệp)
+            try:
+                ext, data = await async_tts_audio(hass, text, d.get("tts_entity"), d.get("language"), d.get("options"))
+            except Exception as err:  # noqa: BLE001 - lỗi TTS (không có thực thể, quá hạn…) thành lỗi dễ hiểu
+                raise ServiceValidationError("TTS không đọc được: %s" % err) from err
+            fn = "tts.%s" % (ext or "mp3")
+            mime = mimetypes.guess_type(fn)[0] or "audio/mpeg"
+        elif d.get("file"):
+            fn, data, mime = await _read_source(hass, d["file"])
+        else:
+            raise ServiceValidationError("send_voice cần `message` (chữ để TTS đọc) hoặc `file` (tệp, URL hoặc media-source://)")
         return await api.thread_sendvoice(ttype, tid, fn, data, mime, d.get("recall_after"))
     if name == "send_video":
         return await _send_video(hass, api, ttype, tid, d)
@@ -172,7 +239,15 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
     # send_file / send_image / send_image_to_* / send_video
     kind = "photo" if "image" in name else "file"
     fn, data, mime = await _read_source(hass, d["file"])
-    return await api.thread_sendfile(ttype, tid, fn, data, mime, kind, d.get("recall_after"))
+    fields: dict[str, Any] = {"ttl": int(float(d["ttl"]))} if d.get("ttl") else {}
+    caption = str(d.get("message") or "").strip()
+    if caption:
+        # Chú thích (như zalo_bot cũ / zca-js): ảnh đơn mang chú thích theo ảnh (desc); tệp khác thì tin chữ đi TRƯỚC rồi mới tới tệp.
+        if kind == "photo" and is_album_photo(fn, mime):
+            fields["desc"] = caption
+        else:
+            await api.thread_send(ttype, tid, caption, recall_after=d.get("recall_after"), ttl=d.get("ttl"))
+    return await api.thread_sendfile(ttype, tid, fn, data, mime, kind, d.get("recall_after"), fields or None)
 
 
 async def _do_acct(hass, rt, api: ZaloCallApi, e: dict, d: dict) -> Any:
@@ -244,7 +319,12 @@ def _make_handler(hass: HomeAssistant, e: dict) -> Callable:
     async def handler(call: ServiceCall) -> dict:
         rt, api = _api(hass, call)
         d = {k: v for k, v in call.data.items() if k != "entry_id"}
+        extra_keys = unknown_keys(d, {f["key"] for f in e["fields"]})
+        if extra_keys:                       # trước đây bị bỏ lặng lẽ (ttl, quote, thumbnail_url của zalo_bot cũ biến mất không dấu vết)
+            _LOGGER.warning("%s: bỏ qua khoá không có trong dịch vụ này: %s", e["name"], ", ".join(extra_keys))
         try:
+            if e["name"] == "get_stickers" and d.get("query"):
+                return {"result": await api.svc("search_sticker", {"keyword": str(d["query"]), "limit": int(d.get("limit") or 20)})}
             if e["name"] == "send_sticker":
                 d = await _sticker_by_keyword(api, d)
             if e["name"] == "send_message":
@@ -252,7 +332,7 @@ def _make_handler(hass: HomeAssistant, e: dict) -> Callable:
                 # «auto» theo ngữ cảnh: có mục auto/emoji thì nhờ trợ lý đánh dấu; app chỉ nhận khi chữ không đổi (không thì dùng quy tắc cứng).
                 smart = d.pop("ai_style", None)
                 smart = bool(rt.defaults.get(CONF_TEXT_AI_SMART)) if smart in (None, "") else (str(smart).strip().lower() not in ("false", "0", "off", "no"))
-                if smart and str(d.get("format") or "plain") in ("plain", "markdown") and not d.get("emoji") and not d.get("zalo_emoji"):
+                if smart and not d.get("quote") and str(d.get("format") or "plain") in ("plain", "markdown") and not d.get("emoji") and not d.get("zalo_emoji"):
                     markup = await async_markup_for(hass, rt.defaults, str(d.get("message") or ""), d.get("style"), d.get("auto_emoji"))
                     if markup:
                         d["ai_markup"] = markup
@@ -280,7 +360,9 @@ def _schema(e: dict) -> vol.Schema:
     for f in e["fields"]:
         key = vol.Required(f["key"]) if f["required"] else vol.Optional(f["key"])
         fields[key] = _ANY
-    return vol.Schema(fields, extra=vol.ALLOW_EXTRA)
+    known = {f["key"] for f in e["fields"]}
+    inner = vol.Schema(fields, extra=vol.ALLOW_EXTRA)
+    return vol.All(lambda data: rename_aliases(e["name"], data, known), inner)       # tên trường zalo_bot cũ -> tên của zalo_call
 
 
 async def async_register_services(hass: HomeAssistant) -> None:

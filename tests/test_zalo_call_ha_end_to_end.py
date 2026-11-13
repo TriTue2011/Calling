@@ -547,3 +547,108 @@ async def test_send_images_reads_everything_before_sending_so_a_bad_path_sends_n
     with pytest.raises(ServiceValidationError):
         await call(hass, "send_images_to_group", {"thread_id": THREAD, "files": "%s,%s" % (ok, tmp_path / "khong-co.jpg")})
     assert len([r for r in app.requests if r["path"].endswith("/sendfile")]) == before, "không được gửi nửa album"
+
+
+# ---- những chỗ zalo_bot cũ có mà zalo_call thiếu (13/11): tên trường cũ, ttl, quote, chú thích, TTS, media-source, owner_id, từ khoá sticker ------
+def _sent(app, suffix):
+    return [r for r in app.requests if r["path"].endswith(suffix)]
+
+
+async def test_zalo_bot_field_names_still_work_and_ttl_reaches_the_app(hass, setup, app, tmp_path):
+    f = tmp_path / "a.jpg"
+    f.write_bytes(b"IMG-OLD-NAME")
+    await call(hass, "send_image", {"thread_id": THREAD, "type": "user", "image_path": str(f), "account_selection": "tai-khoan-cu"})
+    assert b"IMG-OLD-NAME" in _sent(app, "/sendfile")[-1]["raw"]
+    await call(hass, "send_video", {"thread_id": THREAD, "type": "group", "video_path_or_url": "https://cdn.example.test/v.mp4",
+                                    "thumbnail_url": "https://cdn.example.test/t.jpg", "ttl": 86400000})
+    j = _sent(app, "/sendvideo")[-1]["json"]
+    assert j["video_url"] == "https://cdn.example.test/v.mp4" and j["thumbnail_url"] == "https://cdn.example.test/t.jpg" and j["ttl"] == 86400000, j
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "Xin chào", "ttl": 3600000})
+    assert _sent(app, "/send")[-1]["json"]["ttl"] == 3600000
+    await call(hass, "send_link", {"thread_id": THREAD, "type": "user", "link": "https://example.test", "thumbnail": "https://example.test/i.jpg", "ttl": 5000})
+    j = _sent(app, "/sendlink")[-1]["json"]
+    assert j["thumbnail"] == "https://example.test/i.jpg" and j["ttl"] == 5000, j
+
+
+async def test_send_message_quote_goes_through_quote_message_and_needs_the_ids(hass, setup, app):
+    q = {"content": "tin gốc", "uidFrom": "111", "msgId": "8474", "cliMsgId": "99", "msgType": "webchat", "ts": 1794000000000}
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "trả lời", "quote": q, "ttl": 1000})
+    j = app.last("/api/svc/quote_message")["json"]
+    assert (j["text"], j["qmsg_owner"], j["msg_id"], j["qmsg_cli_id"], j["qmsg"], j["qmsg_type"], j["ttl"]) == ("trả lời", "111", "8474", "99", "tin gốc", 1, 1000), j
+    assert j["thread_id"] == THREAD and j["type"] == "user" and j["qmsg_ts"] == 1794000000000, j
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "x", "quote": {"content": "thiếu mã"}})
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "x", "quote": "không phải JSON"})
+
+
+async def test_captions_and_ttl_for_single_image_and_other_files(hass, setup, app, tmp_path):
+    img, doc = tmp_path / "p.jpg", tmp_path / "d.pdf"
+    img.write_bytes(b"JPG")
+    doc.write_bytes(b"PDF")
+    await call(hass, "send_image", {"thread_id": THREAD, "type": "group", "file": str(img), "message": "Có người", "ttl": 86400000})
+    r = _sent(app, "/sendfile")[-1]
+    assert _form_value(r["raw"], "desc") == "Có người" and _form_value(r["raw"], "ttl") == "86400000", "ảnh đơn mang chú thích theo ảnh"
+    n = len(app.requests)
+    await call(hass, "send_file", {"thread_id": THREAD, "type": "user", "file": str(doc), "message": "Báo cáo"})
+    new = app.requests[n:]
+    assert [x["path"].rsplit("/", 1)[1] for x in new] == ["send", "sendfile"], "tệp khác: tin chữ đi TRƯỚC rồi mới tới tệp (như zca-js)"
+    assert new[0]["json"]["message"] == "Báo cáo" and b"PDF" in new[1]["raw"]
+
+
+async def test_send_images_ttl_reaches_every_photo_of_the_album(hass, setup, app, tmp_path):
+    files = []
+    for n in ("a.jpg", "b.jpg"):
+        f = tmp_path / n
+        f.write_bytes(b"X" + n.encode())
+        files.append(str(f))
+    await call(hass, "send_images_to_group", {"thread_id": THREAD, "files": ",".join(files), "ttl": 7200000})
+    reqs = _sent(app, "/sendfile")[-2:]
+    assert [_form_value(r["raw"], "ttl") for r in reqs] == ["7200000", "7200000"] and [_form_value(r["raw"], "idInGroup") for r in reqs] == ["0", "1"]
+
+
+async def test_send_voice_reads_text_with_tts_and_accepts_media_source(hass, setup, app, monkeypatch):
+    import types
+    import custom_components.zalo_call.services as S
+    seen = {}
+
+    async def fake_tts(_hass, message, engine=None, language=None, options=None):
+        seen["args"] = (message, engine, language, options)
+        return "mp3", b"VOICE-TTS"
+    monkeypatch.setattr(S, "async_tts_audio", fake_tts)
+    await call(hass, "send_voice", {"thread_id": THREAD, "type": "user", "message": "Có người ở cửa", "tts_entity": "tts.edge", "language": "vi", "file": "/bo/qua.mp3"})
+    r = _sent(app, "/sendvoice")[-1]
+    assert b"VOICE-TTS" in r["raw"] and b'filename="tts.mp3"' in r["raw"], r["raw"][:200]
+    assert seen["args"] == ("Có người ở cửa", "tts.edge", "vi", None), "có chữ thì chữ thắng tệp, như zalo_bot cũ"
+    import homeassistant.components.media_source as media_source
+
+    async def fake_resolve(_hass, src, _target):
+        assert src == "media-source://media_source/local/chuong.mp3", src
+        return types.SimpleNamespace(url="%s/audio/chuong.mp3" % app.url, mime_type="audio/mpeg")
+    monkeypatch.setattr(media_source, "async_resolve_media", fake_resolve)
+    await call(hass, "send_voice", {"thread_id": THREAD, "type": "user", "file": "media-source://media_source/local/chuong.mp3"})
+    assert b'filename="chuong.mp3"' in _sent(app, "/sendvoice")[-1]["raw"]
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "send_voice", {"thread_id": THREAD, "type": "user"})
+    async def boom(*_a, **_k):
+        raise RuntimeError("không có thực thể TTS")
+    monkeypatch.setattr(S, "async_tts_audio", boom)
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "send_voice", {"thread_id": THREAD, "type": "user", "message": "x"})
+
+
+async def test_get_stickers_query_delete_owner_and_group_id_alias(hass, setup, app):
+    await call(hass, "get_stickers", {"query": "haha"})
+    assert app.last("/api/svc/search_sticker")["json"] == {"keyword": "haha", "limit": 20}
+    await call(hass, "delete_message", {"thread_id": THREAD, "type": "group", "msg_id": "1", "cli_msg_id": "2", "uid_from": "777"})
+    assert app.last("/api/svc/delete_message")["json"]["owner_id"] == "777"
+    await call(hass, "get_group_info", {"group_id": "555"})
+    assert app.last("/api/svc/get_group_info")["json"]["thread_id"] == "555"
+
+
+async def test_unknown_keys_are_reported_not_silently_dropped(hass, setup, app, caplog):
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "x", "khoa_la": 1})
+    assert "bỏ qua khoá không có trong dịch vụ này: khoa_la" in caplog.text, caplog.text[-300:]
+    caplog.clear()
+    await call(hass, "send_message", {"thread_id": THREAD, "type": "user", "message": "x", "account_selection": "cu", "ttl": 5})
+    assert "bỏ qua khoá" not in caplog.text, "account_selection và ttl là khoá hợp lệ/được bỏ qua êm"
