@@ -1488,7 +1488,7 @@ class Chat:
         if thread_type not in ("user", "group"):
             raise ValueError("video: type phai la user|group")
         size = self._head_size(video_url)
-        client_id = int(time.time() * 1000)
+        client_id = _new_client_id()           # bo sinh chung (tang don dieu, an toan da luong): hai tin cung mili giay khong trung ma
         info = {"videoUrl": video_url, "thumbUrl": thumb, "duration": int(duration or 0), "width": int(width or 1280),
                 "height": int(height or 720), "fileSize": int(size),
                 "properties": {"color": -1, "size": -1, "type": 1003, "subType": 0,

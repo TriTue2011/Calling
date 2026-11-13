@@ -136,6 +136,14 @@ def test_probe_uses_protocol_whitelist():
     assert "-protocol_whitelist" in seen[0] and "http,https,tcp,tls,crypto" in seen[0], seen
 
 
+def test_client_ids_never_repeat_even_in_the_same_millisecond():
+    c, sent = make_chat()
+    for _ in range(50):
+        c.send_video("group", "1", URL)
+    ids = [b["clientId"] for _d, _p, b in sent]
+    assert len(set(ids)) == 50 and ids == sorted(ids, key=int), ids[:5]
+
+
 if __name__ == "__main__":
     for _n, _f in list(globals().items()):
         if _n.startswith("test_"):
