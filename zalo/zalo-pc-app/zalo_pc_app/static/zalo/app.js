@@ -1074,7 +1074,7 @@ async function setSecurity() {
       h("button", { class: "btn", type: "button", onclick: async () => { const r = await api("/api/security", "POST", { action: "revoke_others" }); toast("Đã đăng xuất " + (r.revoked || 0) + " thiết bị khác"); renderSettings("set-security"); } }, "Đăng xuất thiết bị khác"),
       h("button", { class: "btn", type: "button", onclick: async () => { await api("/api/security", "POST", { action: "revoke_all" }); location.href = "/login"; } }, "Đăng xuất mọi thiết bị"),
       (S.privacy && S.privacy.enabled ? h("button", { class: "btn", type: "button", onclick: async () => { await fetch("/api/privacy/lock", { method: "POST" }); location.reload(); } }, "🔒 Khoá màn hình") : null),
-      h("button", { class: "btn danger", type: "button", onclick: async () => { if (confirm("Đăng xuất Zalo? Phải quét lại QR để vào lại.")) { await api("/api/logout", "POST"); location.reload(); } } }, "Đăng xuất Zalo (xoá phiên QR)")));
+      h("button", { class: "btn danger", type: "button", onclick: async () => { if (confirm("Đăng xuất Zalo? Phải quét lại QR để vào lại.")) { await api("/api/zalo/logout", "POST"); S.qrClient = null; location.reload(); } } }, "Đăng xuất Zalo (xoá phiên QR)")));
 }
 
 // ---- tin mới tức thì (SSE) -----------------------------------------------------------------------------------------------------------
@@ -1140,7 +1140,15 @@ async function pollQr() {
   else if (s.state === "expired") stop("Mã đã hết hạn."); else if (s.state === "rejected") stop("Bạn đã từ chối trên điện thoại.");
   else if (s.state === "rate_limited") stop("Tạo mã quá nhanh, chờ " + (s.wait_seconds || 90) + " giây rồi thử lại."); else if (s.state === "error") stop("Lỗi: " + (s.error || "không rõ"));
 }
-function startQr() { $("qr").hidden = false; $("qr-again").hidden = true; $("qr-slot").replaceChildren(h("div", { class: "qrph" }, "Đang tạo mã…")); api("/api/qr/new", "POST").then(() => { clearInterval(S.qrT); S.qrT = setInterval(pollQr, 3000); pollQr(); }); }
+function startQr(client) {
+  if (client) S.qrClient = client;
+  $("qr").hidden = false; $("qr-again").hidden = true;
+  for (const b of document.querySelectorAll("#qr [data-client]")) b.classList.toggle("on", b.dataset.client === S.qrClient);
+  if (!S.qrClient) { $("qr-slot").replaceChildren(h("div", { class: "qrph" }, "Chọn kiểu đăng nhập để lấy mã QR")); $("qr-status").textContent = ""; return; }   // chưa chọn: không tự tạo mã
+  $("qr-slot").replaceChildren(h("div", { class: "qrph" }, "Đang tạo mã…"));
+  api("/api/qr/new", "POST", { client: S.qrClient }).then(() => { clearInterval(S.qrT); S.qrT = setInterval(pollQr, 3000); pollQr(); });
+}
+for (const b of document.querySelectorAll("#qr [data-client]")) b.addEventListener("click", () => startQr(b.dataset.client));
 
 // ---- khởi động ------------------------------------------------------------------------------------------------------------------------------------
 let booted = false;
@@ -1195,7 +1203,7 @@ $("btn-thread-svc").addEventListener("click", () => setTab("services"));
 $("btn-send").addEventListener("click", sendText); $("btn-like").addEventListener("click", () => sendRaw("👍"));
 $("btn-attach").addEventListener("click", () => $("file-in").click()); $("btn-img").addEventListener("click", () => $("img-in").click());
 for (const id of ["file-in", "img-in"]) $(id).addEventListener("change", (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) stageFiles(f); });
-$("btn-sticker").addEventListener("click", toggleStickers); $("btn-rec").addEventListener("click", toggleRecord); $("btn-emoji").addEventListener("click", toggleEmoji); $("qr-again").addEventListener("click", startQr);
+$("btn-sticker").addEventListener("click", toggleStickers); $("btn-rec").addEventListener("click", toggleRecord); $("btn-emoji").addEventListener("click", toggleEmoji); $("qr-again").addEventListener("click", () => startQr());
 { const comp = $("composer"); comp.insertBefore(h("div", { class: "attach-tray", id: "attach-tray", hidden: true }), comp.firstChild); comp.insertBefore(h("div", { class: "replybar", id: "reply-bar", hidden: true }), comp.firstChild); document.querySelector(".cinput").append(h("div", { class: "mentions", id: "mentions", role: "listbox", hidden: true })); }
 $("msg-in").addEventListener("input", autosize);
 for (const ev of ["input", "click", "keyup"]) $("msg-in").addEventListener(ev, updateMentions);

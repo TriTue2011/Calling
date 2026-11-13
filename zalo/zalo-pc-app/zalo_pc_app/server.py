@@ -16,6 +16,7 @@ API (all JSON, never returns session secrets):
   GET  /api/qr/status     {state, qr_image, countdown, wait_seconds, ...}
   POST /api/logout        clear the stored Zalo session AND the app
                           session (revokes the app cookie)
+  POST /api/zalo/logout   clear ONLY the Zalo session (app login kept) -> UI shows the QR screen
   GET  /api/contacts      {friends:[...], groups:[...]} (needs login)
     Cache phía server (TTL 120 giây, xem CONTACTS_TTL_SECONDS):
     lần load thường trả cache, chỉ gọi Zalo tươi khi hết TTL hoặc khi
@@ -1694,6 +1695,8 @@ class AppState:
         # dung self.session deu chiu duoc None (xem public_status,
         # start_sync, cac handler dung `(self.session or {})`).
         self.session = self.store.load() if self.store.exists() else None
+        if self.session and self.session.get("client"):
+            protocol.set_client(self.session["client"])      # phiên đã cấp theo kiểu nào thì mọi yêu cầu khai đúng kiểu đó
         # First friends load after start/login sends init=1 (real client
         # _isFirstReq()). Cleared after the first successful friends call.
         self._contacts_init_pending = True
@@ -2345,10 +2348,11 @@ class AppState:
         return {str(c["destId"]): int(c["ttl"]) for c in (res or {}).get("convers", []) if c.get("ttl")}
 
     # -- QR flow (background thread) ------------------------------------
-    def start_qr(self):
+    def start_qr(self, client=None):
         with self.lock:
             if self.thread and self.thread.is_alive():
                 return False
+            self.qr_client = client if client in protocol.CLIENTS else None     # None = giữ kiểu hiện tại
             self.qr_state = "waiting"
             self.qr_error = ""
             self.qr_warning = ""
@@ -2358,7 +2362,12 @@ class AppState:
         return True
 
     def _qr_worker(self):
+        prev_client = protocol.client_name()
+        chosen = getattr(self, "qr_client", None)
+        logged_in = False
         try:
+            if chosen:
+                protocol.set_client(chosen)          # phong bì đăng nhập + mọi yêu cầu sau đó khai kiểu này
             device_id, computer = self._device_and_computer()
             logged_uids = []
             if self.session and self.session.get("uid"):
@@ -2401,6 +2410,7 @@ class AppState:
                 "poll_msg_timeout": login_info.get("poll_msg_timeout", 30),
                 "poll_ctl_timeout": login_info.get("poll_ctl_timeout", 30),
                 "status": session_mod.STATUS_LOGGED_IN,
+                "client": protocol.client_name(),
             })
             if self.qr_flags and self.qr_flags.get("known"):
                 sess["trusted_device"] = {k: bool(self.qr_flags[k]) for k in ("self_g", "qr_format_trust_device", "logo_qr")}
@@ -2416,6 +2426,7 @@ class AppState:
             self._contacts_clear_cache()
             # Phien moi co poll endpoints -> mo kenh sync nhan tin den.
             self.start_sync()
+            logged_in = True
         except qr_login.RateLimited as e:
             print("[qr] bi gioi han tan suat: phai cho %ss roi tao lai (Zalo tra time_left)" % e.wait_seconds, flush=True)
             with self.lock:
@@ -2439,6 +2450,9 @@ class AppState:
             with self.lock:
                 self.qr_state = "error"
                 self.qr_error = "%s: %s" % (type(e).__name__, e)
+        finally:
+            if chosen and not logged_in:
+                protocol.set_client(prev_client)     # QR hỏng/hết hạn: phiên đang sống (nếu có) giữ nguyên kiểu cũ
 
     def _fetch_login_info(self, grant, device_id, computer_name):
         """GET getLoginInfo, exactly as the PC client sends it
@@ -2523,7 +2537,7 @@ class AppState:
     def qr_status(self):
         with self.lock:
             out = {"state": self.qr_state, "error": self.qr_error,
-                   "wait_seconds": self.qr_wait}
+                   "wait_seconds": self.qr_wait, "client": protocol.client_name()}
             if self.qr_flags is not None:
                 out["server_flags"] = dict(self.qr_flags, text=qr_login.describe_server_flags(self.qr_flags))
             if self.qr_warning:
@@ -5194,7 +5208,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"ok": False, "error": str(e)[:200]}, status=400)
             return self._send_json({"ok": True, "status": STATE.history_sync.status()})
         if path == "/api/qr/new":
-            STATE.start_qr()
+            # body {"client": "web"|"pc"}: kiểu đăng nhập người dùng chọn (không gửi = giữ kiểu hiện tại).
+            STATE.start_qr((body if isinstance(body, dict) else {}).get("client"))     # body: do_POST đã đọc sẵn, KHÔNG đọc rfile lần hai (sẽ treo)     # body: do_POST đã đọc sẵn, KHÔNG đọc rfile lần hai (sẽ treo)
             return self._send_json({"ok": True})
         if path.startswith("/api/svc/"):
             # MÓC DỊCH VỤ (services.py): POST /api/svc/<action>.
@@ -5338,6 +5353,11 @@ class Handler(BaseHTTPRequestHandler):
                                     "file_name": new_rec["file_name"],
                                     "size_bytes": new_rec["size_bytes"],
                                     "status": new_rec["status"]})
+        if path == "/api/zalo/logout":
+            # Chi dang xuat ZALO (xoa phien Zalo, ve man hinh QR); GIU phien app (user/mat khau) — nut «Dang xuat Zalo» trong
+            # cai dat. /api/logout ben duoi la dang xuat TOAN BO (ca app) roi ve /login.
+            STATE.logout()
+            return self._send_json({"ok": True})
         if path == "/api/logout":
             # Dang xuat: xoa ca phien Zalo (cu) LAN phien app (moi)
             # — nut "Dang xuat" o sidebar goi endpoint nay roi ve

@@ -84,7 +84,11 @@
     <div class="brand" aria-hidden="true">Z</div>
     <h2 style="margin:0 0 4px">Đăng nhập Zalo</h2>
     <p style="margin:0 0 16px;color:var(--muted)">Mở Zalo trên điện thoại → Quét mã QR.</p>
-    <div id="qr-slot"><div class="qrph">Đang tạo mã…</div></div>
+    <div class="qrkind" role="group" aria-label="Kiểu đăng nhập">
+      <button class="btn" id="qr-web" type="button" data-client="web"><b>Qua Web</b><small>Đăng nhập Zalo Web nơi khác sẽ đá app ra</small></button>
+      <button class="btn" id="qr-pc" type="button" data-client="pc"><b>Qua PC</b><small>Mở Zalo PC cùng tài khoản sẽ đá app ra</small></button>
+    </div>
+    <div id="qr-slot"><div class="qrph">Chọn kiểu đăng nhập để lấy mã QR</div></div>
     <p id="qr-status" style="margin:14px 0 8px;color:var(--muted);min-height:20px"></p>
     <button class="btn primary" id="qr-again" hidden>Lấy mã mới</button>
   </div>

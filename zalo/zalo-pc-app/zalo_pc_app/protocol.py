@@ -168,8 +168,29 @@ CALL_TYPES_1_1 = (CALL_TYPE_AUDIO_1_1, CALL_TYPE_VIDEO_1_1)
 CALL_TYPES_GROUP = (CALL_TYPE_AUDIO_GROUP, CALL_TYPE_VIDEO_GROUP)
 
 
-def common_params(api_version=API_VERSION, api_type=API_TYPE):
-    return {"zpw_ver": api_version, "zpw_type": api_type}
+# Hai kiểu đăng nhập do người dùng chọn lúc quét QR (13/11/2026): «web» khai zpw_type 30/ver 695 (bundle web), «pc» khai
+# zpw_type 24/ver 693 (như Zalo PC 26.11.10 thật, nhật ký mạng Chromium). Mỗi kiểu là MỘT phiên riêng của Zalo: đăng nhập
+# Zalo Web ở nơi khác đá kiểu web; mở Zalo PC thật cùng tài khoản đá kiểu pc (đã thấy 13/11).
+CLIENTS = {"web": (30, 695), "pc": (24, 693)}
+
+
+def client_name():
+    """Kiểu đăng nhập đang dùng ("web" hoặc "pc") theo API_TYPE hiện tại."""
+    return "pc" if API_TYPE == CLIENTS["pc"][0] else "web"
+
+
+def set_client(name):
+    """Đặt kiểu đăng nhập (đổi API_TYPE/API_VERSION cho MỌI yêu cầu sau đó). Tên lạ/rỗng: giữ nguyên. Trả về tên đang dùng."""
+    global API_TYPE, API_VERSION
+    if name in CLIENTS:
+        API_TYPE, API_VERSION = CLIENTS[name]
+    return client_name()
+
+
+def common_params(api_version=None, api_type=None):
+    # Đọc hằng lúc GỌI (không buộc lúc nạp mô-đun) để set_client có hiệu lực ngay.
+    return {"zpw_ver": API_VERSION if api_version is None else api_version,
+            "zpw_type": API_TYPE if api_type is None else api_type}
 
 
 def build_url(base, path, params):
