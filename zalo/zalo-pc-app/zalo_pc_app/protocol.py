@@ -24,6 +24,7 @@ addon path only — v3 is not kept as a fallback.
 """
 
 import json
+import os
 import threading
 import time
 import urllib.parse
@@ -47,7 +48,17 @@ BOARD_DOMAIN = "https://groupboard-wpa.api.zalo.me"
 STICKER_DOMAIN = "https://sticker-wpa.zalo.me"
 FILE_DOMAIN = "https://files-wpa.zalo.me"
 
-API_VERSION = 695
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+# Mặc định 695/30 (giá trị của bundle web). Zalo PC 26.11.10 THẬT dùng zpw_type=24 và zpw_ver=693 (nhật ký mạng Chromium
+# 13/11/2026: 138 yêu cầu). Điện thoại có thể đối xử bên khai type 30 như Zalo Web (không cho chuyển video, camera «tắt»):
+# thử ZALO_PC_API_TYPE=24 ZALO_PC_API_VERSION=693 (CHƯA đo thật trên cuộc gọi).
+API_VERSION = _env_int("ZALO_PC_API_VERSION", 695)
 # apiType is a NUMBER. Bundle evidence (compact-app-pc bundle,
 # Zalo PC 26.11.10):
 #   config literal: apiVersion:695,
@@ -69,7 +80,7 @@ API_VERSION = 695
 # validates zpw_type strictly and answered 602 "zpw_type bị thiếu
 # hoặc không đúng" — twice, for both getlg v1 and getlg/v3. Sending
 # the correct numeric 30 is the fix.
-API_TYPE = 30
+API_TYPE = _env_int("ZALO_PC_API_TYPE", 30)
 LANGUAGE = "vi"
 
 # API codes (QoS/logging ids the client sends alongside each call).
