@@ -8,6 +8,7 @@ view (danh bạ), acct (webhook/tài khoản do tích hợp tự trả lời).
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import random
 import os
@@ -26,6 +27,9 @@ from .call_voice import DEFAULT_GREETING, HELD_DEVICES, Plan, async_accept_video
 from .rules import MAX_NOTE_LEN, parse_tags, CALL_TYPES, CONNECT, CONNECT_PARTS, MAX_ANNOUNCE_REPEAT, VIDEO_REQUEST, ECHO as RULE_ECHO, parse_connect, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
+from .video_urls import local_to_public, sibling_thumb_candidates
+
+_LOGGER = logging.getLogger(__name__)
 
 MAX_FILE = 100 * 1024 * 1024
 _ANY = cv.match_all
@@ -85,6 +89,45 @@ def _split(value: Any) -> list[str]:
     return [p.strip() for p in str(value or "").split(",") if p.strip()]
 
 
+async def _public_url(hass: HomeAssistant, src: str) -> str | None:
+    """Địa chỉ công khai để Zalo tải: URL http(s) giữ nguyên; tệp trong HA (www / thư mục media) đổi thành địa chỉ ngoài của HA
+    (media có chữ ký hạn 1 giờ); không đổi được (ngoài thư mục cho phép, không có tệp, HA chưa có địa chỉ ngoài) thì None."""
+    src = str(src).strip()
+    if src.startswith(("http://", "https://")):
+        return src
+    if not hass.config.is_allowed_path(src) or not await hass.async_add_executor_job(os.path.isfile, src):
+        return None
+    from datetime import timedelta
+    from homeassistant.components.http.auth import async_sign_path
+    from homeassistant.helpers.network import NoURLAvailableError, get_url
+    try:
+        base = get_url(hass, allow_internal=False, allow_ip=False, prefer_external=True)
+    except NoURLAvailableError:
+        return None
+    return local_to_public(src, www_dir=hass.config.path("www"), media_dirs=hass.config.media_dirs, base_url=base,
+                           sign=lambda p: async_sign_path(hass, p, timedelta(hours=1)))
+
+
+async def _send_video(hass: HomeAssistant, api: ZaloCallApi, ttype: str, tid: str, d: dict) -> Any:
+    """Video THẬT (khung phát được trong chat) như zalo_bot cũ; không có địa chỉ công khai thì gửi dạng tệp đính kèm như trước."""
+    src = str(d["file"]).strip()
+    video_url = await _public_url(hass, src)
+    if not video_url:
+        _LOGGER.warning("send_video: %s không có địa chỉ công khai (cần URL http(s), hoặc tệp trong www / thư mục media và HA có địa chỉ ngoài): "
+                        "gửi dạng tệp đính kèm", src)
+        fn, data, mime = await _read_source(hass, src)
+        return await api.thread_sendfile(ttype, tid, fn, data, mime, "file", d.get("recall_after"))
+    thumb = str(d.get("thumbnail") or "").strip()
+    if not thumb and not src.startswith(("http://", "https://")):
+        for cand in sibling_thumb_candidates(src):                  # ảnh bìa cạnh video: <tên>_thumb.jpg do bản thiết kế camera tạo sẵn
+            if await hass.async_add_executor_job(os.path.isfile, cand):
+                thumb = cand
+                break
+    thumb_url = (await _public_url(hass, thumb)) if thumb else None
+    return await api.thread_sendvideo(ttype, tid, video_url, thumb_url or "", str(d.get("message") or ""),
+                                      d.get("width"), d.get("height"), d.get("duration"), d.get("recall_after"))
+
+
 async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> Any:
     name = e["name"]
     tid = str(d["thread_id"])
@@ -104,6 +147,8 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
     if name == "send_voice":
         fn, data, mime = await _read_source(hass, d["file"])
         return await api.thread_sendvoice(ttype, tid, fn, data, mime, d.get("recall_after"))
+    if name == "send_video":
+        return await _send_video(hass, api, ttype, tid, d)
     if name == "send_card":
         raise ServiceValidationError(
             "send_card chưa hỗ trợ: app Zalo PC chưa có đường gửi danh thiếp")

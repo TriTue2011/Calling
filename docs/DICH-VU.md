@@ -1410,7 +1410,12 @@ action: zalo_call.send_video
 data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
-  file: "/config/www/video.mp4"     # bắt buộc - Tệp video (đường dẫn hoặc URL)
+  file: "/config/www/video.mp4"     # bắt buộc - Video: đường dẫn trong HA (thư mục www hoặc media) hoặc URL 
+  thumbnail: ""                     # tuỳ chọn - Ảnh bìa: đường dẫn hoặc URL. Bỏ trống = tự tìm «…_thumb.jpg»
+  message: ""                       # tuỳ chọn - Chú thích kèm video (bỏ trống = không)
+  width: 1280                       # tuỳ chọn - Độ rộng (px). Bỏ trống = tự đo bằng ffprobe
+  height: 720                       # tuỳ chọn - Độ cao (px). Bỏ trống = tự đo bằng ffprobe
+  duration: 0                       # tuỳ chọn - Thời lượng (giây). Bỏ trống = tự đo bằng ffprobe
   recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
@@ -1418,7 +1423,12 @@ data:
 |---|---|---|---|
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
-| `file` | Tệp video (đường dẫn hoặc URL) | có | Đường dẫn file video trên Home Assistant hoặc URL của video cần gửi |
+| `file` | Video: đường dẫn trong HA (thư mục www hoặc media) hoặc URL công khai. Gửi dạng video phát được trong chat; tệp trong HA được cấp địa chỉ công khai từ địa chỉ ngoài của HA (media có chữ ký hạn 1 giờ). Không có địa chỉ công khai thì gửi dạng tệp đính kèm | có | Đường dẫn file video trên Home Assistant hoặc URL của video cần gửi |
+| `thumbnail` | Ảnh bìa: đường dẫn hoặc URL. Bỏ trống = tự tìm «…_thumb.jpg» cạnh video, không có thì dùng chính video | không | URL thumbnail tùy chỉnh |
+| `message` | Chú thích kèm video (bỏ trống = không) | không | Tin nhắn kèm theo |
+| `width` | Độ rộng (px). Bỏ trống = tự đo bằng ffprobe | không | Chiều rộng video (pixels) |
+| `height` | Độ cao (px). Bỏ trống = tự đo bằng ffprobe | không | Chiều cao video (pixels) |
+| `duration` | Thời lượng (giây). Bỏ trống = tự đo bằng ffprobe | không | Thời gian tắt thông báo |
 | `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**

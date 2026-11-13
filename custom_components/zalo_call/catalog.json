@@ -1384,8 +1384,33 @@
   "fields": [
    {
     "key": "file",
-    "label": "Tệp video (đường dẫn hoặc URL)",
+    "label": "Video: đường dẫn trong HA (thư mục www hoặc media) hoặc URL công khai. Gửi dạng video phát được trong chat; tệp trong HA được cấp địa chỉ công khai từ địa chỉ ngoài của HA (media có chữ ký hạn 1 giờ). Không có địa chỉ công khai thì gửi dạng tệp đính kèm",
     "required": true
+   },
+   {
+    "key": "thumbnail",
+    "label": "Ảnh bìa: đường dẫn hoặc URL. Bỏ trống = tự tìm «…_thumb.jpg» cạnh video, không có thì dùng chính video",
+    "required": false
+   },
+   {
+    "key": "message",
+    "label": "Chú thích kèm video (bỏ trống = không)",
+    "required": false
+   },
+   {
+    "key": "width",
+    "label": "Độ rộng (px). Bỏ trống = tự đo bằng ffprobe",
+    "required": false
+   },
+   {
+    "key": "height",
+    "label": "Độ cao (px). Bỏ trống = tự đo bằng ffprobe",
+    "required": false
+   },
+   {
+    "key": "duration",
+    "label": "Thời lượng (giây). Bỏ trống = tự đo bằng ffprobe",
+    "required": false
    },
    {
     "key": "recall_after",

@@ -93,6 +93,7 @@ from . import event_dedup as event_dedup_mod
 from . import ws_listener as ws_listener_mod
 from . import recall_queue as recall_mod
 from . import profile_names as profile_names_mod
+from . import video_probe as video_probe_mod
 from . import conv_ttl as conv_ttl_mod
 from . import privacy as privacy_mod
 from . import call_errors
@@ -4750,7 +4751,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"error": "chua_dang_nhap"},
                                    status=401)
         thread_type = None
-        if action in ("send", "typing", "seen", "sendlink"):
+        if action in ("send", "typing", "seen", "sendlink", "sendvideo"):
             body = self._read_json()
             thread_type = body.get("type") or "user"
         elif action in ("sendfile", "sendvoice"):
@@ -4863,6 +4864,38 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"ok": True, "data": res["data"],
                                         "message": local,
                                         "recall_at": _schedule_recall(thread_type, thread_id, res, recall_after)})
+            if action == "sendvideo":
+                # Video THAT (khung phat duoc), khong phai tep dinh kem: gui DIA CHI video + anh bia bang forward msgType 5 (zca-js sendVideo / zalo_bot
+                # cu). May chu Zalo tu tai ve roi luu lai nen dia chi phai cong khai (HA cap dia chi cho tep trong www / media).
+                video_url = str(body.get("video_url") or "").strip()
+                if not video_url.lower().startswith(("http://", "https://")):
+                    return self._send_json({"error": "video_url phai la dia chi http(s) cong khai ma Zalo tai duoc"}, status=400)
+
+                def _num(key):
+                    try:
+                        return max(0, int(float(body.get(key) or 0)))
+                    except (TypeError, ValueError):
+                        return 0
+                width, height, duration = _num("width"), _num("height"), _num("duration")        # duration: mili giay
+                if not (width and height and duration):
+                    probed = video_probe_mod.probe_video(video_url)                                # thieu thi do bang ffprobe, do hong -> mac dinh
+                    if not (width and height):
+                        width, height = probed.get("width", 0), probed.get("height", 0)
+                    duration = duration or probed.get("duration_ms", 0)
+                caption = str(body.get("message") or "")
+                print("[sendvideo] thread=%s %sx%s %dms" % (thread_id, width or "?", height or "?", duration), flush=True)
+                try:
+                    res = chat.send_video(thread_type, thread_id, video_url, body.get("thumbnail_url") or "", duration, width, height,
+                                          caption, _num("ttl") or STATE.conv_ttl.get(thread_id))
+                except ValueError as exc:
+                    return self._send_json({"error": str(exc)}, status=400)
+                local = STATE.chat_store.local_message(thread_type, thread_id, "video", text=caption, file_name="video",
+                                                       client_id=res["client_id"])
+                STATE.chat_store.record_sent(thread_type, thread_id, local)
+                STATE.message_store.record(thread_type, thread_id, local)
+                return self._send_json({"ok": True, "data": res["data"], "message": local,
+                                        "recall_at": _schedule_recall(thread_type, thread_id, res, recall_after),
+                                        "video": {"width": width, "height": height, "duration_ms": duration}})
             if action == "typing":
                 data = chat.send_typing(thread_type, thread_id)
                 return self._send_json({"ok": True, "data": data})

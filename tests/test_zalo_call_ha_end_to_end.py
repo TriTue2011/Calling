@@ -449,3 +449,60 @@ async def test_ai_style_prompt_only_lists_the_aspects_set_to_auto():
     assert styler.auto_aspects({"color": "auto", "bold": "on", "heading": "auto"}, True) == ["heading", "color", "emoji"]
     assert styler.auto_aspects({"color": "red"}, False) == []
     assert styler.looks_marked("**a**") and styler.looks_marked("🚨 x") and not styler.looks_marked("a thường")
+
+
+# ---- send_video: video THẬT (khung phát được), không phải tệp đính kèm (13/11) --------------------------------------------------------
+async def _set_external_url(hass, url):
+    try:
+        from homeassistant.core_config import async_process_ha_core_config
+    except ImportError:
+        from homeassistant.config import async_process_ha_core_config
+    await async_process_ha_core_config(hass, {"external_url": url})
+
+
+async def test_send_video_with_a_public_url_sends_a_real_video_message(hass, setup, app):
+    await call(hass, "send_video", {"thread_id": THREAD, "type": "group", "file": "https://cdn.example.test/v.mp4",
+                                    "thumbnail": "https://cdn.example.test/t.jpg", "message": "Có người", "width": 640, "height": 360, "duration": 5.5})
+    r = app.last("/sendvideo")
+    assert r["path"] == "/api/thread/%s/sendvideo" % THREAD, r
+    assert r["json"] == {"type": "group", "video_url": "https://cdn.example.test/v.mp4", "thumbnail_url": "https://cdn.example.test/t.jpg",
+                         "message": "Có người", "width": 640, "height": 360, "duration": 5500}, r["json"]
+    assert not [x for x in app.requests if x["path"].endswith("/sendfile")], "không được gửi thêm dạng tệp đính kèm"
+
+
+async def test_send_video_from_www_gets_a_public_local_url_and_the_thumb_next_to_it(hass, setup, app):
+    www = hass.config.path("www")
+    os.makedirs(www, exist_ok=True)
+    hass.config.allowlist_external_dirs.add(www)
+    for n in ("clip.mp4", "clip_thumb.jpg"):
+        with open(os.path.join(www, n), "wb") as f:
+            f.write(b"x")
+    await _set_external_url(hass, "https://ha.example.test")
+    await call(hass, "send_video", {"thread_id": THREAD, "type": "user", "file": os.path.join(www, "clip.mp4")})
+    j = app.last("/sendvideo")["json"]
+    assert j["video_url"] == "https://ha.example.test/local/clip.mp4" and j["thumbnail_url"] == "https://ha.example.test/local/clip_thumb.jpg", j
+
+
+async def test_send_video_from_media_dir_is_signed_and_uses_the_camera_blueprint_thumb(hass, setup, app, monkeypatch, tmp_path):
+    media = tmp_path / "media"
+    (media / "snapshots").mkdir(parents=True)
+    (media / "snapshots" / "go2rtc_cua_video.mp4").write_bytes(b"x")
+    (media / "snapshots" / "go2rtc_cua_thumb.jpg").write_bytes(b"x")
+    await _set_external_url(hass, "https://ha.example.test")        # đặt TRƯỚC: lệnh này đặt lại media_dirs về mặc định của HA
+    hass.config.media_dirs = {"local": str(media)}
+    hass.config.allowlist_external_dirs.add(str(media))
+    import homeassistant.components.http.auth as http_auth
+    monkeypatch.setattr(http_auth, "async_sign_path", lambda _hass, path, _exp, **_k: path + "?authSig=T")
+    await call(hass, "send_video", {"thread_id": THREAD, "type": "user", "file": str(media / "snapshots" / "go2rtc_cua_video.mp4")})
+    j = app.last("/sendvideo")["json"]
+    assert j["video_url"] == "https://ha.example.test/media/local/snapshots/go2rtc_cua_video.mp4?authSig=T", j
+    assert j["thumbnail_url"] == "https://ha.example.test/media/local/snapshots/go2rtc_cua_thumb.jpg?authSig=T", j
+
+
+async def test_send_video_without_a_public_address_falls_back_to_a_file_attachment(hass, setup, app, tmp_path):
+    f = tmp_path / "clip.mp4"
+    f.write_bytes(b"FAKE-MP4")
+    await call(hass, "send_video", {"thread_id": THREAD, "type": "user", "file": str(f)})      # HA chưa có địa chỉ ngoài -> như trước
+    assert not [x for x in app.requests if x["path"].endswith("/sendvideo")], app.requests
+    r = app.last("/sendfile")
+    assert r["ctype"] == "multipart/form-data" and b"FAKE-MP4" in r["raw"], r

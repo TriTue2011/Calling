@@ -135,7 +135,9 @@ import json
 import re
 import time
 import unicodedata
+import urllib.error
 import urllib.parse
+import urllib.request
 import uuid
 
 from . import protocol, rich_text
@@ -1442,6 +1444,66 @@ class Chat:
                 "tao (data rong sau khi giai ma)")
         return {"data": send_data, "client_id": client_id,
                 "file_id": file_id}
+
+    def _head_size(self, url):
+        """Kich thuoc video (byte) tu Content-Length cua yeu cau HEAD — zca-js sendVideo cung lam vay (HEAD khong duoc thi thu GET Range 0-0).
+        Loi mang/HTTP -> ZaloChatError ro rang: may chu Zalo khong tai duoc dia chi nay thi tin video se hong, bao loi som tot hon."""
+        def ask(method):
+            headers = {"User-Agent": "Mozilla/5.0"}
+            if method == "GET":
+                headers["Range"] = "bytes=0-0"
+            with urllib.request.urlopen(urllib.request.Request(url, method=method, headers=headers), timeout=15) as r:
+                return r.headers
+        try:
+            try:
+                h = ask("HEAD")
+            except urllib.error.HTTPError as e:
+                if e.code not in (405, 501):
+                    raise
+                h = ask("GET")
+        except urllib.error.HTTPError as e:
+            raise ZaloChatError("video: dia chi video tra HTTP %d (Zalo cung se khong tai duoc): kiem tra URL cong khai / chu ky het han" % e.code)
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            raise ZaloChatError("video: khong mo duoc dia chi video: %s" % str(e)[:120])
+        rng = h.get("Content-Range") or ""
+        if "/" in rng and rng.rsplit("/", 1)[1].isdigit():
+            return int(rng.rsplit("/", 1)[1])
+        try:
+            return int(h.get("Content-Length") or 0)
+        except ValueError:
+            return 0
+
+    def send_video(self, thread_type, thread_id, video_url, thumbnail_url="", duration=0, width=0, height=0, message="", ttl=0):
+        """Gui VIDEO THAT (khung phat duoc ngay trong chat, khong phai tep dinh kem) — Y HET zca-js sendVideo va zalo_bot cu (sendVideoByAccount):
+        POST form params=<AES JSON> len {files-wpa}/api/message/forward (1-1) | /api/group/forward (nhom), msgType 5, zsource 704,
+        msgInfo = JSON {videoUrl, thumbUrl, duration (mili giay), width, height, fileSize, properties {type 1003...}, title}.
+        KHONG tai video len Zalo: gui DIA CHI, may chu Zalo tu tai ve roi luu lai (ban ghi VideoGroup cu o nhom AI Camera co url dlfl.vn) — nen dia chi
+        phai cong khai. Khong co anh bia thi dung chinh dia chi video (zalo_bot cu cung vay)."""
+        video_url = str(video_url or "").strip()
+        if not video_url.lower().startswith(("http://", "https://")):
+            raise ValueError("video: can dia chi http(s) cong khai ma Zalo tai duoc")
+        thumb = str(thumbnail_url or "").strip() or video_url
+        if not thumb.lower().startswith(("http://", "https://")):
+            raise ValueError("video: anh bia phai la dia chi http(s)")
+        if thread_type not in ("user", "group"):
+            raise ValueError("video: type phai la user|group")
+        size = self._head_size(video_url)
+        client_id = int(time.time() * 1000)
+        info = {"videoUrl": video_url, "thumbUrl": thumb, "duration": int(duration or 0), "width": int(width or 1280),
+                "height": int(height or 720), "fileSize": int(size),
+                "properties": {"color": -1, "size": -1, "type": 1003, "subType": 0,
+                               "ext": {"sSrcType": -1, "sSrcStr": "", "msg_warning_type": 0}},
+                "title": str(message or "")}
+        is_group = thread_type == "group"
+        params = {("grid" if is_group else "toId"): str(thread_id), "clientId": str(client_id), "ttl": int(ttl or 0), "zsource": 704,
+                  "msgType": 5, "msgInfo": json.dumps(info, separators=(",", ":"), ensure_ascii=False), "imei": self.device_id}
+        if is_group:
+            params["visibility"] = 0
+        path = "/api/group/forward" if is_group else "/api/message/forward"
+        data = self._post_form_retry(FILES_DOMAIN, path, params, "POST %s" % path)
+        if not data:
+            raise ZaloChatError("video: Zalo tra ve khong co ma tin — video chua duoc tao (data rong sau khi giai ma)")
+        return {"data": data, "client_id": client_id, "video_url": video_url}
 
     def send_photo(self, thread_type, thread_id, filename, data,
                    mime="image/jpeg", width=0, height=0, visibility=0,

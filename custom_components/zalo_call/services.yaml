@@ -2177,12 +2177,64 @@ send_video:
           - user
           - group
     file:
-      name: Tệp video (đường dẫn hoặc URL)
+      name: 'Video: đường dẫn trong HA (thư mục www hoặc media) hoặc URL công khai. Gửi dạng video phát
+        được trong chat; tệp trong HA được cấp địa chỉ công khai từ địa chỉ ngoài của HA (media có chữ
+        ký hạn 1 giờ). Không có địa chỉ công khai thì gửi dạng tệp đính kèm'
       description: Đường dẫn file video trên Home Assistant hoặc URL của video cần gửi
       required: true
       selector:
         text: null
       example: /config/www/video.mp4
+    thumbnail:
+      name: 'Ảnh bìa: đường dẫn hoặc URL. Bỏ trống = tự tìm «…_thumb.jpg» cạnh video, không có thì dùng
+        chính video'
+      description: URL thumbnail tùy chỉnh
+      required: false
+      selector:
+        text: null
+      default: ''
+    message:
+      name: Chú thích kèm video (bỏ trống = không)
+      description: Tin nhắn kèm theo
+      required: false
+      selector:
+        text: null
+      default: ''
+    width:
+      name: Độ rộng (px). Bỏ trống = tự đo bằng ffprobe
+      description: Chiều rộng video (pixels)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 1
+          mode: box
+      example: 1280
+      default: 1280
+    height:
+      name: Độ cao (px). Bỏ trống = tự đo bằng ffprobe
+      description: Chiều cao video (pixels)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 1
+          mode: box
+      example: 720
+      default: 720
+    duration:
+      name: Thời lượng (giây). Bỏ trống = tự đo bằng ffprobe
+      description: Thời gian tắt thông báo
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 36000
+          step: 1
+          unit_of_measurement: s
+          mode: box
     recall_after:
       name: Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng
         Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động

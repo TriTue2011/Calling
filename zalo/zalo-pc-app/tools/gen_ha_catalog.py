@@ -58,7 +58,14 @@ CHAT_FIELDS = {
     "send_card": [("user_id", "UserId của danh thiếp", True)],
     "send_link": [("link", "Đường link", True),
                   ("message", "Lời nhắn kèm theo", False)],
-    "send_video": [("file", "Tệp video (đường dẫn hoặc URL)", True)],
+    "send_video": [("file", "Video: đường dẫn trong HA (thư mục www hoặc media) hoặc URL công khai. Gửi dạng video phát được trong chat; "
+                            "tệp trong HA được cấp địa chỉ công khai từ địa chỉ ngoài của HA (media có chữ ký hạn 1 giờ). "
+                            "Không có địa chỉ công khai thì gửi dạng tệp đính kèm", True),
+                   ("thumbnail", "Ảnh bìa: đường dẫn hoặc URL. Bỏ trống = tự tìm «…_thumb.jpg» cạnh video, không có thì dùng chính video", False),
+                   ("message", "Chú thích kèm video (bỏ trống = không)", False),
+                   ("width", "Độ rộng (px). Bỏ trống = tự đo bằng ffprobe", False),
+                   ("height", "Độ cao (px). Bỏ trống = tự đo bằng ffprobe", False),
+                   ("duration", "Thời lượng (giây). Bỏ trống = tự đo bằng ffprobe", False)],
 }
 # Tu thu hoi sau N giay cho moi service gui tin (13/11). Zalo khong cho dat tu xoa theo giay (chi 1/7/14/30 ngay), nen app hen gio roi THU HOI.
 RECALL_FIELD = ("recall_after", "Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng "
@@ -114,6 +121,8 @@ SELECTOR_OVERRIDES = {
     ("send_message", "format"): {"select": {"options": ["plain", "markdown"], "mode": "dropdown"}},
     ("send_message", "auto_emphasis"): {"select": {"options": ["red", "orange", "yellow", "green"], "custom_value": True,
                                                   "mode": "dropdown"}},
+    **{("send_video", k): {"number": {"min": 0, "max": 100000, "step": 1, "mode": "box"}} for k in ("width", "height")},
+    ("send_video", "duration"): {"number": {"min": 0, "max": 36000, "step": 1, "unit_of_measurement": "s", "mode": "box"}},
     ("send_sticker", "pick"): {"select": {"options": ["first", "random"], "mode": "dropdown"}},
     ("add_reaction", "icon"): {"select": {"options": _reaction_options(), "custom_value": True, "mode": "dropdown"}},
 }
