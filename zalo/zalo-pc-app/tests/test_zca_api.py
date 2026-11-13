@@ -61,7 +61,7 @@ def test_template_get_builds_encrypted_params_and_url():
     api = zca_api.ZcaApi(svc, {"imei": "IMEI-1"})
     r = api.call("getFriendRequestStatus", {"friendId": "123"})
     kind, url, _ = svc.calls[0]
-    assert kind == "GET" and url.startswith("https://friend-wpa.zalo.me/api/friend/reqstatus?"), url
+    assert kind == "GET" and url.startswith("https://tt-friend-wpa.chat.zalo.me/api/friend/reqstatus?"), url
     assert "zpw_ver=" in url and "zpw_type=" in url, url
     assert _params_of(url) == {"fid": "123", "imei": "IMEI-1"}, _params_of(url)
     assert r["where"].startswith("GET /api/friend/reqstatus"), r

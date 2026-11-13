@@ -1149,6 +1149,22 @@ def test_svc_http_api():
         mock.stop()
 
 
+def test_get_ops_that_may_write_are_flagged_danger_by_principle_and_domains_work():
+    """GET không bắt đầu bằng get_/fetch_/last_/keepAlive/find_/parse_ có thể GHI (remove_friend_alias xoá biệt danh khi kiểm 13/11): phải gắn danger.
+    Domain bạn bè/hội thoại dùng máy chủ *.chat.zalo.me (friend-wpa.zalo.me không nối được; convers-wpa.api.zalo.me trả 404/400)."""
+    from zalo_pc_app import protocol, services as S
+    for name, o in S.OPS.items():
+        if str(o["method"]).upper().startswith("GET"):
+            reads = name.startswith(("get_", "fetch_", "last_", "keepAlive", "find_", "parse_"))
+            assert o["danger"] is (not reads) or (reads and not o["danger"]), name
+    assert S.OPS["remove_friend_alias"]["danger"] and S.OPS["enable_group_link"]["danger"] and S.OPS["reset_hidden_convers_pin"]["danger"]
+    assert not S.OPS["get_settings"]["danger"] and not S.OPS["get_pin_conversations"]["danger"]
+    import re as _re      # đọc từ NGUỒN (các test khác gán đè protocol.*_DOMAIN bằng máy chủ giả trong cùng tiến trình)
+    src = open(protocol.__file__, encoding="utf-8").read()
+    assert _re.search(r'^FRIEND_DOMAIN = "https://[a-z0-9-]+\.chat\.zalo\.me"', src, _re.M)
+    assert _re.search(r'^CONVERS_DOMAIN = "https://[a-z0-9-]+\.chat\.zalo\.me"', src, _re.M)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

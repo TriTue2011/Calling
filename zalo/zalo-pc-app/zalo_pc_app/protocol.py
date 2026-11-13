@@ -32,7 +32,9 @@ import urllib.parse
 AUTH_DOMAIN = "https://wpa.zalo.me"
 CHAT_DOMAIN = "https://chat-wpa.zalo.me"
 VOICECALL_DOMAIN = "https://voicecall-wpa.zalo.me"
-CONVERS_DOMAIN = "https://convers-wpa.api.zalo.me"
+# 13/11/2026 (đo trên phiên thật): `convers-wpa.api.zalo.me` trả 404/400 cho pinconvers/list, conv/getUnreadMark, tự xoá...; máy chủ `*.chat.zalo.me`
+# (y như Zalo PC thật dùng) chạy được TẤT CẢ đường convers. `friend-wpa.zalo.me` không nối được từ container (Network is unreachable).
+CONVERS_DOMAIN = "https://tt-convers-wpa.chat.zalo.me"
 # Cài đặt tự xoá (getConvers/updateConvers) của phiên kiểu web nằm ở máy chủ này; `convers-wpa.api.zalo.me` trả 404/405 (đo 13/11).
 CONVERS_WEB_DOMAIN = "https://tt-convers-wpa.chat.zalo.me"
 PROFILE_DOMAIN = "https://profile-wpa.zalo.me"
@@ -41,7 +43,7 @@ GROUP_DOMAIN = "https://group-wpa.zalo.me"
 # hard-code trong bundle — REACTION va QUICK_MESSAGE KHONG co o
 # day, chung chi co trong services map server tra ve luc login
 # (xem services._domain_for — khong hard-code).
-FRIEND_DOMAIN = "https://friend-wpa.zalo.me"
+FRIEND_DOMAIN = "https://tt-friend-wpa.chat.zalo.me"      # đo 13/11/2026: friend-wpa.zalo.me không nối được; tt-friend-wpa.chat.zalo.me trả OK
 ALIAS_DOMAIN = "https://alias-wpa.api.zalo.me"
 LABEL_DOMAIN = "https://label-wpa.api.zalo.me"
 BOARD_DOMAIN = "https://groupboard-wpa.api.zalo.me"

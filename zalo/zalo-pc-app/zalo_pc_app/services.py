@@ -1897,6 +1897,14 @@ _SPLIT = {
                      "reaction", "/api/group/reaction", 12411),
 }
 
+# Dịch vụ HTTP GET mà tên KHÔNG bắt đầu bằng get_/fetch_/last_ (hay keepAlive) có thể GHI dù là GET (13/11/2026: remove_friend_alias lỡ xoá biệt danh
+# khi kiểm bằng GET). Gắn danger theo NGUYÊN TẮC này, không theo danh sách: ai kiểm/gọi hàng loạt chỉ nên chạy dịch vụ không danger.
+_READ_PREFIXES = ("get_", "fetch_", "last_", "keepAlive", "find_", "parse_")
+for _n, _o in OPS.items():
+    if str(_o.get("method") or "").upper().startswith("GET") and not _n.startswith(_READ_PREFIXES):
+        _o["danger"] = True
+
+
 _DOMAINS = {
     "chat": lambda: protocol.CHAT_DOMAIN,
     "group": lambda: protocol.GROUP_DOMAIN,
