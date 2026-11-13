@@ -1332,7 +1332,7 @@ class Chat:
                 "client_id": client_id, "total_size": total_size}
 
     def send_file(self, thread_type, thread_id, filename, data,
-                  mime="application/octet-stream"):
+                  mime="application/octet-stream", ttl=0):
         """Gui file thuong (Word/Excel/PDF/...) — DUONG HAI BUOC
         cua upload-manager (bundle PC 26.11.10; xem ghi chu o dau
         module):
@@ -1419,6 +1419,10 @@ class Chat:
                 "fdata": "{}",
                 "zsource": -1,
                 "fileUrl": file_url}
+        if int(ttl or 0) > 0:
+            # Hoi thoai dang bat tu xoa (nhom AI Camera: 1 ngay): Zalo doi tin gui vao kem dung `ttl` cua no, thieu thi tra inner 801 va dang dong
+            # «Khong the gui tin nhan tu xoa do dang dung phien ban cu» (anh da sua 13/11, tep thuong con sot: loi 801 luc 17:18 cung ngay).
+            item["ttl"] = int(ttl)
         if is_group:
             item["grid"] = str(thread_id)
         else:

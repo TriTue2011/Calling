@@ -68,6 +68,17 @@ def recalled_copy(m):
             "is_self": bool(m.get("is_self")), "recalled": True, "raw": {k: raw[k] for k in ("msgId", "cliMsgId", "uidFrom", "ts") if k in raw}}
 
 
+def _id_match(gid, cid, thread_type, thread_id):
+    """(menh de WHERE, tham so) tim tin trong MOT hoi thoai theo msgId (global) hoac cliMsgId — o cot msg_id/global_msg_id hoac trong raw_json."""
+    pats = []
+    for key, val in (("msgId", gid), ("cliMsgId", cid)):
+        if val:
+            pats += ['%"' + key + '": "' + val + '"%', '%"' + key + '": ' + val + ',%', '%"' + key + '": ' + val + '}%']
+    conds = ["msg_id IN (?,?)", "global_msg_id IN (?,?)"] + ["raw_json LIKE ?"] * len(pats)
+    args = [thread_type, thread_id, gid or "-", cid or "-", gid or "-", cid or "-"] + pats
+    return "thread_type=? AND thread_id=? AND (" + " OR ".join(conds) + ")", args
+
+
 class MessageStore:
     """SQLite message store trong thu muc /data. Thread-safe
     (mot khoa, mot connection check_same_thread=False)."""
@@ -99,6 +110,8 @@ class MessageStore:
             ).fetchone() is not None
             for stmt in _SCHEMA:
                 conn.execute(stmt)
+            # Su kien `chat.delete` tung bi luu nhu tin chu (13/11: giao dien in nguyen [{'type': 1, 'actionType': 1, ...}]): don sach.
+            conn.execute("DELETE FROM messages WHERE raw_json LIKE '%\"msgType\": \"chat.delete\"%'")
             if not had_reads:
                 # Lan dau co bang `reads`: tin cu coi nhu da doc, de khong
                 # bao hang tram tin chua doc tu lich su co san.
@@ -289,19 +302,14 @@ class MessageStore:
         thread_type, thread_id = str(thread_type or ""), str(thread_id or "")
         if not (gid or cid) or not thread_type or not thread_id:
             return []
-        pats = []
-        for key, val in (("msgId", gid), ("cliMsgId", cid)):
-            if val:
-                pats += ['%"' + key + '": "' + val + '"%', '%"' + key + '": ' + val + ',%', '%"' + key + '": ' + val + '}%']
-        conds = ["msg_id IN (?,?)", "global_msg_id IN (?,?)"] + ["raw_json LIKE ?"] * len(pats)
-        args = [thread_type, thread_id, gid or "-", cid or "-", gid or "-", cid or "-"] + pats
+        where, args = _id_match(gid, cid, thread_type, thread_id)
         changed = []
         with self._lock:
             if not self._connect():
                 return []
             try:
                 rows = self._conn.execute(
-                    "SELECT dedup_key, raw_json FROM messages WHERE thread_type=? AND thread_id=? AND (" + " OR ".join(conds) + ")", args).fetchall()
+                    "SELECT dedup_key, raw_json FROM messages WHERE " + where, args).fetchall()
                 for dedup, rj in rows:
                     try:
                         m = json.loads(rj)
@@ -318,6 +326,26 @@ class MessageStore:
             except sqlite3.Error:
                 return changed
         return changed
+
+    def forget(self, thread_type, thread_id, global_id="", cli_id=""):
+        """XOA han mot tin (Zalo bao `chat.delete`: chinh minh xoa / hen gio xoa). Khac recall: khong de lai dau «da thu hoi».
+        Tra ve danh sach `id` cac tin da xoa ([] neu khong co). Khong bao gio nem loi."""
+        gid, cid = str(global_id or "").strip(), str(cli_id or "").strip()
+        thread_type, thread_id = str(thread_type or ""), str(thread_id or "")
+        if not (gid or cid) or not thread_type or not thread_id:
+            return []
+        where, args = _id_match(gid, cid, thread_type, thread_id)
+        with self._lock:
+            if not self._connect():
+                return []
+            try:
+                rows = self._conn.execute("SELECT dedup_key, msg_id FROM messages WHERE " + where, args).fetchall()
+                for dedup, _mid in rows:
+                    self._conn.execute("DELETE FROM messages WHERE thread_type=? AND thread_id=? AND dedup_key=?", (thread_type, thread_id, dedup))
+                self._conn.commit()
+            except sqlite3.Error:
+                return []
+        return [str(mid) for _d, mid in rows if mid]
 
     def prune(self, keep_days, max_per_thread, now=None):
         """Xoa tin cu hon keep_days ngay va cat moi hoi thoai con max_per_thread tin moi nhat (0 = bo qua buoc do). Xoa nhieu thi thu nho

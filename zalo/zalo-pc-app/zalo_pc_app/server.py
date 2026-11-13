@@ -92,6 +92,7 @@ from . import account_health
 from . import event_dedup as event_dedup_mod
 from . import ws_listener as ws_listener_mod
 from . import recall_queue as recall_mod
+from . import profile_names as profile_names_mod
 from . import conv_ttl as conv_ttl_mod
 from . import privacy as privacy_mod
 from . import call_errors
@@ -1756,6 +1757,9 @@ class AppState:
         if self.session and self.session.get("uid"):
             self.message_store.set_account(self.session["uid"])
         self.retention = retention_mod.Retention(data_dir, self.message_store)
+        self.profile_names = profile_names_mod.ProfileNames(
+            os.path.join(data_dir, profile_names_mod.FILENAME), self._lookup_profile_name,
+            on_change=lambda: self.events.publish({"type": "names", "at": time.time()}))
         # Proxy ra Zalo, kenh day su kien cho giao dien (SSE), chan do mat
         # khau dang nhap app, va do tre nhan tin gan day (ms).
         self.proxy_store = proxy_store_mod.ProxyStore(
@@ -2258,6 +2262,34 @@ class AppState:
                 pass
         return bool(ids)
 
+    def _apply_delete(self, thread_type, thread_id, content):
+        """`chat.delete`: Zalo bao mot tin da bi XOA (chinh minh xoa, hen gio xoa/thu hoi...): bo tin goc khoi DB + RAM, bao giao dien qua SSE
+        «delete». Chinh su kien KHONG BAO GIO duoc luu/hien nhu tin nhan (13/11: giao dien in nguyen [{'type': 1, 'actionType': 1, ...}])."""
+        items = content if isinstance(content, list) else [content]
+        ids = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            gid, cid = it.get("globalDelMsgId"), it.get("clientDelMsgId")
+            try:
+                ids += list(self.message_store.forget(thread_type, thread_id, gid, cid)) + list(self.inbox.forget(thread_type, thread_id, gid, cid))
+            except Exception:  # noqa: BLE001
+                pass
+        ids = list(dict.fromkeys(i for i in ids if i))
+        if ids:
+            try:
+                self.events.publish({"type": "delete", "thread_type": thread_type, "thread_id": str(thread_id), "msg_ids": ids, "at": time.time()})
+            except Exception:  # noqa: BLE001
+                pass
+        return ids
+
+    def _lookup_profile_name(self, uid):
+        """Tra ho so Zalo theo ma nguoi dung (getprofiles/v2) de lay ten hien thi cua nguoi la."""
+        status, res = services_mod.handle_svc(self, "get_user_info", {"user_id": str(uid)})
+        if status != 200:
+            raise RuntimeError("get_user_info %s %s" % (status, str((res or {}).get("error"))[:60]))
+        return profile_names_mod.find_name((res or {}).get("data"), uid)
+
     def start_history_import(self):
         """Nhap lich su da giai ma vao messages.db (nen, tien do o history_sync.status()['import_state'])."""
         hs = self.history_sync
@@ -2552,6 +2584,9 @@ class AppState:
         (download_async — khong chan kenh sync, loi chi ghi log +
         registry)."""
         raw0 = msg.get("raw") if isinstance(msg.get("raw"), dict) else {}
+        if raw0.get("msgType") == "chat.delete":
+            self._apply_delete(thread_type, thread_id, raw0.get("content"))
+            return                      # su kien xoa tin: khong luu, khong hien, khong day webhook
         if raw0.get("msgType") == "chat.undo":
             ct = raw0.get("content") if isinstance(raw0.get("content"), dict) else {}
             if self._apply_recall(thread_type, thread_id, ct.get("globalMsgId"), ct.get("cliMsgId")):
@@ -2709,7 +2744,7 @@ class AppState:
                                 pass
                             return o if len(o) <= 120 else o[:120] + "..."
                         return o
-                    _log_call("call_event raw act=%s call_id=%s %s" % (act_raw, call_id, json.dumps(_clean(event), ensure_ascii=False, sort_keys=True)[:900]))
+                    _log_call("call_event raw act=%s call_id=%s %s" % (act_raw, call_id, json.dumps(_clean(event), ensure_ascii=False, sort_keys=True)[:5000]))
                 except Exception:  # noqa: BLE001 - chan doan
                     pass
             if act == "request":
@@ -3750,6 +3785,8 @@ class AppState:
         for row in rows:
             if isinstance(row, dict) and row.get("id"):
                 names[str(row["id"])] = row.get("name") or ""
+        for k, v in self.profile_names.all_names().items():      # nguoi la: ten tra tu ho so Zalo
+            names.setdefault(k, v)
         return names
 
     @staticmethod
@@ -4440,11 +4477,18 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         result = chat.history_user_unavailable()
                         source = "inbox+session"
-                cached = (STATE.inbox.messages_for(thread_type, thread_id)
+                # Nhom: ngoai ban tuoi cua Zalo + RAM, doc them kho BEN (restart/dung lai container lam RAM trong -> nhom hien trang, 13/11).
+                db_extra = (STATE.message_store.messages_for(thread_type, thread_id, count)
+                            if thread_type == "group" else [])
+                cached = (db_extra
+                          + STATE.inbox.messages_for(thread_type, thread_id)
                           + STATE.chat_store.sent_for(thread_type,
                                                       thread_id))
                 merged, from_cached = chat_mod.merge_messages(
                     result["messages"], cached, count)
+                print("[history] type=%s id=...%s zalo=%d kho=%d ram+gui=%d tron=%d" % (
+                    thread_type, str(thread_id)[-4:], len(result.get("messages") or []), len(db_extra),
+                    len(cached) - len(db_extra), len(merged)), flush=True)
                 if from_cached > 0 and thread_type == "group":
                     source = "zalo+inbox"
                 STATE._enrich_sender_names(
@@ -4461,6 +4505,7 @@ class Handler(BaseHTTPRequestHandler):
                 result["fromCache"] = from_cached
                 return self._send_json(result)
             except Exception as e:  # noqa: BLE001
+                print("[history] LOI type=%s id=...%s %s: %s" % (thread_type, thread_id[-4:], type(e).__name__, str(e)[:160]), flush=True)
                 return self._send_json({"error": str(e)}, status=502)
         # -- INBOX HOOK (sync_poll.Inbox) --
         # GET /api/thread/<id>/updates?type=user|group&after=<epoch>
@@ -4514,6 +4559,12 @@ class Handler(BaseHTTPRequestHandler):
                 r["stranger"] = bool(
                     r["thread_type"] == "user" and ids is not None
                     and r["thread_id"] not in ids and r["thread_id"] != mine)
+            # Nguoi la khong co ten trong tin (tin nhap tu lich su khong mang dName): tra ten tu ho so Zalo, nen, luu ben.
+            _noname = [r for r in rows if r["stranger"] and not (r.get("name") or "").strip()]
+            if _noname:
+                STATE.profile_names.ensure([r["thread_id"] for r in _noname])
+                for r in _noname:
+                    r["name"] = STATE.profile_names.name(r["thread_id"])
             if path == "/api/watch":
                 return self._send_json({
                     "ready": ids is not None,
@@ -4881,7 +4932,8 @@ class Handler(BaseHTTPRequestHandler):
                         local_kind = "photo"
                     else:
                         res = chat.send_file(thread_type, thread_id,
-                                             filename, data_bytes, mime)
+                                             filename, data_bytes, mime,
+                                             ttl=STATE.conv_ttl.get(thread_id))
                         caption_text = ""
                         local_kind = "file"
                 except ValueError as e:

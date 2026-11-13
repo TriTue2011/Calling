@@ -366,6 +366,22 @@ class Inbox:
                     hit.append(str(m.get("id") or ""))
         return hit
 
+    def forget(self, thread_type, thread_id, global_id="", cli_id=""):
+        """Xoa han tin (RAM) — dong bo voi MessageStore.forget; tra ve danh sach `id` da xoa."""
+        gid, cid = str(global_id or ""), str(cli_id or "")
+        key = (str(thread_type), str(thread_id))
+        gone, keep = [], []
+        with self._lock:
+            for m in self._store.get(key, []):
+                raw = m.get("raw") if isinstance(m.get("raw"), dict) else {}
+                if (gid and str(raw.get("msgId") or m.get("id") or "") == gid) or (cid and str(raw.get("cliMsgId") or m.get("client_id") or "") == cid):
+                    gone.append(str(m.get("id") or ""))
+                else:
+                    keep.append(m)
+            if gone:
+                self._store[key] = keep
+        return gone
+
     def messages_for(self, thread_type, thread_id):
         key = (str(thread_type), str(thread_id))
         with self._lock:

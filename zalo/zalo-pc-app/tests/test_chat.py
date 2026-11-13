@@ -289,6 +289,23 @@ def test_send_file_photo_voice():
         mock.stop()
 
 
+def test_send_file_ttl_only_when_conversation_auto_deletes():
+    """Nhom bat tu xoa: tep thuong phai kem ttl cua nhom (loi 801 13/11 17:18); khong bat tu xoa thi body y nhu cu, khong co khoa ttl."""
+    mock = MockZalo().start()
+    try:
+        patch_domains(mock)
+        chat = make_chat(mock)
+        chat.send_file("group", "30001", "bao-cao.pdf", b"%PDF-fake", "application/pdf", ttl=86400000)
+        assert mock.file_send_bodies[-1]["body"]["ttl"] == 86400000, mock.file_send_bodies[-1]
+        assert mock.file_send_bodies[-1]["body"]["grid"] == "30001"
+        chat.send_file("group", "30001", "bao-cao2.pdf", b"%PDF-fake", "application/pdf")
+        assert "ttl" not in mock.file_send_bodies[-1]["body"], mock.file_send_bodies[-1]
+        chat.send_file("user", "20001", "a.txt", b"hello", "text/plain", ttl=0)
+        assert "ttl" not in mock.file_send_bodies[-1]["body"], mock.file_send_bodies[-1]
+    finally:
+        mock.stop()
+
+
 def test_send_file_empty_data_errors():
     """Buoc 2 tra data rong (200/error_code=0 nhung khong tao tin
     nao) -> send_file phai bao loi that ("khong co ma tin"), KHONG

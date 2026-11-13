@@ -110,7 +110,7 @@ const S = {
   filter: { chats: "all", contacts: "friends", calls: "all" }, kind: "all", cmenu: "friends", csort: "az", cfilter: "all",
   cur: null, msgs: [], files: {}, lastTime: 0, pollT: null, stick: true, info: false,
   calls: { active: null, calls: [] },
-  catalog: null, svcGroup: "all", svcQ: "", svcOpen: null, setSec: "account", pending: [], replyTo: null, mentions: [], recalled: new Set(), ringId: "",
+  catalog: null, svcGroup: "all", svcQ: "", svcOpen: null, setSec: "account", pending: [], replyTo: null, mentions: [], recalled: new Set(), deleted: new Set(), ringId: "",
   watchOpen: null, watchMsgs: {}, rec: null, qrT: null, sound: true, me: { avatar: "" },
 };
 const rowKey = (r) => (r.type || r.thread_type) + "|" + (r.id || r.thread_id);
@@ -377,6 +377,7 @@ function renderMsgs() {
   let day = "", prev = null;
   if (!S.msgs.length) frag.append(h("div", { class: "empty", style: "margin:auto" }, "Chưa có tin nhắn. Hãy gửi lời chào."));
   for (const m0 of S.msgs) {
+    if (S.deleted.has(m0._id)) continue;            // tin da bi xoa (chat.delete): khong ve
     let m = m0;
     if (S.recalled.has(m._id)) m = Object.assign({}, m, { kind: "system", text: "Tin nhắn đã được thu hồi", reply_to: null, call_record: null, raw: null });
     const d = m._t ? new Date(m._t * 1000).toDateString() : "";
@@ -1110,6 +1111,14 @@ function connectSse() {
       loadConversations();
     } catch (x) { /* bỏ sự kiện hỏng */ }
   });        // cuộc gọi vừa đến/đổi trạng thái: hiện popup ngay, không chờ vòng hỏi 2 giây
+  es.addEventListener("delete", (e) => {           // tin bị xóa (tự xóa hẹn giờ / xóa ở nơi khác): bỏ bong bóng ngay
+    try {
+      const d = JSON.parse(e.data);
+      if (S.cur && S.cur.type === d.thread_type && String(S.cur.id) === String(d.thread_id)) { for (const id of d.msg_ids || []) S.deleted.add(String(id)); renderMsgs(); }
+      loadConversations();
+    } catch (x) { /* bỏ sự kiện hỏng */ }
+  });
+  es.addEventListener("names", () => { loadConversations(); });         // vừa tra được tên người lạ
   es.addEventListener("message", (e) => { try { onMessageEvent(JSON.parse(e.data)); } catch (x) { /* bỏ sự kiện hỏng */ } });
 }
 async function loadConversations() {

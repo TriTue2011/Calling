@@ -1268,6 +1268,46 @@ def rtcp_kinds(rtcp):
     return out
 
 
+def parse_video_rtcp_feedback(rtcp):
+    """Phan tich RTCP ghep cua luong HINH tu dien thoai (chi de chan doan).
+
+    Dem PLI (206/1), FIR (206/4), NACK (205/1), REMB (206/15), TWCC (205/15) va doc cac
+    khoi bao cao trong SR/RR: dien thoai noi gi ve luong hinh CUA TA (mat goi, jitter,
+    seq cao nhat). `rtcp` la RTCP tran (da bo phan boc loai goi). Tra dict."""
+    out = {"pli": 0, "fir": 0, "nack": 0, "remb": 0, "twcc": 0, "blocks": []}
+    off = 0
+    while off + 4 <= len(rtcp):
+        plen = (struct.unpack_from(">H", rtcp, off + 2)[0] + 1) * 4
+        pt, rc = rtcp[off + 1], rtcp[off] & 0x1F
+        end = min(len(rtcp), off + plen)
+        if pt in (200, 201):
+            boff = off + (28 if pt == 200 else 8)
+            for _ in range(rc):
+                if boff + 24 > end:
+                    break
+                ssrc, fl, hi, jit = struct.unpack_from(">IIII", rtcp, boff)
+                out["blocks"].append({"ssrc": ssrc, "fraction": fl >> 24,
+                                      "cum_lost": fl & 0xFFFFFF,
+                                      "ext_high": hi, "jitter": jit})
+                boff += 24
+        elif pt == 206:
+            if rc == 1:
+                out["pli"] += 1
+            elif rc == 4:
+                out["fir"] += 1
+            elif rc == 15:
+                out["remb"] += 1
+        elif pt == 205:
+            if rc == 1:
+                out["nack"] += 1
+            elif rc == 15:
+                out["twcc"] += 1
+        if plen <= 0:
+            break
+        off += plen
+    return out
+
+
 def parse_sr_middle_ntp(rtcp):
     """Gia tri LSR (32 bit giua cua NTP) cua SR dau tien trong goi RTCP ghep,
     hoac None. `rtcp` la RTCP tran (da bo phan boc type-05)."""
@@ -2368,6 +2408,13 @@ class Udp4200Transport:
             return
         now_ms = time.monotonic() * 1000.0
         self.counters["video_rx"] = self.counters.get("video_rx", 0) + 1
+        if self.counters["video_rx"] <= 3:
+            _cc = rtp[0] & 0x0F
+            print("[video-rx] #%d pt=%d marker=%d ssrc=%d (ta=%s) seq=%d ext=%s hdr=%s" % (
+                self.counters["video_rx"], rtp[1] & 0x7F, rtp[1] >> 7,
+                struct.unpack_from(">I", rtp, 8)[0], self.config.local_ssrc,
+                struct.unpack_from(">H", rtp, 2)[0], bool(rtp[0] & 0x10),
+                bytes(rtp[12 + 4 * _cc:12 + 4 * _cc + 8]).hex()), flush=True)
         tw = read_twseq_rtp(rtp)
         if tw is not None:
             self._twcc.add(tw, now_ms)
@@ -2375,8 +2422,34 @@ class Udp4200Transport:
             struct.unpack_from(">I", rtp, 4)[0], struct.unpack_from(">I", rtp, 8)[0]
         self._rx_video.on_packet(seq, ts, ssrc, now_ms)
 
+    def _diag_video_rtcp(self, body):
+        """Chan doan: dien thoai bao gi ve luong HINH cua ta (13/11: goi video den bi bao «tat camera»)."""
+        fb = parse_video_rtcp_feedback(body)
+        c = self.counters
+        for k in ("pli", "fir", "nack", "remb"):
+            if fb[k]:
+                c["video_%s_rx" % k] = c.get("video_%s_rx" % k, 0) + fb[k]
+        n = c.get("video_rtcp_rx", 0)
+        if n <= 6:
+            print("[vrtcp-rx] #%d %s" % (n, rtcp_kinds(body)), flush=True)
+        if fb["blocks"]:
+            c["video_rr_blocks"] = c.get("video_rr_blocks", 0) + len(fb["blocks"])
+            ours = [b for b in fb["blocks"] if b["ssrc"] == self.config.local_ssrc]
+            self._vpeer_block = dict((ours or fb["blocks"])[-1], ours=bool(ours))
+        now = time.monotonic()
+        if now - getattr(self, "_vpeer_log_at", 0.0) >= 5.0:
+            self._vpeer_log_at = now
+            print("[video-peer-view] pli=%d fir=%d nack=%d remb=%d rr_blocks=%d last_block=%s" % (
+                c.get("video_pli_rx", 0), c.get("video_fir_rx", 0), c.get("video_nack_rx", 0),
+                c.get("video_remb_rx", 0), c.get("video_rr_blocks", 0),
+                getattr(self, "_vpeer_block", None)), flush=True)
+
     def _on_video_rtcp(self, data):
         self.counters["video_rtcp_rx"] = self.counters.get("video_rtcp_rx", 0) + 1
+        try:
+            self._diag_video_rtcp(bytes(data[5:]))
+        except Exception:  # noqa: BLE001 - chan doan khong duoc lam hong duong nhan
+            pass
         mid = parse_sr_middle_ntp(bytes(data[5:]))
         if mid is not None:
             self._rx_video.on_sr_middle_ntp(mid, time.monotonic() * 1000.0)
