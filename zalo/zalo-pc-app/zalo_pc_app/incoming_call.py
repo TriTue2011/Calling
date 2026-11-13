@@ -19,6 +19,10 @@ def copy_negotiation_flags(ext, offer):
         for k in ("negoVidQual",):
             if k in offer and k not in ext:
                 ext[k] = offer[k]
+        # callType: cuoc goi VIDEO den (offer callType 1) thi ban tra loi cung khai 1; truoc day luon 0 (thoai) nen dien thoai goi video khong
+        # duoc nhan nhu cuoc video (do 12/11 20:49: offer callType 1, ta tra loi callType 0).
+        if str(offer.get("callType")) in ("0", "1"):
+            ext["callType"] = int(offer["callType"])
     return ext
 
 
@@ -343,9 +347,7 @@ def answer_incoming(sv, sess, body, source="api"):
             _ext = json.loads(_ext_final) if isinstance(_ext_final, str) else dict(_ext_final)
             if _plain:
                 _ext["srtpMode"] = 0
-            for _k in ("negoVidQual",):
-                if _k in _offer and _k not in _ext:
-                    _ext[_k] = _offer[_k]
+            copy_negotiation_flags(_ext, _offer)
             # P2P theo đúng điều điện thoại này khai (máy khác nhau khai khác nhau): bên gọi khai sP2P 1 kèm ứng viên thì ta khai ứng viên
             # của mình (địa chỉ máy trên cổng media) + sP2P 1, select2side 1, numServers 0, supportCallBusy 0 như engine zcall-native khi
             # nghe máy, và bắt đầu bind tới từng ứng viên của họ; thiếu thì giữ relay thuần (sP2P 0).

@@ -24,6 +24,19 @@ def test_keeps_own_value_and_tolerates_missing_or_bad_offer():
     assert incoming_call.copy_negotiation_flags(None, {"negoVidQual": 1}) is None
 
 
+def test_video_offer_gets_video_calltype_in_answer_and_voice_stays_voice():
+    ext = {"callType": 0}
+    incoming_call.copy_negotiation_flags(ext, {"callType": 1})
+    assert ext["callType"] == 1, "cuoc goi video den: tra loi callType 1 (20:49 12/11 ta tra 0)"
+    ext = {"callType": 0}
+    incoming_call.copy_negotiation_flags(ext, {"callType": 0})
+    assert ext["callType"] == 0
+    for bad in ({}, {"callType": None}, {"callType": "x"}, {"callType": 7}):
+        e = {"callType": 0}
+        incoming_call.copy_negotiation_flags(e, bad)
+        assert e["callType"] == 0, bad
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

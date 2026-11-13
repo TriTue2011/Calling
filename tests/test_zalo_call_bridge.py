@@ -708,6 +708,41 @@ def test_am_luong_van_tra_lai_khi_loa_lam_tron_theo_nac():
     asyncio.run(run())
 
 
+def test_fallback_theo_duong_noi_that_loa_mic_camera():
+    """Thứ tự ưu tiên: cái đầu hỏng (không khả dụng / không stream / không có cửa bộ đàm) thì dùng cái kế tiếp; cái đầu tốt thì giữ."""
+    async def run():
+        hass, api, dd, br = _make({}, options={"ha_url": "http://ha.lan:8123"})
+        r1 = _ent("r1_speaker", "media_player.r1_loa", "r1entry")
+        _ent("r1_speaker", "assist_satellite.r1", "r1entry")
+        H["entries"]["r1entry"].data = {"intercom_key": "KHOA"}
+        _ent("cast", "media_player.gg", "ggcfg")                                  # Google Home: không có cửa bộ đàm
+        _ent("dahua_talk", "media_player.cam_loa", "dhentry")
+        H["entries"]["dhentry"].data = {"intercom_key": "DK"}
+        ov = {"speaker": "media_player.r1_loa, media_player.gg, media_player.cam_loa",
+              "mic": "assist_satellite.r1, camera.cam1, camera.cam2",
+              "camera": "camera.cam1, camera.cam2"}
+        dead = set()
+        br._entity_alive = lambda e: e not in dead
+
+        res = await br.async_resolve(br.devices_for(ov), "auto", br.slot_candidates(ov))
+        assert res["speaker_url"].endswith("/api/r1_speaker/intercom/r1entry?k=KHOA"), res           # R1 tốt: giữ R1
+        assert res["mic_url"].endswith("/api/r1_speaker/mic/r1entry?k=KHOA") and res["camera_url"] == "rtsp://u:p@cam.local/stream"
+
+        dead.update({"media_player.r1_loa", "assist_satellite.r1"})                  # R1 không khả dụng
+        res = await br.async_resolve(br.devices_for(ov), "auto", br.slot_candidates(ov))
+        assert res["speaker_url"].endswith("/api/dahua_talk/intercom/dhentry?k=DK"), res["speaker_url"]   # bỏ qua GG (không có cửa), lấy loa cam
+        assert res["mic_url"] == "rtsp://u:p@cam.local/stream", res["mic_url"]                          # mic cam phòng khách
+
+        H["urls"].pop("camera.cam1")                                                  # cam 1 sống nhưng KHÔNG có stream
+        res = await br.async_resolve(br.devices_for(ov), "auto", br.slot_candidates(ov))
+        assert res["camera_url"] == "rtsp://cam2.local/s", res["camera_url"]                            # chuyển sang cam 2
+        assert res["mic_url"] == "rtsp://cam2.local/s", res["mic_url"]
+
+        res = await br.async_resolve(br.devices_for(ov), "auto")                    # không truyền slots: hành vi cũ (không dự phòng theo đường nối)
+        assert res["camera_url"] == "" and res["speaker_url"].endswith("/api/dahua_talk/intercom/dhentry?k=DK") is False
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

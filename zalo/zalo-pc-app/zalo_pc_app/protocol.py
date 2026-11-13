@@ -439,13 +439,22 @@ def vc_endcall_group(callee_id, call_id, call_type, host_call, data,
             "partners": partners if partners is not None else []}
 
 
+def _call_id_number(call_id):
+    """callId la SO JSON (uint32) trong goi bao hieu, nhu engine that (`callId = %u`). Cuoc goi DEN mang ma dang chuoi chu so -> doi lai thanh so:
+    gui chuoi "1346292903" thi Zalo van tra err 0 nhung dien thoai khong khop duoc ma cuoc goi va giu «BenBap dang tat camera» (12/11 21:52,
+    cuoc goi di dung so thi hinh len)."""
+    if isinstance(call_id, str) and call_id.strip().isdigit():
+        return int(call_id.strip())
+    return call_id
+
+
 def vc_conf(callee_id, call_id, cam=-1, mic=-1):
     """Body of voicecall/conf (code 12006, `sendOnOffMicCam`): trang thai camera
     / mic cua ta cho dien thoai. cam: 1 bat, 0 tat, -1 giu nguyen; mic: 1 =
     TAT tieng (co mute), 0 = bo mute, -1 giu nguyen (zcall-native `_micState`).
     Khong co thi dien thoai coi camera cua ta la TAT va khong ve hinh du ta
     dang gui (do 10/11: «BenBap dang tat camera»)."""
-    return {"calleeId": str(callee_id), "callId": call_id,
+    return {"calleeId": str(callee_id), "callId": _call_id_number(call_id),
             "isOnCam": cam, "isOnMic": mic, "data": ""}
 
 
@@ -453,7 +462,7 @@ def vc_a2v(uid_to, call_id, status=1):
     """Body of voicecall/requestaudio2video (code 12056): chuyen cuoc goi THOAI dang
     dien ra sang VIDEO. status 1 = xin bat video, 2 = dong y loi xin cua ben kia
     (fork zca-js `requestAudioToVideoCall`)."""
-    return {"uidTo": str(uid_to), "callId": call_id, "status": status}
+    return {"uidTo": str(uid_to), "callId": _call_id_number(call_id), "status": status}
 
 
 def vc_hold(to_id):

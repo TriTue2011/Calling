@@ -979,9 +979,11 @@ def _send_camera_state_async(call_id, thread_id, cam_on):
             transport = make_transport(sess["zpw_sek"])
             sig = signaling_mod.Signaling(transport, sess["device_id"],
                                           sess["zpw_enk"])
-            sig.conf(thread_id, call_id, cam=1 if cam_on else 0)
-            _log_call("camera state call_id=%s on=%s ok=True"
-                      % (call_id, bool(cam_on)))
+            _resp = sig.conf(thread_id, call_id, cam=1 if cam_on else 0)
+            _log_call("camera state call_id=%s on=%s ok=True body=%s phan_hoi=%s"
+                      % (call_id, bool(cam_on),
+                         json.dumps({"calleeId": str(thread_id), "callId": call_id, "isOnCam": 1 if cam_on else 0, "isOnMic": -1}, sort_keys=True),
+                         json.dumps(_resp, ensure_ascii=False, sort_keys=True, default=str)[:300]))
         except Exception as e:  # noqa: BLE001 - best-effort
             _log_call("camera state call_id=%s on=%s ok=False error=%s"
                       % (call_id, bool(cam_on), str(e)[:120]))

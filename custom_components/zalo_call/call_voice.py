@@ -24,7 +24,7 @@ from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from . import video_policy
+from . import caller_name, video_policy
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import candidates, entity_of_label
 from .const import CONF_VIDEO_CONSENT
@@ -502,9 +502,7 @@ class _Safe(dict):
 def announce_text(rule: dict[str, Any], payload: dict[str, Any]) -> str:
     """Câu thông báo: {loai} = thoại/video, {ten} = tên trong quy tắc, không thì tên Zalo của người gọi, không có thì «người lạ»/«một người»."""
     kind = "video" if str(payload.get("call_type_raw")) == "1" else "thoại"
-    name = str(rule.get("name") or payload.get("peer") or "").strip()
-    if not name:
-        name = "người lạ" if payload.get("contact_status") == "stranger" else "một người"
+    name = caller_name.spoken_name(rule, payload)             # không bao giờ là dãy số (peer là mã Zalo khi sự kiện không có tên)
     return str(rule.get("announce_text") or DEFAULT_ANNOUNCE).format_map(_Safe(loai=kind, ten=name))
 
 
@@ -557,6 +555,11 @@ async def _announce_incoming(hass: HomeAssistant, rt: Any, payload: dict[str, An
     rule = resolve_rule(get_rules(rt.defaults), payload.get("thread_id"), "user", payload.get("contact_status"))
     if not rule or not rule.get("announce") or not rule.get("announce_to"):
         return False
+    try:                                                          # tên ĐÃ LƯU của người gọi (sự kiện cuộc gọi đến thường không có tên, chỉ có mã)
+        contacts = await asyncio.wait_for(rt.api.contacts(), 4)
+    except Exception:  # noqa: BLE001 - app chưa lên / chậm: báo bằng tên có sẵn, không làm hỏng việc báo
+        contacts = None
+    payload = dict(payload, contact_name=caller_name.find_contact_name(contacts, payload.get("thread_id")))
     cid = str(payload.get("call_id"))
     players = announce_targets(rule)
     old_levels: dict[str, Any] = {}

@@ -151,6 +151,15 @@ def test_audio_to_video_request_body():
     assert protocol.vc_a2v("5", 9, 2)["status"] == 2
 
 
+def test_signalling_call_id_is_a_json_number_even_when_incoming_call_carries_a_digit_string():
+    # 12/11 21:52: cuoc goi DEN dua ma dang chuoi vao goi 12006; cuoc goi di dung so thi hinh len dien thoai
+    assert protocol.vc_conf("6643404425553198601", "1346292903", 1)["callId"] == 1346292903
+    assert isinstance(protocol.vc_conf("1", "1346292903", 1)["callId"], int)
+    assert protocol.vc_conf("1", 1794494355, 1)["callId"] == 1794494355
+    assert protocol.vc_a2v("5", "9", 2) == {"uidTo": "5", "callId": 9, "status": 2}
+    assert protocol.vc_conf("1", "abc", 1)["callId"] == "abc"          # khong phai so: giu nguyen, khong doan
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

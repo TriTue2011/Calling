@@ -26,7 +26,7 @@ from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .api import ZaloCallApi, ZaloCallError
 from . import echo_policy
-from .bridge_core import (PushPolicy, audio_out_url, dahua_mic_url, device_of_url, echo_guard_on,
+from .bridge_core import (PushPolicy, audio_out_url, candidates, dahua_mic_url, device_of_url, echo_guard_on,
                           entity_of_label, explicit_off, host_of, intercom_url,
                           localize_url, mic_format_for_url, pick_devices, r1_mic_url,
                           valid_url)
@@ -75,6 +75,15 @@ class CallAudioBridge:
 
     def devices_for(self, override: dict[str, Any] | None = None) -> dict[str, str]:
         return pick_devices(self.defaults.data, override, alive=self._entity_alive)
+
+    def slot_candidates(self, override: dict[str, Any] | None = None) -> dict[str, list[str]]:
+        """Danh sách dự phòng CÒN HOẠT ĐỘNG, theo thứ tự ưu tiên, của loa / mic / camera cho một cuộc gọi (ghi đè > mặc định)."""
+        override = override or {}
+        out: dict[str, list[str]] = {}
+        for key in ("speaker", "mic", "camera"):
+            val = str(override[key]).strip() if key in override and override[key] is not None else str(self.defaults.get(key) or "").strip()
+            out[key] = [c for c in candidates(val) if self._entity_alive(entity_of_label(c))]
+        return out
 
     def _entity_alive(self, entity_id: str) -> bool:
         """Thiet bi du phong: con hoat dong khi thuc the ton tai va khong unavailable/unknown."""
@@ -173,18 +182,51 @@ class CallAudioBridge:
         return False
 
     async def async_resolve(self, devices: dict[str, str],
-                            echo_mode: str = "auto") -> dict[str, str]:
+                            echo_mode: str = "auto",
+                            slots: dict[str, list[str]] | None = None) -> dict[str, str]:
         """Thiet bi -> truong gui cho app: mic_url, mic_format, camera_url, speaker_url,
-        echo_guard ("true"/"false") (rong = khong dung)."""
+        echo_guard ("true"/"false") (rong = khong dung).
+
+        `slots` (xem slot_candidates): danh sach du phong con hoat dong. Thiet bi duoc chon ma KHONG co duong noi that (mic/camera khong lay
+        duoc luong, loa khong co cua bo dam: vi du loa Cast/Google Home chi phat TTS) thi thu thiet bi ke tiep trong danh sach."""
+        slots = slots or {}
         mic_url, mic_fmt = await self.async_mic_source(devices)
+        mic_label = devices.get("mic", "")
+        if not mic_url and not devices.get("mic_url"):
+            for cand in slots.get("mic", []):
+                if entity_of_label(cand) == entity_of_label(mic_label):
+                    continue
+                url, fmt = await self.async_mic_source(dict(devices, mic=cand))
+                if url:
+                    _LOGGER.info("Mic %s khong dung duoc: chuyen sang mic du phong %s", mic_label, cand)
+                    mic_url, mic_fmt, mic_label = url, fmt, cand
+                    break
         cam_id = entity_of_label(devices.get("camera", ""))
         if cam_id == TEST_SOURCE:
             cam_url = TEST_SOURCE                      # hình kiểm tra: app tự tạo, không cần camera nào
         else:
             cam_url = await self.async_camera_url(cam_id) if cam_id else ""
+            if cam_id and not cam_url:
+                for cand in slots.get("camera", []):
+                    if entity_of_label(cand) == cam_id:
+                        continue
+                    url = await self.async_camera_url(entity_of_label(cand))
+                    if url:
+                        _LOGGER.info("Camera %s khong co stream: chuyen sang camera du phong %s", cam_id, cand)
+                        cam_url = url
+                        break
         spk_id = entity_of_label(devices.get("speaker", ""))
         spk_url = await self.async_speaker_sink(spk_id, echo_mode)
-        mic_id = entity_of_label(devices.get("mic", ""))
+        if spk_id and not spk_url:
+            for cand in slots.get("speaker", []):
+                if entity_of_label(cand) == spk_id:
+                    continue
+                sink = await self.async_speaker_sink(entity_of_label(cand), echo_mode)
+                if sink:
+                    _LOGGER.info("Loa %s khong co cua bo dam: chuyen sang loa du phong %s", spk_id, cand)
+                    spk_id, spk_url = entity_of_label(cand), sink
+                    break
+        mic_id = entity_of_label(mic_label)
         echo = echo_guard_on(echo_mode, self._same_device(spk_id, mic_id, mic_url, spk_url)) \
             if spk_url else False
         return {"mic_url": mic_url, "mic_format": mic_fmt, "camera_url": cam_url,
@@ -199,7 +241,7 @@ class CallAudioBridge:
         "off" de app TAT thiet bi do cho rieng cuoc goi nay."""
         devices = self.devices_for(override)
         # Chống vọng của QUY TẮC (echo_mode) thắng; auto/trống thì theo mặc định thiết bị (xem echo_policy.py).
-        res = await self.async_resolve(devices, echo_policy.effective(echo_mode, self.defaults.get("echo_guard")))
+        res = await self.async_resolve(devices, echo_policy.effective(echo_mode, self.defaults.get("echo_guard")), self.slot_candidates(override))
         out: dict[str, str] = {}
         for field, keys in (("mic_url", ("mic", "mic_url")), ("camera_url", ("camera",)),
                             ("speaker_url", ("speaker",))):
@@ -227,7 +269,7 @@ class CallAudioBridge:
 
     async def _async_push(self) -> None:
         devices = self.devices_for()
-        res = await self.async_resolve(devices, str(self.defaults.get("echo_guard") or "auto"))
+        res = await self.async_resolve(devices, str(self.defaults.get("echo_guard") or "auto"), self.slot_candidates())
         payload = {
             "mic_url": res["mic_url"], "mic_format": res["mic_format"],
             "camera_url": res["camera_url"], "speaker_url": res["speaker_url"],
