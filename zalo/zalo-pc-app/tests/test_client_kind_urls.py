@@ -240,6 +240,25 @@ def test_call_identity_follows_env_and_applies_even_in_pc_login():
         protocol.set_client("web")
 
 
+def test_call_version_env_overrides_zpw_ver_only_for_calls():
+    call = "https://voicecall-wpa.chat.zalo.me/api/voicecall/answer?zpw_ver=693&zpw_type=24&params=abc"
+    chat = "https://tt-chat1-wpa.chat.zalo.me/api/message/sms?zpw_ver=695&zpw_type=30&params=abc"
+    old = os.environ.pop("ZALO_PC_CALL_VERSION", None)
+    try:
+        protocol.set_client("web")
+        os.environ["ZALO_PC_CALL_VERSION"] = "9999"
+        q = _q(protocol.adapt_url(call))
+        assert (q["zpw_type"], q["zpw_ver"]) == ("24", "9999"), q
+        assert protocol.adapt_url(chat) == chat
+        os.environ["ZALO_PC_CALL_VERSION"] = "khong-phai-so"
+        assert _q(protocol.adapt_url(call))["zpw_ver"] == "693"
+    finally:
+        os.environ.pop("ZALO_PC_CALL_VERSION", None)
+        if old is not None:
+            os.environ["ZALO_PC_CALL_VERSION"] = old
+        protocol.set_client("web")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

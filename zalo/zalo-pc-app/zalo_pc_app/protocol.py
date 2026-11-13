@@ -209,8 +209,15 @@ CALL_CLIENTS = {"pc": (24, 693), "mobile": (25, 693)}
 
 
 def call_identity():
-    """(zpw_type, zpw_ver) cho yêu cầu gọi điện: ZALO_PC_CALL_CLIENT = pc (mặc định) | mobile."""
-    return CALL_CLIENTS.get(os.environ.get("ZALO_PC_CALL_CLIENT", "pc").strip().lower(), CALL_CLIENTS["pc"])
+    """(zpw_type, zpw_ver) cho yêu cầu gọi điện: ZALO_PC_CALL_CLIENT = pc (mặc định) | mobile; ZALO_PC_CALL_VERSION (số nguyên) ghi đè zpw_ver.
+    Thử 14/11: điện thoại báo «Phiên bản của BenBap chưa hỗ trợ chuyển video» (APK: ZmInCallActivity.b2 mã 4, sinh từ sự kiện 10027 của engine;
+    libzrtc có zrtc_call_config_set_client_version) — nghi máy chủ so sánh phiên bản của bên nghe với ngưỡng; zpw_type không đổi được, thử zpw_ver lớn."""
+    t, v = CALL_CLIENTS.get(os.environ.get("ZALO_PC_CALL_CLIENT", "pc").strip().lower(), CALL_CLIENTS["pc"])
+    try:
+        v = int(os.environ.get("ZALO_PC_CALL_VERSION", "") or v)
+    except ValueError:
+        pass
+    return t, v
 
 
 def _split(url):
