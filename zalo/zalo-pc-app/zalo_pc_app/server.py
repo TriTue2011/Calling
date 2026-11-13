@@ -98,6 +98,7 @@ from . import ws_listener as ws_listener_mod
 from . import recall_queue as recall_mod
 from . import profile_names as profile_names_mod
 from . import video_probe as video_probe_mod
+from . import image_size as image_size_mod
 from . import conv_ttl as conv_ttl_mod
 from . import privacy as privacy_mod
 from . import call_errors
@@ -5137,6 +5138,8 @@ class Handler(BaseHTTPRequestHandler):
                             height = int(fields.get("height") or 0)
                         except ValueError:
                             width, height = 0, 0
+                        if not (width and height):          # nguoi goi khong khai (dich vu HA gui tep tho): do tu chinh anh, khong thi Zalo xep o vuong cat
+                            width, height = image_size_mod.image_size(data_bytes)
                         # Gom nhom anh: UI gui du 4 field khi batch
                         # co >1 anh khong-gif (xem
                         # _photo_bundle_from_fields); thieu/sai ->
