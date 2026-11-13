@@ -1564,6 +1564,39 @@ def _cleanup_call_media(entry):
         _log_call("cleanup media error: %s" % str(exc)[:120])
 
 
+# Cuộc gọi ĐẾN mà sau khi nghe máy điện thoại KHÔNG gửi bất kỳ gói nào (rtp/rtcp/video đều 0) là cuộc «chết» (13/11: 12/20 cuộc khi gói đầu chưa tới
+# lúc chọn relay; gửi lại InitZRTP không cứu được). Nghe im lặng suốt cuộc thì vô ích và điện thoại báo «kết nối không ổn định» — tự kết thúc sớm
+# (lý do «dead_media» đi theo webhook cuộc gọi để HA báo/gọi lại) để người gọi gọi lại ngay. ZALO_PC_DEAD_MEDIA_SECONDS, 0 = tắt.
+DEAD_MEDIA_SECONDS = float(os.environ.get("ZALO_PC_DEAD_MEDIA_SECONDS", "7") or 0)
+
+
+def _media_is_dead(counters):
+    return not any((counters or {}).get(k, 0) for k in ("rtp_rx", "rtcp_rx", "video_rx"))
+
+
+def _watch_dead_media(call_id, delay=None, sleep=time.sleep):
+    """Sau `delay` giây kể từ lúc nghe máy: nếu cuộc vẫn đang nối mà không nhận gói nào từ điện thoại thì kết thúc với lý do dead_media."""
+    delay = DEAD_MEDIA_SECONDS if delay is None else delay
+    if delay <= 0:
+        return None
+
+    def run():
+        sleep(delay)
+        try:
+            live = next((c for c in STATE.calls.snapshot()["calls"]
+                         if str(c["call_id"]) == str(call_id) and c["status"] == "answered"), None)
+            tr = _transport_for_call(call_id)
+            if live is None or tr is None or not _media_is_dead(getattr(tr, "counters", {})):
+                return
+            _log_call("dead media call_id=%s: %.0fs sau khi nghe may dien thoai chua gui goi nao -> ket thuc de goi lai" % (call_id, delay))
+            _terminate_call(int(call_id), "dead_media", STATE.session)
+        except Exception as e:  # noqa: BLE001 - bộ canh không được làm hỏng gì
+            _log_call("dead media call_id=%s: loi bo canh %s: %s" % (call_id, type(e).__name__, str(e)[:80]))
+    t = threading.Thread(target=run, daemon=True, name="dead-media-watch")
+    t.start()
+    return t
+
+
 def _mark_answered(call_id, source, send_ack=True):
     """Mark a live (ringing) call answered: the peer picked up and
     the call is connected. `source` names how the app learned it
@@ -1625,6 +1658,8 @@ def _mark_answered(call_id, source, send_ack=True):
         (STATE.session or {}).get("uid", ""))
     if (entry.get("type") or "user") != "group":
         _auto_media_async(entry["call_id"])
+    if (entry.get("direction") or "") == "in" and (entry.get("type") or "user") != "group":
+        _watch_dead_media(entry["call_id"])
     if send_ack and (entry.get("type") or "user") != "group":
         thread = threading.Thread(
             target=_send_answerack_async,
