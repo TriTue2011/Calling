@@ -131,7 +131,8 @@ def test_web_mode_calls_and_rejected_services_use_pc_identity():
         assert protocol.adapt_url(nop) == nop                    # không có tham số kiểu thì giữ nguyên
         # kiểu pc: không đổi gì
         protocol.set_client("pc")
-        assert protocol.adapt_url(call) == call and protocol.adapt_url(chat) == chat
+        call_pc = call.replace("zpw_ver=695", "zpw_ver=693").replace("zpw_type=30", "zpw_type=24")
+        assert protocol.adapt_url(call_pc) == call_pc and protocol.adapt_url(chat) == chat      # URL gọi điện dựng bằng PC: giữ nguyên
     finally:
         protocol._PC_HOSTS.clear()
         protocol.set_client("web")
@@ -210,6 +211,32 @@ def test_transport_does_not_learn_pc_when_pc_is_rejected_too():
     finally:
         app_server._zalo_urlopen = orig
         protocol._PC_HOSTS.clear()
+        protocol.set_client("web")
+
+
+def test_call_identity_follows_env_and_applies_even_in_pc_login():
+    call = "https://voicecall-wpa.chat.zalo.me/api/voicecall/answer?zpw_ver=693&zpw_type=24&params=abc"
+    old = os.environ.pop("ZALO_PC_CALL_CLIENT", None)
+    try:
+        for login in ("web", "pc"):
+            protocol.set_client(login)
+            q = _q(protocol.adapt_url(call.replace("zpw_ver=693&zpw_type=24", "zpw_ver=695&zpw_type=30")))
+            assert (q["zpw_type"], q["zpw_ver"]) == ("24", "693"), (login, q)          # mặc định: PC
+            os.environ["ZALO_PC_CALL_CLIENT"] = "mobile"
+            q = _q(protocol.adapt_url(call))
+            assert (q["zpw_type"], q["zpw_ver"]) == ("25", "693"), (login, q)          # Android (APK: zpw_type=25)
+            os.environ["ZALO_PC_CALL_CLIENT"] = "linh-tinh"
+            assert _q(protocol.adapt_url(call))["zpw_type"] == "24"                    # giá trị lạ: về PC
+            del os.environ["ZALO_PC_CALL_CLIENT"]
+        # dịch vụ không phải gọi điện KHÔNG bị ảnh hưởng
+        os.environ["ZALO_PC_CALL_CLIENT"] = "mobile"
+        protocol.set_client("web")
+        chat = "https://tt-chat1-wpa.chat.zalo.me/api/message/sms?zpw_ver=695&zpw_type=30&params=abc"
+        assert protocol.adapt_url(chat) == chat
+    finally:
+        os.environ.pop("ZALO_PC_CALL_CLIENT", None)
+        if old is not None:
+            os.environ["ZALO_PC_CALL_CLIENT"] = old
         protocol.set_client("web")
 
 

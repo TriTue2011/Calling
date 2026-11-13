@@ -288,6 +288,9 @@ def hooks_for_call(srtp_key=None, suite="aes_cm_128_hmac_sha1_80",
     hooks["protect_video_rtp"] = (plain_media_hooks()[0] if srtp_key is None
                                   else make_srtp_hooks(srtp_key,
                                                        suite=suite)[0])
+    # Hình ĐẾN của điện thoại (xem trên WebUI, 13/11/2026): phiên SRTP thứ ba cùng khoá, ROC phía nhận riêng cho dãy seq video.
+    hooks["unprotect_video_rtp"] = (plain_media_hooks()[1] if srtp_key is None
+                                    else make_srtp_hooks(srtp_key, suite=suite)[1])
     notes = {"srtp": srtp_note, "opus": "ok"}
     try:
         codec = codec or Opus16kCodec()

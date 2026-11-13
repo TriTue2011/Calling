@@ -67,6 +67,8 @@ import socket
 import struct
 import threading
 import time
+
+from . import h264_rx
 from dataclasses import dataclass, field
 
 __all__ = [
@@ -485,6 +487,7 @@ class TransportConfig:
     unprotect_rtp: object = None
     # SRTP rieng cho day seq video (cung khoa, ROC rieng) — khong co thi khong gui hinh.
     protect_video_rtp: object = None
+    unprotect_video_rtp: object = None   # giải mã hình ĐẾN của điện thoại (phiên SRTP riêng); None = không giải mã (chỉ đếm)
     # Optional extras (documented extensions to the contract):
     encode_frame: object = None
     decode_frame: object = None
@@ -1619,6 +1622,10 @@ class Udp4200Transport:
         self._rx_mark_n = 0
         self._rx_last_sec = 0
         self._sub8_due = None               # gui ReqForward sub 8 mot lan
+        self._h264 = h264_rx.H264Depacketizer()      # ghép hình ĐẾN của điện thoại thành khung Annex-B
+        self._video_taps = []                         # hàng đợi của người xem (WebUI); mỗi khung ghép xong đẩy vào
+        self._video_last_key = None                   # khung khoá gần nhất (người xem mới vào bắt đầu từ đây)
+        self._video_dec_err = 0
         self._relay_selected_at = None      # lúc chọn relay (để thử gửi lại InitZRTP khi điện thoại chưa gửi gói nào)
         self._setup_retries = 0
         self._setup_retry_max = max(0, int(os.environ.get("ZALO_PC_SETUP_RETRY", "3") or 0))   # 0 = tắt
@@ -2467,6 +2474,55 @@ class Udp4200Transport:
         seq, ts, ssrc = struct.unpack_from(">HII", rtp, 2)[0], \
             struct.unpack_from(">I", rtp, 4)[0], struct.unpack_from(">I", rtp, 8)[0]
         self._rx_video.on_packet(seq, ts, ssrc, now_ms)
+        self._decode_video(rtp, seq)
+
+    def _decode_video(self, rtp, seq):
+        """Giải mã SRTP + ghép H.264 của gói hình điện thoại (chỉ khi có hook). Lỗi chỉ đếm, không bao giờ ném ra làm hỏng luồng nhận."""
+        hook = self.config.unprotect_video_rtp
+        if hook is None:
+            return
+        try:
+            plain = hook(rtp)
+            payload = h264_rx.rtp_payload(plain)
+            if payload is None:
+                raise ValueError("payload rong")
+            out = self._h264.push(payload, bool(plain[1] & 0x80), seq)
+        except Exception as exc:  # noqa: BLE001 - nhận hình không được làm sập vòng nhận
+            self._video_dec_err += 1
+            self.counters["video_dec_err"] = self._video_dec_err
+            if self._video_dec_err <= 3:
+                print("[video-dec] loi giai ma #%d: %s: %s" % (self._video_dec_err, type(exc).__name__, str(exc)[:80]), flush=True)
+            return
+        if out is None:
+            return
+        annexb, is_key = out
+        st = self._h264.stats
+        self.counters["video_dec_frames"] = st["frames"]
+        self.counters["video_dec_key"] = st["key"]
+        if st["frames"] <= 3 or (is_key and st["key"] <= 2):
+            print("[video-dec] khung #%d key=%s %d byte (da ghep, bo %d)" % (st["frames"], is_key, len(annexb), st["dropped"]), flush=True)
+        if is_key:
+            self._video_last_key = annexb
+        for q in list(self._video_taps):
+            try:
+                q.put_nowait((annexb, is_key))
+            except Exception:  # noqa: BLE001 - hàng đợi đầy: người xem chậm, bỏ khung (không chặn luồng nhận)
+                pass
+
+    def add_video_tap(self, maxsize=90):
+        """Hàng đợi khung Annex-B của hình điện thoại cho một người xem. Bắt đầu từ khung khoá gần nhất (nếu có)."""
+        import queue
+        q = queue.Queue(maxsize=maxsize)
+        if self._video_last_key is not None:
+            q.put_nowait((self._video_last_key, True))
+        self._video_taps.append(q)
+        return q
+
+    def remove_video_tap(self, q):
+        try:
+            self._video_taps.remove(q)
+        except ValueError:
+            pass
 
     def _diag_video_rtcp(self, body):
         """Chan doan: dien thoai bao gi ve luong HINH cua ta (13/11: goi video den bi bao «tat camera»)."""

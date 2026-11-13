@@ -1299,7 +1299,7 @@ class MediaEndpoints:
                  extend_data=None, srtp_mode=None, is_video=False,
                  zrtc_config=None, requestcall_data=None,
                  protect_rtp=None, unprotect_rtp=None,
-                 protect_video_rtp=None,
+                 protect_video_rtp=None, unprotect_video_rtp=None,
                  encode_frame=None, decode_frame=None,
                  selection_timeout=5.0, transport_factory=None,
                  on_first_media=None, advertise_srtp_key=False,
@@ -1531,7 +1531,7 @@ class MediaEndpoints:
             call_id=call_id, callee_id=str(callee_id),
             call_type=call_type, codec=codec, extend_data=ext_dict,
             protect_rtp=protect_rtp, unprotect_rtp=unprotect_rtp,
-            protect_video_rtp=protect_video_rtp,
+            protect_video_rtp=protect_video_rtp, unprotect_video_rtp=unprotect_video_rtp,
             encode_frame=encode_frame, decode_frame=decode_frame,
             call_session=call_session, is_caller=is_caller,
             **({"call_counter": call_counter}

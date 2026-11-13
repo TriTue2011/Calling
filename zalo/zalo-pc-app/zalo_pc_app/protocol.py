@@ -200,6 +200,16 @@ def user_agent():
 # nhắc zpw_type/zpw_ver) thì máy chủ đó được HỌC là cần PC và các yêu cầu sau đi bằng PC. Kiểu «pc» đăng nhập thì mọi thứ đã là PC.
 _PC_HOSTS = set()
 
+# Danh tính khai cho ĐƯỜNG GỌI ĐIỆN (/api/voicecall/), tách khỏi kiểu đăng nhập (13/11/2026). Mặc định «pc» (24/693). «mobile» = zpw_type 25 như
+# APK Zalo Android (chuỗi `&zpw_type=25&zpw_sek=` trong APK 26.10.02; zpw_ver của APK là cấu hình riêng, máy chủ không kiểm: đo 1/693/695 đều nhận) —
+# thử để điện thoại coi BenBap là máy di động khi xin chuyển thoại sang video. Máy chủ nhóm nhận type 22..25 và 30, từ chối 26/27/31 (đo 13/11).
+CALL_CLIENTS = {"pc": (24, 693), "mobile": (25, 693)}
+
+
+def call_identity():
+    """(zpw_type, zpw_ver) cho yêu cầu gọi điện: ZALO_PC_CALL_CLIENT = pc (mặc định) | mobile."""
+    return CALL_CLIENTS.get(os.environ.get("ZALO_PC_CALL_CLIENT", "pc").strip().lower(), CALL_CLIENTS["pc"])
+
 
 def _split(url):
     return urllib.parse.urlsplit(url)
@@ -216,18 +226,20 @@ def uses_pc_identity(url):
 
 def adapt_url(url):
     """Đổi zpw_type/zpw_ver trong URL sang giá trị PC nếu yêu cầu này phải khai kiểu PC; không có hai tham số đó thì giữ nguyên."""
-    if client_name() == "pc" or not (is_call_url(url) or _split(url).netloc.lower() in _PC_HOSTS):
+    if is_call_url(url):
+        return to_pc(url, call_identity())
+    if client_name() == "pc" or _split(url).netloc.lower() not in _PC_HOSTS:
         return url
     return to_pc(url)
 
 
-def to_pc(url):
-    """Ép URL sang zpw_type/zpw_ver của PC (không điều kiện); không có hai tham số đó thì giữ nguyên."""
+def to_pc(url, identity=None):
+    """Ép URL sang zpw_type/zpw_ver của PC (hoặc `identity` nếu có); không có hai tham số đó thì giữ nguyên."""
     parts = _split(url)
     q = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
     if not any(k in ("zpw_type", "zpw_ver") for k, _ in q):
         return url
-    t, v = CLIENTS["pc"]
+    t, v = identity or CLIENTS["pc"]
     q = [(k, str(t) if k == "zpw_type" else str(v) if k == "zpw_ver" else val) for k, val in q]
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(q), parts.fragment))
 

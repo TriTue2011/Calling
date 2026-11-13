@@ -612,6 +612,47 @@ def test_no_setup_retry_once_phone_media_arrived():
         close()
 
 
+def test_phone_video_is_decrypted_assembled_and_offered_to_viewers():
+    """Hình ĐẾN của điện thoại: giải mã SRTP (phiên riêng cùng khoá) + ghép FU-A/STAP-A -> khung Annex-B cho người xem (WebUI).
+    Dùng SRTP thật: điện thoại mã hoá bằng một SrtpSession, ta giải bằng SrtpSession thứ hai."""
+    from zalo_pc_app import srtp_pure, h264_rx
+    master = bytes(range(30))
+    phone = srtp_pure.SrtpSession(master)
+    mine = srtp_pure.SrtpSession(master)
+    tr, received, close = _connected(_Fabric(), keepalive_media_interval=3600.0, unprotect_video_rtp=mine.unprotect)
+    try:
+        tap = tr.add_video_tap()
+        SPS, PPS = bytes([0x67, 0x42, 0x00, 0x1F, 0xAA]), bytes([0x68, 0xCE, 0x3C, 0x80])
+        IDR = bytes([0x65]) + bytes(range(1, 40))
+        stap = bytes([24]) + len(SPS).to_bytes(2, "big") + SPS + len(PPS).to_bytes(2, "big") + PPS
+        seq = 500
+        def send(payload, marker, pt=98):
+            nonlocal seq
+            hdr = bytearray(12); hdr[0] = 0x80; hdr[1] = pt | (0x80 if marker else 0)
+            struct.pack_into(">HII", hdr, 2, seq & 0xFFFF, 90000, PEER_SSRC)
+            tr._on_video(phone.protect(bytes(hdr) + payload))
+            seq += 1
+        send(stap, False)
+        body = IDR[1:]
+        send(bytes([(IDR[0] & 0xE0) | 28, 0x80 | (IDR[0] & 0x1F)]) + body[:20], False)
+        send(bytes([(IDR[0] & 0xE0) | 28, 0x40 | (IDR[0] & 0x1F)]) + body[20:], True)
+        annexb, key = tap.get(timeout=2)
+        assert key is True and annexb == h264_rx.START + SPS + h264_rx.START + PPS + h264_rx.START + IDR
+        assert tr.counters["video_dec_frames"] == 1 and tr.counters["video_dec_key"] == 1 and tr.counters.get("video_dec_err", 0) == 0
+        # Người xem vào SAU: nhận ngay khung khoá gần nhất
+        late = tr.add_video_tap()
+        assert late.get(timeout=1)[0] == annexb
+        tr.remove_video_tap(tap); tr.remove_video_tap(late)
+        # Gói hỏng (sai khoá) chỉ được đếm lỗi, không làm sập
+        bad = srtp_pure.SrtpSession(bytes(range(1, 31)))
+        hdr = bytearray(12); hdr[0] = 0x80; hdr[1] = 98
+        struct.pack_into(">HII", hdr, 2, seq, 90000, PEER_SSRC)
+        tr._on_video(bad.protect(bytes(hdr) + b"\x41abc"))
+        assert tr.counters["video_dec_err"] == 1
+    finally:
+        close()
+
+
 def test_rtcp_compound_sr_sdes_like_zca():
     pkt = ut.build_rtcp_compound(SSRC, 320000, 141, 1590, peer_ssrc=PEER_SSRC,
                                  highest_seq=99, last_sr_mid=0xE2E359AD,
