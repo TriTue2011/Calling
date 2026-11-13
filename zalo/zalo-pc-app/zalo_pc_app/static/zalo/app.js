@@ -38,6 +38,9 @@ const ICONS = {
   globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.4 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.4-3.5-8.5s1-6 3.5-8.5z"/>',
   help: '<circle cx="12" cy="12" r="8.5"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 16.5v.1"/>',
   logout: '<path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M15 8l4 4-4 4M19 12H9"/>',
+  mic: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/>',
+  speaker: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5zM15.5 9a4 4 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/>',
+  cam: '<rect x="3.5" y="6.5" width="12" height="11" rx="2.2"/><path d="m15.5 11 5-3v8l-5-3z"/>',
 };
 function svg(name) {
   const s = document.createElementNS(NS, "svg");
@@ -672,6 +675,36 @@ async function rejectCall(a) {
   if (r.error || r.ok === false) toast("Không từ chối được: " + (r.error || r.detail || "không rõ"), 6000);
   await loadCalls();
 }
+// Nút bật/tắt mic, loa, camera của cuộc gọi: điều khiển THIẾT BỊ TRONG NHÀ (mic/loa R1, camera) qua /api/call/media và /api/call/video.
+S.cm = { id: "", mic: false, speaker: false, video: false, busy: "" };
+function applyCm(id, r) {
+  const on = (x) => !!x && x.alive !== false;
+  S.cm = Object.assign(S.cm, { id: String(id), mic: on(r.mic), speaker: on(r.speaker), video: on(r.video) });
+  renderCallCard();
+}
+async function refreshCallMedia() {
+  const a = S.calls.active; if (!a || S.cm.busy) return;
+  try { const r = await api("/api/call/media", "POST", { call_id: a.call_id, action: "status" }); if (!r.error && r.ok !== false) applyCm(a.call_id, r); } catch (e) { /* mạng: thử lại lần sau */ }
+}
+async function toggleMedia(target) {
+  const a = S.calls.active; if (!a || S.cm.busy) return;
+  const turnOn = !S.cm[target === "video" ? "video" : target];
+  S.cm.busy = target; renderCallCard();
+  try {
+    const r = await api(target === "video" ? "/api/call/video" : "/api/call/media", "POST", { call_id: a.call_id, action: turnOn ? "start" : "stop", target });
+    if (r.error || r.ok === false) toast((turnOn ? "Không bật được " : "Không tắt được ") + ({ mic: "mic", speaker: "loa", video: "camera" })[target] + ": " + (r.error || "lỗi"), 5000);
+    S.cm.busy = ""; applyCm(a.call_id, r.error ? {} : r);
+    if (r.error || r.ok === false) refreshCallMedia();
+  } catch (e) { S.cm.busy = ""; toast("Lỗi mạng khi điều khiển cuộc gọi", 4000); renderCallCard(); }
+}
+function mediaToggles() {
+  const row = [["mic", "mic", "Mic"], ["speaker", "speaker", "Loa"], ["video", "cam", "Camera"]].map(([key, icon, label]) =>
+    h("button", { class: "tg" + (S.cm[key] ? " on" : ""), type: "button", "aria-pressed": S.cm[key] ? "true" : "false", disabled: !!S.cm.busy,
+      title: label + " trong nhà (R1/camera): " + (S.cm[key] ? "đang bật, bấm để tắt" : "đang tắt, bấm để bật"), onclick: () => toggleMedia(key) },
+      svg(icon), h("span", {}, label + (S.cm[key] ? " bật" : " tắt"))));
+  return h("div", { class: "tgs" }, row);
+}
+setInterval(() => { const a = S.calls.active; if (a && (a.status === "answered" || a.answered_at)) refreshCallMedia(); }, 3000);
 async function endCall() { const a = S.calls.active; if (!a) return; const r = await api("/api/call/end", "POST", { call_id: a.call_id }); if (r.error) toast("Lỗi kết thúc cuộc gọi: " + r.error, 5000); await loadCalls(); }
 function renderCallCard() {
   const card = $("callcard"), a = S.calls.active;
@@ -693,7 +726,9 @@ function renderCallCard() {
     h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, (a.type === "video" ? "Video · " : "") + peerName(a)), h("div", { class: "st" }, answered ? "Đang trong cuộc gọi" : ringing ? "Đang đổ chuông…" : "Đang kết nối…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - since)))),
     answered && noMedia ? h("div", { class: "warn" }, "Đã nối hơn 8 giây nhưng chưa thấy gói tiếng/hình nào chạy qua; bên kia có thể báo “kết nối không ổn định”.") : null,
     a.request_sent === false ? h("div", { class: "warn" }, "Bước 2 chưa gửi được, bên kia có thể chưa đổ chuông.") : null,
+    answered ? mediaToggles() : null,
     h("div", { class: "acts" }, h("button", { class: "end", type: "button", onclick: endCall }, svg("hang"), "Kết thúc")));
+  if (answered && S.cm.id !== String(a.call_id)) { S.cm.id = String(a.call_id); S.cm.mic = S.cm.speaker = S.cm.video = false; refreshCallMedia(); }
   card._since = since;
 }
 setInterval(() => { const c = $("callcard"), t = $("call-t"); if (t && c._since) t.textContent = fmtDur(Date.now() / 1000 - c._since); }, 1000);
