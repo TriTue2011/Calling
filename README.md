@@ -571,6 +571,7 @@ action: zalo_call.set_rule
 data:
   scope: "thread"                    # bắt buộc - Áp dụng cho
   thread_id: "6643404425553198601"   # tuỳ chọn - Mã Zalo của người hoặc nhóm
+  tag: "gia đình"                    # tuỳ chọn - Thẻ
   name: "..."                        # tuỳ chọn - Tên gọi (để bạn nhớ)
   answer: false                      # tuỳ chọn - Tự nghe máy
   answer_delay: 3                    # tuỳ chọn - Nghe máy sau (giây)
@@ -607,6 +608,7 @@ data:
 |---|---|---|---|
 | `scope` | Áp dụng cho | có | Chọn đối tượng của quy tắc. «Một người hoặc một nhóm cụ thể» thì điền thêm Mã Zalo bên dưới. |
 | `thread_id` | Mã Zalo của người hoặc nhóm | không | Chỉ cần khi chọn «Một người hoặc một nhóm cụ thể». Xem danh sách bằng dịch vụ «Xem danh bạ Zalo». |
+| `tag` | Thẻ | không | Chỉ cần khi chọn «Mọi người mang một thẻ». Gắn thẻ cho người bằng dịch vụ «Gắn thẻ và ghi chú cho người». |
 | `name` | Tên gọi (để bạn nhớ) | không | Tên hiển thị trong các thông báo, ví dụ «Con trai». |
 | `answer` | Tự nghe máy | không | Cuộc gọi 1-1 đến từ người thuộc quy tắc này sẽ tự được nghe sau thời gian chờ. |
 | `answer_delay` | Nghe máy sau (giây) | không | Từ 0 đến 120 giây. Người gọi cúp trước khi hết giờ thì không nghe. |
@@ -641,10 +643,11 @@ data:
 **Các lựa chọn:**
 
 - **Áp dụng cho** (`scope`)
-  - `thread`: một người hoặc một nhóm cụ thể (điền thêm Mã Zalo); được ưu tiên cao nhất và thay hẳn quy tắc chung
-  - `groups`: mọi nhóm
-  - `contacts`: mọi người trong danh bạ (bạn bè)
-  - `strangers`: mọi người lạ (không có trong danh bạ)
+  - `thread`: Một người hoặc một nhóm cụ thể
+  - `tag`: Mọi người mang một thẻ (điền ô Thẻ)
+  - `groups`: Mọi nhóm
+  - `contacts`: Mọi người trong danh bạ
+  - `strangers`: Mọi người lạ
 - **Nghe loại cuộc gọi nào** (`call_types`) - chọn được nhiều ô cùng lúc
   - `voice`: nghe cuộc gọi thoại
   - `video`: nghe cuộc gọi video (chọn cả hai = nghe cả hai loại)
@@ -680,20 +683,23 @@ action: zalo_call.remove_rule
 data:
   scope: "thread"   # bắt buộc - Áp dụng cho
   thread_id: "..."  # tuỳ chọn - Mã Zalo của người hoặc nhóm
+  tag: "..."        # tuỳ chọn - Thẻ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
 |---|---|---|---|
 | `scope` | Áp dụng cho | có | Chọn đối tượng của quy tắc. «Một người hoặc một nhóm cụ thể» thì điền thêm Mã Zalo bên dưới. |
 | `thread_id` | Mã Zalo của người hoặc nhóm | không | Chỉ cần khi chọn «Một người hoặc một nhóm cụ thể». Xem danh sách bằng dịch vụ «Xem danh bạ Zalo». |
+| `tag` | Thẻ | không | Chỉ cần khi chọn «Mọi người mang một thẻ». Gắn thẻ cho người bằng dịch vụ «Gắn thẻ và ghi chú cho người». |
 
 **Các lựa chọn:**
 
 - **Áp dụng cho** (`scope`)
-  - `thread`: một người hoặc một nhóm cụ thể (điền thêm Mã Zalo); được ưu tiên cao nhất và thay hẳn quy tắc chung
-  - `groups`: mọi nhóm
-  - `contacts`: mọi người trong danh bạ (bạn bè)
-  - `strangers`: mọi người lạ (không có trong danh bạ)
+  - `thread`: Một người hoặc một nhóm cụ thể
+  - `tag`: Mọi người mang một thẻ (điền ô Thẻ)
+  - `groups`: Mọi nhóm
+  - `contacts`: Mọi người trong danh bạ
+  - `strangers`: Mọi người lạ
 
 
 <a id="list_rules"></a>
@@ -1397,6 +1403,7 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | [uploadProductPhoto](docs/DICH-VU.md#upload_product_photo) | `zalo_call.upload_product_photo` | uploadProductPhoto — Tải ảnh sản phẩm lên máy chủ Zalo phục vụ cho Product Catalog hoặc Quick Message. (chưa... |
 | **Khác** | | |
 | [Chuyển giọng nói thành văn bản (Zalo AI)](docs/DICH-VU.md#voice_to_text) | `zalo_call.voice_to_text` | Gửi một tin nhắn thoại (URL tệp .aac/.mp3/.m4a trên máy chủ Zalo) cho Zalo AI và trả về văn bản. Chỉ dùng cho... |
+| [Gắn thẻ và ghi chú cho người](docs/DICH-VU.md#set_contact_tags) | `zalo_call.set_contact_tags` | Gắn thẻ (ví dụ «gia đình») và ghi chú cho một người hoặc nhóm. Đặt quy tắc cho một thẻ (dịch vụ «Đặt quy... |
 
 <!-- DICH-VU:CHI-MUC:END -->
 

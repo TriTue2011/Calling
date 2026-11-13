@@ -7567,6 +7567,8 @@ set_rule:
           options: &id025
           - value: thread
             label: Một người hoặc một nhóm cụ thể
+          - value: tag
+            label: Mọi người mang một thẻ (điền ô Thẻ)
           - value: groups
             label: Mọi nhóm
           - value: contacts
@@ -7578,6 +7580,13 @@ set_rule:
       description: Chỉ cần khi chọn «Một người hoặc một nhóm cụ thể». Xem danh sách bằng dịch vụ «Xem
         danh bạ Zalo».
       example: '6643404425553198601'
+      selector:
+        text: null
+    tag:
+      name: Thẻ
+      description: Chỉ cần khi chọn «Mọi người mang một thẻ». Gắn thẻ cho người bằng dịch vụ «Gắn thẻ
+        và ghi chú cho người».
+      example: gia đình
       selector:
         text: null
     name:
@@ -7826,6 +7835,39 @@ remove_rule:
         danh bạ Zalo».
       selector:
         text: null
+    tag:
+      name: Thẻ
+      description: Chỉ cần khi chọn «Mọi người mang một thẻ». Gắn thẻ cho người bằng dịch vụ «Gắn thẻ
+        và ghi chú cho người».
+      selector:
+        text: null
+set_contact_tags:
+  name: Gắn thẻ và ghi chú cho người
+  description: Gắn thẻ (ví dụ «gia đình») và ghi chú cho một người hoặc nhóm. Đặt quy tắc cho một thẻ
+    (dịch vụ «Đặt quy tắc…», chọn «Mọi người mang một thẻ») thì tất cả người mang thẻ đó dùng quy tắc
+    ấy, khỏi đặt từng người. Ô nào không điền thì giữ nguyên; để trống ô Thẻ là gỡ hết thẻ.
+  fields:
+    entry_id: *id001
+    thread_id:
+      name: ThreadID (gõ tay)
+      description: ID Zalo của người hoặc nhóm. Lấy danh sách bằng dịch vụ list_contacts.
+      required: true
+      example: '6643404425553198601'
+      selector:
+        text: null
+    tags:
+      name: Thẻ
+      description: Các thẻ cách nhau bằng dấu phẩy, ví dụ gia đình, người lớn tuổi. Tối đa 10 thẻ, không
+        phân biệt hoa thường.
+      example: gia đình, người lớn tuổi
+      selector:
+        text: null
+    note:
+      name: Ghi chú
+      description: Ghi chú ngắn về người này (tối đa 500 ký tự).
+      selector:
+        text:
+          multiline: true
 list_rules:
   name: Xem các quy tắc
   description: Trả về mọi quy tắc đang đặt.

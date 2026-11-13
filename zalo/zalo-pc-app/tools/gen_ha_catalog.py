@@ -842,6 +842,7 @@ set_rule:
         select:
           options:
           - thread
+          - tag
           - groups
           - contacts
           - strangers
@@ -849,6 +850,12 @@ set_rule:
       name: ThreadID (gõ tay)
       description: ID Zalo của người hoặc nhóm (chỉ khi scope = thread). Lấy danh sách bằng dịch vụ list_contacts.
       example: "6643404425553198601"
+      selector:
+        text:
+    tag:
+      name: Thẻ
+      description: Tên thẻ (chỉ khi scope = tag). Gắn thẻ cho người bằng dịch vụ set_contact_tags.
+      example: gia đình
       selector:
         text:
     name:
@@ -1064,6 +1071,7 @@ remove_rule:
         select:
           options:
           - thread
+          - tag
           - groups
           - contacts
           - strangers
@@ -1072,9 +1080,39 @@ remove_rule:
       description: Tuỳ chọn.
       selector:
         text:
+    tag:
+      name: Thẻ
+      description: Tuỳ chọn (chỉ khi scope = tag).
+      selector:
+        text:
+set_contact_tags:
+  name: Gắn thẻ và ghi chú cho người
+  description: >-
+    Gắn thẻ và/hoặc ghi chú cho một người hoặc nhóm. Thẻ nào có quy tắc riêng (set_rule với scope = tag) thì mọi người mang thẻ đó dùng quy tắc ấy.
+    Không nêu thẻ hoặc ghi chú thì giữ nguyên; thẻ để trống là gỡ hết thẻ.
+  fields:
+    thread_id:
+      name: ThreadID (gõ tay)
+      description: ID Zalo của người hoặc nhóm. Lấy danh sách bằng dịch vụ list_contacts.
+      required: true
+      example: "6643404425553198601"
+      selector:
+        text:
+    tags:
+      name: Thẻ
+      description: Các thẻ cách nhau bằng dấu phẩy, ví dụ gia đình, người lớn tuổi. Tối đa 10 thẻ, không phân biệt hoa thường.
+      example: gia đình, người lớn tuổi
+      selector:
+        text:
+    note:
+      name: Ghi chú
+      description: Ghi chú ngắn về người này (tối đa 500 ký tự).
+      selector:
+        text:
+          multiline: true
 list_rules:
   name: Xem các quy tắc
-  description: Trả về mọi quy tắc đang đặt (theo threadID, nhóm, danh bạ, người lạ).
+  description: Trả về mọi quy tắc đang đặt (theo threadID, thẻ, nhóm, danh bạ, người lạ) cùng thẻ và ghi chú của từng người.
 list_contacts:
   name: Xem danh bạ Zalo
   description: Trả về bạn bè và nhóm (id, tên) của tài khoản trong app, để lấy threadID cho set_rule.

@@ -78,6 +78,9 @@ SERVICES = {
                  "Quy định hệ thống làm gì khi có người gọi hoặc nhắn đến. Chưa có quy tắc cho người đó thì hệ thống KHÔNG làm gì (chỉ đổ chuông, không trả "
                  "lời tin nhắn). Quy tắc cho một người hoặc nhóm cụ thể được ưu tiên hơn quy tắc chung. Ô nào không điền thì giữ nguyên như cũ; quy tắc "
                  "mới mặc định TẮT hết và không dùng thiết bị nhà."),
+    "set_contact_tags": ("Gắn thẻ và ghi chú cho người",
+                         "Gắn thẻ (ví dụ «gia đình») và ghi chú cho một người hoặc nhóm. Đặt quy tắc cho một thẻ (dịch vụ «Đặt quy tắc…», chọn «Mọi người mang một thẻ») "
+                         "thì tất cả người mang thẻ đó dùng quy tắc ấy, khỏi đặt từng người. Ô nào không điền thì giữ nguyên; để trống ô Thẻ là gỡ hết thẻ."),
     "remove_rule": ("Xoá quy tắc", "Xoá quy tắc của một người/nhóm cụ thể hoặc của một nhóm đối tượng. Từ đó hệ thống quay về «không làm gì» với họ."),
     "list_rules": ("Xem các quy tắc", "Trả về mọi quy tắc đang đặt."),
     "list_contacts": ("Xem danh bạ Zalo", "Danh sách bạn bè và nhóm kèm mã Zalo, để điền vào các ô «Mã Zalo»."),
@@ -107,6 +110,7 @@ ALERT_FIELDS = {
 RULE_FIELDS = {
     "scope": ("Áp dụng cho", "Chọn đối tượng của quy tắc. «Một người hoặc một nhóm cụ thể» thì điền thêm Mã Zalo bên dưới."),
     "thread_id": ("Mã Zalo của người hoặc nhóm", "Chỉ cần khi chọn «Một người hoặc một nhóm cụ thể». Xem danh sách bằng dịch vụ «Xem danh bạ Zalo»."),
+    "tag": ("Thẻ", "Chỉ cần khi chọn «Mọi người mang một thẻ». Gắn thẻ cho người bằng dịch vụ «Gắn thẻ và ghi chú cho người»."),
     "name": ("Tên gọi (để bạn nhớ)", "Tên hiển thị trong các thông báo, ví dụ «Con trai»."),
     "answer": ("Tự nghe máy", "Cuộc gọi 1-1 đến từ người thuộc quy tắc này sẽ tự được nghe sau thời gian chờ."),
     "answer_delay": ("Nghe máy sau (giây)", "Từ 0 đến 120 giây. Người gọi cúp trước khi hết giờ thì không nghe."),
@@ -144,6 +148,7 @@ VIDEO_REQUEST_OPTIONS = [
 ]
 RULE_SCOPE_OPTIONS = [
     {"value": "thread", "label": "Một người hoặc một nhóm cụ thể"},
+    {"value": "tag", "label": "Mọi người mang một thẻ (điền ô Thẻ)"},
     {"value": "groups", "label": "Mọi nhóm"},
     {"value": "contacts", "label": "Mọi người trong danh bạ"},
     {"value": "strangers", "label": "Mọi người lạ"},
@@ -172,6 +177,7 @@ def apply(extra: dict) -> None:
     for svc in ("remove_rule",):
         _set(extra.get(svc, {}).get("fields", {}), "scope", RULE_FIELDS["scope"])
         _set(extra.get(svc, {}).get("fields", {}), "thread_id", RULE_FIELDS["thread_id"])
+        _set(extra.get(svc, {}).get("fields", {}), "tag", RULE_FIELDS["tag"])
     for svc in ("set_rule", "remove_rule"):
         f = extra.get(svc, {}).get("fields", {})
         if "scope" in f:

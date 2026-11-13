@@ -26,7 +26,10 @@ class RuleError(ValueError):
     """Quy tắc/phạm vi không hợp lệ (dịch vụ đổi thành RuleError)."""
 
 
-SCOPES = ("thread", "groups", "contacts", "strangers")
+SCOPES = ("thread", "tag", "groups", "contacts", "strangers")
+MAX_TAG_LEN = 40
+MAX_TAGS_PER_CONTACT = 10
+MAX_NOTE_LEN = 500
 CALL_TYPES = ("voice", "video")
 MAX_DELAY = 120
 MAX_ANNOUNCE_REPEAT = 60                # giây giữa hai lần báo lại tối đa
@@ -76,7 +79,25 @@ _BOOL = ("answer", "ai", "trusted", "reply_ai", "voice_text", "announce", "reply
 
 
 def empty_rules() -> dict[str, dict[str, Any]]:
-    return {"threads": {}, "groups": {}, "contacts": {}, "strangers": {}}
+    # tags: quy tắc theo THẺ ({thẻ: quy tắc}); contact_meta: thẻ + ghi chú từng người ({threadID: {"tags": [...], "note": "..."}}) — học từ CRM:
+    # gắn thẻ «gia đình» cho nhiều người rồi đặt MỘT quy tắc cho thẻ đó, thay vì đặt từng người.
+    return {"threads": {}, "tags": {}, "contact_meta": {}, "groups": {}, "contacts": {}, "strangers": {}}
+
+
+def norm_tag(value: Any) -> str:
+    """Thẻ chuẩn hoá: bỏ khoảng trắng thừa, chữ thường, không có dấu phẩy, tối đa MAX_TAG_LEN ký tự (so sánh thẻ không phân biệt hoa/thường)."""
+    return " ".join(str(value or "").replace(",", " ").split()).casefold()[:MAX_TAG_LEN]
+
+
+def parse_tags(value: Any) -> list[str]:
+    """Danh sách thẻ từ chuỗi «a, b» hoặc list; bỏ thẻ rỗng và trùng (giữ thứ tự), tối đa MAX_TAGS_PER_CONTACT."""
+    parts = value.split(",") if isinstance(value, str) else (value if isinstance(value, (list, tuple)) else [])
+    out: list[str] = []
+    for p in parts:
+        t = norm_tag(p)
+        if t and t not in out:
+            out.append(t)
+    return out[:MAX_TAGS_PER_CONTACT]
 
 
 def get_rules(defaults: Any) -> dict[str, dict[str, Any]]:
@@ -149,8 +170,8 @@ def normalize(data: dict[str, Any], old: dict[str, Any] | None = None) -> dict[s
     return rule
 
 
-def validate_scope(scope: str, thread_id: Any) -> str:
-    """threadID đã chuẩn hoá ("" khi scope không phải thread)."""
+def validate_scope(scope: str, thread_id: Any, tag: Any = "") -> str:
+    """Khoá của phạm vi: threadID đã chuẩn hoá khi scope = thread, thẻ đã chuẩn hoá khi scope = tag, "" với các phạm vi còn lại."""
     if scope not in SCOPES:
         raise RuleError("scope phải là một trong: %s" % ", ".join(SCOPES))
     if scope == "thread":
@@ -158,6 +179,11 @@ def validate_scope(scope: str, thread_id: Any) -> str:
         if not tid.isdigit():
             raise RuleError("scope «thread» cần thread_id là số (ID Zalo của người hoặc nhóm)")
         return tid
+    if scope == "tag":
+        key = norm_tag(tag)
+        if not key:
+            raise RuleError("scope «tag» cần tag (tên thẻ gắn cho người trong danh bạ)")
+        return key
     return ""
 
 
@@ -169,6 +195,11 @@ def resolve(rules: dict[str, dict[str, Any]], thread_id: Any, thread_type: Any, 
     rule = rules["threads"].get(tid)
     if rule is not None:
         return rule                                            # đè hoàn toàn nhóm
+    # Thẻ do chủ nhà gắn tay nên áp cho mọi người đã gắn, không xét quen/lạ; thẻ đứng trước (theo thứ tự gắn) thắng; quy tắc theo thẻ thắng quy tắc chung.
+    for t in (((rules.get("contact_meta") or {}).get(tid) or {}).get("tags") or []):
+        tagged = (rules.get("tags") or {}).get(t)
+        if tagged:
+            return tagged
     is_group = str(thread_type) in ("group", "1") or contact_status == "group"
     if is_group:
         return rules["groups"] or None

@@ -23,7 +23,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import ZaloCallApi, ZaloCallError
 from .bridge_core import entity_of_label
 from .call_voice import DEFAULT_GREETING, HELD_DEVICES, Plan, async_accept_video, explicit_devices, async_say, async_take_over, devices_for_mode, plan_from_service
-from .rules import CALL_TYPES, CONNECT, CONNECT_PARTS, MAX_ANNOUNCE_REPEAT, VIDEO_REQUEST, ECHO as RULE_ECHO, parse_connect, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
+from .rules import MAX_NOTE_LEN, parse_tags, CALL_TYPES, CONNECT, CONNECT_PARTS, MAX_ANNOUNCE_REPEAT, VIDEO_REQUEST, ECHO as RULE_ECHO, parse_connect, RULES_KEY, RuleError, SCOPES, get_rules, normalize as normalize_rule, resolve as resolve_rule, validate_scope
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
 
@@ -323,7 +323,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
     def _rules_copy(rt) -> dict:
         r = get_rules(rt.defaults)
         return {"threads": {k: dict(v) for k, v in r["threads"].items()}, "groups": dict(r["groups"]), "contacts": dict(r["contacts"]),
-                "strangers": dict(r["strangers"])}
+                "strangers": dict(r["strangers"]), "tags": {k: dict(v) for k, v in r["tags"].items()},
+                "contact_meta": {k: dict(v) for k, v in r["contact_meta"].items()}}
 
     def _show(rule: dict) -> dict:
         return {**rule, "pipeline": _pipeline_name(rule["pipeline"]) if rule.get("pipeline") else ""}
@@ -334,11 +335,11 @@ async def async_register_services(hass: HomeAssistant) -> None:
         rt, _ = _api(hass, call)
         scope = call.data["scope"]
         try:
-            tid = validate_scope(scope, call.data.get("thread_id"))
+            tid = validate_scope(scope, call.data.get("thread_id"), call.data.get("tag"))
         except RuleError as err:
             raise ServiceValidationError(str(err)) from err
         rules = _rules_copy(rt)
-        old = rules["threads"].get(tid) if scope == "thread" else (rules[scope] or None)
+        old = rules["threads"].get(tid) if scope == "thread" else rules["tags"].get(tid) if scope == "tag" else (rules[scope] or None)
         data = {k: call.data[k] for k in _RULE_FIELDS if k in call.data}
         if "pipeline" in data:
             data["pipeline"] = _pipeline_id_of(data["pipeline"])
@@ -348,30 +349,59 @@ async def async_register_services(hass: HomeAssistant) -> None:
             raise ServiceValidationError(str(err)) from err
         if scope == "thread":
             rules["threads"][tid] = rule
+        elif scope == "tag":
+            rules["tags"][tid] = rule
         else:
             rules[scope] = rule
         await rt.defaults.async_set(**{RULES_KEY: rules})
-        return {"scope": scope, "thread_id": tid, "rule": _show(rule)}
+        return {"scope": scope, "thread_id": tid if scope == "thread" else "", "tag": tid if scope == "tag" else "", "rule": _show(rule)}
 
     async def remove_rule(call: ServiceCall) -> dict:
         rt, _ = _api(hass, call)
         scope = call.data["scope"]
         try:
-            tid = validate_scope(scope, call.data.get("thread_id"))
+            tid = validate_scope(scope, call.data.get("thread_id"), call.data.get("tag"))
         except RuleError as err:
             raise ServiceValidationError(str(err)) from err
         rules = _rules_copy(rt)
-        removed = (rules["threads"].pop(tid, None) is not None) if scope == "thread" else bool(rules[scope])
-        if scope != "thread":
+        if scope == "thread":
+            removed = rules["threads"].pop(tid, None) is not None
+        elif scope == "tag":
+            removed = rules["tags"].pop(tid, None) is not None
+        else:
+            removed = bool(rules[scope])
             rules[scope] = {}
         await rt.defaults.async_set(**{RULES_KEY: rules})
-        return {"scope": scope, "thread_id": tid, "removed": removed}
+        return {"scope": scope, "thread_id": tid if scope == "thread" else "", "tag": tid if scope == "tag" else "", "removed": removed}
+
+    async def set_contact_tags(call: ServiceCall) -> dict:
+        """Gắn thẻ và/hoặc ghi chú cho một người (hoặc nhóm). Thẻ có quy tắc riêng (set_rule scope = tag) thì mọi người mang thẻ đó dùng quy tắc ấy.
+        Không nêu `tags` / `note` thì giữ nguyên; `tags` rỗng = gỡ hết thẻ."""
+        rt, _ = _api(hass, call)
+        try:
+            tid = validate_scope("thread", call.data["thread_id"])
+        except RuleError as err:
+            raise ServiceValidationError(str(err)) from err
+        rules = _rules_copy(rt)
+        meta = dict(rules["contact_meta"].get(tid) or {})
+        if "tags" in call.data:
+            meta["tags"] = parse_tags(call.data["tags"])
+        if "note" in call.data:
+            meta["note"] = str(call.data["note"] or "").strip()[:MAX_NOTE_LEN]
+        if meta.get("tags") or meta.get("note"):
+            rules["contact_meta"][tid] = {"tags": meta.get("tags") or [], "note": meta.get("note") or ""}
+        else:
+            rules["contact_meta"].pop(tid, None)
+        await rt.defaults.async_set(**{RULES_KEY: rules})
+        out = rules["contact_meta"].get(tid) or {"tags": [], "note": ""}
+        return {"thread_id": tid, "tags": out["tags"], "note": out["note"]}
 
     async def list_rules(call: ServiceCall) -> dict:
         rt, _ = _api(hass, call)
         r = get_rules(rt.defaults)
         return {"threads": {k: _show(v) for k, v in r["threads"].items()}, "groups": _show(r["groups"]) if r["groups"] else None,
-                "contacts": _show(r["contacts"]) if r["contacts"] else None, "strangers": _show(r["strangers"]) if r["strangers"] else None}
+                "contacts": _show(r["contacts"]) if r["contacts"] else None, "strangers": _show(r["strangers"]) if r["strangers"] else None,
+                "tags": {k: _show(v) for k, v in r["tags"].items()}, "contact_meta": {k: dict(v) for k, v in r["contact_meta"].items()}}
 
     async def list_contacts(call: ServiceCall) -> dict:
         """Danh bạ Zalo của app (id + tên) để lấy threadID cho set_rule."""
@@ -654,6 +684,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
     rule_schema = {vol.Optional("entry_id"): cv.string,
                    vol.Required("scope"): vol.In(list(SCOPES)),
                    vol.Optional("thread_id"): vol.Any(int, cv.string),
+                   vol.Optional("tag"): cv.string,
                    vol.Optional("name"): cv.string,
                    vol.Optional("answer"): cv.boolean,
                    vol.Optional("answer_delay"): vol.All(vol.Coerce(int), vol.Range(min=0, max=120)),
@@ -688,7 +719,13 @@ async def async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, "remove_rule", remove_rule,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Required("scope"): vol.In(list(SCOPES)),
-                           vol.Optional("thread_id"): vol.Any(int, cv.string)}), supports_response=SupportsResponse.OPTIONAL)
+                           vol.Optional("thread_id"): vol.Any(int, cv.string), vol.Optional("tag"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "set_contact_tags", set_contact_tags,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Required("thread_id"): vol.Any(int, cv.string),
+                           vol.Optional("tags"): vol.Any(cv.string, [cv.string]), vol.Optional("note"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL)
     for _name, _fn in (("list_rules", list_rules), ("list_contacts", list_contacts), ("get_default_devices", get_default_devices)):
         hass.services.async_register(DOMAIN, _name, _fn, schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
                                      supports_response=SupportsResponse.ONLY)

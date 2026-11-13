@@ -4,7 +4,7 @@
 
 Mọi dịch vụ gọi bằng `action: zalo_call.<tên>` (Công cụ nhà phát triển → Hành động, hoặc trong automation). Ô `entry_id` có ở mọi dịch vụ (chọn tài khoản Zalo) và **chỉ cần khi bạn có nhiều tài khoản**, nên các ví dụ bỏ qua. Dịch vụ đánh dấu ⚠️ xoá hoặc đổi dữ liệu thật.
 
-Có **364 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi, AI, cảnh báo và quy tắc: xem [README](../README.md).  
+Có **365 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi, AI, cảnh báo và quy tắc: xem [README](../README.md).  
 
 ## Mục lục
 
@@ -30,7 +30,7 @@ Có **364 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi,
 - **Sticker (nâng cao)** (21): [`get_a_i_sticker_list`](#get_a_i_sticker_list), [`get_default_guggy_gifs`](#get_default_guggy_gifs), [`get_gif_categories`](#get_gif_categories), [`get_gif_dictionaries`](#get_gif_dictionaries), [`get_gifs_by_category`](#get_gifs_by_category), [`get_gifs_by_dictionary`](#get_gifs_by_dictionary), [`get_message_effect_by_id`](#get_message_effect_by_id), [`get_message_effects`](#get_message_effects), [`get_personalized_sticker_list`](#get_personalized_sticker_list), [`get_recommended_stickers`](#get_recommended_stickers), [`get_sticker_categories_v2`](#get_sticker_categories_v2), [`get_sticker_category_detail`](#get_sticker_category_detail), [`get_sticker_hello`](#get_sticker_hello), [`get_sticker_suggest_keywords`](#get_sticker_suggest_keywords), [`get_sticker_suggestion`](#get_sticker_suggestion), [`get_tenor_sticker_mapping`](#get_tenor_sticker_mapping), [`get_trending_gifs`](#get_trending_gifs), [`search_gifs`](#search_gifs), [`search_guggy_gifs`](#search_guggy_gifs), [`search_sticker`](#search_sticker), [`update_personalized_sticker_list`](#update_personalized_sticker_list)
 - **Ghi chú, bình chọn, việc cần làm** (21): [`ack_ding_todo`](#ack_ding_todo), [`add_poll_options`](#add_poll_options), [`create_note`](#create_note), [`create_todo`](#create_todo), [`delete_todo`](#delete_todo), [`ding_todo`](#ding_todo), [`edit_note`](#edit_note), [`get_list_pin_topics`](#get_list_pin_topics), [`get_todo_detail`](#get_todo_detail), [`get_todo_list`](#get_todo_list), [`multi_unpin_board_topics`](#multi_unpin_board_topics), [`pin_board_topic`](#pin_board_topic), [`pin_friend_message`](#pin_friend_message), [`reorder_friend_board`](#reorder_friend_board), [`reorder_pin_topics`](#reorder_pin_topics), [`share_poll`](#share_poll), [`unpin_board_topic`](#unpin_board_topic), [`unpin_friend_messages`](#unpin_friend_messages), [`update_todo`](#update_todo), [`update_todo_status`](#update_todo_status), [`verify_todo`](#verify_todo)
 - **Zalo Business (OA)** (30): [`add_conversation_label`](#add_conversation_label), [`block_o_a`](#block_o_a), [`convert_o_a_ids`](#convert_o_a_ids), [`create_auto_reply`](#create_auto_reply), [`create_bank_account`](#create_bank_account), [`create_catalog`](#create_catalog), [`create_product_catalog`](#create_product_catalog), [`delete_auto_reply`](#delete_auto_reply), [`delete_bank_account`](#delete_bank_account), [`delete_catalog`](#delete_catalog), [`delete_conversation_label`](#delete_conversation_label), [`delete_product_catalog`](#delete_product_catalog), [`delete_single_product`](#delete_single_product), [`get_auto_reply_list`](#get_auto_reply_list), [`get_biz_account`](#get_biz_account), [`get_catalog_list`](#get_catalog_list), [`get_list_bank`](#get_list_bank), [`get_list_bank_account`](#get_list_bank_account), [`get_o_a_profile`](#get_o_a_profile), [`get_product_catalog_list`](#get_product_catalog_list), [`get_product_detail`](#get_product_detail), [`register_catalog`](#register_catalog), [`reorder_conversation_labels`](#reorder_conversation_labels), [`unblock_o_a`](#unblock_o_a), [`update_auto_reply`](#update_auto_reply), [`update_bank_account`](#update_bank_account), [`update_catalog`](#update_catalog), [`update_conversation_label_item`](#update_conversation_label_item), [`update_product_catalog`](#update_product_catalog), [`upload_product_photo`](#upload_product_photo)
-- **Khác** (1): [`voice_to_text`](#voice_to_text)
+- **Khác** (2): [`voice_to_text`](#voice_to_text), [`set_contact_tags`](#set_contact_tags)
 
 ## Cuộc gọi, AI và cảnh báo
 
@@ -530,6 +530,7 @@ action: zalo_call.set_rule
 data:
   scope: "thread"                    # bắt buộc - Áp dụng cho
   thread_id: "6643404425553198601"   # tuỳ chọn - Mã Zalo của người hoặc nhóm
+  tag: "gia đình"                    # tuỳ chọn - Thẻ
   name: "..."                        # tuỳ chọn - Tên gọi (để bạn nhớ)
   answer: false                      # tuỳ chọn - Tự nghe máy
   answer_delay: 3                    # tuỳ chọn - Nghe máy sau (giây)
@@ -566,6 +567,7 @@ data:
 |---|---|---|---|
 | `scope` | Áp dụng cho | có | Chọn đối tượng của quy tắc. «Một người hoặc một nhóm cụ thể» thì điền thêm Mã Zalo bên dưới. |
 | `thread_id` | Mã Zalo của người hoặc nhóm | không | Chỉ cần khi chọn «Một người hoặc một nhóm cụ thể». Xem danh sách bằng dịch vụ «Xem danh bạ Zalo». |
+| `tag` | Thẻ | không | Chỉ cần khi chọn «Mọi người mang một thẻ». Gắn thẻ cho người bằng dịch vụ «Gắn thẻ và ghi chú cho người». |
 | `name` | Tên gọi (để bạn nhớ) | không | Tên hiển thị trong các thông báo, ví dụ «Con trai». |
 | `answer` | Tự nghe máy | không | Cuộc gọi 1-1 đến từ người thuộc quy tắc này sẽ tự được nghe sau thời gian chờ. |
 | `answer_delay` | Nghe máy sau (giây) | không | Từ 0 đến 120 giây. Người gọi cúp trước khi hết giờ thì không nghe. |
@@ -600,10 +602,11 @@ data:
 **Các lựa chọn:**
 
 - **Áp dụng cho** (`scope`)
-  - `thread`: một người hoặc một nhóm cụ thể (điền thêm Mã Zalo); được ưu tiên cao nhất và thay hẳn quy tắc chung
-  - `groups`: mọi nhóm
-  - `contacts`: mọi người trong danh bạ (bạn bè)
-  - `strangers`: mọi người lạ (không có trong danh bạ)
+  - `thread`: Một người hoặc một nhóm cụ thể
+  - `tag`: Mọi người mang một thẻ (điền ô Thẻ)
+  - `groups`: Mọi nhóm
+  - `contacts`: Mọi người trong danh bạ
+  - `strangers`: Mọi người lạ
 - **Nghe loại cuộc gọi nào** (`call_types`) - chọn được nhiều ô cùng lúc
   - `voice`: nghe cuộc gọi thoại
   - `video`: nghe cuộc gọi video (chọn cả hai = nghe cả hai loại)
@@ -640,20 +643,23 @@ action: zalo_call.remove_rule
 data:
   scope: "thread"   # bắt buộc - Áp dụng cho
   thread_id: "..."  # tuỳ chọn - Mã Zalo của người hoặc nhóm
+  tag: "..."        # tuỳ chọn - Thẻ
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
 |---|---|---|---|
 | `scope` | Áp dụng cho | có | Chọn đối tượng của quy tắc. «Một người hoặc một nhóm cụ thể» thì điền thêm Mã Zalo bên dưới. |
 | `thread_id` | Mã Zalo của người hoặc nhóm | không | Chỉ cần khi chọn «Một người hoặc một nhóm cụ thể». Xem danh sách bằng dịch vụ «Xem danh bạ Zalo». |
+| `tag` | Thẻ | không | Chỉ cần khi chọn «Mọi người mang một thẻ». Gắn thẻ cho người bằng dịch vụ «Gắn thẻ và ghi chú cho người». |
 
 **Các lựa chọn:**
 
 - **Áp dụng cho** (`scope`)
-  - `thread`: một người hoặc một nhóm cụ thể (điền thêm Mã Zalo); được ưu tiên cao nhất và thay hẳn quy tắc chung
-  - `groups`: mọi nhóm
-  - `contacts`: mọi người trong danh bạ (bạn bè)
-  - `strangers`: mọi người lạ (không có trong danh bạ)
+  - `thread`: Một người hoặc một nhóm cụ thể
+  - `tag`: Mọi người mang một thẻ (điền ô Thẻ)
+  - `groups`: Mọi nhóm
+  - `contacts`: Mọi người trong danh bạ
+  - `strangers`: Mọi người lạ
 
 ---
 
@@ -8299,5 +8305,28 @@ data:
 |---|---|---|---|
 | `url` | URL tệp ghi âm | có | Đường dẫn tin nhắn thoại trên máy chủ Zalo (lấy từ sự kiện tin nhắn thoại). |
 | `wait` | Chờ tối đa (giây) | không | Zalo AI trả kết quả bất đồng bộ; chờ tối đa ngần này giây (0 = không chờ, lấy bằng sự kiện). |
+
+---
+
+<a id="set_contact_tags"></a>
+#### Gắn thẻ và ghi chú cho người — `zalo_call.set_contact_tags`
+
+Gắn thẻ (ví dụ «gia đình») và ghi chú cho một người hoặc nhóm. Đặt quy tắc cho một thẻ (dịch vụ «Đặt quy tắc…», chọn «Mọi người mang một thẻ») thì tất cả người mang thẻ đó dùng quy tắc ấy, khỏi đặt từng người. Ô nào không điền thì giữ nguyên; để trống ô Thẻ là gỡ hết thẻ.
+
+**Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
+
+```yaml
+action: zalo_call.set_contact_tags
+data:
+  thread_id: "6643404425553198601"  # bắt buộc - ThreadID (gõ tay)
+  tags: "gia đình, người lớn tuổi"  # tuỳ chọn - Thẻ
+  note: "..."                       # tuỳ chọn - Ghi chú
+```
+
+| Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
+|---|---|---|---|
+| `thread_id` | ThreadID (gõ tay) | có | ID Zalo của người hoặc nhóm. Lấy danh sách bằng dịch vụ list_contacts. |
+| `tags` | Thẻ | không | Các thẻ cách nhau bằng dấu phẩy, ví dụ gia đình, người lớn tuổi. Tối đa 10 thẻ, không phân biệt hoa thường. |
+| `note` | Ghi chú | không | Ghi chú ngắn về người này (tối đa 500 ký tự). |
 
 ---
