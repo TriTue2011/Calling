@@ -506,3 +506,44 @@ async def test_send_video_without_a_public_address_falls_back_to_a_file_attachme
     assert not [x for x in app.requests if x["path"].endswith("/sendvideo")], app.requests
     r = app.last("/sendfile")
     assert r["ctype"] == "multipart/form-data" and b"FAKE-MP4" in r["raw"], r
+
+
+# ---- send_images_to_*: nhiều ảnh MỘT LÚC thành album, không gửi từng ảnh rời (13/11) ----------------------------------------------------
+def _form_value(raw: bytes, name: str):
+    import re
+    m = re.search(rb'name="%s"\r\n\r\n(.*?)\r\n' % name.encode(), raw)
+    return m.group(1).decode() if m else None
+
+
+async def test_send_images_to_group_sends_one_album_in_order_and_gif_apart(hass, setup, app, tmp_path):
+    files = []
+    for n in ("a.jpg", "b.jpg", "c.png", "anim.gif"):
+        f = tmp_path / n
+        f.write_bytes(b"IMG-" + n.encode())
+        files.append(str(f))
+    await call(hass, "send_images_to_group", {"thread_id": THREAD, "files": ",".join(files)})
+    reqs = [r for r in app.requests if r["path"].endswith("/sendfile")]
+    assert len(reqs) == 4, [r["path"] for r in app.requests]
+    layout = {_form_value(r["raw"], "groupLayoutId") for r in reqs[:3]}
+    assert len(layout) == 1 and None not in layout, layout
+    assert [_form_value(r["raw"], "idInGroup") for r in reqs[:3]] == ["0", "1", "2"], "ảnh phải đi đúng thứ tự"
+    assert {_form_value(r["raw"], "totalItemInGroup") for r in reqs[:3]} == {"3"} and {_form_value(r["raw"], "isGroupLayout") for r in reqs[:3]} == {"1"}
+    assert _form_value(reqs[3]["raw"], "groupLayoutId") is None, "GIF không vào album"
+    assert b"IMG-a.jpg" in reqs[0]["raw"] and b"IMG-c.png" in reqs[2]["raw"], "đúng thứ tự tệp"
+
+
+async def test_send_images_to_user_with_one_image_is_not_an_album(hass, setup, app, tmp_path):
+    f = tmp_path / "one.jpg"
+    f.write_bytes(b"ONE")
+    await call(hass, "send_images_to_user", {"thread_id": THREAD, "files": str(f)})
+    r = app.last("/sendfile")
+    assert _form_value(r["raw"], "groupLayoutId") is None and _form_value(r["raw"], "kind") == "photo", r["raw"][:200]
+
+
+async def test_send_images_reads_everything_before_sending_so_a_bad_path_sends_nothing(hass, setup, app, tmp_path):
+    ok = tmp_path / "ok.jpg"
+    ok.write_bytes(b"OK")
+    before = len([r for r in app.requests if r["path"].endswith("/sendfile")])
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "send_images_to_group", {"thread_id": THREAD, "files": "%s,%s" % (ok, tmp_path / "khong-co.jpg")})
+    assert len([r for r in app.requests if r["path"].endswith("/sendfile")]) == before, "không được gửi nửa album"

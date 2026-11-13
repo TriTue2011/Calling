@@ -987,7 +987,7 @@ action: zalo_call.send_images_to_user
 data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
-  files: ""                         # bắt buộc - Các ảnh, cách nhau dấu phẩy
+  files: ""                         # bắt buộc - Các ảnh, cách nhau dấu phẩy. Gửi MỘT LÚC thành một album: ản
   recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
@@ -995,7 +995,7 @@ data:
 |---|---|---|---|
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
-| `files` | Các ảnh, cách nhau dấu phẩy | có | Danh sách paths (comma-separated) |
+| `files` | Các ảnh, cách nhau dấu phẩy. Gửi MỘT LÚC thành một album: ảnh jpg/png/webp từ 2 tấm trở lên gộp chung, GIF và tệp khác gửi rời | có | Danh sách paths (comma-separated) |
 | `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**
@@ -1049,7 +1049,7 @@ action: zalo_call.send_images_to_group
 data:
   thread_id: "5841349563795164131"  # bắt buộc - Mã hội thoại (threadId)
   type: "user"                      # tuỳ chọn - Loại hội thoại
-  files: ""                         # bắt buộc - Các ảnh, cách nhau dấu phẩy
+  files: ""                         # bắt buộc - Các ảnh, cách nhau dấu phẩy. Gửi MỘT LÚC thành một album: ản
   recall_after: 0                   # tuỳ chọn - Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mấ
 ```
 
@@ -1057,7 +1057,7 @@ data:
 |---|---|---|---|
 | `thread_id` | Mã hội thoại (threadId) | có | UserId (1-1) hoặc GroupId (nhóm). |
 | `type` | Loại hội thoại | không | user = 1-1, group = nhóm. |
-| `files` | Các ảnh, cách nhau dấu phẩy | có | Danh sách paths (comma-separated) |
+| `files` | Các ảnh, cách nhau dấu phẩy. Gửi MỘT LÚC thành một album: ảnh jpg/png/webp từ 2 tấm trở lên gộp chung, GIF và tệp khác gửi rời | có | Danh sách paths (comma-separated) |
 | `recall_after` | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) | không | Tự thu hồi sau N giây (0 hoặc bỏ trống = không). Tin biến mất ở cả hai bên đúng giờ, nhưng Zalo để lại dòng «tin nhắn đã được thu hồi». Hẹn giờ nằm trong app nên vẫn chạy khi HA khởi động lại; tối đa 86400 giây (1 ngày) |
 
 **Các lựa chọn:**

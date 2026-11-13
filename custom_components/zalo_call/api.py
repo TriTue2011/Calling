@@ -146,21 +146,23 @@ class ZaloCallApi:
 
     async def _multipart(self, action: str, ttype: str, thread_id: str,
                          filename: str, data: bytes, mime: str,
-                         kind: str | None, recall_after: Any = None) -> Any:
+                         kind: str | None, recall_after: Any = None, fields: dict | None = None) -> Any:
         form = aiohttp.FormData()
         form.add_field("type", ttype)
         if recall_after not in (None, "", 0, "0"):
             form.add_field("recall_after", str(recall_after))
         if kind:
             form.add_field("kind", kind)
+        for key, value in (fields or {}).items():           # trường phụ của app (ví dụ 4 trường gộp album: groupLayoutId…)
+            form.add_field(key, str(value))
         form.add_field("file", data, filename=filename, content_type=mime)
         return await self._request(
             "POST", "/api/thread/%s/%s" % (thread_id, action), data=form)
 
     async def thread_sendfile(self, ttype, thread_id, filename, data, mime,
-                              kind="file", recall_after=None) -> Any:
+                              kind="file", recall_after=None, fields=None) -> Any:
         return await self._multipart("sendfile", ttype, thread_id, filename,
-                                     data, mime, kind, recall_after)
+                                     data, mime, kind, recall_after, fields)
 
     async def thread_sendvoice(self, ttype, thread_id, filename, data,
                                mime, recall_after=None) -> Any:

@@ -703,7 +703,8 @@ send_images_to_user:
           - user
           - group
     files:
-      name: Các ảnh, cách nhau dấu phẩy
+      name: 'Các ảnh, cách nhau dấu phẩy. Gửi MỘT LÚC thành một album: ảnh jpg/png/webp từ 2 tấm trở lên
+        gộp chung, GIF và tệp khác gửi rời'
       description: Danh sách paths (comma-separated)
       required: true
       selector:
@@ -791,7 +792,8 @@ send_images_to_group:
           - user
           - group
     files:
-      name: Các ảnh, cách nhau dấu phẩy
+      name: 'Các ảnh, cách nhau dấu phẩy. Gửi MỘT LÚC thành một album: ảnh jpg/png/webp từ 2 tấm trở lên
+        gộp chung, GIF và tệp khác gửi rời'
       description: Danh sách paths (comma-separated)
       required: true
       selector:

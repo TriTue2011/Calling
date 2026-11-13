@@ -314,7 +314,7 @@
   "fields": [
    {
     "key": "files",
-    "label": "Các ảnh, cách nhau dấu phẩy",
+    "label": "Các ảnh, cách nhau dấu phẩy. Gửi MỘT LÚC thành một album: ảnh jpg/png/webp từ 2 tấm trở lên gộp chung, GIF và tệp khác gửi rời",
     "required": true
    },
    {
@@ -358,7 +358,7 @@
   "fields": [
    {
     "key": "files",
-    "label": "Các ảnh, cách nhau dấu phẩy",
+    "label": "Các ảnh, cách nhau dấu phẩy. Gửi MỘT LÚC thành một album: ảnh jpg/png/webp từ 2 tấm trở lên gộp chung, GIF và tệp khác gửi rời",
     "required": true
    },
    {

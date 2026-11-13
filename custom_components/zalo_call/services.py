@@ -12,6 +12,7 @@ import logging
 import mimetypes
 import random
 import os
+import time
 from typing import Any, Callable
 
 import voluptuous as vol
@@ -28,6 +29,7 @@ from .rules import MAX_NOTE_LEN, parse_tags, CALL_TYPES, CONNECT, CONNECT_PARTS,
 from .const import CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, DOMAIN, ECHO_MODES, TEXT_STYLE_KEYS
 from .styler import async_markup_for
 from .video_urls import local_to_public, sibling_thumb_candidates
+from .album import album_plan
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -128,6 +130,19 @@ async def _send_video(hass: HomeAssistant, api: ZaloCallApi, ttype: str, tid: st
                                       d.get("width"), d.get("height"), d.get("duration"), d.get("recall_after"))
 
 
+async def _send_images(hass: HomeAssistant, api: ZaloCallApi, ttype: str, tid: str, d: dict) -> Any:
+    """Nhiều ảnh MỘT LÚC thành một album (như zalo_bot cũ / zca-js): các ảnh jpg/png/webp cùng mang một groupLayoutId, idInGroup 0..N-1.
+    Đọc hết ảnh trước khi gửi để một ảnh hỏng không làm album gửi dở."""
+    srcs = _split(d["files"])
+    if not srcs:
+        raise ServiceValidationError("Chưa có ảnh nào để gửi")
+    items = [await _read_source(hass, s) for s in srcs]
+    plan = album_plan([(fn, mime) for fn, _data, mime in items], int(time.time() * 1000))
+    for (fn, data, mime), fields in zip(items, plan):
+        await api.thread_sendfile(ttype, tid, fn, data, mime, "photo", d.get("recall_after"), fields)
+    return {"sent": len(items), "album": sum(1 for f in plan if f)}
+
+
 async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> Any:
     name = e["name"]
     tid = str(d["thread_id"])
@@ -153,12 +168,7 @@ async def _do_chat(hass: HomeAssistant, api: ZaloCallApi, e: dict, d: dict) -> A
         raise ServiceValidationError(
             "send_card chưa hỗ trợ: app Zalo PC chưa có đường gửi danh thiếp")
     if name in ("send_images_to_user", "send_images_to_group"):
-        results = []
-        for src in _split(d["files"]):
-            fn, data, mime = await _read_source(hass, src)
-            results.append(await api.thread_sendfile(ttype, tid, fn, data, mime,
-                                                     "photo", d.get("recall_after")))
-        return {"sent": len(results)}
+        return await _send_images(hass, api, ttype, tid, d)
     # send_file / send_image / send_image_to_* / send_video
     kind = "photo" if "image" in name else "file"
     fn, data, mime = await _read_source(hass, d["file"])
