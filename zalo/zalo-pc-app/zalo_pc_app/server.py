@@ -134,6 +134,7 @@ AUDIO_SENDERS = voice_calls.AUDIO_SENDERS
 SPEAKER_SINKS = voice_calls.SPEAKER_SINKS
 ECHO_GUARDS = voice_calls.ECHO_GUARDS
 CALL_GAIN = voice_calls.CALL_GAIN
+from . import audio_gain as audio_gain_mod  # noqa: E402
 _set_gain = voice_calls._set_gain
 _gain_of = voice_calls._gain_of
 _stop_mic = voice_calls._stop_mic

@@ -77,10 +77,8 @@ def pick_devices(defaults: Mapping[str, Any],
     override = override or {}
     out: dict[str, str] = {}
     for key in DEVICE_KEYS:
-        if key in override and override[key] is not None:
-            val = str(override[key]).strip()
-        else:
-            val = str(defaults.get(key) or "").strip()
+        # Mic/loa/camera KHÔNG còn mặc định (14/11/2026): chỉ có thiết bị do quy tắc/automation (ghi đè) chọn; không chọn = không nối.
+        val = str(override[key]).strip() if key in override and override[key] is not None else ""
         out[key] = first_alive(val, alive) if key != "mic_url" else val
     return out
 

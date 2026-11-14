@@ -98,21 +98,21 @@ def test_derive_state_distinguishes_decline_no_answer_and_missed():
     assert d({"status": "error"}) == "error" and d({"status": "x"}) is None
 
 
-def test_pick_devices_default_override_and_explicit_off():
-    defaults = {"speaker": "media_player.loa", "mic": "camera.cam1",
-                "mic_url": "", "camera": "camera.cam1"}
-    got = core.pick_devices(defaults, {"speaker": "media_player.bat_ky",
-                                       "mic": "", "mic_url": "rtsp://h/s"})
-    assert got["speaker"] == "media_player.bat_ky"
-    assert got["mic"] == "" and got["mic_url"] == "rtsp://h/s"
-    assert got["camera"] == "camera.cam1"
-    # explicit_off: ghi de rong cho CA nhom va khong con nguon -> tat cho cuoc nay.
-    off = core.pick_devices(defaults, {"mic": "", "mic_url": ""})
+def test_pick_devices_ignores_defaults_and_only_follows_the_call_override():
+    # 14/11/2026: mic/loa/camera KHÔNG còn mặc định — dù kho còn giá trị cũ, thiết bị chỉ đến từ ghi đè của quy tắc/automation.
+    stale = {"speaker": "media_player.loa", "mic": "camera.cam1", "mic_url": "", "camera": "camera.cam1"}
+    assert core.pick_devices(stale, None) == {"speaker": "", "mic": "", "mic_url": "", "camera": ""}
+    assert core.pick_devices(stale, {}) == {"speaker": "", "mic": "", "mic_url": "", "camera": ""}
+    got = core.pick_devices(stale, {"speaker": "media_player.bat_ky", "mic": "", "mic_url": "rtsp://h/s"})
+    assert got["speaker"] == "media_player.bat_ky" and got["mic"] == "" and got["mic_url"] == "rtsp://h/s"
+    assert got["camera"] == ""                                             # không ghi đè camera = không có camera (không rơi về mặc định cũ)
+    # explicit_off: ghi đè rỗng cho CẢ nhóm và không còn nguồn -> tắt cho cuộc này.
+    off = core.pick_devices(stale, {"mic": "", "mic_url": ""})
     assert core.explicit_off({"mic": "", "mic_url": ""}, ("mic", "mic_url"), off) is True
-    assert core.explicit_off({"speaker": "x"}, ("mic", "mic_url"), off) is False   # khong nhac toi
+    assert core.explicit_off({"speaker": "x"}, ("mic", "mic_url"), off) is False   # không nhắc tới
     assert core.explicit_off(None, ("mic", "mic_url"), off) is False
     assert core.explicit_off({"mic": ""}, ("mic", "mic_url"), core.pick_devices(
-        defaults, {"mic": "", "mic_url": "rtsp://x/y"})) is False       # con mic_url
+        stale, {"mic": "", "mic_url": "rtsp://x/y"})) is False       # còn mic_url
 
 
 def test_intercom_helpers_and_echo_modes():
@@ -230,16 +230,16 @@ def test_failed_push_is_recorded_and_not_concurrent():
     asyncio.run(run())
 
 
-def test_legacy_gear_options_import_without_overwriting_device_values():
+def test_legacy_gear_options_only_import_ha_url_not_devices():
     async def run():
         hass = FakeHass()
         key = "zalo_call.devices.e1"
-        H["saved"] = {key: {"speaker": "media_player.x"}}   # kho da co
+        H["saved"] = {key: {"speaker": "media_player.x", "camera": "camera.cu"}}   # kho cũ còn loa/camera mặc định
         dd = devices_mod.DeviceDefaults(hass, "e1")
-        await dd.async_load({"ha_url": "http://ha:8123/", "speaker": "media_player.cu"})
-        assert dd.get("ha_url") == "http://ha:8123"              # bo dau / cuoi
-        assert dd.get("speaker") == "media_player.x"             # da dat: khong ghi de
-        assert H["saved"][key]["ha_url"] == "http://ha:8123"     # da luu: lan sau khong doc lai options
+        await dd.async_load({"ha_url": "http://ha:8123/", "speaker": "media_player.cu", "mic": "camera.cu"})
+        assert dd.get("ha_url") == "http://ha:8123"              # bỏ dấu / cuối
+        assert not dd.get("speaker") and not dd.get("camera") and not dd.get("mic")   # loa/mic/camera mặc định đã bỏ: không nạp từ kho cũ, không nhập từ tùy chọn
+        assert H["saved"][key]["ha_url"] == "http://ha:8123"     # đã lưu: lần sau không đọc lại options
     asyncio.run(run())
 
 
@@ -369,15 +369,40 @@ class FakeEntry:
         self.options = options or {}
 
 
-def _make(defaults, token="TOKEN", options=None):
+class _RuleBridge(bridge_mod.CallAudioBridge):
+    """CHỈ DÙNG TRONG TEST. Từ 14/11/2026 mic/loa/camera KHÔNG còn mặc định: thiết bị đến từ quy tắc/automation dưới dạng ghi đè của từng cuộc gọi.
+    Lớp này đặt `rule` làm nền ghi đè (ghi đè của lời gọi thắng) để các kịch bản phân giải thiết bị cũ vẫn kiểm được đúng đường chạy thật."""
+
+    def __init__(self, *a, rule=None, **k):
+        super().__init__(*a, **k)
+        self._rule = dict(rule or {})
+
+    def _ov(self, override):
+        return {**self._rule, **(override or {})}
+
+    def devices_for(self, override=None):
+        return super().devices_for(self._ov(override))
+
+    def slot_candidates(self, override=None):
+        return super().slot_candidates(self._ov(override))
+
+    async def async_call_fields(self, override, echo_mode=None):
+        return await super().async_call_fields(self._ov(override), echo_mode)
+
+
+def _make(defaults, token="TOKEN", options=None, legacy_devices=True):
+    """legacy_devices=True: `defaults` (loa/mic/camera) được coi là thiết bị của QUY TẮC (xem _RuleBridge). False: cầu nối thật, không có gì mặc định."""
     H["urls"] = {"camera.cam1": "rtsp://u:p@cam.local/stream",
                  "camera.cam2": "rtsp://cam2.local/s"}
     H["registry"], H["entries"], H["saved"] = {}, {}, {}
     hass, api = FakeHass(), FakeApi(token)
     dd = devices_mod.DeviceDefaults(hass, "e1")
-    dd._merge(defaults)
+    dev_keys = ("speaker", "mic", "mic_url", "camera")
+    dd._merge({k: v for k, v in defaults.items() if k not in dev_keys})
     if options and options.get("ha_url"):       # «Địa chỉ HA» nay là ô trên thiết bị, không phải bánh răng
         dd._merge({"ha_url": options["ha_url"]})
+    if legacy_devices:
+        return hass, api, dd, _RuleBridge(hass, FakeEntry(options), api, dd, rule={k: v for k, v in defaults.items() if k in dev_keys})
     return hass, api, dd, bridge_mod.CallAudioBridge(hass, FakeEntry(options), api, dd)
 
 
@@ -389,33 +414,31 @@ def _ent(domain, entry_id, config_entry_id, device_id=None):
     return H["entries"][config_entry_id]
 
 
-def test_defaults_store_roundtrip_legacy_import_and_listeners():
+def test_defaults_store_roundtrip_and_listeners_without_device_defaults():
     async def run():
         hass = FakeHass()
         H["saved"] = {}
         dd = devices_mod.DeviceDefaults(hass, "e1")
         seen = []
         dd.add_listener(lambda: seen.append(1))
-        await dd.async_load({"speaker": "media_player.cu", "mic": "camera.cu",
-                             "mic_url": "", "camera": "camera.cu"})   # tuy chon cu (banh rang)
-        assert dd.get("speaker") == "media_player.cu" and dd.get("auto_mic") is True
-        assert H["saved"]["zalo_call.devices.e1"]["camera"] == "camera.cu"   # da nhap + luu
-        await dd.async_set(speaker="media_player.moi", auto_video=False, mic_url=" rtsp://x/y ",
-                           auto_video_delay=15)
-        assert dd.get("speaker") == "media_player.moi" and dd.get("auto_video") is False
-        assert dd.get("mic_url") == "rtsp://x/y" and seen == [1]
+        await dd.async_load({"speaker": "media_player.cu", "mic": "camera.cu", "mic_url": "", "camera": "camera.cu"})   # tùy chọn cũ (bánh răng)
+        assert not dd.get("speaker") and not dd.get("camera") and dd.get("auto_mic") is True   # loa/mic/camera mặc định đã bỏ
+        await dd.async_set(speaker="media_player.moi", mic_url=" rtsp://x/y ", camera="camera.moi")   # dịch vụ cũ gửi: bị bỏ qua
+        assert not dd.get("speaker") and not dd.get("mic_url") and not dd.get("camera")
+        await dd.async_set(auto_video=False, auto_video_delay=15)
+        assert dd.get("auto_video") is False and seen == [1, 1]
         assert dd.get("auto_video_delay") == 15
         await dd.async_set(auto_video_delay=9999)
-        assert dd.get("auto_video_delay") == 120                       # kep trong gioi han
-        await dd.async_set(auto_video_delay="abc")                     # sai kieu: giu nguyen
+        assert dd.get("auto_video_delay") == 120                       # kẹp trong giới hạn
+        await dd.async_set(auto_video_delay="abc")                     # sai kiểu: giữ nguyên
         assert dd.get("auto_video_delay") == 120
         await dd.async_set(auto_video_delay=-3)
         assert dd.get("auto_video_delay") == 0
         await dd.async_set(auto_video_delay=15)
-        dd2 = devices_mod.DeviceDefaults(hass, "e1")                   # nap lai tu Store
-        await dd2.async_load({"speaker": "media_player.cu"})           # Store thang tuy chon cu
-        assert dd2.get("speaker") == "media_player.moi" and dd2.get("auto_video") is False
-        await dd2.async_set(bogus="x")                                  # khoa la bi bo qua
+        dd2 = devices_mod.DeviceDefaults(hass, "e1")                   # nạp lại từ Store
+        await dd2.async_load({})
+        assert dd2.get("auto_video") is False and dd2.get("auto_video_delay") == 15
+        await dd2.async_set(bogus="x")                                  # khóa lạ bị bỏ qua
         assert "bogus" not in dd2.data
     asyncio.run(run())
 
@@ -493,24 +516,15 @@ def test_push_defaults_to_app_with_resolved_urls():
     asyncio.run(run())
 
 
-def test_push_camera_chua_san_sang_tu_hoi_phuc_va_chi_gui_rong_khi_bo_chon():
+def test_push_sends_empty_devices_to_clear_the_apps_old_defaults():
+    # Không còn mic/loa/camera mặc định: đẩy sang app luôn là RỖNG (xóa mặc định cũ app còn giữ), không chờ camera nào, không đặt «chưa xong».
     async def run():
-        hass, api, dd, br = _make({"camera": "camera.cam2", "auto_video": True})
-        H["urls"].pop("camera.cam2")                              # camera chua nap xong luc HA khoi dong
+        hass, api, dd, br = _make({"camera": "camera.cam2", "auto_video": True}, legacy_devices=False)    # kho cũ còn camera: bị bỏ qua
         await br.async_push_defaults()
-        assert "camera_url" not in api.pushed[-1] and br.policy.pushed_ok is False
-        assert api.pushed[-1]["auto_video_on_request"] is True    # cac truong khac van duoc gui
-        H["urls"]["camera.cam2"] = "rtsp://cam2.local/s"          # camera da san sang -> lan thu lai thanh cong
-        await br.async_push_defaults()
-        assert api.pushed[-1]["camera_url"] == "rtsp://cam2.local/s" and br.policy.pushed_ok is True
-        # Nguoi dung THAT SU bo chon camera -> gui rong de app tat hinh.
-        await dd.async_set(camera="")
-        await br.async_push_defaults()
-        assert api.pushed[-1]["camera_url"] == "" and br.policy.pushed_ok is True
-        # «Hinh kiem tra» khong can camera nao -> khong bi coi la thieu.
-        await dd.async_set(camera="test")
-        await br.async_push_defaults()
-        assert api.pushed[-1]["camera_url"] == "test" and br.policy.pushed_ok is True
+        p = api.pushed[-1]
+        assert p["camera_url"] == "" and p["mic_url"] == "" and p["speaker_url"] == "", p
+        assert p["auto_video_on_request"] is True                  # các trường tự động khác vẫn gửi
+        assert br.policy.pushed_ok is True                         # không còn thiết bị «chưa sẵn sàng» để thử lại mãi
     asyncio.run(run())
 
 

@@ -504,31 +504,23 @@ data:
 <a id="set_default_devices"></a>
 #### Đặt thiết bị mặc định — `zalo_call.set_default_devices`
 
-Đặt loa, mic, camera và chế độ tự động mặc định (giống các thực thể trên thiết bị Zalo Call). Trường nào bỏ trống thì giữ nguyên; để rỗng thì bỏ thiết bị đó.
+Đặt các chế độ tự động mặc định (tự phát mic, tự đồng ý video, chống vọng, âm lượng). Loa, mic, camera KHÔNG còn mặc định - do quy tắc/automation chọn cho từng cuộc gọi. Trường nào bỏ trống thì giữ nguyên.
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
 ```yaml
 action: zalo_call.set_default_devices
 data:
-  speaker: "media_player.vi_du"  # tuỳ chọn - Loa mặc định
-  mic: "camera.vi_du"            # tuỳ chọn - Mic mặc định
-  mic_url: "..."                 # tuỳ chọn - Mic mặc định từ URL
-  camera: "camera.vi_du"         # tuỳ chọn - Camera mặc định
-  auto_mic: false                # tuỳ chọn - Tự phát mic khi nghe máy
-  auto_video: false              # tuỳ chọn - Tự đồng ý khi bên kia xin gọi video (mọi người)
-  video_consent: false           # tuỳ chọn - Cho phép đồng ý chuyển sang video (công tắc tổng)
-  echo_guard: "auto"             # tuỳ chọn - Chống vọng
-  auto_video_delay: 0            # tuỳ chọn - Chờ trước khi tự đồng ý (giây)
-  call_volume: 0                 # tuỳ chọn - Âm lượng cuộc gọi mặc định
+  auto_mic: false       # tuỳ chọn - Tự phát mic khi nghe máy
+  auto_video: false     # tuỳ chọn - Tự đồng ý khi bên kia xin gọi video (mọi người)
+  video_consent: false  # tuỳ chọn - Cho phép đồng ý chuyển sang video (công tắc tổng)
+  echo_guard: "auto"    # tuỳ chọn - Chống vọng
+  auto_video_delay: 0   # tuỳ chọn - Chờ trước khi tự đồng ý (giây)
+  call_volume: 0        # tuỳ chọn - Âm lượng cuộc gọi mặc định
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
 |---|---|---|---|
-| `speaker` | Loa mặc định | không | Loa (media_player) phát tiếng bên kia. |
-| `mic` | Mic mặc định | không | Camera hoặc vệ tinh Assist (camera Imou/Dahua, loa R1) lấy tiếng. |
-| `mic_url` | Mic mặc định từ URL | không | rtsp/rtsps/http/https/rtmp, hoặc luồng PCM của loa R1 (thắng ô Mic). |
-| `camera` | Camera mặc định | không | Camera HA phát hình lên cuộc gọi video. |
 | `auto_mic` | Tự phát mic khi nghe máy | không | Bật thì tự phát mic mặc định ngay khi cuộc gọi được nghe máy. |
 | `auto_video` | Tự đồng ý khi bên kia xin gọi video (mọi người) | không | Bật thì khi BẤT KỲ AI xin chuyển sang video app cũng tự đồng ý và phát camera mặc định, không xét quy tắc từng người. Nên TẮT và dùng công tắc «Cho phép đồng ý chuyển sang video» cùng quy tắc từng người (video_request) để chỉ người được phép mới tự đồng ý. |
 | `video_consent` | Cho phép đồng ý chuyển sang video (công tắc tổng) | không | Công tắc tổng, mặc định TẮT. Bật thì quy tắc video_request (accept, accept_camera) của từng người/nhóm mới được tự đồng ý khi họ xin chuyển sang video; tắt thì mọi người chỉ bị báo. Cũng là công tắc «Cho phép đồng ý chuyển sang video» trên thiết bị Zalo Call. |
@@ -1030,7 +1022,7 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | [Tắt hình trong cuộc gọi](docs/DICH-VU.md#stop_call_video) | `zalo_call.stop_call_video` | Dừng phát hình camera lên cuộc gọi đang diễn ra. |
 | [Bật mic trong cuộc gọi](docs/DICH-VU.md#start_call_mic) | `zalo_call.start_call_mic` | Phát tiếng từ camera, vệ tinh Assist (camera Imou/Dahua, loa R1) hoặc URL lên cuộc gọi đang diễn ra. |
 | [Tắt mic trong cuộc gọi](docs/DICH-VU.md#stop_call_mic) | `zalo_call.stop_call_mic` | Dừng phát tiếng lên cuộc gọi đang diễn ra. |
-| [Đặt thiết bị mặc định](docs/DICH-VU.md#set_default_devices) | `zalo_call.set_default_devices` | Đặt loa, mic, camera và chế độ tự động mặc định (giống các thực thể trên thiết bị Zalo Call). Trường nào bỏ... |
+| [Đặt thiết bị mặc định](docs/DICH-VU.md#set_default_devices) | `zalo_call.set_default_devices` | Đặt các chế độ tự động mặc định (tự phát mic, tự đồng ý video, chống vọng, âm lượng). Loa, mic, camera KHÔNG... |
 | [Xem mic/loa/camera mặc định](docs/DICH-VU.md#get_default_devices) | `zalo_call.get_default_devices` | Trả về cài đặt thiết bị mặc định hiện tại (đặt bằng set_default_devices). |
 | **Quy tắc cho cuộc gọi đến và tin nhắn** | | |
 | [Đặt quy tắc cho cuộc gọi đến và tin nhắn](docs/DICH-VU.md#set_rule) | `zalo_call.set_rule` | Quy định hệ thống làm gì khi có người gọi hoặc nhắn đến. Chưa có quy tắc cho người đó thì hệ thống KHÔNG làm... |

@@ -40,8 +40,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // video có chú thích
   el = T.bubbleBody(mk({ id: "v1", kind: "video", file_name: "cam.mp4", text: "🔔 Phát hiện chuyển động!", file_url: "https://cdn.example/cam.mp4" }));
   ok.push(["video đến: có trình phát và chú thích", !!el.querySelector("video.vid") && /Phát hiện chuyển động/.test(el.textContent)]);
+  ok.push(["video có hình để phát: KHÔNG còn thẻ «Video 1.4 MB / Mở» dưới trình phát", !el.querySelector(".filecard") && !/Tải xuống|Mở/.test(el.textContent.replace("Phát hiện chuyển động!", "")), el.textContent]);
   el = T.bubbleBody(mk({ id: "v2", kind: "video", file_name: "cam.mp4", text: "cam.mp4", file_url: "https://cdn.example/cam.mp4" }));
   ok.push(["video không chú thích (text = tên tệp): không dòng chú thích", !el.querySelector(".photo-cap")]);
+  el = T.bubbleBody(mk({ id: "v3", kind: "video", file_name: "x.mp4", text: "x.mp4" }));
+  ok.push(["video chưa có địa chỉ nào để phát: giữ thẻ (còn chỗ bấm Tải lại/Mở)", !el.querySelector("video") && !!el.querySelector(".filecard")]);
+  S.cur = S.cur; T.openMsgMenu(mk({ id: "v4", kind: "video", file_name: "cam.mp4", file_url: "https://cdn.example/cam.mp4", raw: { msgId: "v4", cliMsgId: "c4", uidFrom: "20001", ts: 1700000000 } }), 10, 10);
+  const items = Array.from(w.document.querySelectorAll(".pop.msgmenu [role=menuitem]")).map((b) => b.textContent.trim());
+  ok.push(["menu ba chấm của video có «Lưu về máy» và «Mở trong tab mới»", items.includes("Lưu về máy") && items.includes("Mở trong tab mới"), items.join("|")]);
+  w.document.body.click();
   // gửi một video + chú thích: desc đi cùng, KHÔNG gửi thêm tin chữ riêng
   const f = new w.File([new Uint8Array(10)], "cam.mp4", { type: "video/mp4" });
   await T.sendFiles([f], "Xem cái này"); await sleep(50);

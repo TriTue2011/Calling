@@ -26,7 +26,12 @@ CALL_GAIN = {}                   # call_id -> {"mic": %, "speaker": %}: am luong
 
 
 def _gain_of(call_id, target):
-    return CALL_GAIN.get(str(call_id), {}).get(target, audio_gain_mod.DEFAULT_PERCENT)
+    """Mức hiện hành (%): nút −/+ của người dùng thắng; chưa chỉnh thì theo quy tắc HA (`mic_gain`/`speaker_gain` của cuộc gọi); không có thì 100."""
+    mine = CALL_GAIN.get(str(call_id), {}).get(target)
+    if mine is not None:
+        return mine
+    rule = srv()._devices_for_call(call_id).get(target + "_gain")
+    return rule if isinstance(rule, int) and rule > 0 else audio_gain_mod.DEFAULT_PERCENT
 
 
 def _set_gain(call_id, target, level=None, step=None):

@@ -115,6 +115,7 @@ _CALL_DEVICES = {}               # call_id -> ghi de rieng cua cuoc goi (mic/cam
 
 
 _CALL_DEVICE_KEYS = ("mic_url", "mic_format", "camera_url", "speaker_url", "echo_guard")
+_GAIN_KEYS = ("mic_gain", "speaker_gain")           # độ to phần mềm (%) đi kèm thiết bị từ quy tắc HA; KHÔNG nằm trong _CALL_DEVICE_KEYS (khoá đó quyết định ghi đè lại cả bộ thiết bị)
 
 
 def _log_media_stats(kind, call_id, obj):
@@ -152,6 +153,14 @@ def _remember_call_devices(call_id, body):
                 over[key] = ""
             elif devices_mod.valid_source(val):
                 over[key] = val
+    if isinstance(body, dict):
+        for key in _GAIN_KEYS:
+            try:
+                pct = srv().audio_gain_mod.clamp_percent(body[key]) if body.get(key) not in (None, "") else 0
+            except ValueError:
+                pct = 0
+            if pct > 0:
+                over[key] = pct
     if over:
         if len(_CALL_DEVICES) > 50:
             _CALL_DEVICES.clear()

@@ -261,6 +261,36 @@ def build_call_event(call_entry, account_id):
     return payload
 
 
+def _add_media_fields(payload, msg, raw):
+    """Anh / video / tep: HA nhan DU thong tin de tai ve va xu ly (truoc day chi co chu + nhan `kind`, nen tep va anh gui toi la mat tich).
+    file_url = dia chi tai tren may chu Zalo (tai tu may chu, KHONG gui header Referer: video bi 403 neu co Referer);
+    thumb_url = anh bia/thu nho; width/height/duration_ms + nhom anh (album) lay tu params cua tin Zalo."""
+    for key in ("file_url", "file_name", "file_ext"):
+        if msg.get(key):
+            payload[key] = str(msg[key])
+    try:
+        size = int(msg.get("file_size") or 0)
+    except (TypeError, ValueError):
+        size = 0
+    if size > 0:
+        payload["file_size"] = size
+    content = raw.get("content") if isinstance(raw.get("content"), dict) else {}
+    if content.get("thumb"):
+        payload["thumb_url"] = str(content["thumb"])
+    params = content.get("params")
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except ValueError:
+            params = None
+    if isinstance(params, dict):
+        for src, dst in (("width", "width"), ("height", "height"), ("video_width", "width"), ("video_height", "height"),
+                         ("duration", "duration_ms"), ("group_layout_id", "album_id"),
+                         ("id_in_group", "album_index"), ("total_item_in_group", "album_total")):
+            if params.get(src) not in (None, ""):
+                payload[dst] = params[src]
+
+
 def build_message_event(msg, account_id):
     """msg is the incoming-message dict the sync channel will
     deliver (fields mirror the addon's listener msg: threadId,
@@ -312,6 +342,7 @@ def build_message_event(msg, account_id):
         payload["kind"] = str(msg["kind"])                         # text / voice / photo / file / system
     if msg.get("voiceUrl"):
         payload["voice_url"] = str(msg["voiceUrl"])                # tin thoai: URL tren may chu Zalo (cho voice_to_text)
+    _add_media_fields(payload, msg, raw)
     if msg.get("self_reply"):
         payload["self_reply"] = True
     if msg.get("tag_khop"):

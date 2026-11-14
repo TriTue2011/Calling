@@ -14,20 +14,20 @@ from homeassistant.helpers.storage import Store
 from .rules import DEFAULT_RULE, RULES_KEY, empty_rules, get_rules
 
 from .const import (TEXT_STYLE_KEYS, AI_EMPHASIS, AI_FORMATS, CONF_AI_EMPHASIS, CONF_AI_FORMAT, CONF_AUTO_MIC, CONF_AUTO_VIDEO,
-                    CONF_AUTO_VIDEO_DELAY, CONF_CALL_VOLUME, CONF_CAMERA, CONF_ECHO_GUARD, CONF_HA_URL, CONF_MIC, CONF_MIC_URL, CONF_SPEAKER,
+                    CONF_AUTO_VIDEO_DELAY, CONF_CALL_VOLUME, CONF_ECHO_GUARD, CONF_HA_URL,
                     CONF_TEXT_AI_AGENT, CONF_TEXT_AI_INLINE, CONF_TEXT_AI_SMART, CONF_TEXT_AUTO_EMOJI, CONF_VIDEO_CONSENT, DOMAIN, ECHO_MODES,
                     MAX_AUTO_VIDEO_DELAY, MAX_CALL_VOLUME, STORAGE_VERSION)
 
-# Mic/loa/camera mặc định, quy tắc người gọi và AI chỉ đặt bằng DỊCH VỤ (set_default_devices, set_rule…), không có ô cài đặt.
-DEFAULTS: dict[str, Any] = {"speaker": "", "mic": "", "mic_url": "", "camera": "", CONF_AUTO_MIC: True,
+# KHÔNG còn mic/loa/camera mặc định (14/11/2026): thiết bị do quy tắc/automation chọn cho từng cuộc gọi. Quy tắc và AI chỉ đặt bằng DỊCH VỤ (set_rule…).
+DEFAULTS: dict[str, Any] = {CONF_AUTO_MIC: True,
                             CONF_AUTO_VIDEO: False, CONF_VIDEO_CONSENT: False, CONF_AUTO_VIDEO_DELAY: 0, CONF_CALL_VOLUME: 0, CONF_ECHO_GUARD: "auto",
                             CONF_HA_URL: "", RULES_KEY: empty_rules(),
                             CONF_AI_FORMAT: "markdown", CONF_AI_EMPHASIS: "off",
                             CONF_TEXT_AUTO_EMOJI: False, CONF_TEXT_AI_AGENT: "", CONF_TEXT_AI_INLINE: True, CONF_TEXT_AI_SMART: False,
                             **{k: ("red" if k == "text_auto_color" else "off") for k in TEXT_STYLE_KEYS}}
-_TEXT_KEYS = ("speaker", "mic", "mic_url", "camera", CONF_HA_URL, CONF_TEXT_AI_AGENT)
-# Giá trị từng nằm trong tuỳ chọn (bánh răng): lần đầu có thì nhập sang, rồi không đọc lại.
-_LEGACY = {"speaker": CONF_SPEAKER, "mic": CONF_MIC, "mic_url": CONF_MIC_URL, "camera": CONF_CAMERA, CONF_HA_URL: CONF_HA_URL}
+_TEXT_KEYS = (CONF_HA_URL, CONF_TEXT_AI_AGENT)
+# Giá trị từng nằm trong tuỳ chọn (bánh răng): lần đầu có thì nhập sang, rồi không đọc lại. (Loa/mic/camera mặc định đã bỏ nên không nhập nữa.)
+_LEGACY = {CONF_HA_URL: CONF_HA_URL}
 
 
 class DeviceDefaults:

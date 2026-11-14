@@ -7764,35 +7764,9 @@ stop_call_mic:
         text: null
 set_default_devices:
   name: Đặt thiết bị mặc định
-  description: Đặt loa, mic, camera và chế độ tự động mặc định (giống các thực thể trên thiết bị Zalo
-    Call). Trường nào bỏ trống thì giữ nguyên; để rỗng thì bỏ thiết bị đó.
+  description: 'Đặt các chế độ tự động mặc định (tự phát mic, tự đồng ý video, chống vọng, âm lượng). Loa, mic, camera KHÔNG còn mặc định - do quy tắc/automation chọn cho từng cuộc gọi. Trường nào bỏ trống thì giữ nguyên.'
   fields:
     entry_id: *id001
-    speaker:
-      name: Loa mặc định
-      description: Loa (media_player) phát tiếng bên kia.
-      selector:
-        entity:
-          domain: media_player
-    mic:
-      name: Mic mặc định
-      description: Camera hoặc vệ tinh Assist (camera Imou/Dahua, loa R1) lấy tiếng.
-      selector:
-        entity:
-          domain:
-          - camera
-          - assist_satellite
-    mic_url:
-      name: Mic mặc định từ URL
-      description: rtsp/rtsps/http/https/rtmp, hoặc luồng PCM của loa R1 (thắng ô Mic).
-      selector:
-        text: null
-    camera:
-      name: Camera mặc định
-      description: Camera HA phát hình lên cuộc gọi video.
-      selector:
-        entity:
-          domain: camera
     auto_mic:
       name: Tự phát mic khi nghe máy
       description: Bật thì tự phát mic mặc định ngay khi cuộc gọi được nghe máy.

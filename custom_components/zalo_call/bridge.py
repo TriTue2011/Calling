@@ -77,11 +77,11 @@ class CallAudioBridge:
         return pick_devices(self.defaults.data, override, alive=self._entity_alive)
 
     def slot_candidates(self, override: dict[str, Any] | None = None) -> dict[str, list[str]]:
-        """Danh sách dự phòng CÒN HOẠT ĐỘNG, theo thứ tự ưu tiên, của loa / mic / camera cho một cuộc gọi (ghi đè > mặc định)."""
+        """Danh sách dự phòng CÒN HOẠT ĐỘNG, theo thứ tự ưu tiên, của loa / mic / camera cho một cuộc gọi (chỉ từ ghi đè của quy tắc, không có mặc định)."""
         override = override or {}
         out: dict[str, list[str]] = {}
         for key in ("speaker", "mic", "camera"):
-            val = str(override[key]).strip() if key in override and override[key] is not None else str(self.defaults.get(key) or "").strip()
+            val = str(override[key]).strip() if key in override and override[key] is not None else ""
             out[key] = [c for c in candidates(val) if self._entity_alive(entity_of_label(c))]
         return out
 
@@ -253,6 +253,10 @@ class CallAudioBridge:
             out["mic_format"] = res["mic_format"]
         if out.get("speaker_url", "off") != "off":
             out["echo_guard"] = res["echo_guard"]
+        for key, field in (("mic_gain", "mic_url"), ("speaker_gain", "speaker_url")):      # độ to phần mềm: chỉ kèm khi nhóm đó thật sự được nối
+            val = (override or {}).get(key)
+            if val and out.get(field, "off") != "off":
+                out[key] = str(int(val))
         return out
 
     async def async_push_defaults(self) -> None:

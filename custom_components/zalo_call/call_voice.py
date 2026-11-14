@@ -207,7 +207,7 @@ HELD_DEVICES: dict[str, str] = {"speaker": "", "mic": "", "mic_url": "", "camera
 _DEVICE_KEYS = ("speaker", "mic", "mic_url", "camera")
 
 
-_PART_KEYS = {"mic": ("mic", "mic_url"), "speaker": ("speaker", "volume"), "camera": ("camera",)}
+_PART_KEYS = {"mic": ("mic", "mic_url", "mic_gain"), "speaker": ("speaker", "volume", "speaker_gain"), "camera": ("camera",)}
 
 
 def devices_for_mode(devices: dict[str, Any], mode: Any) -> dict[str, Any]:
@@ -221,16 +221,14 @@ def devices_for_mode(devices: dict[str, Any], mode: Any) -> dict[str, Any]:
 def rule_devices(rule: dict[str, Any]) -> dict[str, Any]:
     """Thiết bị nhà do QUY TẮC cài, lọc theo `connect` của quy tắc (mặc định never). Chỉ trường ĐÃ chọn, không rơi về mặc định."""
     out: dict[str, Any] = {k: rule[k] for k in _DEVICE_KEYS if rule.get(k)}
-    if out and rule.get("volume"):
-        out["volume"] = rule["volume"]
+    out.update({k: rule[k] for k in ("volume", "mic_gain", "speaker_gain") if out and rule.get(k)})
     return devices_for_mode(out, rule.get("connect"))
 
 
 def rule_devices_now(rule: dict[str, Any]) -> dict[str, Any]:
     """Thiết bị quy tắc nối NGAY khi nghe máy (ô `connect_now`), lọc từ các thiết bị đã chọn trong quy tắc."""
     src: dict[str, Any] = {k: rule[k] for k in _DEVICE_KEYS if rule.get(k)}
-    if src and rule.get("volume"):
-        src["volume"] = rule["volume"]
+    src.update({k: rule[k] for k in ("volume", "mic_gain", "speaker_gain") if src and rule.get(k)})
     return devices_for_mode(src, rule.get("connect_now"))
 
 

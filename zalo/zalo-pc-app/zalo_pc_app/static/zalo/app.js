@@ -316,14 +316,26 @@ function openThread(row) {
   renderBadges(); renderList(); renderMsgs(); syncInfo(); syncCallButtons();
   loadHistory(); startPoll();
 }
+// Ảnh nhiều tấm gửi một lúc (album): Zalo ghi vị trí trong raw.content.params (group_layout_id, id_in_group, total_item_in_group).
+function albumOf(m) {
+  const c = m.raw && m.raw.content; let p = c && c.params;
+  if (typeof p === "string") { try { p = JSON.parse(p); } catch (e) { p = null; } }
+  if (!p || !p.group_layout_id || !(Number(p.total_item_in_group) > 1)) return null;
+  return { gid: String(p.group_layout_id), idx: Number(p.id_in_group) || 0, total: Number(p.total_item_in_group) };
+}
 function normMsg(m) {
   const out = m.direction === "out" || m.sender_id === "me" || (S.uid && String(m.sender_id) === S.uid);
-  return Object.assign({}, m, { _id: String(m.id || m.client_id || ""), _out: out, _t: Number(m.time || m.ts || 0) });
+  const n = Object.assign({}, m, { _id: String(m.id || m.client_id || ""), _out: out, _t: Number(m.time || m.ts || 0) });
+  n._album = n.kind === "photo" ? albumOf(n) : null;
+  return n;
 }
 function mergeMsgs(list) {
   const seen = new Map(S.msgs.map((m, i) => [m._id || "x" + i, m]));
   let n = 0;
   for (const raw of list) { const m = normMsg(raw); seen.set(m._id || "n" + (n++) + Math.random(), m); }
+  const echoed = new Set();
+  for (const m of seen.values()) { const c = m.raw && m.raw.cliMsgId; if (c) echoed.add(String(c)); }
+  for (const [k, m] of seen) { if (m.sender_id === "me" && m.client_id && echoed.has(String(m.client_id))) seen.delete(k); }     // tin giữ chỗ đã có bản thật: bỏ, khỏi hiện trùng / thẻ tệp trống
   S.msgs = [...seen.values()].sort((a, b) => a._t - b._t);
   S.lastTime = S.msgs.reduce((x, m) => Math.max(x, m._t), 0);
 }
@@ -360,6 +372,19 @@ function photoSrc(m) { const rec = S.files[m._id]; return m.localUrl || (rec && 
 const VIDEO_EXT = /\.(mp4|mov|m4v|webm|mkv|3gp)$/i, IMAGE_EXT = /\.(jpe?g|png|webp|gif)$/i;
 const isVideoMsg = (m) => m.kind === "video" || (m.kind === "file" && VIDEO_EXT.test(m.file_name || ""));
 const isImageMsg = (m) => m.kind === "photo" || (m.kind === "file" && IMAGE_EXT.test(m.file_name || ""));
+// Một bong bóng lưới cho cả album (như Zalo PC): 2 ảnh = 2 cột; 3 ảnh = 2 ảnh trên + 1 ảnh to dưới; 4 = lưới 2x2; 5–9 = 3 cột; từ 10 = 4 cột.
+function albumBody(m) {
+  const mates = S.msgs.filter((x) => x._album && x._album.gid === m._album.gid && x.sender_id === m.sender_id && !S.deleted.has(x._id)).sort((a, b) => a._album.idx - b._album.idx);
+  const n = Math.max(mates.length, 1), cls = n >= 10 ? "n10" : n >= 5 ? "n5" : "n" + n;
+  const tiles = mates.map((x) => {
+    const full = photoSrc(x) || x.file_url || "", thumb = photoSrc(x) || (x.raw && x.raw.content && x.raw.content.thumb) || x.thumb_url || x.file_url || "";
+    const img = h("img", { class: "photo", src: thumb, alt: x.file_name || "Ảnh", loading: "lazy" });
+    if (thumb !== full && full) img.addEventListener("error", () => { if (img.src !== full) img.src = full; }, { once: true });
+    return h("a", { href: full || thumb, target: "_blank", rel: "noopener noreferrer" }, img);
+  });
+  const cap = m.text && m.text !== m.file_name ? m.text : "";
+  return h("div", {}, h("div", { class: "album " + cls }, tiles), cap ? h("div", { class: "photo-cap" }, cap) : null);
+}
 function bubbleBody(m) {
   const rec = S.files[m._id], dl = rec && rec.status === "downloaded";
   if (isImageMsg(m) && !photoSrc(m) && m.thumb_url) { const cap = m.text && m.text !== m.file_name ? m.text : ""; const img = h("img", { class: "photo", src: m.thumb_url, alt: m.file_name || "Ảnh", loading: "lazy" }); const a = h("a", { href: m.file_url, target: "_blank", rel: "noopener" }, img); return cap ? h("div", {}, a, h("div", { class: "photo-cap" }, cap)) : a; }
@@ -377,7 +402,8 @@ function bubbleBody(m) {
     const card = h("div", { class: "filecard" }, h("span", { class: "ficon" }, svg("file")), h("div", {}, h("div", { class: "fname" }, (rec && rec.file_name) || m.file_name || m.text || "Video"), h("div", { class: "fmeta" }, fmtSize(m.file_size || (rec && rec.size_bytes))),
       dl ? h("a", { class: "link", href: downloadUrl(m), download: (rec && rec.file_name) || m.file_name || "video.mp4" }, "Tải xuống") : (rec && rec.status === "failed" ? h("button", { class: "link", type: "button", onclick: () => redownload(m) }, "Tải lại") : (m.file_url ? h("a", { class: "link", href: m.file_url, target: "_blank", rel: "noopener" }, "Mở") : null))));
     const vcap = m.kind === "video" && m.text && m.text !== m.file_name && m.text !== "video" ? h("div", { class: "photo-cap" }, m.text) : null;
-    return src ? h("div", { class: "vidwrap" }, h("video", { class: "vid", controls: true, preload: "metadata", playsinline: true, src }), vcap, card) : h("div", { class: "vidwrap" }, vcap, card);
+    // Có hình để phát: CHỈ trình phát (+ chú thích); Tải/Mở/Tải lại nằm trong menu ba chấm. Không có gì để phát: giữ thẻ để còn bấm Mở/Tải lại.
+    return src ? h("div", { class: "vidwrap" }, h("video", { class: "vid", controls: true, preload: "metadata", playsinline: true, src }), vcap) : h("div", { class: "vidwrap" }, vcap, card);
   }
   if (m.kind === "file" || m.kind === "photo") {
     let act = null;
@@ -398,11 +424,13 @@ async function redownload(m) {
 function renderMsgs() {
   const box = $("msgs"), near = box.scrollHeight - box.scrollTop - box.clientHeight < 90, frag = document.createDocumentFragment();
   let day = "", prev = null;
+  const albumDone = new Set();
   if (!S.msgs.length) frag.append(h("div", { class: "empty", style: "margin:auto" }, "Chưa có tin nhắn. Hãy gửi lời chào."));
   for (const m0 of S.msgs) {
     if (S.deleted.has(m0._id)) continue;            // tin da bi xoa (chat.delete): khong ve
     let m = m0;
     if (S.recalled.has(m._id)) m = Object.assign({}, m, { kind: "system", text: "Tin nhắn đã được thu hồi", reply_to: null, call_record: null, raw: null });
+    if (m._album) { const key = m.sender_id + "|" + m._album.gid; if (albumDone.has(key)) continue; albumDone.add(key); }     // album: các ảnh còn lại đã nằm trong lưới
     const d = m._t ? new Date(m._t * 1000).toDateString() : "";
     if (d && d !== day) { day = d; frag.append(h("div", { class: "day" }, fmtDay(m._t))); prev = null; }
     if (m.kind === "system" && m.text) {           // tin he thong / ban ghi cuoc goi: dai giua nhu Zalo PC, khong phai bong bong
@@ -419,7 +447,7 @@ function renderMsgs() {
       m._out ? null : (first ? avatar(sender, "sm") : h("span", { class: "gap" })),
       h("div", { class: "mcol" },
         !m._out && S.cur.type === "group" && first && (m.sender_name || m.sender_id) ? h("div", { class: "who" }, m.sender_name || m.sender_id) : null,
-        h("div", { class: "bub", oncontextmenu: (e) => { e.preventDefault(); openMsgMenu(m, e.clientX, e.clientY); }, onclick: (e) => { if (S.sel) { toggleSel(m); return; } if (window.matchMedia("(hover: none)").matches && !e.target.closest("a,button,audio")) e.currentTarget.closest(".msg").classList.toggle("acts"); } }, quoteBlock(m), bubbleBody(m), h("span", { class: "bt" }, fmtTime(m._t))),
+        h("div", { class: "bub", oncontextmenu: (e) => { e.preventDefault(); openMsgMenu(m, e.clientX, e.clientY); }, onclick: (e) => { if (S.sel) { toggleSel(m); return; } if (window.matchMedia("(hover: none)").matches && !e.target.closest("a,button,audio")) e.currentTarget.closest(".msg").classList.toggle("acts"); } }, quoteBlock(m), m._album && m.kind === "photo" ? albumBody(m) : bubbleBody(m), h("span", { class: "bt" }, fmtTime(m._t))),
         reactChips(m),
         S.sel ? null : msgActions(m)),
       S.sel ? h("span", { class: "selbox" + (S.sel.has(m._id) ? " on" : ""), "aria-hidden": "true" }, S.sel.has(m._id) ? "✓" : "") : null));
@@ -533,7 +561,12 @@ function msgMenuItems(m) {
   const it = [];
   if (canReply(m)) it.push({ label: "Trả lời", icon: "chat", run: () => setReply(m) });
   it.push({ label: "Chuyển tiếp", icon: "share", run: () => openForward([m]) });
-  if ((m.kind || "text") !== "text" && (mediaSrc(m) || (!m._out && m.file_url))) it.push({ label: "Lưu về máy", icon: "file", run: () => saveToDevice(m) });
+  if ((m.kind || "text") !== "text" && (mediaSrc(m) || (!m._out && m.file_url))) {
+    it.push({ label: "Lưu về máy", icon: "file", run: () => saveToDevice(m) });
+    it.push({ label: "Mở trong tab mới", icon: "file", run: () => window.open(mediaSrc(m) || m.file_url, "_blank", "noopener,noreferrer") });
+  }
+  const frec = S.files[m._id];
+  if ((m.kind || "text") !== "text" && frec && frec.status === "failed") it.push({ label: "Tải lại", icon: "file", run: () => redownload(m) });
   if ((m.kind || "text") === "text" && m.text) it.push({ label: "Sao chép", icon: "copy", run: () => copyText(m.text, "tin nhắn") });
   it.push({ label: "Chọn nhiều tin", icon: "check", run: () => enterSelect(m) });
   it.push("-");
@@ -1416,6 +1449,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
 });
 try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
-if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain });   // chỉ để kiểm thử giao diện (jsdom)
+if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain, mergeMsgs });   // chỉ để kiểm thử giao diện (jsdom)
 applyScale(); setTab("chats"); updateSendButtons(); privacyInit(); boot();
 })();

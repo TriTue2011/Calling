@@ -127,6 +127,21 @@ def test_mic_sender_applies_gain_but_gated_frames_stay_silent():
     assert sent2 and all(f == bytes(640) for f in sent2)                        # đang chặn vọng: vẫn im lặng dù tăng
 
 
+def test_rule_gain_from_ha_is_the_default_and_the_buttons_win():
+    sv._CALL_DEVICES.pop("91", None)
+    sv.CALL_GAIN.pop("91", None)
+    sv._remember_call_devices(91, {"mic_url": "test", "mic_gain": 150, "speaker_gain": "220"})
+    assert sv._gain_of(91, "mic") == 150 and sv._gain_of(91, "speaker") == 220      # quy tắc HA đặt sẵn mức khởi đầu
+    assert sv._set_gain(91, "mic", step=-10) == 140                                   # nút −/+ tính từ mức của quy tắc
+    assert sv._gain_of(91, "mic") == 140 and sv._gain_of(91, "speaker") == 220
+    sv._remember_call_devices(92, {"mic_url": "test", "mic_gain": "abc", "speaker_gain": 0})
+    assert sv._gain_of(92, "mic") == 100 and sv._gain_of(92, "speaker") == 100        # rác/0 = giữ nguyên
+    assert sv._devices_for_call(92).get("mic_url") == "test"
+    for cid in (91, 92):
+        sv._CALL_DEVICES.pop(str(cid), None)
+        sv.CALL_GAIN.pop(str(cid), None)
+
+
 BASE = ""
 _COOKIE = ""
 

@@ -463,3 +463,15 @@ html[data-dev="touch"] .pop button { padding: .875rem 1rem; }
 .fwd-list { overflow: auto; display: grid; align-content: start; }
 .fwd-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.25rem; border: 0; background: none; text-align: left; border-radius: 0.5rem; }
 .fwd-row:hover { background: var(--hover); }
+
+/* Album ảnh (nhiều ảnh gửi một lúc) kiểu Zalo PC */
+.album { display: grid; gap: 2px; width: min(22rem, 100%); border-radius: 0.75rem; overflow: hidden; }
+.album a { display: block; min-width: 0; }
+.album img.photo { display: block; width: 100%; height: 100%; max-width: none; max-height: none; object-fit: cover; aspect-ratio: 1; border-radius: 0; }
+.album.n1 { grid-template-columns: 1fr; }
+.album.n2, .album.n4 { grid-template-columns: 1fr 1fr; }
+.album.n3 { grid-template-columns: 1fr 1fr; }
+.album.n3 a:nth-child(3) { grid-column: 1 / -1; }
+.album.n3 a:nth-child(3) img.photo { aspect-ratio: 16 / 10; }
+.album.n5 { grid-template-columns: repeat(3, 1fr); width: min(26rem, 100%); }
+.album.n10 { grid-template-columns: repeat(4, 1fr); width: min(30rem, 100%); }

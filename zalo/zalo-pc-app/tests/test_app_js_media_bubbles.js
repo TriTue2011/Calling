@@ -24,8 +24,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let b = render({ _id: "v1", kind: "file", file_name: "cam.mp4", file_size: 1500000 }, { status: "downloaded", file_name: "cam.mp4", size_bytes: 1500000 });
   let v = b.querySelector("video.vid");
   ok.push(["video đã tải -> có <video controls>", !!v && v.hasAttribute("controls") && /\/api\/file\/download\?.*msg_id=v1/.test(v.getAttribute("src"))]);
-  ok.push(["video đã tải -> nút Tải xuống", !!Array.from(b.querySelectorAll("a")).find((a) => a.textContent === "Tải xuống" && a.getAttribute("download"))]);
-  ok.push(["video đã tải -> hiện cỡ tệp", /1\.4 MB/.test(b.textContent)]);
+  ok.push(["video đã tải -> KHÔNG còn nút/thẻ dưới trình phát (Tải/Mở nằm ở menu ba chấm)", !b.querySelector(".filecard") && !Array.from(b.querySelectorAll("a")).some((a) => /Tải xuống|Mở/.test(a.textContent)), b.textContent]);
+  ok.push(["video đã tải -> không hiện cỡ tệp dưới trình phát", !/1\.4 MB/.test(b.textContent), b.textContent]);
+  T.openMsgMenu(Object.assign({ raw: { msgId: "v1", cliMsgId: "c1", uidFrom: "20001", ts: 1700000000 }, sender_id: "20001", direction: "in" }, { _id: "v1", kind: "file", file_name: "cam.mp4", _out: false }), 10, 10);
+  const mi = Array.from(w.document.querySelectorAll(".pop.msgmenu [role=menuitem]")).map((x) => x.textContent.trim());
+  ok.push(["video đã tải -> menu ba chấm có «Lưu về máy»", mi.includes("Lưu về máy"), mi.join("|")]);
+  w.document.body.click();
   // 2) video chưa tải nhưng có địa chỉ Zalo: phát từ địa chỉ, nút Mở
   b = render({ _id: "v2", kind: "file", file_name: "cam.mp4", file_url: "https://f.example/v.mp4" }, null);
   v = b.querySelector("video.vid");

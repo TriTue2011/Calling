@@ -71,7 +71,7 @@ DEFAULT_RULE: dict[str, Any] = {
     "ai": False, "pipeline": "", "agent": "", "greeting": "", "handover_rule": "", "trusted": False,
     "announce": False, "announce_to": "", "announce_text": "", "announce_repeat": 0, "announce_volume": 0, "connect_now": [], "video_request": "ask",
     "reply_ai": False, "voice_text": False, "reply_trigger": "", "reply_senders": "", "reply_quote": False, "reply_prefix": "",
-    "connect": [], "speaker": "", "mic": "", "mic_url": "", "camera": "", "volume": 0, "echo_guard": "auto",
+    "connect": [], "speaker": "", "mic": "", "mic_url": "", "camera": "", "volume": 0, "mic_gain": 0, "speaker_gain": 0, "echo_guard": "auto",
 }
 _STR = ("name", "pipeline", "agent", "greeting", "handover_rule", "speaker", "mic", "mic_url", "camera", "announce_to", "announce_text",
         "reply_trigger", "reply_senders", "reply_prefix")
@@ -141,6 +141,12 @@ def normalize(data: dict[str, Any], old: dict[str, Any] | None = None) -> dict[s
             rule["volume"] = max(0, min(100, int(data["volume"])))
         except (TypeError, ValueError) as err:
             raise RuleError("volume phải là số 0-100") from err
+    for key in ("mic_gain", "speaker_gain"):           # độ to PHẦN MỀM của tiếng nhà gửi đi / tiếng đối phương ra loa (%; 0 = giữ nguyên 100%)
+        if data.get(key) is not None:
+            try:
+                rule[key] = max(0, min(300, int(data[key])))
+            except (TypeError, ValueError) as err:
+                raise RuleError("%s phải là số 0-300" % key) from err
     if data.get("call_types") is not None:
         types = [data["call_types"]] if isinstance(data["call_types"], str) else list(data["call_types"])
         bad = [t for t in types if t not in CALL_TYPES]

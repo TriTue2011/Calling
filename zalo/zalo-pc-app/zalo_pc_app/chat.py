@@ -911,6 +911,13 @@ def merge_messages(fresh, cached, count):
         key = _merge_key(msg)
         fresh_keys.add(key)
         merged_map[key] = msg
+    # Tin giữ chỗ (sender "me", id = client_id) đã có bản Zalo dội lại (raw.cliMsgId == client_id): bỏ bản giữ chỗ, khỏi hiện trùng
+    # (ảnh gửi từ HA hiện thành thẻ tệp trống + chữ lặp; khóa id khác nhau nên khử trùng theo khóa không bắt được).
+    echoed = {str(m["raw"]["cliMsgId"]) for m in merged_map.values()
+              if isinstance(m.get("raw"), dict) and m["raw"].get("cliMsgId") not in (None, "")}
+    for key in [k for k, m in merged_map.items()
+                if m.get("sender_id") == "me" and m.get("client_id") and str(m["client_id"]) in echoed]:
+        del merged_map[key]
     merged = sorted(merged_map.values(),
                     key=lambda m: (m.get("time") or 0))
     try:

@@ -377,7 +377,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         (thiet bi da cai nam trong plan.connect)."""
         if plan is not None and (plan.ai or plan.alert):          # AI giữ máy: chỉ nối ngay thứ đã tích «nối ngay», còn lại chờ người nhà nói trực tiếp
             return explicit_devices(plan.connect_now) if plan.connect_now else dict(HELD_DEVICES)
-        return {k: call.data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume")
+        return {k: call.data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume", "mic_gain", "speaker_gain")
                 if k in call.data}
 
     async def make_call(call: ServiceCall) -> dict:
@@ -455,7 +455,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return next((p.name for p in pipeline_mod.async_get_pipelines(hass) if p.id == pid), pid)
 
     _RULE_FIELDS = ("name", "answer", "answer_delay", "call_types", "ai", "pipeline", "agent", "greeting", "handover_rule", "trusted",
-                    "reply_ai", "voice_text", "reply_trigger", "reply_senders", "reply_quote", "reply_prefix", "announce", "announce_to", "announce_text", "announce_repeat", "announce_volume", "connect", "connect_now", "video_request", "speaker", "mic", "mic_url", "camera", "volume", "echo_guard")
+                    "reply_ai", "voice_text", "reply_trigger", "reply_senders", "reply_quote", "reply_prefix", "announce", "announce_to", "announce_text", "announce_repeat", "announce_volume", "connect", "connect_now", "video_request", "speaker", "mic", "mic_url", "camera", "volume", "mic_gain", "speaker_gain", "echo_guard")
 
     def _rules_copy(rt) -> dict:
         r = get_rules(rt.defaults)
@@ -552,7 +552,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
 
     async def get_default_devices(call: ServiceCall) -> dict:
         rt, _ = _api(hass, call)
-        return {k: rt.defaults.get(k) for k in ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video", "video_consent", "auto_video_delay",
+        return {k: rt.defaults.get(k) for k in ("auto_mic", "auto_video", "video_consent", "auto_video_delay",
                                                   "call_volume", "echo_guard", "ha_url")}
 
     async def take_over_call(call: ServiceCall) -> dict:
@@ -616,10 +616,10 @@ async def async_register_services(hass: HomeAssistant) -> None:
                 "text": res.get("text", "")}
 
     def _explicit_devices(data) -> dict:
-        return {k: data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if data.get(k) not in (None, "")}
+        return {k: data[k] for k in ("speaker", "mic", "mic_url", "camera", "volume", "mic_gain", "speaker_gain") if data.get(k) not in (None, "")}
 
     def _device_source(explicit, rule) -> dict:
-        return explicit or {k: rule[k] for k in ("speaker", "mic", "mic_url", "camera", "volume") if rule.get(k)}
+        return explicit or {k: rule[k] for k in ("speaker", "mic", "mic_url", "camera", "volume", "mic_gain", "speaker_gain") if rule.get(k)}
 
     def _call_type(data, plan) -> str:
         """Loại cuộc gọi đi. Nêu `type` thì theo đó; không nêu: tích camera (chắc chắn nối camera) = gọi VIDEO, không thì thoại. AI tự chọn camera
@@ -760,12 +760,10 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def set_default_devices(call: ServiceCall) -> None:
         rt, _ = _api(hass, call)
         patch = {k: call.data[k] for k in
-                 ("speaker", "mic", "mic_url", "camera", "auto_mic", "auto_video", "video_consent",
+                 ("auto_mic", "auto_video", "video_consent",
                   "auto_video_delay",
                   "echo_guard", "call_volume")
                  if k in call.data}
-        if patch.get("mic_url") or patch.get("mic"):
-            patch.setdefault("mic_url" if patch.get("mic") else "mic", "")
         await rt.defaults.async_set(**patch)
         await rt.bridge.async_push_defaults()
 
@@ -786,10 +784,6 @@ async def async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, "set_default_devices", set_default_devices,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string,
-                           vol.Optional("speaker"): cv.string,
-                           vol.Optional("mic"): cv.string,
-                           vol.Optional("mic_url"): cv.string,
-                           vol.Optional("camera"): cv.string,
                            vol.Optional("auto_mic"): cv.boolean,
                            vol.Optional("auto_video"): cv.boolean,
                            vol.Optional("video_consent"): cv.boolean,
@@ -805,7 +799,9 @@ async def async_register_services(hass: HomeAssistant) -> None:
                vol.Optional("mic"): cv.string,
                vol.Optional("mic_url"): cv.string,
                vol.Optional("camera"): cv.string,
-               vol.Optional("volume"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100))}
+               vol.Optional("volume"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+               vol.Optional("mic_gain"): vol.All(vol.Coerce(int), vol.Range(min=0, max=300)),
+               vol.Optional("speaker_gain"): vol.All(vol.Coerce(int), vol.Range(min=0, max=300))}
     now = {vol.Optional("connect_now"): vol.All(cv.ensure_list, [vol.In(list(CONNECT))])}     # chỉ make_call/answer_call (cảnh báo nối ngay sau khi đọc)
     voice = {vol.Optional("message"): cv.string,
              vol.Optional("repeat"): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)),
@@ -851,6 +847,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
                    vol.Optional("mic_url"): cv.string,
                    vol.Optional("camera"): cv.string,
                    vol.Optional("volume"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+                   vol.Optional("mic_gain"): vol.All(vol.Coerce(int), vol.Range(min=0, max=300)),
+                   vol.Optional("speaker_gain"): vol.All(vol.Coerce(int), vol.Range(min=0, max=300)),
                    vol.Optional("echo_guard"): vol.In(list(RULE_ECHO))}
     hass.services.async_register(DOMAIN, "set_rule", set_rule, schema=vol.Schema(rule_schema), supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
