@@ -7,7 +7,7 @@ Gọi **thoại và video Zalo** từ Home Assistant: điện thoại đổ chu�
 > Telegram: xem kho riêng [Telegram-calling](https://github.com/TriTue2011/Telegram-calling).
 
 **Gồm hai phần, cài theo thứ tự này:** ① **app Zalo** chạy bằng Docker (README này, mục 1) — hoặc bằng add-on nếu dùng Home Assistant OS
-([hướng dẫn add-on](zalo_calling/DOCS.md)); ② **tích hợp Home Assistant `zalo_call`** (HACS, mục 2) rồi **kết nối** với app (mục 3).
+([hướng dẫn add-on](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling/DOCS.md)); ② **tích hợp Home Assistant `zalo_call`** (HACS, mục 2) rồi **kết nối** với app (mục 3).
 Sau đó là danh sách **dịch vụ** (mục 4–9) và **automation / blueprint** (mục 10–11).
 
 ## Mục lục
@@ -1504,11 +1504,11 @@ Năm mẫu automation dựng sẵn cho Zalo Call, nằm ở kho **[TriTue2011/Bl
 ## 12. Add-on Home Assistant và cấu trúc kho
 
 **Add-on (HAOS / Supervised):** nếu dùng Home Assistant OS thì không cần Docker/Portainer — cài app bằng add-on, rồi làm tiếp mục 2–11 như trên.
-Tài liệu add-on đi theo cùng thứ tự (cài add-on → thêm tích hợp → kết nối → dịch vụ → automation):
-[Zalo Calling (có giao diện, hiện ở thanh bên)](zalo_calling/DOCS.md) · [Zalo Calling (không giao diện)](zalo_calling_noui/DOCS.md).
-Thêm kho add-on: `https://github.com/TriTue2011/Zalo-calling`.
+Add-on nằm ở kho riêng **[TriTue2011/has-addons](https://github.com/TriTue2011/has-addons)** (cùng kho với các add-on khác), có **hai bản**: *Zalo Calling* (có giao diện, hiện ở thanh bên Home Assistant) và
+*Zalo Calling (không giao diện)*. Tài liệu add-on đi theo cùng thứ tự (cài add-on → thêm tích hợp → kết nối → dịch vụ → automation):
+[có giao diện](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling/DOCS.md) · [không giao diện](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling_noui/DOCS.md). Thêm kho add-on: `https://github.com/TriTue2011/has-addons`.
 
-[![Thêm kho add-on](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FTriTue2011%2FZalo-calling)
+[![Thêm kho add-on](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FTriTue2011%2Fhas-addons)
 
 | Tuỳ chọn add-on | Bản có giao diện | Bản không giao diện | Ý nghĩa |
 |---|---|---|---|
@@ -1516,17 +1516,17 @@ Thêm kho add-on: `https://github.com/TriTue2011/Zalo-calling`.
 | `password` | không bắt buộc | **bắt buộc**, từ 8 ký tự | Bỏ trống ở bản có giao diện: app tự sinh, in **một lần** trong tab *Nhật ký* |
 | `webhook_url` | không bắt buộc | không bắt buộc | Webhook ban đầu cho cả bốn loại; chỉ dùng khi CHƯA có cấu hình |
 
+Image `ghcr.io/tritue2011/zalo-calling` (thẻ `:<số>` và `:<số>-noui`) do kho này dựng; kho has-addons **tự nâng phiên bản add-on** khi kho này ra bản phát hành và ảnh đã dựng xong.
 
 | Thư mục / tệp | Là gì |
 |---|---|
 | `custom_components/zalo_call/` | Tích hợp Home Assistant (HACS bắt buộc đặt ở gốc kho; **một tích hợp mỗi kho**) |
 | `zalo/zalo-pc-app/` | App Zalo dạng PC: đăng nhập QR, gọi thoại/video, WebUI. Một Dockerfile, hai image `ghcr.io/tritue2011/zalo-calling` (`:latest` có giao diện, `:noui` không); `docker-compose.yml`, `docker-compose.noui.yml`, `.env.example` |
-| `zalo_calling/`, `zalo_calling_noui/` | Hai add-on HA (có / không giao diện), `repository.yaml` ở gốc để thêm kho vào Supervisor |
-| `tests/` | Test của tích hợp và của gói add-on (bộ test của app nằm trong `zalo/zalo-pc-app/tests/`) |
-| `.github/workflows/` | `ci.yml` (test), `release.yml` (thẻ `vX` → Release + `zalo_call.zip`, kiểm phiên bản add-on), `image.yml` (thẻ `vX` → hai image đa kiến trúc) |
+| *(add-on)* | Hai add-on Home Assistant nằm ở kho [has-addons](https://github.com/TriTue2011/has-addons), không ở kho này |
+| `tests/` | Test của tích hợp và tài liệu (bộ test của app nằm trong `zalo/zalo-pc-app/tests/`) |
+| `.github/workflows/` | `ci.yml` (test), `release.yml` (thẻ `vX` → Release + `zalo_call.zip`), `image.yml` (thẻ `vX` → hai image đa kiến trúc) |
 
-Phát hành: đẩy thẻ `vX.Y.Z.N` khớp `version` trong `custom_components/zalo_call/manifest.json`; phiên bản của add-on là cùng số đó
-(`zalo_calling_noui` thêm hậu tố `-noui`) — `tests/test_addon_packaging.py` kiểm, hỏng thì CI đỏ.
+Phát hành: đẩy thẻ `vX.Y.Z.N` khớp `version` trong `custom_components/zalo_call/manifest.json`; `image.yml` dựng hai image (`:<số>` và `:<số>-noui`) và has-addons tự nâng add-on theo.
 Chi tiết kỹ thuật của app: [`zalo/README.md`](zalo/README.md), [`zalo/zalo-pc-app/README.md`](zalo/zalo-pc-app/README.md).
 
 **Quy ước giữ tài liệu khớp mã:** README này, `zalo/README.md` và README của app phải đổi cùng lúc với mã (thêm dịch vụ, biến môi trường, tuỳ chọn add-on,

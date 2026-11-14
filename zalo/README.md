@@ -4,14 +4,14 @@ Thư mục này gom **toàn bộ phần Zalo** của repo Zalo-calling:
 
 - `zalo-pc-app/` — app Zalo dạng PC (đăng nhập QR, tin nhắn, **gọi thoại và video có tiếng thật**, WebUI). Chi tiết, bảng biến môi trường: [`zalo-pc-app/README.md`](zalo-pc-app/README.md); báo cáo kỹ thuật `zalo-pc-app/bao-cao.md`.
 - Tích hợp Home Assistant **`zalo_call`** ở `../custom_components/zalo_call` (HACS bắt buộc `custom_components/` ở gốc repo).
-- Hai add-on HA ở `../zalo_calling/` (có WebUI, hiện ở thanh bên qua Ingress) và `../zalo_calling_noui/` (không giao diện).
+- Hai add-on HA (có WebUI hiện ở thanh bên qua Ingress; không giao diện) ở kho [has-addons](https://github.com/TriTue2011/has-addons); app tự bật Ingress khi chạy dưới add-on (`ZALO_PC_INGRESS=1`).
 
 Image Docker: `ghcr.io/tritue2011/zalo-calling` — `:latest` / `:vX.Y.Z` / `:X.Y.Z` có giao diện; `:noui` / `:vX.Y.Z-noui` / `:X.Y.Z-noui` không giao diện (amd64 + arm64).
 
 ## Cài đặt và cập nhật
 
 Hướng dẫn cài từng bước theo thứ tự Docker → Docker Compose → Portainer → tích hợp HACS → kết nối → dịch vụ → automation: [README gốc](../README.md#1-cài-đặt-app-bằng-docker-docker-compose-và-portainer);
-add-on HAOS: [zalo_calling/DOCS.md](../zalo_calling/DOCS.md) và [zalo_calling_noui/DOCS.md](../zalo_calling_noui/DOCS.md). Tóm tắt:
+add-on HAOS ở kho [has-addons](https://github.com/TriTue2011/has-addons): [có giao diện](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling/DOCS.md), [không giao diện](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling_noui/DOCS.md). Tóm tắt:
 
 - **Add-on** (HAOS/Supervised): thêm kho `https://github.com/TriTue2011/Zalo-calling`, cài *Zalo Calling* hoặc *Zalo Calling (không giao diện)*; bản không giao diện **bắt buộc** điền `username` và `password` (≥ 8 ký tự).
 - **Docker:** `docker-compose.yml` (có giao diện) hoặc `docker-compose.noui.yml`; `.env` là tuỳ chọn — không đặt thì app tự sinh tài khoản và in một lần trong log.

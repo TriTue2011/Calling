@@ -90,8 +90,8 @@ docker compose -f docker-compose.noui.yml pull && docker compose -f docker-compo
 # UI: http://127.0.0.1:8080
 ```
 
-Trong Home Assistant OS/Supervised dùng add-on thay cho compose (hai add-on `zalo_calling` và `zalo_calling_noui` ở gốc repo,
-cài theo README gốc, mục **Cài đặt**). Add-on có giao diện hiện WebUI ở thanh bên HA qua Ingress (`ZALO_PC_INGRESS=1`).
+Trong Home Assistant OS/Supervised dùng add-on thay cho compose (hai add-on `zalo_calling` và `zalo_calling_noui` ở kho [has-addons](https://github.com/TriTue2011/has-addons),
+cài theo README gốc, mục 12). Add-on có giao diện hiện WebUI ở thanh bên HA qua Ingress (`ZALO_PC_INGRESS=1`).
 
 > Dùng host path làm volume (ví dụ `/opt/zalo:/data`) hay named volume
 > đều không cần bước chown tay nào: entrypoint của image chown thư mục

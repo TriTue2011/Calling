@@ -25,10 +25,6 @@ ROOT_README = text("README.md")
 ZALO_README = text("zalo", "README.md")
 APP_README = text("zalo", "zalo-pc-app", "README.md")
 DOCS = [("README.md", ROOT_README), ("zalo/README.md", ZALO_README), ("zalo/zalo-pc-app/README.md", APP_README)]
-for _a in ("zalo_calling", "zalo_calling_noui"):
-    DOCS += [(_a + "/DOCS.md", text(_a, "DOCS.md")), (_a + "/README.md", text(_a, "README.md"))]
-UI = yaml.safe_load(text("zalo_calling", "config.yaml"))
-NOUI = yaml.safe_load(text("zalo_calling_noui", "config.yaml"))
 SERVICES = yaml.safe_load(text("custom_components", "zalo_call", "services.yaml"))
 
 
@@ -43,16 +39,16 @@ def test_every_env_var_users_can_set_is_in_the_app_readme():
     assert not thieu, "README app thiếu biến môi trường: %s" % thieu
 
 
-def test_addon_options_and_names_are_documented():
-    for c in (UI, NOUI):
-        assert c["name"] in ROOT_README, "README gốc không nhắc add-on «%s»" % c["name"]
-        for opt in c["options"]:
-            assert "`%s`" % opt in ROOT_README, "README gốc không giải thích tuỳ chọn `%s`" % opt
-    for name, doc in (("zalo_calling", text("zalo_calling", "DOCS.md")), ("zalo_calling_noui", text("zalo_calling_noui", "DOCS.md"))):
-        for opt in yaml.safe_load(text(name, "config.yaml"))["options"]:
-            assert "`%s`" % opt in doc, "%s/DOCS.md không giải thích tuỳ chọn `%s`" % (name, opt)
-    repo = yaml.safe_load(text("repository.yaml"))["url"]
-    assert repo in ROOT_README and repo in text("zalo_calling", "DOCS.md"), "địa chỉ kho add-on trong README phải là %s" % repo
+def test_addon_section_points_at_has_addons_and_documents_options():
+    """Add-on nằm ở kho has-addons (không ở kho này): README gốc phải nêu kho đó, hai bản, và các tuỳ chọn add-on app đọc (username/password/webhook_url)."""
+    assert "https://github.com/TriTue2011/has-addons" in ROOT_README and "zalo_calling_noui" in ROOT_README
+    for opt in ("username", "password", "webhook_url"):
+        assert "`%s`" % opt in ROOT_README, "README gốc không giải thích tuỳ chọn `%s`" % opt
+    src = open(os.path.join(APP, "docker-entrypoint.py"), encoding="utf-8").read()
+    for opt in ("username", "password", "webhook_url"):
+        assert 'opts.get("%s")' % opt in src, "entrypoint không đọc tuỳ chọn add-on %s" % opt
+    assert not os.path.exists(os.path.join(ROOT, "zalo_calling")) and not os.path.exists(os.path.join(ROOT, "repository.yaml")), \
+        "add-on chỉ ở has-addons: không để bản trùng slug trong kho này"
 
 
 def test_install_section_names_real_files_images_and_services():
@@ -63,7 +59,7 @@ def test_install_section_names_real_files_images_and_services():
     assert re.search(r"^FROM base AS noui", dockerfile, re.M) and re.search(r"^FROM base AS ui", dockerfile, re.M)
     for tag in (":latest", ":noui"):
         assert tag in ROOT_README and tag in APP_README, "README thiếu thẻ image %s" % tag
-    assert UI["image"] in ROOT_README
+    assert "ghcr.io/tritue2011/zalo-calling" in ROOT_README
     for sid in ("login_qr", "logout", "get_app_settings", "set_app_settings", "set_app_password", "test_webhook"):
         assert sid in SERVICES, "dịch vụ %s không còn trong services.yaml" % sid
         assert "zalo_call.%s" % sid in ROOT_README, "mục Cài đặt (README gốc) phải nhắc zalo_call.%s" % sid
@@ -119,22 +115,11 @@ def test_every_service_named_in_docs_exists():
             if sid not in SERVICES and sid not in ("zip", "call_voice"):      # zalo_call.zip = gói phát hành; call_voice = tên module Python, không phải dịch vụ
                 bad.append("%s: zalo_call.%s" % (name, sid))
     assert not bad, "dịch vụ không tồn tại: %s" % sorted(bad)
-    for name, doc in DOCS[3:]:                                    # DOCS.md hai add-on: bảng dịch vụ chính viết bằng tên trần, `tên` trong dấu huyền phải có thật
-        for sid in re.findall(r"`(make_call|alert_call|answer_call|reject_call|end_call|upgrade_to_video|set_rule|list_rules|remove_rule|send_message|login_qr|logout|get_app_settings|set_app_settings|set_app_password|test_webhook)`", doc):
-            assert sid in SERVICES, (name, sid)
 
 
-def test_addon_docs_follow_the_same_order_and_anchor_into_the_readme():
-    """Tài liệu add-on đi theo thứ tự: cài add-on → tích hợp → kết nối → dịch vụ → automation; liên kết về README gốc phải trỏ vào mục có thật."""
-    heads = [h for h in re.findall(r"^## (.+)$", ROOT_README, re.M)]
-    slugs = {_slug(h) for h in heads}
-    for name in ("zalo_calling/DOCS.md", "zalo_calling_noui/DOCS.md"):
-        doc = dict(DOCS)[name]
-        order = [doc.index(k) for k in ("## 1. Cài add-on", "## 2. Thêm tích hợp", "## 3. Kết nối", "## 4. Dịch vụ", "## 5. Automation")]
-        assert order == sorted(order), name
-        for anchor in re.findall(r"github\.com/TriTue2011/Zalo-calling#([^)\s]+)", doc):
-            assert anchor in slugs, "%s trỏ vào mục không có trong README gốc: #%s" % (name, anchor)
-    # README gốc: Docker → Compose → Portainer → tích hợp → kết nối → dịch vụ → automation
+def test_readme_follows_the_install_to_automation_order():
+    """README gốc: Docker → Compose → Portainer → tích hợp → kết nối → dịch vụ → automation."""
+    heads = re.findall(r"^## (.+)$", ROOT_README, re.M)
     want = ["Cài đặt app bằng Docker", "Thêm tích hợp Home Assistant", "Kết nối tích hợp", "Dịch vụ cuộc gọi", "Danh mục MỌI dịch vụ", "Nhận cuộc gọi, sự kiện", "Blueprint mẫu"]
     pos = [next(i for i, h in enumerate(heads) if k in h) for k in want]
     assert pos == sorted(pos), pos

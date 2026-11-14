@@ -32,15 +32,6 @@ jobs:
         run: |
           V=$(python3 -c "import json;print(json.load(open('custom_components/zalo_call/manifest.json'))['version'])")
           test "$V" = "${{ steps.t.outputs.version }}" || { echo "manifest=$V khác tag=${{ steps.t.outputs.version }}"; exit 1; }
-      - name: Phiên bản add-on phải khớp tag (Supervisor kéo ghcr.io/tritue2011/zalo-calling:<version>[-noui])
-        run: |
-          python3 - <<'PY'
-          import re
-          v = "${{ steps.t.outputs.version }}"
-          for path, want in (("zalo_calling/config.yaml", v), ("zalo_calling_noui/config.yaml", v + "-noui")):
-              got = re.search(r'^version:\s*"([^"]+)"', open(path, encoding="utf-8").read(), re.M).group(1)
-              assert got == want, "%s: version=%s, cần %s" % (path, got, want)
-          PY
       - name: Gói tích hợp HA
         run: |
           cd custom_components/zalo_call

@@ -50,7 +50,6 @@ jobs:
         run: |
           python3 tests/test_zalo_call_bridge.py
           python3 tests/test_zalo_call_services_yaml.py
-          python3 tests/test_addon_packaging.py
           python3 tests/test_readme_matches_code.py
       - name: services.yaml/catalog.json khớp bộ sinh
         working-directory: zalo/zalo-pc-app
