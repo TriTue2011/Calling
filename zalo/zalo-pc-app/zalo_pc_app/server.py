@@ -1491,7 +1491,11 @@ def _auto_media_async(call_id):
             _log_call("auto-media call_id=%s +%.1fs %s" % (call_id, time.monotonic() - t0, msg))
 
         def kind(url):
-            return "none" if not url else (str(url).split(":", 1)[0] + ":")
+            """none | «http:» | «http:r1_speaker/duplex» (cửa bộ đệm của loa/mic trong nhà: ghi loại phiên, KHÔNG ghi khoá/địa chỉ)."""
+            if not url:
+                return "none"
+            m = re.search(r"/api/([a-z0-9_]+)/(duplex|intercom)/", str(url))
+            return str(url).split(":", 1)[0] + ":" + (("%s/%s" % m.groups()) if m else "")
         try:
             note("bat dau cho transport")
             for _ in range(50):                      # doi transport toi 5 s
@@ -1501,10 +1505,10 @@ def _auto_media_async(call_id):
             cfg = _devices_for_call(call_id)
             entry = next((c for c in STATE.calls.snapshot()["calls"]
                           if str(c["call_id"]) == str(call_id)), {})
-            note("transport=%s engine=%s auto_mic=%s mic=%s speaker=%s camera=%s type=%s override=%s"
+            note("transport=%s engine=%s auto_mic=%s mic=%s speaker=%s camera=%s type=%s echo_guard=%s override=%s"
                  % (_transport_for_call(call_id) is not None, _engine_for_call(call_id) is not None, bool(cfg.get("auto_mic")),
                     kind(cfg.get("mic_url")), kind(cfg.get("speaker_url")), kind(cfg.get("camera_url")),
-                    entry.get("type") or "user", sorted(_CALL_DEVICES.get(str(call_id), {}).keys())))
+                    entry.get("type") or "user", bool(cfg.get("echo_guard")), sorted(_CALL_DEVICES.get(str(call_id), {}).keys())))
             if cfg["auto_mic"] and cfg["mic_url"]:
                 note("start_mic")
                 _start_mic(call_id, cfg["mic_url"], cfg["mic_format"])
