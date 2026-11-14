@@ -85,6 +85,65 @@ def test_rtp_payload_skips_header_extension_and_padding():
     assert H.rtp_payload(padded) == b"\x41abc"
 
 
+# ---- Kiểu đóng gói của ZALO (zcall-native packetizeFrame; app cũng gửi hình lên điện thoại bằng đúng kiểu này) ----
+def _zalo_annexb(*nals):
+    return b"".join(b"\x00\x00\x00\x01" + n for n in nals)
+
+
+def _push_all(d, payloads, seq, marker_last=True):
+    out = None
+    for i, pl in enumerate(payloads):
+        out = d.push(pl, marker_last and i == len(payloads) - 1, seq)
+        seq = (seq + 1) & 0xFFFF
+    return out, seq
+
+
+def test_zalo_style_key_frame_split_with_1c_80_00_40_headers():
+    """Khung khoá lớn (SPS+PPS+IDR ~3 KB) cắt mảnh «1c 80 / 1c 00 / 1c 40» như điện thoại: ghép lại đúng, là khung khoá, đủ SPS/PPS."""
+    from zalo_pc_app.udp_transport import packetize_video_frame
+    idr = bytes([0x65]) + bytes((i * 7) % 251 for i in range(1, 3000))
+    frame = _zalo_annexb(SPS, PPS, idr)
+    chunks = packetize_video_frame(frame, 1068)
+    assert len(chunks) == 3 and chunks[0][:2] == b"\x1c\x80" and chunks[1][:2] == b"\x1c\x00" and chunks[2][:2] == b"\x1c\x40"
+    d = H.H264Depacketizer()
+    out, seq = _push_all(d, chunks, 500)
+    assert out is not None and out[1] is True
+    assert H.split_annexb(out[0]) == [SPS, PPS, idr]
+
+
+def test_zalo_style_small_frames_sent_whole_as_annexb():
+    """Khung vừa một gói gửi NGUYÊN dạng Annex-B (không NAL RFC): P-frame nhỏ sau khung khoá ra đúng, không khoá."""
+    d = H.H264Depacketizer()
+    key, seq = _push_all(d, [_zalo_annexb(SPS, PPS, IDR)], 10)
+    assert key is not None and key[1] is True and H.split_annexb(key[0]) == [SPS, PPS, IDR]
+    p, seq = _push_all(d, [_zalo_annexb(P)], seq)
+    assert p is not None and p[1] is False and H.split_annexb(p[0]) == [P]
+
+
+def test_zalo_style_lost_middle_chunk_drops_frame_and_waits_for_next_key():
+    from zalo_pc_app.udp_transport import packetize_video_frame
+    big = bytes([0x65]) + bytes(range(256)) * 12
+    chunks = packetize_video_frame(_zalo_annexb(SPS, PPS, big), 1068)
+    d = H.H264Depacketizer()
+    d.push(chunks[0], False, 1)
+    out = None
+    for pl, sq in ((chunks[2], 3),):            # mất gói giữa (seq 2)
+        out = d.push(pl, True, sq)
+    assert out is None and d.stats["dropped"] == 1
+    p, _ = _push_all(d, [_zalo_annexb(P)], 4)   # chưa có khung khoá mới: bỏ
+    assert p is None
+    key, _ = _push_all(d, [_zalo_annexb(SPS, PPS, IDR)], 5)
+    assert key is not None and key[1] is True
+
+
+def test_rfc6184_fu_a_still_works_next_to_zalo_style():
+    d = H.H264Depacketizer()
+    seq = 900
+    _, seq = _push_all(d, [bytes([24]) + len(SPS).to_bytes(2, "big") + SPS + len(PPS).to_bytes(2, "big") + PPS], seq, marker_last=False)
+    out, seq = _push_all(d, fu_a(IDR, 10), seq)
+    assert out is not None and out[1] is True
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

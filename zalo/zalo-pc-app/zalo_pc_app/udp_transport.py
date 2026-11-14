@@ -2538,6 +2538,9 @@ class Udp4200Transport:
             payload = h264_rx.rtp_payload(plain)
             if payload is None:
                 raise ValueError("payload rong")
+            self._video_dec_seen = getattr(self, "_video_dec_seen", 0) + 1
+            if self._video_dec_seen <= 4:       # chẩn đoán định dạng thật của điện thoại (kiểu Zalo «1c 80/00/40» hay FU-A RFC 6184)
+                print("[video-dec] payload #%d len=%d head=%s marker=%s" % (self._video_dec_seen, len(payload), bytes(payload[:8]).hex(), bool(plain[1] & 0x80)), flush=True)
             out = self._h264.push(payload, bool(plain[1] & 0x80), seq)
         except Exception as exc:  # noqa: BLE001 - nhận hình không được làm sập vòng nhận
             self._video_dec_err += 1

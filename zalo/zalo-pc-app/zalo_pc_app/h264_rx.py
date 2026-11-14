@@ -8,6 +8,26 @@ Mất gói giữa khung thì bỏ khung đó (không ghép bậy) và chờ khun
 START = b"\x00\x00\x00\x01"
 
 
+def split_annexb(data):
+    """Tách dãy Annex-B (mã bắt đầu 3 hoặc 4 byte) thành danh sách NAL (không kèm mã bắt đầu)."""
+    data = bytes(data)
+    pos, starts, i = [], [], 0
+    while True:
+        j = data.find(b"\x00\x00\x01", i)
+        if j < 0:
+            break
+        starts.append(j + 3)
+        pos.append(j)
+        i = j + 3
+    out = []
+    for k, st in enumerate(starts):
+        end = pos[k + 1] if k + 1 < len(pos) else len(data)
+        nal = data[st:end].rstrip(b"\x00") if k + 1 < len(pos) else data[st:end]
+        if nal:
+            out.append(nal)
+    return out
+
+
 def rtp_payload(rtp):
     """Phần payload của gói RTP đã giải mã (bỏ tiêu đề cố định, CSRC, phần mở rộng); None nếu gói hỏng."""
     if len(rtp) < 12 or rtp[0] >> 6 != 2:
@@ -27,6 +47,7 @@ class H264Depacketizer:
     def __init__(self):
         self._nals = []            # các NAL của khung đang ghép
         self._fu = None            # bytearray NAL đang ghép từ FU-A
+        self._zraw = None          # bytearray khung Annex-B đang ghép theo kiểu Zalo (header 1c 80/00/40)
         self._last_seq = None
         self._broken = False       # khung hiện tại mất gói: bỏ
         self._need_key = True      # đầu cuộc / sau mất gói: chỉ phát từ khung khoá
@@ -35,7 +56,7 @@ class H264Depacketizer:
 
     def _end_frame(self):
         nals, broken = self._nals, self._broken
-        self._nals, self._fu, self._broken = [], None, False
+        self._nals, self._fu, self._zraw, self._broken = [], None, None, False
         if broken or not nals:
             if broken:
                 self.stats["dropped"] += 1
@@ -65,9 +86,25 @@ class H264Depacketizer:
         if self._last_seq is not None and seq != (self._last_seq + 1) & 0xFFFF:
             self._broken = True
             self._fu = None
+            self._zraw = None
         self._last_seq = seq
         t = payload[0] & 0x1F
-        if 1 <= t <= 23:
+        if payload[:4] == START or payload[:3] == b"\x00\x00\x01":
+            # Kiểu Zalo (zcall-native packetizeFrame): khung vừa một gói thì gửi NGUYÊN dạng Annex-B (bắt đầu bằng mã 00 00 00 01), không phải NAL RFC 6184.
+            self._nals.extend(split_annexb(payload))
+        elif t == 28 and len(payload) >= 2 and (payload[1] & 0x1F) == 0:
+            # Khung lớn cắt mảnh với header 2 byte «1c 80» (đầu) / «1c 00» (giữa) / «1c 40» (cuối) — byte thứ hai KHÔNG mang loại NAL (khác FU-A RFC 6184).
+            flag = payload[1]
+            if flag & 0x80:
+                self._zraw = bytearray(payload[2:])
+            elif self._zraw is not None:
+                self._zraw += payload[2:]
+            else:
+                self._broken = True
+            if flag & 0x40 and self._zraw is not None:
+                self._nals.extend(split_annexb(self._zraw))
+                self._zraw = None
+        elif 1 <= t <= 23:
             self._nals.append(bytes(payload))
         elif t == 24:                                          # STAP-A: [2 byte độ dài][NAL]...
             i = 1
