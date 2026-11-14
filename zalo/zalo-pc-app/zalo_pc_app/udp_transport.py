@@ -172,6 +172,9 @@ PROBE_SETUP_DELAY = 0.2              # probe burst -> setup init gap,
                                     # them back-to-back, ~4 ms apart).
 
 
+
+VIDEO_DUMP_FRAMES = int(os.environ.get("ZALO_PC_VIDEO_DUMP_FRAMES", "150") or 0)      # số khung hình đầu của cuộc gọi được ghi để chẩn đoán (0 = tắt)
+
 class MissingTransportParam(Exception):
     """A mandatory transport parameter is missing or malformed.
 
@@ -2581,11 +2584,38 @@ class Udp4200Transport:
             print("[video-dec] khung #%d key=%s %d byte (da ghep, bo %d)" % (st["frames"], is_key, len(annexb), st["dropped"]), flush=True)
         if is_key:
             self._video_last_key = annexb
+        self._dump_video_frame(annexb, is_key, st["frames"])
         for q in list(self._video_taps):
             try:
                 q.put_nowait((annexb, is_key))
             except Exception:  # noqa: BLE001 - hàng đợi đầy: người xem chậm, bỏ khung (không chặn luồng nhận)
                 pass
+
+    def _dump_video_frame(self, annexb, is_key, n):
+        """Chẩn đoán: ghi `VIDEO_DUMP_FRAMES` khung hình đầu của cuộc gọi vào <dữ liệu>/diag/ (chỉ trên máy chủ này; giữ 3 tệp gần nhất) để phân tích bộ giải mã
+        bằng dữ liệu THẬT khi hình không lên. Mỗi bản ghi: 4 byte độ dài + 1 byte khung khoá + khung Annex-B. Đặt ZALO_PC_VIDEO_DUMP_FRAMES=0 để tắt. Không bao giờ làm hỏng luồng nhận."""
+        limit = VIDEO_DUMP_FRAMES
+        if limit <= 0 or n > limit:
+            if getattr(self, "_video_dump", None) is not None:
+                try:
+                    self._video_dump.close()
+                except OSError:
+                    pass
+                self._video_dump = None
+            return
+        try:
+            dump = getattr(self, "_video_dump", None)
+            if dump is None:
+                folder = os.path.join(os.environ.get("ZALO_PC_DATA_DIR", "/data"), "diag")
+                os.makedirs(folder, exist_ok=True)
+                old = sorted(f for f in os.listdir(folder) if f.startswith("video_") and f.endswith(".bin"))
+                for f in old[:-2]:
+                    os.remove(os.path.join(folder, f))
+                dump = self._video_dump = open(os.path.join(folder, "video_%d.bin" % int(time.time())), "wb")
+            dump.write(len(annexb).to_bytes(4, "big") + (b"\x01" if is_key else b"\x00") + annexb)
+            dump.flush()
+        except Exception:  # noqa: BLE001 - chẩn đoán, không chen ngang cuộc gọi
+            self._video_dump = None
 
     def request_keyframe(self, min_gap=1.5):
         """Xin điện thoại gửi khung khoá (PLI) — khi đầu cuộc/mất gói mà đang chờ khung khoá, hoặc có người mở xem. Giới hạn nhịp; True nếu đã gửi."""
