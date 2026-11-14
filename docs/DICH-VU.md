@@ -4,7 +4,7 @@
 
 Mọi dịch vụ gọi bằng `action: zalo_call.<tên>` (Công cụ nhà phát triển → Hành động, hoặc trong automation). Ô `entry_id` có ở mọi dịch vụ (chọn tài khoản Zalo) và **chỉ cần khi bạn có nhiều tài khoản**, nên các ví dụ bỏ qua. Dịch vụ đánh dấu ⚠️ xoá hoặc đổi dữ liệu thật.
 
-Có **367 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi, AI, cảnh báo và quy tắc: xem [README](../README.md).  
+Có **371 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi, AI, cảnh báo và quy tắc: xem [README](../README.md).  
 
 ## Mục lục
 
@@ -30,7 +30,7 @@ Có **367 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi,
 - **Sticker (nâng cao)** (21): [`get_a_i_sticker_list`](#get_a_i_sticker_list), [`get_default_guggy_gifs`](#get_default_guggy_gifs), [`get_gif_categories`](#get_gif_categories), [`get_gif_dictionaries`](#get_gif_dictionaries), [`get_gifs_by_category`](#get_gifs_by_category), [`get_gifs_by_dictionary`](#get_gifs_by_dictionary), [`get_message_effect_by_id`](#get_message_effect_by_id), [`get_message_effects`](#get_message_effects), [`get_personalized_sticker_list`](#get_personalized_sticker_list), [`get_recommended_stickers`](#get_recommended_stickers), [`get_sticker_categories_v2`](#get_sticker_categories_v2), [`get_sticker_category_detail`](#get_sticker_category_detail), [`get_sticker_hello`](#get_sticker_hello), [`get_sticker_suggest_keywords`](#get_sticker_suggest_keywords), [`get_sticker_suggestion`](#get_sticker_suggestion), [`get_tenor_sticker_mapping`](#get_tenor_sticker_mapping), [`get_trending_gifs`](#get_trending_gifs), [`search_gifs`](#search_gifs), [`search_guggy_gifs`](#search_guggy_gifs), [`search_sticker`](#search_sticker), [`update_personalized_sticker_list`](#update_personalized_sticker_list)
 - **Ghi chú, bình chọn, việc cần làm** (21): [`ack_ding_todo`](#ack_ding_todo), [`add_poll_options`](#add_poll_options), [`create_note`](#create_note), [`create_todo`](#create_todo), [`delete_todo`](#delete_todo), [`ding_todo`](#ding_todo), [`edit_note`](#edit_note), [`get_list_pin_topics`](#get_list_pin_topics), [`get_todo_detail`](#get_todo_detail), [`get_todo_list`](#get_todo_list), [`multi_unpin_board_topics`](#multi_unpin_board_topics), [`pin_board_topic`](#pin_board_topic), [`pin_friend_message`](#pin_friend_message), [`reorder_friend_board`](#reorder_friend_board), [`reorder_pin_topics`](#reorder_pin_topics), [`share_poll`](#share_poll), [`unpin_board_topic`](#unpin_board_topic), [`unpin_friend_messages`](#unpin_friend_messages), [`update_todo`](#update_todo), [`update_todo_status`](#update_todo_status), [`verify_todo`](#verify_todo)
 - **Zalo Business (OA)** (30): [`add_conversation_label`](#add_conversation_label), [`block_o_a`](#block_o_a), [`convert_o_a_ids`](#convert_o_a_ids), [`create_auto_reply`](#create_auto_reply), [`create_bank_account`](#create_bank_account), [`create_catalog`](#create_catalog), [`create_product_catalog`](#create_product_catalog), [`delete_auto_reply`](#delete_auto_reply), [`delete_bank_account`](#delete_bank_account), [`delete_catalog`](#delete_catalog), [`delete_conversation_label`](#delete_conversation_label), [`delete_product_catalog`](#delete_product_catalog), [`delete_single_product`](#delete_single_product), [`get_auto_reply_list`](#get_auto_reply_list), [`get_biz_account`](#get_biz_account), [`get_catalog_list`](#get_catalog_list), [`get_list_bank`](#get_list_bank), [`get_list_bank_account`](#get_list_bank_account), [`get_o_a_profile`](#get_o_a_profile), [`get_product_catalog_list`](#get_product_catalog_list), [`get_product_detail`](#get_product_detail), [`register_catalog`](#register_catalog), [`reorder_conversation_labels`](#reorder_conversation_labels), [`unblock_o_a`](#unblock_o_a), [`update_auto_reply`](#update_auto_reply), [`update_bank_account`](#update_bank_account), [`update_catalog`](#update_catalog), [`update_conversation_label_item`](#update_conversation_label_item), [`update_product_catalog`](#update_product_catalog), [`upload_product_photo`](#upload_product_photo)
-- **Khác** (4): [`voice_to_text`](#voice_to_text), [`set_contact_tags`](#set_contact_tags), [`login_qr`](#login_qr), [`logout`](#logout)
+- **Khác** (8): [`voice_to_text`](#voice_to_text), [`set_contact_tags`](#set_contact_tags), [`get_app_settings`](#get_app_settings), [`set_app_settings`](#set_app_settings), [`set_app_password`](#set_app_password), [`test_webhook`](#test_webhook), [`login_qr`](#login_qr), [`logout`](#logout)
 
 ## Cuộc gọi, AI và cảnh báo
 
@@ -8396,6 +8396,116 @@ data:
 | `thread_id` | ThreadID (gõ tay) | có | ID Zalo của người hoặc nhóm. Lấy danh sách bằng dịch vụ list_contacts. |
 | `tags` | Thẻ | không | Các thẻ cách nhau bằng dấu phẩy, ví dụ gia đình, người lớn tuổi. Tối đa 10 thẻ, không phân biệt hoa thường. |
 | `note` | Ghi chú | không | Ghi chú ngắn về người này (tối đa 500 ký tự). |
+
+---
+
+<a id="get_app_settings"></a>
+#### Đọc cài đặt của app — `zalo_call.get_app_settings`
+
+Đọc mọi cài đặt của app Zalo Call (tài khoản app, webhook, thiết bị, lưu trữ, proxy, bảo mật, đồng bộ lịch sử) cùng cài đặt phía HA. Dùng để cấu hình/sao lưu từ HA, nhất là khi app chạy không có giao diện web. Bí mật (địa chỉ webhook, mật khẩu) bị che trừ khi bật «Hiện bí mật». Mật khẩu app được app lưu dạng băm nên không đọc ngược được: «Hiện bí mật» chỉ cho thấy mật khẩu HA đang dùng.
+
+**Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
+
+```yaml
+action: zalo_call.get_app_settings
+data:
+  sections: ["app", "webhooks"]  # tuỳ chọn - Mục cần đọc
+  reveal_secrets: false          # tuỳ chọn - Hiện bí mật
+```
+
+| Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
+|---|---|---|---|
+| `sections` | Mục cần đọc | không | Bỏ trống để đọc tất cả. |
+| `reveal_secrets` | Hiện bí mật | không | Bật thì phản hồi chứa địa chỉ webhook đầy đủ và mật khẩu HA dùng với app. Phản hồi có thể nằm trong vết chạy automation, nên chỉ bật khi cần. |
+
+**Các lựa chọn:**
+
+- **Mục cần đọc** (`sections`) - chọn được nhiều ô cùng lúc
+  - `app`: Tài khoản app
+  - `webhooks`: Webhook
+  - `devices`: Thiết bị mặc định của app
+  - `retention`: Lưu trữ / dọn dữ liệu
+  - `proxy`: Proxy
+  - `security`: Bảo mật
+  - `history_sync`: Đồng bộ lịch sử
+
+---
+
+<a id="set_app_settings"></a>
+#### Ghi cài đặt của app — `zalo_call.set_app_settings`
+
+Ghi một mục cài đặt của app. App tự kiểm giá trị và báo lỗi rõ ràng. Ví dụ: mục «webhooks» với {"message_webhook_url": "...", "message_enabled": true}; mục «retention» với các khóa của app; mục «proxy» với {"action": "add", "url": "..."}.
+
+**Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
+
+```yaml
+action: zalo_call.set_app_settings
+data:
+  section: "webhooks"  # bắt buộc - Mục cài đặt
+  values: {}           # bắt buộc - Giá trị
+```
+
+| Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
+|---|---|---|---|
+| `section` | Mục cài đặt | có | Mục cần ghi. |
+| `values` | Giá trị | có | Các khóa cần đổi của mục đó (đối tượng YAML/JSON). |
+
+**Các lựa chọn:**
+
+- **Mục cài đặt** (`section`)
+  - `webhooks`: Webhook
+  - `devices`: Thiết bị mặc định của app
+  - `retention`: Lưu trữ / dọn dữ liệu
+  - `proxy`: Proxy
+  - `security`: Bảo mật (thu hồi phiên)
+
+---
+
+<a id="set_app_password"></a>
+#### Đổi mật khẩu app — `zalo_call.set_app_password`
+
+Đổi mật khẩu đăng nhập app Zalo Call và cập nhật luôn mật khẩu HA dùng với app (tích hợp tự tải lại). Các phiên khác của app bị thu hồi. Không đổi được nếu mật khẩu app đặt bằng biến môi trường.
+
+**Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
+
+```yaml
+action: zalo_call.set_app_password
+data:
+  old_password: "..."  # bắt buộc - Mật khẩu cũ
+  new_password: "..."  # bắt buộc - Mật khẩu mới
+```
+
+| Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
+|---|---|---|---|
+| `old_password` | Mật khẩu cũ | có | Mật khẩu app hiện tại. |
+| `new_password` | Mật khẩu mới | có | Mật khẩu app mới (app kiểm độ dài/độ mạnh). |
+
+---
+
+<a id="test_webhook"></a>
+#### Gửi thử webhook — `zalo_call.test_webhook`
+
+Gửi thử một loại webhook từ app sang HA để kiểm đường nhận.
+
+**Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
+
+```yaml
+action: zalo_call.test_webhook
+data:
+  kind: "message"  # bắt buộc - Loại webhook
+```
+
+| Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
+|---|---|---|---|
+| `kind` | Loại webhook | có | Loại sự kiện gửi thử. |
+
+**Các lựa chọn:**
+
+- **Loại webhook** (`kind`)
+  - `message`: Tin nhắn
+  - `group_event`: Sự kiện nhóm
+  - `reaction`: Cảm xúc
+  - `call`: Cuộc gọi
 
 ---
 

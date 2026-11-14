@@ -1396,6 +1396,10 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | **Khác** | | |
 | [Chuyển giọng nói thành văn bản (Zalo AI)](docs/DICH-VU.md#voice_to_text) | `zalo_call.voice_to_text` | Gửi một tin nhắn thoại (URL tệp .aac/.mp3/.m4a trên máy chủ Zalo) cho Zalo AI và trả về văn bản. Chỉ dùng cho... |
 | [Gắn thẻ và ghi chú cho người](docs/DICH-VU.md#set_contact_tags) | `zalo_call.set_contact_tags` | Gắn thẻ (ví dụ «gia đình») và ghi chú cho một người hoặc nhóm. Đặt quy tắc cho một thẻ (dịch vụ «Đặt quy... |
+| [Đọc cài đặt của app](docs/DICH-VU.md#get_app_settings) | `zalo_call.get_app_settings` | Đọc mọi cài đặt của app Zalo Call (tài khoản app, webhook, thiết bị, lưu trữ, proxy, bảo mật, đồng bộ lịch... |
+| [Ghi cài đặt của app](docs/DICH-VU.md#set_app_settings) | `zalo_call.set_app_settings` | Ghi một mục cài đặt của app. App tự kiểm giá trị và báo lỗi rõ ràng. Ví dụ: mục «webhooks» với... |
+| [Đổi mật khẩu app](docs/DICH-VU.md#set_app_password) | `zalo_call.set_app_password` | Đổi mật khẩu đăng nhập app Zalo Call và cập nhật luôn mật khẩu HA dùng với app (tích hợp tự tải lại). Các... |
+| [Gửi thử webhook](docs/DICH-VU.md#test_webhook) | `zalo_call.test_webhook` | Gửi thử một loại webhook từ app sang HA để kiểm đường nhận. |
 | [Đăng nhập Zalo bằng mã QR](docs/DICH-VU.md#login_qr) | `zalo_call.login_qr` | Bắt đầu đăng nhập Zalo bằng mã QR theo kiểu đã chọn. Mã hiện ở thực thể ảnh «Mã QR đăng nhập» của thiết bị... |
 | [Đăng xuất Zalo](docs/DICH-VU.md#logout) | `zalo_call.logout` | Đăng xuất Zalo (xóa phiên Zalo của app, quay về màn hình mã QR). Tài khoản và mật khẩu đăng nhập app vẫn giữ. |
 

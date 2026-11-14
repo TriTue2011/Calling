@@ -250,6 +250,40 @@ class ZaloCallApi:
     async def set_webhooks(self, cfg: dict) -> dict:
         return await self._request("POST", "/api/webhooks", json=cfg)
 
+    # -- cài đặt của app (để cấu hình toàn bộ từ HA, sau này chạy được bản không WebUI) --------------
+    async def app_status(self) -> dict:
+        return await self._request("GET", "/api/app/status")
+
+    async def retention_get(self) -> dict:
+        return await self._request("GET", "/api/retention")
+
+    async def retention_set(self, patch: dict) -> dict:
+        return await self._request("POST", "/api/retention", json=patch)
+
+    async def proxy_get(self) -> dict:
+        return await self._request("GET", "/api/proxy")
+
+    async def proxy_action(self, body: dict) -> dict:
+        return await self._request("POST", "/api/proxy", json=body)
+
+    async def security_get(self) -> dict:
+        return await self._request("GET", "/api/security")
+
+    async def security_action(self, body: dict) -> dict:
+        return await self._request("POST", "/api/security", json=body)
+
+    async def history_sync_status(self) -> dict:
+        return await self._request("GET", "/api/history-sync/status")
+
+    async def webhook_test(self, kind: str) -> dict:
+        return await self._request("POST", "/api/webhooks/test", json={"kind": kind})
+
+    async def change_app_password(self, old: str, new: str) -> dict:
+        """Đổi mật khẩu đăng nhập app. Lỗi: sai_mat_khau_cu (403), managed_by_env (409: mật khẩu đặt bằng biến môi trường), qua_nhieu_lan_sai (429)…"""
+        r = await self._request("POST", "/api/app/password", json={"old_password": old, "new_password": new})
+        self._pw = new                       # phiên đang dùng tiếp với mật khẩu mới (đăng nhập lại khi gặp 401)
+        return r
+
     async def qr_new(self, client: str | None = None) -> dict:
         """Bắt đầu đăng nhập bằng QR. client "web" | "pc" chọn kiểu đăng nhập; None = giữ kiểu hiện tại của app."""
         return await self._request("POST", "/api/qr/new", json={"client": client} if client else {})

@@ -32,7 +32,7 @@ from .video_urls import local_to_public, sibling_thumb_candidates
 from .album import album_plan, is_album_photo
 from .call_voice import async_tts_audio
 from .compat import rename_aliases, unknown_keys
-from . import qr_login
+from . import app_settings, qr_login
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -728,6 +728,79 @@ async def async_register_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(str(err)) from err
         return {"ok": True}
 
+    def _entry_and_api(call: ServiceCall):
+        """(entry_id, runtime, api) của tích hợp được chọn (hoặc cái đầu tiên)."""
+        wanted = call.data.get("entry_id")
+        for eid, rt in hass.data.get(DOMAIN, {}).items():
+            if hasattr(rt, "api") and (wanted is None or wanted == eid):
+                return eid, rt, rt.api
+        raise ServiceValidationError("Chưa có tích hợp Zalo Call nào đang chạy")
+
+    async def get_app_settings(call: ServiceCall) -> dict:
+        """Đọc MỌI cài đặt của app (webhook, thiết bị, lưu trữ, proxy, bảo mật, đồng bộ lịch sử, tài khoản app) + cài đặt phía HA. Bí mật bị che trừ khi reveal_secrets."""
+        eid, rt, api = _entry_and_api(call)
+        try:
+            sections = app_settings.normalize_sections(call.data.get("sections"))
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        fetch = {"app": api.app_status, "webhooks": api.get_webhooks, "devices": api.devices_get, "retention": api.retention_get,
+                 "proxy": api.proxy_get, "security": api.security_get, "history_sync": api.history_sync_status}
+        raw: dict[str, Any] = {}
+        for sec in sections:
+            try:
+                raw[sec] = await fetch[sec]()
+            except ZaloCallError as err:                       # một mục lỗi không làm hỏng cả bản đọc
+                raw[sec] = err
+        entry = hass.config_entries.async_get_entry(eid)
+        data = dict(entry.data) if entry is not None else {}
+        reveal = bool(call.data.get("reveal_secrets"))
+        snap = app_settings.build_snapshot(raw, app_settings.mask_connection(data.get("url", ""), data.get("username", ""), data.get("password", ""), reveal), reveal)
+        snap["ha"] = {k: rt.defaults.get(k) for k in ("auto_mic", "auto_video", "video_consent", "auto_video_delay", "call_volume", "echo_guard", "ha_url")}
+        return snap
+
+    async def set_app_settings(call: ServiceCall) -> dict:
+        """Ghi một mục cài đặt của app (webhooks | devices | retention | proxy | security). App tự kiểm giá trị và báo lỗi rõ ràng."""
+        _, rt, api = _entry_and_api(call)
+        try:
+            section, values = app_settings.check_write(call.data.get("section"), call.data.get("values"))
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        send = {"webhooks": api.set_webhooks, "devices": api.devices_set, "retention": api.retention_set,
+                "proxy": api.proxy_action, "security": api.security_action}[section]
+        try:
+            res = await send(values)
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        if section == "webhooks" and isinstance(res, dict) and "config" in res:
+            res = dict(res, config=app_settings.mask_webhooks(res["config"]))        # phản hồi không lộ mã webhook
+        elif section == "proxy":
+            res = app_settings.build_snapshot({"proxy": res}, {}, False)["proxy"]
+        return {"ok": True, "section": section, "result": res}
+
+    async def set_app_password(call: ServiceCall) -> dict:
+        """Đổi mật khẩu đăng nhập app và cập nhật luôn mật khẩu HA dùng để nói chuyện với app (các phiên khác của app bị thu hồi)."""
+        eid, rt, api = _entry_and_api(call)
+        try:
+            old, new = app_settings.check_password_change(call.data.get("old_password"), call.data.get("new_password"))
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        try:
+            res = await api.change_app_password(old, new)
+        except ZaloCallError as err:
+            raise HomeAssistantError(app_settings.password_error_text(str(err))) from err
+        entry = hass.config_entries.async_get_entry(eid)
+        if entry is not None:
+            hass.config_entries.async_update_entry(entry, data={**entry.data, "password": new})      # HA nhớ mật khẩu mới (tích hợp tự tải lại)
+        return {"ok": True, "other_sessions_revoked": (res or {}).get("other_sessions_revoked", 0)}
+
+    async def test_webhook(call: ServiceCall) -> dict:
+        """Gửi thử một loại webhook (message | group_event | reaction | call) từ app sang HA để kiểm đường nhận."""
+        _, _, api = _entry_and_api(call)
+        try:
+            return {"result": await api.webhook_test(call.data["kind"])}
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+
     async def _camera_url(rt, call: ServiceCall) -> str:
         """URL camera cua service: camera_url thang camera (thuc the) thang mac dinh."""
         if call.data.get("camera_url"):
@@ -961,6 +1034,23 @@ async def async_register_services(hass: HomeAssistant) -> None:
                            vol.Optional("wait", default=25):
                                vol.All(vol.Coerce(float), vol.Range(min=0, max=60))}),
         supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(
+        DOMAIN, "get_app_settings", get_app_settings,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("sections"): vol.All(cv.ensure_list, [vol.In(list(app_settings.READ_SECTIONS))]),
+                           vol.Optional("reveal_secrets", default=False): cv.boolean}),
+        supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(
+        DOMAIN, "set_app_settings", set_app_settings,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Required("section"): vol.In(list(app_settings.WRITE_SECTIONS)), vol.Required("values"): dict}),
+        supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "set_app_password", set_app_password,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Required("old_password"): cv.string, vol.Required("new_password"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "test_webhook", test_webhook,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Required("kind"): vol.In(["message", "group_event", "reaction", "call"])}),
+        supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, "login_qr", login_qr,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("type"): vol.In(list(qr_login.CLIENTS)), vol.Optional("force", default=False): cv.boolean}),

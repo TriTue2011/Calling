@@ -8215,6 +8215,104 @@ get_default_devices:
   description: Trả về cài đặt thiết bị mặc định hiện tại (đặt bằng set_default_devices).
   fields:
     entry_id: *id001
+get_app_settings:
+  name: Đọc cài đặt của app
+  description: 'Đọc mọi cài đặt của app Zalo Call (tài khoản app, webhook, thiết bị, lưu trữ, proxy, bảo mật, đồng bộ lịch sử) cùng cài đặt phía HA. Dùng để cấu hình/sao lưu từ HA, nhất là khi app chạy không có giao diện web. Bí mật (địa chỉ webhook, mật khẩu) bị che trừ khi bật «Hiện bí mật». Mật khẩu app được app lưu dạng băm nên không đọc ngược được: «Hiện bí mật» chỉ cho thấy mật khẩu HA đang dùng.'
+  fields:
+    entry_id: *id001
+    sections:
+      name: Mục cần đọc
+      description: Bỏ trống để đọc tất cả.
+      selector:
+        select:
+          multiple: true
+          options:
+          - label: Tài khoản app
+            value: app
+          - label: Webhook
+            value: webhooks
+          - label: Thiết bị mặc định của app
+            value: devices
+          - label: Lưu trữ / dọn dữ liệu
+            value: retention
+          - label: Proxy
+            value: proxy
+          - label: Bảo mật
+            value: security
+          - label: Đồng bộ lịch sử
+            value: history_sync
+    reveal_secrets:
+      name: Hiện bí mật
+      description: Bật thì phản hồi chứa địa chỉ webhook đầy đủ và mật khẩu HA dùng với app. Phản hồi có thể nằm trong vết chạy automation, nên chỉ bật khi cần.
+      selector:
+        boolean: null
+set_app_settings:
+  name: Ghi cài đặt của app
+  description: 'Ghi một mục cài đặt của app. App tự kiểm giá trị và báo lỗi rõ ràng. Ví dụ: mục «webhooks» với {"message_webhook_url": "...", "message_enabled": true}; mục «retention» với các khóa của app; mục «proxy» với {"action": "add", "url": "..."}.'
+  fields:
+    entry_id: *id001
+    section:
+      name: Mục cài đặt
+      description: Mục cần ghi.
+      required: true
+      selector:
+        select:
+          options:
+          - label: Webhook
+            value: webhooks
+          - label: Thiết bị mặc định của app
+            value: devices
+          - label: Lưu trữ / dọn dữ liệu
+            value: retention
+          - label: Proxy
+            value: proxy
+          - label: Bảo mật (thu hồi phiên)
+            value: security
+    values:
+      name: Giá trị
+      description: Các khóa cần đổi của mục đó (đối tượng YAML/JSON).
+      required: true
+      selector:
+        object: null
+set_app_password:
+  name: Đổi mật khẩu app
+  description: Đổi mật khẩu đăng nhập app Zalo Call và cập nhật luôn mật khẩu HA dùng với app (tích hợp tự tải lại). Các phiên khác của app bị thu hồi. Không đổi được nếu mật khẩu app đặt bằng biến môi trường.
+  fields:
+    entry_id: *id001
+    old_password:
+      name: Mật khẩu cũ
+      description: Mật khẩu app hiện tại.
+      required: true
+      selector:
+        text:
+          type: password
+    new_password:
+      name: Mật khẩu mới
+      description: Mật khẩu app mới (app kiểm độ dài/độ mạnh).
+      required: true
+      selector:
+        text:
+          type: password
+test_webhook:
+  name: Gửi thử webhook
+  description: Gửi thử một loại webhook từ app sang HA để kiểm đường nhận.
+  fields:
+    entry_id: *id001
+    kind:
+      name: Loại webhook
+      description: Loại sự kiện gửi thử.
+      required: true
+      selector:
+        select:
+          options:
+          - label: Tin nhắn
+            value: message
+          - label: Sự kiện nhóm
+            value: group_event
+          - label: Cảm xúc
+            value: reaction
+          - label: Cuộc gọi
+            value: call
 login_qr:
   name: Đăng nhập Zalo bằng mã QR
   description: Bắt đầu đăng nhập Zalo bằng mã QR theo kiểu đã chọn. Mã hiện ở thực thể ảnh «Mã QR đăng nhập» của thiết bị Zalo Call; quét bằng ứng dụng Zalo trên điện thoại rồi xác nhận.
