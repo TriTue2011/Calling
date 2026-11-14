@@ -10,8 +10,8 @@ Image Docker: `ghcr.io/tritue2011/zalo-calling` — `:latest` / `:vX.Y.Z` / `:X.
 
 ## Cài đặt và cập nhật
 
-Hướng dẫn cài từng bước (add-on, Docker, HACS, đăng nhập Zalo khi không có WebUI): mục **Cài đặt** của [README gốc](../README.md#cài-đặt).
-Tóm tắt:
+Hướng dẫn cài từng bước theo thứ tự Docker → Docker Compose → Portainer → tích hợp HACS → kết nối → dịch vụ → automation: [README gốc](../README.md#1-cài-đặt-app-bằng-docker-docker-compose-và-portainer);
+add-on HAOS: [zalo_calling/DOCS.md](../zalo_calling/DOCS.md) và [zalo_calling_noui/DOCS.md](../zalo_calling_noui/DOCS.md). Tóm tắt:
 
 - **Add-on** (HAOS/Supervised): thêm kho `https://github.com/TriTue2011/Zalo-calling`, cài *Zalo Calling* hoặc *Zalo Calling (không giao diện)*; bản không giao diện **bắt buộc** điền `username` và `password` (≥ 8 ký tự).
 - **Docker:** `docker-compose.yml` (có giao diện) hoặc `docker-compose.noui.yml`; `.env` là tuỳ chọn — không đặt thì app tự sinh tài khoản và in một lần trong log.

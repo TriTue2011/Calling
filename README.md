@@ -6,89 +6,124 @@ Gọi **thoại và video Zalo** từ Home Assistant: điện thoại đổ chu�
 > ⚠️ App không chính thức, đăng nhập Zalo bằng mã QR. **Dùng tài khoản Zalo phụ.**
 > Telegram: xem kho riêng [Telegram-calling](https://github.com/TriTue2011/Telegram-calling).
 
-## Cài đặt
+**Gồm hai phần, cài theo thứ tự này:** ① **app Zalo** chạy bằng Docker (README này, mục 1) — hoặc bằng add-on nếu dùng Home Assistant OS
+([hướng dẫn add-on](zalo_calling/DOCS.md)); ② **tích hợp Home Assistant `zalo_call`** (HACS, mục 2) rồi **kết nối** với app (mục 3).
+Sau đó là danh sách **dịch vụ** (mục 4–9) và **automation / blueprint** (mục 10–11).
 
-Cần **2 phần**: ① **app Zalo** (chạy bằng add-on hoặc Docker, đăng nhập Zalo bằng mã QR) và ② **tích hợp Zalo Call** (HACS).
-Chọn **một** cách chạy app — hai add-on và hai image Docker dùng chung một mã nguồn, chỉ khác có WebUI hay không:
+## Mục lục
 
-| Cách chạy app | Hợp với | Cấu hình ở đâu |
+1. [Cài đặt app bằng Docker, Docker Compose và Portainer](#1-cài-đặt-app-bằng-docker-docker-compose-và-portainer)
+2. [Thêm tích hợp Home Assistant (HACS)](#2-thêm-tích-hợp-home-assistant-hacs)
+3. [Kết nối tích hợp với app, đăng nhập Zalo](#3-kết-nối-tích-hợp-với-app-đăng-nhập-zalo)
+4. [Quy ước và nguyên tắc riêng tư](#4-quy-ước-và-nguyên-tắc-riêng-tư)
+5. [Dịch vụ cuộc gọi, AI, cảnh báo và quy tắc: mã đầy đủ và giải thích từng ô, từng lựa chọn](#5-dịch-vụ-cuộc-gọi-ai-cảnh-báo-và-quy-tắc)
+6. [Các trường hợp xảy ra, giải thích dễ hiểu](#6-các-trường-hợp-xảy-ra)
+7. [Tin nhắn, tệp, ghi âm và định dạng chữ](#7-tin-nhắn-tệp-ghi-âm-và-định-dạng-chữ)
+8. [WebUI và bình chọn nhóm](#8-webui-và-bình-chọn-nhóm)
+9. [Danh mục MỌI dịch vụ](#9-danh-mục-mọi-dịch-vụ)
+10. [Nhận cuộc gọi, sự kiện và ví dụ automation](#10-nhận-cuộc-gọi-sự-kiện-và-ví-dụ-automation)
+11. [Blueprint mẫu: chọn từ danh sách, không gõ tay](#11-blueprint-mẫu-chọn-từ-danh-sách-không-gõ-tay)
+12. [Add-on Home Assistant và cấu trúc kho](#12-add-on-home-assistant-và-cấu-trúc-kho)
+
+## 1. Cài đặt app bằng Docker, Docker Compose và Portainer
+
+App Zalo (đăng nhập QR, gọi thoại/video, WebUI) chạy trong một container, cổng **8080**, dữ liệu ở `/data`. Chọn **một** image — cùng mã nguồn, chỉ khác có WebUI hay không:
+
+| Image | Hợp với | Cấu hình ở đâu |
 |---|---|---|
-| **Add-on «Zalo Calling»** | HAOS / Supervised. WebUI hiện ngay ở **thanh bên** HA (Ingress), không cần mở cổng | Tuỳ chọn add-on (không bắt buộc) + WebUI |
-| Add-on «Zalo Calling (không giao diện)» | HAOS / Supervised, máy yếu | Tuỳ chọn add-on: `username` và `password` **bắt buộc** |
-| Docker `:latest` — `docker-compose.yml` | HA Container / Core, hoặc app chạy ở máy khác | `.env` (không bắt buộc) + WebUI |
-| Docker `:noui` — `docker-compose.noui.yml` | Máy yếu, không cần WebUI | `.env` (không bắt buộc) + dịch vụ HA hoặc `curl` |
+| `ghcr.io/tritue2011/zalo-calling:latest` | **Có giao diện web** (khuyên dùng lúc đầu: quét QR ngay trên web) | `.env` / biến môi trường (không bắt buộc) + WebUI |
+| `ghcr.io/tritue2011/zalo-calling:noui` | Máy yếu, không cần WebUI | `.env` / biến môi trường + dịch vụ Home Assistant hoặc `curl` |
 
-Bản không giao diện **không nhẹ hơn đáng kể** (cùng ~815 MB vì phần nặng là ffmpeg và Python); lợi ở chỗ không mở bề mặt WebUI và cấu hình hoàn toàn bằng mã/biến.
-Cổng của app luôn là **8080**. Chỉ chạy **một** bản trên cùng cổng.
+Bản không giao diện **không nhẹ hơn đáng kể** (cùng ~815 MB vì phần nặng là ffmpeg và Python); lợi ở chỗ không mở bề mặt WebUI. Thẻ cố định: `:vX.Y.Z.N` (có) và `:vX.Y.Z.N-noui` (không).
+**Mọi biến môi trường đều không bắt buộc**: không đặt `ZALO_PC_APP_USER` / `ZALO_PC_APP_PASSWORD` thì app **tự sinh** tài khoản, in **một lần** trong nhật ký và lưu `/data/THONG-TIN-DANG-NHAP.txt`.
+Bảng đầy đủ các biến: [zalo/zalo-pc-app/README.md](zalo/zalo-pc-app/README.md#biến-môi-trường).
 
-### A. Add-on (HAOS / Supervised)
+### 1.1. Docker (`docker run`)
 
-[![Thêm kho add-on](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FTriTue2011%2FZalo-calling)
+```sh
+docker run -d --name zalo-calling --restart unless-stopped --init \
+  -p 8080:8080 -v zalo-pc-data:/data \
+  --memory 512m \
+  ghcr.io/tritue2011/zalo-calling:latest
+docker logs zalo-calling 2>&1 | grep "TU SINH"      # tài khoản app tự sinh (chỉ in một lần)
+```
 
-1. **Cài đặt → Add-on → Cửa hàng → ⋮ → Kho lưu trữ** → dán `https://github.com/TriTue2011/Zalo-calling` → **Thêm**.
-2. Cài **Zalo Calling** (hoặc **Zalo Calling (không giao diện)**), bấm **Khởi động**.
-3. Bản có giao diện: bật *Hiện trong thanh bên*, mở **Zalo Calling** → **Qua PC** (gọi thoại/video) hoặc **Qua Web** (chỉ nhắn tin) → quét QR bằng Zalo trên điện thoại.
-   Mở bằng thanh bên thì **không hỏi mật khẩu** (HA đã xác thực bạn). Bản không giao diện: xem mục D.
+- Muốn tự đặt tài khoản: thêm `-e ZALO_PC_APP_USER=admin -e ZALO_PC_APP_PASSWORD='mat-khau-dai-8-ky-tu'`.
+- Bản không giao diện: đổi thẻ thành `:noui`.
+- Chỉ cho máy này truy cập (HA cùng máy, mạng `host`): `-p 127.0.0.1:8080:8080`. HA ở máy khác hoặc HA trong Docker mạng bridge: giữ `-p 8080:8080`.
+- Mở `http://<IP máy chạy Docker>:8080` (bản có giao diện) → đăng nhập → quét QR (mục 3.3).
 
-| Tuỳ chọn add-on | Bản có giao diện | Bản không giao diện | Ý nghĩa |
-|---|---|---|---|
-| `username` | không bắt buộc (mặc định `admin`) | **bắt buộc** | Tên đăng nhập app (cổng 8080 và tích hợp HA) |
-| `password` | không bắt buộc | **bắt buộc**, từ 8 ký tự | Bỏ trống ở bản có giao diện: app tự sinh, in **một lần** trong tab *Nhật ký*, lưu `/data/THONG-TIN-DANG-NHAP.txt` |
-| `webhook_url` | không bắt buộc | không bắt buộc | Webhook ban đầu cho cả bốn loại; chỉ dùng khi CHƯA có cấu hình (không đè giá trị đã đặt ở WebUI/HA) |
-
-Mật khẩu đổi sau đó trong WebUI hoặc bằng `zalo_call.set_app_password` được giữ, không bị tuỳ chọn ghi đè lại. Dữ liệu ở `/data` của add-on, đi theo bản sao lưu của HA.
-
-### B. Docker
+### 1.2. Docker Compose
 
 ```sh
 mkdir zalo && cd zalo
 curl -LO https://github.com/TriTue2011/Zalo-calling/releases/latest/download/docker-compose.yml   # bản có giao diện
-# bản không giao diện: tải docker-compose.noui.yml ở thư mục zalo/zalo-pc-app của repo
-cp .env.example .env     # TUỲ CHỌN: không có .env vẫn chạy, app tự sinh tài khoản và in một lần trong log
-docker compose up -d     # có giao diện: mở http://<máy chủ>:8080 rồi quét QR
-docker compose -f docker-compose.noui.yml up -d      # (thay cho dòng trên) bản không giao diện
-docker compose pull && docker compose up -d          # cập nhật (hoặc để Watchtower kéo :latest)
+# bản không giao diện: lấy docker-compose.noui.yml ở thư mục zalo/zalo-pc-app của repo này
+curl -LO https://raw.githubusercontent.com/TriTue2011/Zalo-calling/main/zalo/zalo-pc-app/.env.example && cp .env.example .env    # TUỲ CHỌN
+docker compose up -d                       # (bản không giao diện: docker compose -f docker-compose.noui.yml up -d)
+docker compose logs zalo-pc | grep "TU SINH"
 ```
 
-Mọi biến môi trường đều không bắt buộc (compose dùng `${BIEN:-}`, biến rỗng = chưa đặt). Bảng biến và chi tiết:
-[zalo/zalo-pc-app/README.md](zalo/zalo-pc-app/README.md). Compose mặc định chỉ mở `127.0.0.1:8080`; đổi thành `"8080:8080"`
-nếu HA ở máy khác.
+- `.env` là **tuỳ chọn**: không có vẫn chạy (compose dùng `${BIEN:-}`, biến rỗng = chưa đặt, không báo lỗi). Mẫu ở `.env.example`.
+- File compose mặc định chỉ mở `127.0.0.1:8080`. **Đổi dòng `ports` thành `"8080:8080"`** nếu Home Assistant ở máy khác hoặc trong container mạng bridge.
+- Dữ liệu nằm ở volume `zalo-pc-data` (hoặc đường dẫn máy chủ như `/opt/zalo:/data`; entrypoint tự chown). Sao lưu volume này là sao lưu phiên Zalo và tin nhắn.
 
-### C. Tích hợp Home Assistant (HACS)
+### 1.3. Portainer
+
+1. **Stacks → Add stack**, đặt tên `zalo-calling`.
+2. **Web editor**: dán nội dung `docker-compose.yml` (bản có giao diện) hoặc `docker-compose.noui.yml` (không giao diện) ở thư mục [`zalo/zalo-pc-app`](zalo/zalo-pc-app). Hoặc chọn **Repository**: URL `https://github.com/TriTue2011/Zalo-calling`, *Compose path* `zalo/zalo-pc-app/docker-compose.yml`.
+3. Đổi `127.0.0.1:8080:8080` thành `8080:8080` nếu HA không ở cùng máy.
+4. Kéo xuống **Environment variables** → thêm (không bắt buộc) `ZALO_PC_APP_USER`, `ZALO_PC_APP_PASSWORD`, `ZALO_PC_WEBHOOK_URL`. Không ghi mật khẩu thật vào nội dung compose.
+5. **Deploy the stack**. Xem tài khoản tự sinh ở **Containers → zalo-calling → Logs** (tìm `TU SINH`).
+
+### 1.4. Cập nhật và kiểm tra
+
+- Docker Compose: `docker compose pull && docker compose up -d`. Portainer: **Stacks → zalo-calling → Pull and redeploy** (bật *Re-pull image*). Container có nhãn Watchtower nên Watchtower (nếu dùng) tự kéo `:latest`.
+- Bản đang chạy: `GET /api/status` (`version`, `deps`, `ui`; `ui: false` là bản không giao diện) hoặc `GET /api/app/status` (không cần đăng nhập, dùng làm healthcheck).
+- Mật khẩu app tự sinh nằm ở `/data/THONG-TIN-DANG-NHAP.txt` (quyền 0600) trong volume dữ liệu. Mật khẩu đổi sau đó trong WebUI hoặc bằng `zalo_call.set_app_password` được giữ, không bị biến môi trường ghi đè lại.
+
+## 2. Thêm tích hợp Home Assistant (HACS)
 
 [![Mở trong HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TriTue2011&repository=Zalo-calling&category=integration)
+
+1. **HACS → ⋮ → Custom repositories** → dán `https://github.com/TriTue2011/Zalo-calling`, **Type = Integration** → **Add**.
+2. Tìm **Zalo Call** trong HACS → **Download** → **khởi động lại Home Assistant**.
+3. Không dùng HACS: tải `zalo_call.zip` ở [Releases](https://github.com/TriTue2011/Zalo-calling/releases/latest), giải nén vào `custom_components/zalo_call` của HA, khởi động lại.
+4. Cập nhật: HACS báo khi có bản mới. Cần Home Assistant ≥ 2024.11.
+
+## 3. Kết nối tích hợp với app, đăng nhập Zalo
+
 [![Thêm tích hợp](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=zalo_call)
 
-1. **HACS → ⋮ → Custom repositories** → `https://github.com/TriTue2011/Zalo-calling`, **Type = Integration** → **Add** → tải **Zalo Call** → khởi động lại HA.
-2. **Cài đặt → Thiết bị & Dịch vụ → Thêm tích hợp → Zalo Call**: địa chỉ app `http://<IP máy chạy app>:8080` + tên đăng nhập/mật khẩu của app
-   (đúng cặp ở tuỳ chọn add-on hoặc `.env`; không đặt thì lấy cặp app tự sinh trong nhật ký).
-3. Tích hợp tự lo webhook sang HA; người nhận thêm ở *⚙️ Cấu hình → Người và nhóm nhận*.
+### 3.1. Kết nối
 
-### D. Đăng nhập Zalo và cài đặt khi KHÔNG có WebUI
+**Cài đặt → Thiết bị & Dịch vụ → Thêm tích hợp → Zalo Call**, điền:
 
-- **Đăng nhập Zalo:** dịch vụ `zalo_call.login_qr` (`type: pc` để gọi thoại/video, `web` chỉ nhắn tin) rồi mở thực thể ảnh **Mã QR đăng nhập** và quét.
-  Cảm biến **Trạng thái Zalo** cho biết `logged_in` / `logged_out` / `waiting_qr` / `scanned` / `expired` / `error`; các nút đăng nhập/đăng xuất tự mờ khi không hợp trạng thái.
-  Đăng xuất: `zalo_call.logout`.
-- **Đọc/đổi cài đặt của app:** `zalo_call.get_app_settings` (`sections`, `reveal_secrets`) và `zalo_call.set_app_settings`
-  (`section`: `webhooks` · `devices` · `retention` · `proxy` · `security`, kèm `values`); đổi mật khẩu app `zalo_call.set_app_password`; thử webhook `zalo_call.test_webhook`.
-  Dùng được trong blueprint/automation, nên blueprint nào cần webhook có thể tự đọc hoặc tự đặt.
-- **Bằng `curl`:** `POST /api/app/login` lấy cookie, rồi `GET/POST /api/webhooks`, `/api/settings/devices`, `/api/retention`, `/api/proxy`, `/api/security`; kiểm sống `GET /api/app/status`.
-  `GET /api/status` có cờ `ui` cho biết đang chạy bản có hay không có giao diện.
+| Ô | Giá trị |
+|---|---|
+| Địa chỉ app | `http://<IP máy chạy app>:8080`. HA và app cùng mạng Docker thì dùng tên container: `http://zalo-calling:8080` |
+| Tên đăng nhập / Mật khẩu | Cặp đã đặt ở `.env` / biến môi trường, hoặc cặp app **tự sinh** (xem nhật ký container, tìm `TU SINH`) |
 
-Cuộc gọi, tin nhắn và các dịch vụ còn lại: xem các mục bên dưới (danh mục đầy đủ ở mục 7).
+Báo «không gọi được tới app» → kiểm tra địa chỉ, cổng 8080 đã mở ra mạng (mục 1.2) và container đang chạy; «sai tên đăng nhập hoặc mật khẩu» → xem lại cặp ở trên.
+Tích hợp **tự lo webhook** sang Home Assistant (không phải tự dán địa chỉ). Sau khi kết nối có sẵn: cảm biến **Trạng thái Zalo**, thực thể ảnh **Mã QR đăng nhập**, các nút đăng nhập/đăng xuất, cảm biến **Cuộc gọi** và **Sức khoẻ tài khoản**.
 
-## Mục lục
+### 3.2. Chọn người nhận
 
-1. [Quy ước và nguyên tắc riêng tư](#1-quy-ước-và-nguyên-tắc-riêng-tư)
-2. [Dịch vụ cuộc gọi, AI, cảnh báo và quy tắc: mã đầy đủ và giải thích từng ô, từng lựa chọn](#2-dịch-vụ-cuộc-gọi-ai-cảnh-báo-và-quy-tắc)
-3. [Các trường hợp xảy ra, giải thích dễ hiểu](#3-các-trường-hợp-xảy-ra)
-4. [Nhận cuộc gọi, sự kiện và ví dụ automation](#4-nhận-cuộc-gọi-sự-kiện-và-ví-dụ-automation)
-5. [Tin nhắn, tệp, ghi âm và định dạng chữ](#5-tin-nhắn-tệp-ghi-âm-và-định-dạng-chữ)
-6. [WebUI và bình chọn nhóm](#6-webui-và-bình-chọn-nhóm)
-7. [Danh mục MỌI dịch vụ](#7-danh-mục-mọi-dịch-vụ)
-8. [Blueprint mẫu: chọn từ danh sách, không gõ tay](#8-blueprint-mẫu-chọn-từ-danh-sách-không-gõ-tay)
+**Cấu hình** của tích hợp → «Người và nhóm nhận»: chọn từ danh bạ Zalo (mỗi người thành thực thể `notify.zalo_<tên>`). Xem mục 4.
 
-## 1. Quy ước và nguyên tắc riêng tư
+### 3.3. Đăng nhập Zalo (quét QR)
+
+- **Có WebUI** (`:latest`): mở `http://<IP>:8080`, đăng nhập app → màn hình đầu chọn **Qua PC** (gọi thoại/video) hoặc **Qua Web** (chỉ nhắn tin) → quét mã QR bằng Zalo trên điện thoại.
+- **Không WebUI** (`:noui`) hoặc muốn làm từ Home Assistant: dịch vụ `zalo_call.login_qr` (`type: pc` để gọi thoại/video, `web` chỉ nhắn tin) rồi mở thực thể ảnh **Mã QR đăng nhập** và quét.
+  Cảm biến **Trạng thái Zalo**: `logged_in` / `logged_out` / `waiting_qr` / `scanned` / `expired` / `error`; các nút đăng nhập/đăng xuất tự mờ khi không hợp trạng thái. Đăng xuất: `zalo_call.logout`.
+
+### 3.4. Cài đặt của app khi KHÔNG có WebUI
+
+- Từ Home Assistant: `zalo_call.get_app_settings` (`sections`, `reveal_secrets`) và `zalo_call.set_app_settings` (`section`: `webhooks` · `devices` · `retention` · `proxy` · `security`, kèm `values`);
+  đổi mật khẩu app `zalo_call.set_app_password`; thử webhook `zalo_call.test_webhook`. Dùng được trong blueprint/automation.
+- Bằng `curl`: `POST /api/app/login` lấy cookie, rồi `GET/POST /api/webhooks`, `/api/settings/devices`, `/api/retention`, `/api/proxy`, `/api/security`.
+
+## 4. Quy ước và nguyên tắc riêng tư
 
 Mở **Công cụ nhà phát triển → Hành động**, gõ `zalo_call.` để chọn dịch vụ (mỗi ô có mô tả và ô chọn). Người nhận là **mã Zalo** (`thread_id`) của người hoặc nhóm: lấy bằng dịch vụ `list_contacts` hoặc `get_all_friends` / `get_all_groups`, hoặc mở WebUI của app → danh bạ.
 
@@ -131,7 +166,7 @@ Thay vì gõ mã Zalo, hãy **chọn người và nhóm từ danh bạ**: *Cài 
 3. **Lúc AI đang nói chuyện thì chưa bật thiết bị nhà.** Chỉ khi người nhà nói trực tiếp mới bật.
 4. Muốn AI nói chuyện thì phải chọn Trợ lý giọng nói (hoặc Trợ lý AI riêng): hệ thống không tự dùng bộ ưu tiên vì nó có quyền điều khiển nhà.
 
-## 2. Dịch vụ cuộc gọi, AI, cảnh báo và quy tắc
+## 5. Dịch vụ cuộc gọi, AI, cảnh báo và quy tắc
 
 Mỗi dịch vụ dưới đây có: **mã YAML đủ mọi ô** (ô «tuỳ chọn» bỏ đi được), **bảng các ô**, và phần **giải thích từng lựa chọn** của mọi ô có danh sách chọn. Phần này được **sinh tự động** từ `services.yaml` nên luôn khớp với dịch vụ thật. Ô `entry_id` (chọn tài khoản Zalo) có ở mọi dịch vụ và chỉ cần khi bạn có nhiều tài khoản.
 
@@ -768,9 +803,9 @@ action: zalo_call.list_contacts
 
 <!-- DICH-VU:LOI:END -->
 
-## 3. Các trường hợp xảy ra
+## 6. Các trường hợp xảy ra
 
-Phần này giải thích bằng lời các trường hợp thực tế khi dùng các dịch vụ ở mục 2.
+Phần này giải thích bằng lời các trường hợp thực tế khi dùng các dịch vụ ở mục 5.
 
 ### 3 dịch vụ chính, dùng khi nào
 
@@ -839,65 +874,7 @@ Không có quy tắc cho người đó thì hệ thống không làm gì (ngư�
 
 Quy tắc chọn theo **ai gọi**: một người hoặc nhóm cụ thể (ưu tiên cao nhất, thay hẳn quy tắc chung) / mọi nhóm / mọi người trong danh bạ / mọi người lạ. Chưa biết người gọi quen hay lạ (danh bạ chưa tải) thì chỉ quy tắc của người cụ thể được áp.
 
-## 4. Nhận cuộc gọi, sự kiện và ví dụ automation
-
-### Nhận cuộc gọi
-
-Có người gọi tới tài khoản Zalo → HA bắn sự kiện **`zalo_call_call_state`** (cũng là cảm biến *Cuộc gọi* trên thiết bị). Trường `state`:
-`incoming` (đang đổ chuông) · `ringing` (mình gọi, bên kia đang đổ chuông) · `answered` (đã nối) · `declined` · `no_answer` · `missed` · `rejected` · `ended` · `error`;
-kèm `call_id`, `thread_id`, `peer`, `call_type`, `end_reason`. Nghe/từ chối bằng `zalo_call.answer_call` / `zalo_call.reject_call` (bỏ `call_id` nếu chỉ có một cuộc).
-
-```yaml
-automation:
-  - alias: Zalo gọi đến → báo điện thoại, tự nghe sau 10 giây
-    triggers:
-      - trigger: event
-        event_type: zalo_call_call_state
-        event_data: {state: incoming}
-    actions:
-      - action: notify.mobile_app_dien_thoai
-        data: {message: "Zalo gọi đến từ {{ trigger.event.data.peer }}"}
-      - delay: 10
-      - action: zalo_call.answer_call
-        data: {volume: 60}
-```
-
-**Loa, mic, camera không có «mặc định» toàn cục** (nguyên tắc riêng tư ở mục 1): chọn theo **quy tắc** của từng người (`zalo_call.set_rule`, ô loa/mic/camera/`connect`) hoặc ghi đè cho từng cuộc gọi (`make_call`, `answer_call`). Các chế độ tự động chung đặt bằng **`zalo_call.set_default_devices`**: `auto_mic` (tự phát mic khi nghe máy), `auto_video` / `auto_video_delay` (tự đồng ý khi bên kia xin gọi video), `video_consent` (công tắc tổng cho việc đồng ý chuyển sang video), `echo_guard` (chống vọng) và `call_volume` (âm lượng loa khi nghe máy). Xem lại bằng `get_default_devices`.
-
-### Sự kiện cho automation
-
-| Sự kiện | Khi nào |
-|---|---|
-| `zalo_call_call_state` | Mọi thay đổi của cuộc gọi: đổ chuông, nghe máy, kết thúc... |
-| `zalo_call_ai_handover` | AI chuyển cho người nhà (và khi cảnh báo nối thiết bị): `reason`, `connected`, `camera` |
-| `zalo_call_alert_done` | Cảnh báo đã đọc xong: `after`, `connected`, `ended`, `thread_id` |
-| `zalo_call_call_state` với `state: video_request` | Người gọi xin chuyển cuộc thoại sang video (`call_id`, `thread_id`, `peer`) |
-| `zalo_call_voice_text` | Tin thoại đã được chuyển thành chữ |
-
-### Ví dụ
-```yaml
-# Quy tắc cho một người: nghe sau 5 giây, AI nói chuyện, báo ra loa phòng khách, khi chuyển trực tiếp dùng mic+loa+camera
-- action: zalo_call.set_rule
-  data: {scope: thread, thread_id: "6643404425553198601", name: Đại ca, answer: true, answer_delay: 5,
-         ai: true, pipeline: Chatgpt, trusted: true,
-         announce: true, announce_to: media_player.loa_phong_khach,
-         connect: [mic, speaker, camera], speaker: media_player.r1_loa, mic: assist_satellite.r1, camera: camera.phong_khach}
-# Báo người ngã: đọc rồi dùng tất cả thiết bị đã cài (gồm camera)
-- action: zalo_call.alert_call
-  data: {thread_id: "6643404425553198601", message: "Phát hiện có người ngã ở phòng khách"}
-# Báo mất điện: đọc xong tự cúp
-- action: zalo_call.alert_call
-  data: {thread_id: "6643404425553198601", message: "Nhà đang mất điện", after: hangup}
-```
-
-### Dùng bằng giọng nói qua Assist
-Tích chọn **«Zalo Call»** cạnh «Assist» trong cài đặt trợ lý hội thoại LLM: «gọi cho Đại ca», «nghe máy», «từ chối», «cúp máy», «nhắn nhóm AI học hỏi…», «tiếp quản cuộc gọi». Trong cuộc gọi do AI giữ, trợ lý chỉ thấy **một** công cụ «chuyển sang trực tiếp» nên người lạ không sai khiến được gọi điện/nhắn tin.
-
-### Lưu ý
-- STT của Zalo chỉ chuyển được tin thoại do **app Zalo thật gửi** (nằm trong kho thoại Zalo); không dùng được cho cuộc gọi trực tiếp (âm thanh khác bị Zalo từ chối, mã 212). Trong cuộc gọi, STT của Assist pipeline lo phần đó.
-- Tính năng giọng nói/AI trong cuộc gọi mới kiểm bằng test giả lập và hai cuộc gọi thử, chưa nhiều cuộc gọi thật; log: `custom_components.zalo_call.call_voice`.
-
-## 5. Tin nhắn, tệp, ghi âm và định dạng chữ
+## 7. Tin nhắn, tệp, ghi âm và định dạng chữ
 
 ### Tin nhắn, tệp, ghi âm
 
@@ -1018,7 +995,7 @@ Sticker: `zalo_call.send_sticker` với `keyword: "cảm ơn"` (và `pick: rando
 
 **Trả lời của AI tự trả lời:** dùng cùng cài đặt mặc định ở trên, cộng thêm ô *AI: định dạng chữ trả lời* (mặc định `markdown`, để dấu `**` của AI thành chữ đậm thật), và *AI: tự nhấn mạnh số…*. Công tắc *Chữ: tự thêm emoji* cũng áp cho trả lời của AI.
 
-## 6. WebUI và bình chọn nhóm
+## 8. WebUI và bình chọn nhóm
 
 ### WebUI: mọi dịch vụ đều làm được trên tab «Dịch vụ»
 
@@ -1049,7 +1026,7 @@ Cần là **trưởng nhóm hoặc phó nhóm** thì Zalo mới cho xoá ngườ
 Gọi bằng API (cùng đăng nhập app): `GET /api/group/<id>/polls`, `POST /api/group/<id>/poll_non_voters` (`poll_ids`, `mode`: `none`/`any`/`min`, `min_votes`),
 `POST /api/group/<id>/remove_members` (thêm `confirm: true` và `member_ids` hoặc `all: true`).
 
-## 7. Danh mục MỌI dịch vụ
+## 9. Danh mục MỌI dịch vụ
 
 Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc hẹn, sticker, ghi chú/bình chọn, Zalo Business...), mỗi dịch vụ có mã YAML đầy đủ, bảng các ô và giải thích từng lựa chọn, nằm ở **[docs/DICH-VU.md](docs/DICH-VU.md)** (tệp sinh tự động, quá dài để đặt hết trong README). Chỉ mục:
 
@@ -1454,7 +1431,65 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 
 <!-- DICH-VU:CHI-MUC:END -->
 
-## 8. Blueprint mẫu: chọn từ danh sách, không gõ tay
+## 10. Nhận cuộc gọi, sự kiện và ví dụ automation
+
+### Nhận cuộc gọi
+
+Có người gọi tới tài khoản Zalo → HA bắn sự kiện **`zalo_call_call_state`** (cũng là cảm biến *Cuộc gọi* trên thiết bị). Trường `state`:
+`incoming` (đang đổ chuông) · `ringing` (mình gọi, bên kia đang đổ chuông) · `answered` (đã nối) · `declined` · `no_answer` · `missed` · `rejected` · `ended` · `error`;
+kèm `call_id`, `thread_id`, `peer`, `call_type`, `end_reason`. Nghe/từ chối bằng `zalo_call.answer_call` / `zalo_call.reject_call` (bỏ `call_id` nếu chỉ có một cuộc).
+
+```yaml
+automation:
+  - alias: Zalo gọi đến → báo điện thoại, tự nghe sau 10 giây
+    triggers:
+      - trigger: event
+        event_type: zalo_call_call_state
+        event_data: {state: incoming}
+    actions:
+      - action: notify.mobile_app_dien_thoai
+        data: {message: "Zalo gọi đến từ {{ trigger.event.data.peer }}"}
+      - delay: 10
+      - action: zalo_call.answer_call
+        data: {volume: 60}
+```
+
+**Loa, mic, camera không có «mặc định» toàn cục** (nguyên tắc riêng tư ở mục 4): chọn theo **quy tắc** của từng người (`zalo_call.set_rule`, ô loa/mic/camera/`connect`) hoặc ghi đè cho từng cuộc gọi (`make_call`, `answer_call`). Các chế độ tự động chung đặt bằng **`zalo_call.set_default_devices`**: `auto_mic` (tự phát mic khi nghe máy), `auto_video` / `auto_video_delay` (tự đồng ý khi bên kia xin gọi video), `video_consent` (công tắc tổng cho việc đồng ý chuyển sang video), `echo_guard` (chống vọng) và `call_volume` (âm lượng loa khi nghe máy). Xem lại bằng `get_default_devices`.
+
+### Sự kiện cho automation
+
+| Sự kiện | Khi nào |
+|---|---|
+| `zalo_call_call_state` | Mọi thay đổi của cuộc gọi: đổ chuông, nghe máy, kết thúc... |
+| `zalo_call_ai_handover` | AI chuyển cho người nhà (và khi cảnh báo nối thiết bị): `reason`, `connected`, `camera` |
+| `zalo_call_alert_done` | Cảnh báo đã đọc xong: `after`, `connected`, `ended`, `thread_id` |
+| `zalo_call_call_state` với `state: video_request` | Người gọi xin chuyển cuộc thoại sang video (`call_id`, `thread_id`, `peer`) |
+| `zalo_call_voice_text` | Tin thoại đã được chuyển thành chữ |
+
+### Ví dụ
+```yaml
+# Quy tắc cho một người: nghe sau 5 giây, AI nói chuyện, báo ra loa phòng khách, khi chuyển trực tiếp dùng mic+loa+camera
+- action: zalo_call.set_rule
+  data: {scope: thread, thread_id: "6643404425553198601", name: Đại ca, answer: true, answer_delay: 5,
+         ai: true, pipeline: Chatgpt, trusted: true,
+         announce: true, announce_to: media_player.loa_phong_khach,
+         connect: [mic, speaker, camera], speaker: media_player.r1_loa, mic: assist_satellite.r1, camera: camera.phong_khach}
+# Báo người ngã: đọc rồi dùng tất cả thiết bị đã cài (gồm camera)
+- action: zalo_call.alert_call
+  data: {thread_id: "6643404425553198601", message: "Phát hiện có người ngã ở phòng khách"}
+# Báo mất điện: đọc xong tự cúp
+- action: zalo_call.alert_call
+  data: {thread_id: "6643404425553198601", message: "Nhà đang mất điện", after: hangup}
+```
+
+### Dùng bằng giọng nói qua Assist
+Tích chọn **«Zalo Call»** cạnh «Assist» trong cài đặt trợ lý hội thoại LLM: «gọi cho Đại ca», «nghe máy», «từ chối», «cúp máy», «nhắn nhóm AI học hỏi…», «tiếp quản cuộc gọi». Trong cuộc gọi do AI giữ, trợ lý chỉ thấy **một** công cụ «chuyển sang trực tiếp» nên người lạ không sai khiến được gọi điện/nhắn tin.
+
+### Lưu ý
+- STT của Zalo chỉ chuyển được tin thoại do **app Zalo thật gửi** (nằm trong kho thoại Zalo); không dùng được cho cuộc gọi trực tiếp (âm thanh khác bị Zalo từ chối, mã 212). Trong cuộc gọi, STT của Assist pipeline lo phần đó.
+- Tính năng giọng nói/AI trong cuộc gọi mới kiểm bằng test giả lập và hai cuộc gọi thử, chưa nhiều cuộc gọi thật; log: `custom_components.zalo_call.call_voice`.
+
+## 11. Blueprint mẫu: chọn từ danh sách, không gõ tay
 
 Năm mẫu automation dựng sẵn cho Zalo Call, nằm ở kho **[TriTue2011/Blueprint](https://github.com/TriTue2011/Blueprint)** (mô tả đầy đủ trong README của kho đó). Mọi thứ **chọn từ danh sách**: cảm biến, người nhận (thực thể `notify.zalo_...`), loa/mic/camera, câu có sẵn, kiểu chữ, ô tích thiết bị nhà. Cần Zalo Call từ bản `2026.11.11.2`.
 
@@ -1466,7 +1501,21 @@ Năm mẫu automation dựng sẵn cho Zalo Call, nằm ở kho **[TriTue2011/Bl
 | **Messenger tuỳ biến** | Nhắn tin hoặc gọi khi thiết bị đổi trạng thái / vượt ngưỡng / báo cáo hằng ngày; kiểu chữ chọn từ danh sách | [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FTriTue2011%2FBlueprint%2Fmain%2Fzalo_call_messenger.yaml) |
 | **Gọi hoặc nhắn nhắc hẹn theo lịch** | Đúng giờ gọi đọc lời nhắc (thuốc, ngủ, thức dậy, ăn...) | [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FTriTue2011%2FBlueprint%2Fmain%2Fzalo_call_nhac_hen.yaml) |
 
-## Kho này gồm
+## 12. Add-on Home Assistant và cấu trúc kho
+
+**Add-on (HAOS / Supervised):** nếu dùng Home Assistant OS thì không cần Docker/Portainer — cài app bằng add-on, rồi làm tiếp mục 2–11 như trên.
+Tài liệu add-on đi theo cùng thứ tự (cài add-on → thêm tích hợp → kết nối → dịch vụ → automation):
+[Zalo Calling (có giao diện, hiện ở thanh bên)](zalo_calling/DOCS.md) · [Zalo Calling (không giao diện)](zalo_calling_noui/DOCS.md).
+Thêm kho add-on: `https://github.com/TriTue2011/Zalo-calling`.
+
+[![Thêm kho add-on](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FTriTue2011%2FZalo-calling)
+
+| Tuỳ chọn add-on | Bản có giao diện | Bản không giao diện | Ý nghĩa |
+|---|---|---|---|
+| `username` | không bắt buộc (mặc định `admin`) | **bắt buộc** | Tên đăng nhập app (cổng 8080 và tích hợp HA) |
+| `password` | không bắt buộc | **bắt buộc**, từ 8 ký tự | Bỏ trống ở bản có giao diện: app tự sinh, in **một lần** trong tab *Nhật ký* |
+| `webhook_url` | không bắt buộc | không bắt buộc | Webhook ban đầu cho cả bốn loại; chỉ dùng khi CHƯA có cấu hình |
+
 
 | Thư mục / tệp | Là gì |
 |---|---|

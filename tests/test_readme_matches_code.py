@@ -111,6 +111,37 @@ def test_relative_links_and_anchors_resolve():
     assert not bad, "liên kết hỏng:\n  " + "\n  ".join(bad)
 
 
+def test_every_service_named_in_docs_exists():
+    """Mọi `zalo_call.<tên>` được nhắc trong README / DOCS phải là dịch vụ có thật (đổi tên hay xoá dịch vụ mà quên tài liệu → đỏ)."""
+    bad = []
+    for name, doc in DOCS:
+        for sid in set(re.findall(r"zalo_call\.([a-z][a-z0-9_]+)", doc)):
+            if sid not in SERVICES and sid not in ("zip", "call_voice"):      # zalo_call.zip = gói phát hành; call_voice = tên module Python, không phải dịch vụ
+                bad.append("%s: zalo_call.%s" % (name, sid))
+    assert not bad, "dịch vụ không tồn tại: %s" % sorted(bad)
+    for name, doc in DOCS[3:]:                                    # DOCS.md hai add-on: bảng dịch vụ chính viết bằng tên trần, `tên` trong dấu huyền phải có thật
+        for sid in re.findall(r"`(make_call|alert_call|answer_call|reject_call|end_call|upgrade_to_video|set_rule|list_rules|remove_rule|send_message|login_qr|logout|get_app_settings|set_app_settings|set_app_password|test_webhook)`", doc):
+            assert sid in SERVICES, (name, sid)
+
+
+def test_addon_docs_follow_the_same_order_and_anchor_into_the_readme():
+    """Tài liệu add-on đi theo thứ tự: cài add-on → tích hợp → kết nối → dịch vụ → automation; liên kết về README gốc phải trỏ vào mục có thật."""
+    heads = [h for h in re.findall(r"^## (.+)$", ROOT_README, re.M)]
+    slugs = {_slug(h) for h in heads}
+    for name in ("zalo_calling/DOCS.md", "zalo_calling_noui/DOCS.md"):
+        doc = dict(DOCS)[name]
+        order = [doc.index(k) for k in ("## 1. Cài add-on", "## 2. Thêm tích hợp", "## 3. Kết nối", "## 4. Dịch vụ", "## 5. Automation")]
+        assert order == sorted(order), name
+        for anchor in re.findall(r"github\.com/TriTue2011/Zalo-calling#([^)\s]+)", doc):
+            assert anchor in slugs, "%s trỏ vào mục không có trong README gốc: #%s" % (name, anchor)
+    # README gốc: Docker → Compose → Portainer → tích hợp → kết nối → dịch vụ → automation
+    want = ["Cài đặt app bằng Docker", "Thêm tích hợp Home Assistant", "Kết nối tích hợp", "Dịch vụ cuộc gọi", "Danh mục MỌI dịch vụ", "Nhận cuộc gọi, sự kiện", "Blueprint mẫu"]
+    pos = [next(i for i, h in enumerate(heads) if k in h) for k in want]
+    assert pos == sorted(pos), pos
+    for sub in ("### 1.1. Docker", "### 1.2. Docker Compose", "### 1.3. Portainer"):
+        assert sub in ROOT_README, sub
+
+
 def test_dockerfile_default_target_is_the_ui_image():
     """:latest phải là bản CÓ giao diện: đích `ui` đứng CUỐI Dockerfile (docker build không --target lấy giai đoạn cuối)."""
     stages = re.findall(r"^FROM .+ AS (\w+)", open(os.path.join(APP, "Dockerfile"), encoding="utf-8").read(), re.M)
