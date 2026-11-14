@@ -48,7 +48,7 @@ def check(path):
     return sorted(bad, key=lambda x: x[1])
 
 
-AXES = ("video", "voice", "incoming", "outgoing")
+AXES = ("video", "voice", "incoming", "outgoing", "common", "events")      # media_ctl là bộ điều phối DUY NHẤT được nhập các trục khác
 
 
 def test_no_undefined_names_anywhere():
@@ -67,7 +67,9 @@ def test_server_aliases_point_at_axis_modules():
     assert server._arm_ring_timer.__module__.endswith("calls.outgoing") and server._send_answerack_async.__module__.endswith("calls.outgoing")
     assert server.VIDEO_SENDERS is server.video_calls.VIDEO_SENDERS and server.AUDIO_SENDERS is server.voice_calls.AUDIO_SENDERS
     mro = [c.__name__ for c in server.AppState.__mro__]
-    assert "IncomingCalls" in mro and "OutgoingCalls" in [c.__name__ for c in server.Handler.__mro__]
+    assert {"IncomingCalls", "VideoCalls", "CallEvents"} <= set(mro)
+    hmro = [c.__name__ for c in server.Handler.__mro__]
+    assert {"OutgoingCalls", "VideoHandler", "VoiceHandler", "MediaControl"} <= set(hmro)
 
 
 def test_axes_do_not_import_each_other():
@@ -93,6 +95,9 @@ def test_axis_modules_hold_only_their_axis():
     assert {"_start_mic", "_start_speaker", "_watch_dead_media"} <= names["voice"] and "_start_video" not in names["voice"]
     assert {"_answer_incoming", "IncomingCalls"} <= names["incoming"] and "_arm_ring_timer" not in names["incoming"]
     assert {"_arm_ring_timer", "OutgoingCalls"} <= names["outgoing"] and "_answer_incoming" not in names["outgoing"]
+    assert {"VideoCalls", "VideoHandler"} <= names["video"] and {"VoiceHandler"} <= names["voice"]
+    assert {"_terminate_call", "_mark_answered", "_cleanup_call_media"} <= names["common"] and "CallEvents" in names["events"]
+    assert "MediaControl" in {n.name for n in ast.parse(open(os.path.join(PKG, "calls", "media_ctl.py"), encoding="utf-8").read()).body if isinstance(n, ast.ClassDef)}
 
 
 if __name__ == "__main__":

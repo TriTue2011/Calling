@@ -128,7 +128,7 @@ def _extend_profile_for_call(body):
 
 
 class OutgoingCalls:
-    """Phương thức của AppState thuộc trục này (gộp vào AppState bằng kế thừa)."""
+    """Phương thức của Handler thuộc trục này (gộp vào Handler bằng kế thừa)."""
 
     def _api_call_request(self, body):
         """POST /api/call/request: gọi ĐI (11300 requestcall → 11301 request → UDP relay …). Tách khỏi _api_post để gom vào luồng gọi đi."""

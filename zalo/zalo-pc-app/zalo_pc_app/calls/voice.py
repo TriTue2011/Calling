@@ -5,6 +5,10 @@ import time
 from .. import audio_rx as audio_rx_mod
 from .. import audio_tx as audio_tx_mod
 
+import queue
+import re
+from .. import call_audio as call_audio_mod
+from .. import chat as chat_mod
 from ._srv import srv
 
 
@@ -126,3 +130,138 @@ def _watch_dead_media(call_id, delay=None, sleep=time.sleep):
     t = threading.Thread(target=run, daemon=True, name="dead-media-watch")
     t.start()
     return t
+
+
+class VoiceHandler:
+    """Phương thức của Handler thuộc trục này (gộp vào Handler bằng kế thừa)."""
+
+    def _serve_call_audio_tap(self, token):
+        """Nhu /api/call/audio/out nhung doc BAN SAO khung (tap) — dung cho nguoi nghe thu hai (AI trong cuoc goi) ma khong
+        tranh khung voi loa."""
+        call_id = srv().STATE.audio_tokens.call_for(token)
+        if call_id is None:
+            return self._send_json({"error": "token_khong_hop_le"}, status=404)
+        engine = srv()._engine_for_call(call_id)
+        if engine is None or not hasattr(engine, "add_tap"):
+            return self._send_json({"error": "chua_co_media"}, status=409)
+        tap = engine.add_tap()
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        def write(chunk):
+            self.wfile.write(chunk)
+            self.wfile.flush()
+
+        def read():
+            try:
+                return tap.get_nowait()
+            except queue.Empty:
+                return None
+
+        def live():
+            return (srv().STATE.audio_tokens.call_for(token) is not None and srv()._engine_for_call(call_id) is engine)
+
+        try:
+            call_audio_mod.stream_out(engine, write, live, read=read, depth=tap.qsize)
+        except OSError:
+            pass
+        finally:
+            engine.remove_tap(tap)
+
+    def _serve_call_audio_out(self, token):
+        """Phat lien tuc am thanh ben kia (WAV 16 kHz mono) cho mot thiet
+        bi bat ky. Xac thuc bang token cua cuoc goi, khong dung cookie."""
+        call_id = srv().STATE.audio_tokens.call_for(token)
+        if call_id is None:
+            return self._send_json({"error": "token_khong_hop_le"},
+                                   status=404)
+        engine = srv()._engine_for_call(call_id)
+        if engine is None:
+            return self._send_json({"error": "chua_co_media"}, status=409)
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        def write(chunk):
+            self.wfile.write(chunk)
+            self.wfile.flush()
+
+        def live():
+            return (srv().STATE.audio_tokens.call_for(token) is not None
+                    and srv()._engine_for_call(call_id) is engine)
+
+        try:
+            call_audio_mod.stream_out(engine, write, live)
+        except OSError:
+            pass            # thiet bi ngat ket noi: binh thuong
+
+    def _handle_call_say(self):
+        """POST /api/call/say (multipart: file, call_id?) — phat mot doan am thanh (mp3/wav/ogg... do HA tao bang TTS) len
+        cuoc goi DANG NOI qua cung duong mic (thay nguon mic hien tai). Tra ngay khi bat dau phat; nguoi goi poll
+        /api/call/media {action: status}: mic.alive=false la phat xong."""
+        if self._require_app_login() is None:
+            return self._unauthorized()
+        if self._require_login() is None:
+            return self._send_json({"error": "chua_dang_nhap"}, status=401)
+        raw = self._read_raw()
+        if len(raw) > srv().SAY_MAX_BYTES + 4096:
+            return self._send_json({"error": "am_thanh_qua_lon"}, status=413)
+        fields, files = chat_mod.parse_multipart(raw, self.headers.get("Content-Type") or "")
+        f = (files or {}).get("file")
+        fname, _mime, data = f if f else ("", "", b"")
+        if not data:
+            return self._send_json({"ok": False, "error": "thieu_file"}, status=400)
+        if len(data) > srv().SAY_MAX_BYTES:
+            return self._send_json({"error": "am_thanh_qua_lon"}, status=413)
+        snap = srv().STATE.calls.snapshot()
+        call_id = srv()._coerce_call_id(fields.get("call_id", ""))
+        entry = next((c for c in snap["calls"] if call_id is not None and str(c["call_id"]) == str(call_id)), None) \
+            if call_id is not None else snap["active"]
+        if entry is None or entry["status"] != "answered":
+            return self._send_json({"ok": False, "error": "chua_nghe_may"})
+        call_id = int(entry["call_id"])
+        ext = os.path.splitext(str(fname or ""))[1].lower()
+        if not re.match(r"^\.[a-z0-9]{1,5}$", ext):
+            ext = ".bin"
+        folder = os.path.join(srv().STATE.data_dir, "say")
+        try:
+            os.makedirs(folder, exist_ok=True)
+            srv()._prune_say_files(folder)
+            path = os.path.join(folder, "%s-%d%s" % (call_id, int(time.time() * 1000), ext))
+            with open(path, "wb") as fh:
+                fh.write(data)
+            srv()._start_mic(call_id, path, "auto", loop=False, echo_gate=False)   # MOT lan, khong lap, KHONG gate chong vong
+        except (ValueError, RuntimeError, OSError) as exc:
+            return self._send_json({"ok": False, "error": str(exc)[:120]})
+        return self._send_json({"ok": True, "call_id": call_id, "bytes": len(data)})
+
+    def _handle_call_audio_in(self, call_id):
+        """Nhan PCM16 16 kHz mono (boi so 640 byte) tu mic cua thiet bi bat
+        ky va dua vao cuoc goi. Can dang nhap app."""
+        if self._require_app_login() is None:
+            return self._unauthorized()
+        engine = srv()._engine_for_call(call_id)
+        if engine is None:
+            return self._send_json({"ok": False, "error": "chua_co_media"},
+                                   status=409)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return self._send_json({"ok": False, "error": "thieu_noi_dung"},
+                                   status=400)
+        if length > call_audio_mod.MAX_IN_BYTES:
+            return self._send_json({"ok": False, "error": "qua_lon"},
+                                   status=413)
+        data = self.rfile.read(length)
+        sent, errors, last = call_audio_mod.feed_frames(engine, data)
+        return self._send_json({"ok": errors == 0, "frames": sent,
+                                "errors": errors, "last_error": last})

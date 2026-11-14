@@ -100,6 +100,20 @@ from . import profile_names as profile_names_mod
 from . import video_probe as video_probe_mod
 from . import image_size as image_size_mod
 from . import call_tags as call_tags_mod
+from .calls import common as common_calls  # noqa: E402  (calls/common.py)
+_terminate_call = common_calls._terminate_call
+_calls_snapshot_with_media = common_calls._calls_snapshot_with_media
+_CALL_DEVICES = common_calls._CALL_DEVICES
+_CALL_DEVICE_KEYS = common_calls._CALL_DEVICE_KEYS
+_log_media_stats = common_calls._log_media_stats
+_remember_call_devices = common_calls._remember_call_devices
+_LOGENDCALL_SENT = common_calls._LOGENDCALL_SENT
+_logendcall_status = common_calls._logendcall_status
+_logendcall_async = common_calls._logendcall_async
+_cleanup_call_media = common_calls._cleanup_call_media
+_mark_answered = common_calls._mark_answered
+from .calls import events as events_calls  # noqa: E402  (calls/events.py)
+from .calls import media_ctl as media_ctl_calls  # noqa: E402  (calls/media_ctl.py)
 from .calls import outgoing as outgoing_calls  # noqa: E402  (calls/outgoing.py)
 _ring_timeout_fire = outgoing_calls._ring_timeout_fire
 _arm_ring_timer = outgoing_calls._arm_ring_timer
@@ -125,6 +139,10 @@ DEAD_MEDIA_SECONDS = voice_calls.DEAD_MEDIA_SECONDS
 _media_is_dead = voice_calls._media_is_dead
 _watch_dead_media = voice_calls._watch_dead_media
 from .calls import video as video_calls  # noqa: E402  luồng video tách riêng (calls/video.py)
+VIDEO_VIEWERS_MAX = video_calls.VIDEO_VIEWERS_MAX
+VIDEO_VIEW_LOCK = video_calls.VIDEO_VIEW_LOCK
+VIDEO_VIEW_COUNT = video_calls.VIDEO_VIEW_COUNT
+VIDEO_VIEW_FFMPEG = video_calls.VIDEO_VIEW_FFMPEG
 VIDEO_SENDERS = video_calls.VIDEO_SENDERS
 VIDEO_START_DELAY_S = video_calls.VIDEO_START_DELAY_S
 CAMERA_STATE_REPEAT = video_calls.CAMERA_STATE_REPEAT
@@ -846,59 +864,6 @@ def _send_end_signal(entry, sess, group_data=None, group_partners=None):
         return signal, False, str(e), {}
 
 
-def _terminate_call(call_id, reason, sess, group_data=None,
-                    group_partners=None):
-    """End one call completely: local log + webhook + wire signal +
-    transport stop. `reason` is the true end reason recorded in the
-    entry's detail ("user_end" / "ring_timeout" /
-    "superseded_by_new_call"). Returns (ended_entry_or_None, signal,
-    zalo_ok, zalo_error, data).
-
-    Local-first (§7m): the entry is marked ended BEFORE the wire
-    signal is attempted, so a slow or rejected Zalo signal never
-    leaves the call stuck on "ringing". A wire failure is appended
-    to the detail as "<reason>; zalo_<signal>: <error>" so the
-    reason survives (the 2026-11-07 live test could not tell a
-    user-ended call from a cut-off one precisely because no end
-    carried a reason).
-    """
-    snap = STATE.calls.snapshot()
-    before = None
-    for c in snap["calls"]:
-        if str(c["call_id"]) == str(call_id) \
-                and c["status"] in ("sent", "answered"):
-            before = c
-            break
-    if before is None:
-        return None, "none", False, "no_live_call", {}
-    _disarm_ring_timer(call_id)
-    ended = STATE.calls.record_end(call_id, reason)
-    if ended is None:
-        return None, "none", False, "no_live_call", {}
-    webhooks_mod.dispatch_call_event(
-        STATE.webhook_dispatcher, ended, (sess or {}).get("uid", ""))
-    signal, zalo_ok, zalo_error, data = "none", True, "", {}
-    if sess is not None:
-        signal, zalo_ok, zalo_error, data = _send_end_signal(
-            before, sess, group_data, group_partners)
-    else:
-        zalo_ok, zalo_error = False, "no_session"
-    if not zalo_ok and signal != "none":
-        STATE.calls.record_end_error(
-            int(ended["call_id"]),
-            "%s; zalo_%s: %s" % (reason, signal, zalo_error))
-    # Phase 2: stop the media engine + the relay transport for this
-    # call (best-effort; a stuck UDP socket must not leave the call
-    # half-alive after it ends).
-    _cleanup_call_media(ended)
-    _log_call("end call_id=%s reason=%s duration=%.0fs "
-              "zalo_signal=%s zalo_ok=%s%s"
-              % (ended["call_id"], reason,
-                 max(0.0, float(ended.get("ended_at") or 0)
-                     - float(ended.get("started_at") or 0)),
-                 signal, zalo_ok,
-                 (" zalo_error=" + zalo_error) if zalo_error else ""))
-    return ended, signal, zalo_ok, zalo_error, data
 
 
 
@@ -937,47 +902,6 @@ def _find_req_id(obj, depth=0):
     return ""
 
 
-def _calls_snapshot_with_media():
-    """Call-log snapshot + live media state: every entry whose
-    transport is still running gains "media": {"srtp":
-    "wired"|"not-wired"} so the UI can report honestly — a
-    connected call with srtp "not-wired" is "da noi, chua co
-    tieng (thieu khoa SRTP)", not silent voice and not a reason
-    to drop the call. Entries without a running transport (ended
-    / error) carry no media key."""
-    snap = STATE.calls.snapshot()
-    for entry in snap["calls"]:
-        try:
-            record = media_endpoints.ENDPOINTS.active_record(
-                entry["call_id"])
-        except Exception:  # noqa: BLE001 - media is best-effort
-            record = None
-        if record is not None:
-            media = {"srtp": record.get("srtp", "not-wired")}
-            mode = _CALL_SRTP.get(str(entry["call_id"]))
-            if mode:
-                media["srtp_mode"] = mode[0]
-            try:
-                counters = record["transport"].status().get("counters") or {}
-                media["counters"] = {k: counters.get(k, 0) for k in (
-                    "rtp_tx", "keepalive_tx", "rtcp_tx", "rtp_rx",
-                    "rtp_rx_dropped", "p2p_media_rx")}
-                media["rx_sample"] = record["transport"].status().get(
-                    "rx_sample")
-            except Exception:  # noqa: BLE001 - chan doan, khong chen ngang
-                pass
-            # Token phat am thanh theo cuoc goi — chi cap cho phien da dang
-            # nhap app (route nay yeu cau cookie), het han khi goi ket thuc.
-            media["audio_token"] = STATE.audio_tokens.token_for(
-                entry["call_id"])
-            _v = VIDEO_SENDERS.get(str(entry["call_id"]))
-            _m = AUDIO_SENDERS.get(str(entry["call_id"]))
-            media["video"] = _v.status() if _v else None
-            media["mic"] = _m.status() if _m else None
-            _s = SPEAKER_SINKS.get(str(entry["call_id"]))
-            media["speaker"] = _s.status() if _s else None
-            entry["media"] = media
-    return snap
 
 
 def _engine_for_call(call_id):
@@ -989,18 +913,9 @@ def _engine_for_call(call_id):
     return None
 
 
-_CALL_DEVICES = {}               # call_id -> ghi de rieng cua cuoc goi (mic/camera)
-_CALL_DEVICE_KEYS = ("mic_url", "mic_format", "camera_url", "speaker_url", "echo_guard")
 
 
 
-def _log_media_stats(kind, call_id, obj):
-    """Ghi số liệu của một nguồn/đích tiếng khi dừng (khung gửi/nhận, bị chặn, lỗi): để lần sau biết «không ổn định» do đâu."""
-    try:
-        st = obj.status()
-        _log_call("%s stats call_id=%s %s" % (kind, call_id, ", ".join("%s=%s" % (k, str(v)[:60]) for k, v in st.items() if k != "ffmpeg_err" or v)))
-    except Exception:  # noqa: BLE001 - ghi nhật ký không được làm hỏng việc dừng
-        pass
 
 
 _INCOMING_OFFER = {}             # call_id -> extendData bên gọi khai (dict)
@@ -1034,87 +949,13 @@ def _key_fp(key):
 
 
 
-def _remember_call_devices(call_id, body):
-    """Ghi de thiet bi rieng cua cuoc goi (tu body request/answer). Gia tri "off"
-    = tat thiet bi do cho cuoc nay (du co mac dinh)."""
-    over = {}
-    if isinstance(body, dict):
-        for key in _CALL_DEVICE_KEYS:
-            val = body.get(key)
-            if val in (None, ""):
-                continue
-            if key == "echo_guard":
-                over[key] = val is True or str(val).strip().lower() in ("1", "true", "yes", "on")
-                continue
-            val = str(val).strip()
-            if key == "speaker_url":
-                if val.lower() == "off":
-                    over[key] = ""
-                elif re.match(r"^https?://\S+$", val):
-                    over[key] = val
-                continue
-            if key == "mic_format":
-                if val in devices_mod.MIC_FORMATS:
-                    over[key] = val
-            elif val.lower() == "off":
-                over[key] = ""
-            elif devices_mod.valid_source(val):
-                over[key] = val
-    if over:
-        if len(_CALL_DEVICES) > 50:
-            _CALL_DEVICES.clear()
-        _CALL_DEVICES[str(call_id)] = over
-    return over
 
 
-_LOGENDCALL_SENT = set()          # call_id da gui logendcall (moi cuoc goi gui dung mot lan)
 _LOGENDCALL_LOCK = threading.Lock()
 
 
-def _logendcall_status(entry):
-    """Trang thai 406 nhu engine Zalo that (engine-core.js `_finish`): 50 da noi may, 103 ta la ben goi va huy / het gio / ket thuc truoc khi
-    noi may, 160 tu choi (ta tu choi, hoac ben kia tu choi cuoc ta goi). None = khong gui: cuoc goi den bi nho (nguoi goi huy truoc khi ta nghe),
-    bi thay the, hoac bi tu choi vi ban."""
-    detail = str(entry.get("detail") or "")
-    if detail.startswith("superseded") or detail == "busy_rejected" or (entry.get("type") or "user") == "group":
-        return None
-    if entry.get("answered_at"):
-        return 50
-    if entry.get("direction") == "in":
-        return 160 if detail.startswith("user_rejected") else None
-    return 160 if detail.startswith("peer_declined") else 103
 
 
-def _logendcall_async(entry, status=None, rx=0, tx=0):
-    """Gui logendcall (11311) cho cuoc goi 1-1 vua ket thuc — Zalo PC luon gui, app chua tung gui (so voi bundle 12/11): thieu no thi lich su chat
-    hien cuoc da nghe la «bi nho». Best-effort tren luong nen, moi call_id mot lan, khong lam hong luong ket thuc cuoc goi."""
-    st = _logendcall_status(entry) if status is None else status
-    sess = STATE.session
-    if st is None or not sess:
-        return
-    key = str(entry.get("call_id"))
-    with _LOGENDCALL_LOCK:
-        if key in _LOGENDCALL_SENT:
-            return
-        if len(_LOGENDCALL_SENT) > 200:
-            _LOGENDCALL_SENT.clear()
-        _LOGENDCALL_SENT.add(key)
-    answered_at, ended_at = entry.get("answered_at"), entry.get("ended_at") or time.time()
-    duration = int(round(max(0.0, float(ended_at) - float(answered_at)))) if (st == 50 and answered_at) else 0
-    role = entry.get("direction") != "in"
-    logdata = json.dumps({"Codec": ["opus/16000/1", "20"], "NewZRTC": 1, "RxTotalPkt": int(rx or 0), "SrtpMode": 1,
-                          "TxTotalPkt": int(tx or 0), "sysInfo": "zalo-pc-app"}, sort_keys=True, separators=(",", ":"))
-
-    def run():
-        try:
-            transport = make_transport(sess["zpw_sek"])
-            sig = signaling_mod.Signaling(transport, sess["device_id"], sess["zpw_enk"])
-            sig.logendcall(entry["thread_id"], int(entry["call_id"]), st, logdata, duration, role)
-            _log_call("logendcall call_id=%s status=%s duration=%ss role=%s ok" % (key, st, duration, "caller" if role else "callee"))
-        except Exception as exc:  # noqa: BLE001 - chi ghi lich su, khong anh huong cuoc goi
-            _log_call("logendcall call_id=%s status=%s FAILED: %s" % (key, st, str(exc)[:140]))
-    # Khong daemon: luong ngan (mot GET, timeout 30 s) va khong de no in ra luc interpreter dang tat (loi "could not acquire lock for stdout").
-    threading.Thread(target=run, daemon=False).start()
 
 
 
@@ -1215,135 +1056,14 @@ def _auto_media_async(call_id):
     threading.Thread(target=run, daemon=True).start()
 
 
-def _cleanup_call_media(entry):
-    """Cuoc goi da ket thuc: danh gia ket qua SRTP, dung engine + transport,
-    huy token am thanh. Best-effort, khong nem loi."""
-    try:
-        try:
-            _tr = _transport_for_call(entry["call_id"])
-            _cnt = dict(getattr(_tr, "counters", {}) or {})
-            _log_call("media counters call_id=%s %s" % (entry["call_id"], json.dumps(_cnt, sort_keys=True)[:600]))
-            try:
-                _ra = getattr(_tr, "_rx_audio", None)
-                if _ra is not None and _ra.started:
-                    _hi = _ra.cycles + _ra.max_seq
-                    _log_call("rx-audio call_id=%s ssrc=%08x base_seq=%d cao_nhat=%d ky_vong=%d nhan=%d mat=%d jitter=%.0f" % (
-                        entry["call_id"], _ra.ssrc, _ra.base_seq, _hi, _hi - _ra.base_seq + 1, _ra.received, (_hi - _ra.base_seq + 1) - _ra.received, _ra.jitter))
-                _trace = list(getattr(_tr, "_rx_trace", []) or [])
-                if _trace:
-                    _rows, _prev = [], None
-                    for _s, _t, _l, _p, _ms in _trace[:40]:
-                        _rows.append("%d/%s/%d/p%d/%s" % (_s, ("+%d" % (_t - _prev[1])) if _prev else "ts0", _l, _p, ("+%dms" % (_ms - _prev[2])) if _prev else "0"))
-                        _prev = (_s, _t, _ms)
-                    _log_call("rx-trace call_id=%s n=%d (seq/dts/len/pt/dt) %s" % (entry["call_id"], len(_trace), " ".join(_rows)))
-            except Exception:  # noqa: BLE001 - chan doan khong duoc lam hong don dep cuoc goi
-                pass
-            if str(entry.get("detail") or "").startswith("user_rejected"):
-                pass                               # tu choi: ham tu choi tu gui logendcall 160 sau khi bao 11303(3)
-            else:
-                _logendcall_async(entry, rx=_cnt.get("rtp_rx", 0), tx=_cnt.get("rtp_tx", 0))
-        except Exception:  # noqa: BLE001 - chi de chan doan / lich su
-            pass
-        _evaluate_srtp_outcome(entry)
-        _stop_video(entry["call_id"])
-        _stop_mic(entry["call_id"])
-        _stop_speaker(entry["call_id"])
-        ECHO_GUARDS.pop(str(entry["call_id"]), None)
-        _CALL_DEVICES.pop(str(entry["call_id"]), None)
-        engine_seam.SEAM.stop_media()
-        media_endpoints.ENDPOINTS.stop_call(int(entry["call_id"]))
-        STATE.audio_tokens.drop(entry["call_id"])
-    except Exception as exc:  # noqa: BLE001
-        _log_call("cleanup media error: %s" % str(exc)[:120])
-
-
-# Cuộc gọi ĐẾN mà sau khi nghe máy điện thoại KHÔNG gửi bất kỳ gói nào (rtp/rtcp/video đều 0) là cuộc «chết» (13/11: 12/20 cuộc khi gói đầu chưa tới
-# lúc chọn relay; gửi lại InitZRTP không cứu được). Nghe im lặng suốt cuộc thì vô ích và điện thoại báo «kết nối không ổn định» — tự kết thúc sớm
-# (lý do «dead_media» đi theo webhook cuộc gọi để HA báo/gọi lại) để người gọi gọi lại ngay. ZALO_PC_DEAD_MEDIA_SECONDS, 0 = tắt.
-VIDEO_VIEWERS_MAX = 2
-VIDEO_VIEW_LOCK = threading.Lock()
-VIDEO_VIEW_COUNT = [0]
-# Đo thật 14/11 trong container (ffmpeg 7): `-fflags nobuffer` + pipe H.264 -> KHÔNG ra khung nào; H.264 thô không có dấu thời gian nên bộ lọc fps cũng
-# không ra khung -> dùng `-framerate 15` ở đầu vào, `-flags low_delay`, giới hạn dò nhỏ; JPEG cần yuvj420p. 45/45 khung ra.
-VIDEO_VIEW_FFMPEG = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-flags", "low_delay", "-probesize", "16384", "-analyzeduration", "100000",
-                     "-framerate", "15", "-f", "h264", "-i", "pipe:0", "-vf", "scale=640:-2,format=yuvj420p", "-q:v", "7",
-                     "-f", "mpjpeg", "-boundary_tag", "frame", "pipe:1"]
 
 
 
 
 
 
-def _mark_answered(call_id, source, send_ack=True):
-    """Mark a live (ringing) call answered: the peer picked up and
-    the call is connected. `source` names how the app learned it
-    ("api" = POST /api/call/answered, e.g. from a sync push event;
-    "media" = first inbound RTP arrived; "sync" = a call_event
-    "answer" on ctrl 99101). Idempotent: marking an
-    already-answered call returns it unchanged without re-logging
-    or re-ACKing. Returns the entry, or None when there is no live
-    call with that id. Side effects on transition: the ring timer
-    is disarmed (an answered call is never ring-timed-out), a
-    [call] answered line is logged, a call webhook event fires,
-    and — for an OUTGOING call only (send_ack=True) — an answerack
-    (11304) is sent best-effort on a daemon thread for 1-1 calls.
-    An INCOMING call is answered with send_ack=False: the callee
-    never sends 11304 — it is the CALLER's signal (zca-js
-    acceptIncomingCall sends no answerack; the mock's
-    server_call_state confirms 11304 is the caller's ACK of the
-    callee's answer). It also starts the P2P hello handshake
-    (transport.begin_p2p, best-effort): only now — after the
-    answer — does the relay know the peer's address, so only
-    now can the hello go to the peer instead of to ourselves
-    (2026-11-08, step 3)."""
-    snap = STATE.calls.snapshot()
-    live = None
-    for c in snap["calls"]:
-        if str(c["call_id"]) == str(call_id) \
-                and c["status"] in ("sent", "answered", "incoming"):
-            live = c
-            break
-    if live is None:
-        return None
-    if live["status"] == "answered":
-        return dict(live)
-    entry = STATE.calls.record_answered(call_id, source)
-    if entry is None:
-        return None
-    _disarm_ring_timer(call_id)
-    # Start the P2P hello handshake NOW (2026-11-08, step 3):
-    # the peer has answered, so the relay knows the peer's
-    # address and the type-02 tail is the peer (not us). The
-    # transport never hellos on its own any more — before this
-    # fix it helloed all through ringing to our own reflexive
-    # address (61 hellos in the 30 s pcap). Defensive getattr:
-    # an older fake transport without begin_p2p() must not
-    # break the answer path.
-    try:
-        record = media_endpoints.ENDPOINTS.active_record(
-            entry["call_id"])
-        transport = (record or {}).get("transport")
-        begin_p2p = getattr(transport, "begin_p2p", None)
-        if callable(begin_p2p):
-            begin_p2p()
-    except Exception:  # noqa: BLE001 - P2P start is best-effort
-        pass
-    _log_call("answered call_id=%s source=%s"
-              % (entry["call_id"], source))
-    webhooks_mod.dispatch_call_event(
-        STATE.webhook_dispatcher, entry,
-        (STATE.session or {}).get("uid", ""))
-    if (entry.get("type") or "user") != "group":
-        _auto_media_async(entry["call_id"])
-    if (entry.get("direction") or "") == "in" and (entry.get("type") or "user") != "group":
-        _watch_dead_media(entry["call_id"])
-    if send_ack and (entry.get("type") or "user") != "group":
-        thread = threading.Thread(
-            target=_send_answerack_async,
-            args=(int(entry["call_id"]), entry["thread_id"]),
-            daemon=True)
-        thread.start()
-    return entry
+
+
 
 
 def _normalize_call_id(value):
@@ -1392,7 +1112,7 @@ def _type_request_for(call_type):
     return protocol.CALL_TYPE_AUDIO_1_1
 
 
-class AppState(incoming_calls.IncomingCalls):
+class AppState(events_calls.CallEvents, video_calls.VideoCalls, incoming_calls.IncomingCalls):
     def __init__(self, data_dir, auth=None):
         self.data_dir = data_dir
         # Nho che do SRTP nao tung nhan duoc goi that tu ben kia (che do
@@ -2487,156 +2207,8 @@ class AppState(incoming_calls.IncomingCalls):
         except Exception:  # noqa: BLE001
             pass
 
-    def _on_ctrl_call_event(self, event):
-        """Callback call_event tu CtrlPoller (99101): su kien goi
-        thoai theo flow zca-js (ZaloRtcSession: call_event act
-        "request" -> ringring 11302 -> answer 11303 -> answerack
-        11304 o phia caller; tu choi bang cancel 11305 + endcall
-        11306). Chi log dang event + id, khong log noi dung."""
-        try:
-            act_raw = (event or {}).get("act", "")
-            # Zalo gui ten co dau gach duoi ("end_call", "ring_ring",
-            # "answer_ack", "cancel_call"...): chuan hoa roi moi so khop,
-            # neu khong cuoc goi den bi bo qua khi ben goi cup may.
-            act = str(act_raw).replace("_", "").replace("-", "").lower()
-            call_id = (event or {}).get("call_id")
-            if call_id is None:
-                return
-            _d, _ts = (event or {}).get("data"), None
-            if isinstance(_d, dict):
-                _p = _d.get("params")
-                _ts = _d.get("ts") or (_p.get("ts") if isinstance(_p, dict) else None)
-            # Khoa = act + call_id + TOAN BO noi dung data (ts, params...): hai su kien cung ts nhung khac noi dung (tat roi bat camera) la hai su kien.
-            # Khong co ts thi KHONG loc (khong the phan biet hai lan bam giong het nhau).
-            if _ts and self.event_dedup.seen("call:%s:%s:%s" % (act, call_id, event_dedup_mod.EventDedup.digest(_d))):
-                return                              # cung mot su kien den hai nguon (WebSocket + poll): chi xu ly mot lan
-            if act != "request":      # «request» da co dong «incoming offer» + «offer-params»; cac su kien con lai ghi day du de xem Zalo bao gi khi thiet bi KHAC nghe may / tu choi
-                try:
-                    def _clean(o, k=""):
-                        if isinstance(o, dict):
-                            return {a: _clean(b, a) for a, b in o.items()}
-                        if isinstance(o, list):
-                            return [_clean(b, k) for b in o[:8]]
-                        if isinstance(o, str) and any(w in k.lower() for w in ("sess", "key", "token")):
-                            return "<%d ky tu>" % len(o)
-                        if isinstance(o, str):
-                            try:
-                                j = json.loads(o)
-                                if isinstance(j, (dict, list)):
-                                    return _clean(j, k)
-                            except ValueError:
-                                pass
-                            return o if len(o) <= 120 else o[:120] + "..."
-                        return o
-                    _log_call("call_event raw act=%s call_id=%s %s" % (act_raw, call_id, json.dumps(_clean(event), ensure_ascii=False, sort_keys=True)[:5000]))
-                except Exception:  # noqa: BLE001 - chan doan
-                    pass
-            if act == "request":
-                self._on_incoming_call_request(event)
-            elif act in ("cancel", "end", "endcall", "cancelcall"):
-                self._on_incoming_call_ended(event, act)
-            elif act == "answer":
-                # Peer answered OUR outgoing call (sync path):
-                # mark answered, source "sync" — _mark_answered
-                # sends the caller's answerack (11304) itself.
-                entry = _mark_answered(call_id, "sync")
-                if entry is not None:
-                    _log_call("call_event answer call_id=%s "
-                              "answered" % call_id)
-            elif act in ("audiotovideo", "requestaudio2video"):
-                self._on_video_request(event)
-            elif act == "onoffcamera":
-                # «Xin bat camera» cua ben kia = xin chuyen cuoc thoai sang VIDEO (Zalo PC: ZaloCall.exe nhan ra `onoff_camera`). KHONG nhan act "1":
-                # 12/11 18:53 act "1" den dung luc bam LOA NGOAI tren dien thoai, chua xac nhan la nut camera.
-                self._on_camera_toggle(event)
-            elif act in ("ringring", "answerack"):
-                _log_call("call_event %s call_id=%s" % (act, call_id))
-            elif act in ("grouprequest", "groupcancel", "groupend"):
-                # Group incoming: chua ho tro (chi 1-1 o vong nay).
-                _log_call("call_event %s call_id=%s "
-                          "unsupported=group" % (act, call_id))
-            else:
-                _log_call("call_event act=%s call_id=%s ignored"
-                          % (act_raw, call_id))
-        except Exception:
-            pass
 
-    def _on_camera_toggle(self, event):
-        """Su kien onoff_camera cua ben kia (act "1" / "onoff_camera", params.type 1 = bat, 0 = tat). Bat camera khi cuoc dang THOAI = loi xin chuyen sang
-        video: xu ly nhu loi xin (status 1) de HA/quy tac quyet dinh dong y hay khong; cuoc da la video hoac tat camera thi chi ghi nhat ky."""
-        call_id = int(event["call_id"])
-        def _obj(x):                     # data / params cua Zalo co the la CHUOI JSON
-            if isinstance(x, str):
-                try:
-                    x = json.loads(x)
-                except ValueError:
-                    return {}
-            return x if isinstance(x, dict) else {}
-        data = _obj(event.get("data"))
-        params = _obj(data.get("params"))
-        try:
-            cam_on = int(params.get("type", data.get("type", 0))) == 1
-        except (TypeError, ValueError):
-            cam_on = False
-        entry = next((c for c in STATE.calls.snapshot()["calls"] if str(c["call_id"]) == str(call_id)), None)
-        already_video = bool(entry is not None and (entry.get("video") or entry.get("is_video") or entry.get("call_type") == "video"))
-        _log_call("call_event camera call_id=%s %s%s" % (call_id, "bat" if cam_on else "tat", " (cuoc da la video)" if already_video else ""))
-        _send_camera_inband(call_id, str(call_id) in VIDEO_SENDERS)       # zca-js: bên kia đổi camera thì gửi lại trạng thái camera của ta ngay
-        if not cam_on or already_video:
-            return
-        self._on_video_request(dict(event, data=dict(data, params=dict(params, status=1))))
 
-    def _on_video_request(self, event):
-        """Dien thoai xin chuyen cuoc goi THOAI dang dien ra sang VIDEO (12056).
-        status 1 = loi xin: neu bat `auto_video_on_request` thi sau `auto_video_delay`
-        giay (0 = ngay) dong y (status 2) va, neu co camera mac dinh, phat hinh —
-        chi khi luc do cuoc goi van dang noi may. status 2 = dong y loi xin cua ta."""
-        call_id = int(event["call_id"])
-        data = event.get("data") if isinstance(event.get("data"), dict) else {}
-        params = data.get("params") if isinstance(data.get("params"), dict) else data
-        try:
-            status = int(params.get("status", data.get("status", 1)))
-        except (TypeError, ValueError):
-            status = 1
-        _log_call("video request call_id=%s status=%s" % (call_id, status))
-        if status == 1:
-            # Báo cho HA (zalo_call_call_state state=video_request) để quy tắc/blueprint quyết định đồng ý hay không.
-            try:
-                entry = next((c for c in STATE.calls.snapshot()["calls"] if str(c["call_id"]) == str(call_id)), None)
-                if entry is not None:
-                    webhooks_mod.dispatch_call_event(STATE.webhook_dispatcher, entry, (STATE.session or {}).get("uid", ""),
-                                                     extra={"status": "video_request",
-                                                            "contact_status": self.contact_status("user", entry["thread_id"])})
-            except Exception:  # noqa: BLE001 - báo HA là best-effort
-                pass
-        cfg = _devices_for_call(call_id)
-        if status != 1 or not cfg["auto_video_on_request"]:
-            return
-        delay = int(cfg.get("auto_video_delay") or 0)
-
-        def accept():
-            entry = next((c for c in STATE.calls.snapshot()["calls"]
-                          if str(c["call_id"]) == str(call_id)), None)
-            if entry is None or entry["status"] != "answered":
-                _log_call("video auto call_id=%s bo qua (cuoc goi da het)"
-                          % call_id)
-                return
-            _send_a2v_async(call_id, entry["thread_id"], 2)
-            cam = _devices_for_call(call_id)["camera_url"]
-            if cam:
-                try:
-                    _start_video(call_id, cam)
-                except (ValueError, RuntimeError) as exc:
-                    _log_call("video auto call_id=%s error=%s"
-                              % (call_id, str(exc)[:80]))
-
-        if delay <= 0:
-            accept()
-        else:
-            _log_call("video auto call_id=%s se dong y sau %ds" % (call_id, delay))
-            timer = threading.Timer(delay, accept)
-            timer.daemon = True
-            timer.start()
 
 
     def _reject_busy(self, call_id, caller_id, peer):
@@ -3504,7 +3076,7 @@ def _link_preview(link):
         return "", "", ""
 
 
-class Handler(outgoing_calls.OutgoingCalls, BaseHTTPRequestHandler):
+class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_calls.VideoHandler, outgoing_calls.OutgoingCalls, BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *args):
@@ -3613,314 +3185,11 @@ class Handler(outgoing_calls.OutgoingCalls, BaseHTTPRequestHandler):
         except Exception:
             return {}
 
-    def _serve_call_video_view(self):
-        """Xem hình điện thoại gửi sang (WebUI): khung H.264 đã giải mã SRTP + ghép (udp_transport add_video_tap) -> ffmpeg -> MJPEG nhiều phần
-        (multipart/x-mixed-replace) cho thẻ <img>. Mỗi người xem một ffmpeg (tối đa VIDEO_VIEWERS_MAX); ngắt kết nối thì dọn tiến trình."""
-        qs = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
-        call_id = _coerce_call_id((qs.get("call_id") or [""])[0])
-        if call_id is None:
-            live = STATE.calls.snapshot()["active"]
-            call_id = int(live["call_id"]) if live is not None else None
-        transport = _transport_for_call(call_id) if call_id is not None else None
-        if transport is None or not hasattr(transport, "add_video_tap"):
-            return self._send_json({"error": "chua_co_hinh"}, status=409)
-        if shutil.which("ffmpeg") is None:
-            return self._send_json({"error": "thieu_ffmpeg"}, status=503)
-        with VIDEO_VIEW_LOCK:
-            if VIDEO_VIEW_COUNT[0] >= VIDEO_VIEWERS_MAX:
-                return self._send_json({"error": "qua_nhieu_nguoi_xem"}, status=429)
-            VIDEO_VIEW_COUNT[0] += 1
-        tap = transport.add_video_tap()
-        proc = None
-        try:
-            proc = subprocess.Popen(VIDEO_VIEW_FFMPEG, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-            self.send_response(200)
-            self.send_header("Content-Type", "multipart/x-mixed-replace;boundary=frame")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.close_connection = True
 
-            def feed():
-                try:
-                    while proc.poll() is None:
-                        if _transport_for_call(call_id) is not transport:        # cuộc gọi đã kết thúc
-                            break
-                        try:
-                            annexb, _key = tap.get(timeout=1)
-                        except queue.Empty:
-                            continue
-                        proc.stdin.write(annexb)
-                except (OSError, ValueError):
-                    pass
-                finally:
-                    try:
-                        proc.stdin.close()
-                    except (OSError, ValueError):
-                        pass
-            threading.Thread(target=feed, daemon=True, name="video-view-feed").start()
-            while True:
-                chunk = proc.stdout.read(65536)
-                if not chunk:
-                    break
-                self.wfile.write(chunk)
-                self.wfile.flush()
-        except OSError:
-            pass                            # trình duyệt đóng thẻ: bình thường
-        finally:
-            transport.remove_video_tap(tap)
-            ffmpeg_log_mod.kill_and_reap(proc)
-            with VIDEO_VIEW_LOCK:
-                VIDEO_VIEW_COUNT[0] -= 1
 
-    def _serve_call_audio_tap(self, token):
-        """Nhu /api/call/audio/out nhung doc BAN SAO khung (tap) — dung cho nguoi nghe thu hai (AI trong cuoc goi) ma khong
-        tranh khung voi loa."""
-        call_id = STATE.audio_tokens.call_for(token)
-        if call_id is None:
-            return self._send_json({"error": "token_khong_hop_le"}, status=404)
-        engine = _engine_for_call(call_id)
-        if engine is None or not hasattr(engine, "add_tap"):
-            return self._send_json({"error": "chua_co_media"}, status=409)
-        tap = engine.add_tap()
-        self.send_response(200)
-        self.send_header("Content-Type", "audio/wav")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.close_connection = True
 
-        def write(chunk):
-            self.wfile.write(chunk)
-            self.wfile.flush()
 
-        def read():
-            try:
-                return tap.get_nowait()
-            except queue.Empty:
-                return None
 
-        def live():
-            return (STATE.audio_tokens.call_for(token) is not None and _engine_for_call(call_id) is engine)
-
-        try:
-            call_audio_mod.stream_out(engine, write, live, read=read, depth=tap.qsize)
-        except OSError:
-            pass
-        finally:
-            engine.remove_tap(tap)
-
-    def _serve_call_audio_out(self, token):
-        """Phat lien tuc am thanh ben kia (WAV 16 kHz mono) cho mot thiet
-        bi bat ky. Xac thuc bang token cua cuoc goi, khong dung cookie."""
-        call_id = STATE.audio_tokens.call_for(token)
-        if call_id is None:
-            return self._send_json({"error": "token_khong_hop_le"},
-                                   status=404)
-        engine = _engine_for_call(call_id)
-        if engine is None:
-            return self._send_json({"error": "chua_co_media"}, status=409)
-        self.send_response(200)
-        self.send_header("Content-Type", "audio/wav")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.close_connection = True
-
-        def write(chunk):
-            self.wfile.write(chunk)
-            self.wfile.flush()
-
-        def live():
-            return (STATE.audio_tokens.call_for(token) is not None
-                    and _engine_for_call(call_id) is engine)
-
-        try:
-            call_audio_mod.stream_out(engine, write, live)
-        except OSError:
-            pass            # thiet bi ngat ket noi: binh thuong
-
-    def _handle_call_media(self, path, body):
-        """Dieu khien mic / hinh cua cuoc goi dang song.
-
-        /api/call/video          {action: start|stop|status, source, width, height,
-                                  fps, bitrate_kbps}
-        /api/call/media          {action: start|stop|status, target: mic|video|speaker|both,
-                                  mic_url, mic_format, camera_url, speaker_url}  (thieu thi dung mac dinh)
-        /api/call/upgrade_video  {camera_url?}  chuyen cuoc goi THOAI sang VIDEO
-        """
-        snap = STATE.calls.snapshot()
-        live = snap["active"]
-        call_id = _coerce_call_id(body.get("call_id", ""))
-        if call_id is None and live is not None:
-            call_id = int(live["call_id"])
-        if call_id is None:
-            return self._send_json({"ok": False, "error": "no_live_call"})
-        action = str(body.get("action") or "start").lower()
-
-        def vstat():
-            sd = VIDEO_SENDERS.get(str(call_id))
-            return sd.status() if sd else None
-
-        def mstat():
-            sd = AUDIO_SENDERS.get(str(call_id))
-            return sd.status() if sd else None
-
-        def sstat():
-            sd = SPEAKER_SINKS.get(str(call_id))
-            return sd.status() if sd else None
-
-        if action not in ("start", "stop", "status"):
-            return self._send_json({"error": "action_khong_hop_le"}, status=400)
-        if path == "/api/call/video":
-            target = "video"
-        elif path == "/api/call/media":
-            target = str(body.get("target") or "both").lower()
-        else:
-            target = "upgrade"
-        if action == "status":
-            return self._send_json({"ok": True, "call_id": call_id,
-                                    "video": vstat(), "mic": mstat(),
-                                    "speaker": sstat()})
-        if action == "stop":
-            if target in ("video", "both"):
-                if _stop_video(call_id) is not None:
-                    video_calls._send_camera_state_async(
-                        call_id, _thread_of_call(call_id), False)
-            if target in ("mic", "both"):
-                _stop_mic(call_id)
-            if target in ("speaker", "both"):
-                _stop_speaker(call_id)
-            return self._send_json({"ok": True, "call_id": call_id,
-                                    "video": vstat(), "mic": mstat(),
-                                    "speaker": sstat()})
-        # Nối thiết bị GIỮA cuộc gọi (HA chuyển máy từ AI sang trực tiếp): bộ thiết bị đưa kèm thành thiết bị riêng của cuộc gọi này (đủ
-        # bốn nhóm, nhóm không cài = "off" → không rơi về mặc định); có nhóm nào thì nối nhóm đó.
-        if any(k in body for k in _CALL_DEVICE_KEYS):
-            _CALL_DEVICES.pop(str(call_id), None)
-            _remember_call_devices(call_id, body)
-            # "off" = nhóm này không cài: đã ghi vào thiết bị riêng của cuộc gọi (rỗng), nay bỏ khỏi body để không bị coi là URL.
-            body = {k: v for k, v in body.items() if not (k in ("mic_url", "speaker_url", "camera_url") and str(v).strip().lower() == "off")}
-        if target == "accept_video":
-            # Đồng ý lời xin chuyển sang video của người gọi (HA quyết định); camera_url trống = chỉ đồng ý, không gửi hình trong nhà.
-            entry = next((c for c in snap["calls"] if str(c["call_id"]) == str(call_id)), None)
-            if entry is None or entry["status"] != "answered":
-                return self._send_json({"ok": False, "error": "chua_nghe_may"})
-            _send_a2v_async(call_id, _thread_of_call(call_id), 2)
-            src = str(body.get("camera_url") or "")
-            if src:
-                try:
-                    _start_video(call_id, src)
-                except (ValueError, RuntimeError) as exc:
-                    return self._send_json({"ok": False, "error": str(exc)[:120]})
-            return self._send_json({"ok": True, "call_id": call_id, "video": vstat(), "mic": mstat(), "speaker": sstat()})
-        cfg = _devices_for_call(call_id)
-        try:
-            if target == "upgrade":
-                entry = next((c for c in snap["calls"]
-                              if str(c["call_id"]) == str(call_id)), None)
-                if entry is None or entry["status"] != "answered":
-                    return self._send_json({"ok": False,
-                                            "error": "chua_nghe_may"})
-                _send_a2v_async(call_id, _thread_of_call(call_id), 1)
-                src = str(body.get("camera_url") or body.get("source")
-                          or cfg["camera_url"] or "test")
-                _start_video(call_id, src)
-            else:
-                if target in ("mic", "both"):
-                    src = str(body.get("mic_url")
-                              or (body.get("source") if target == "mic" else "")
-                              or cfg["mic_url"] or "")
-                    if src:
-                        _start_mic(call_id, src,
-                                   str(body.get("mic_format") or cfg["mic_format"]))
-                if target in ("speaker", "both"):
-                    spk = str(body.get("speaker_url")
-                              or (body.get("source") if target == "speaker" else "")
-                              or cfg.get("speaker_url") or "")
-                    if spk:
-                        if not re.match(r"^https?://\S+$", spk):
-                            raise ValueError("speaker_url phai la URL http(s)")
-                        _start_speaker(call_id, spk)
-                    elif target == "speaker":
-                        raise ValueError("chua_co_speaker_url")
-                if target in ("video", "both"):
-                    src = str(body.get("camera_url") or body.get("source")
-                              or cfg["camera_url"] or "")
-                    if src or target == "video":
-                        params = {k: body[k] for k in
-                                  ("width", "height", "fps", "bitrate_kbps")
-                                  if k in body}
-                        _start_video(call_id, src or "test", params)
-        except (ValueError, RuntimeError) as exc:
-            return self._send_json({"ok": False, "error": str(exc)[:120]})
-        return self._send_json({"ok": True, "call_id": call_id,
-                                "video": vstat(), "mic": mstat(),
-                                "speaker": sstat()})
-
-    def _handle_call_say(self):
-        """POST /api/call/say (multipart: file, call_id?) — phat mot doan am thanh (mp3/wav/ogg... do HA tao bang TTS) len
-        cuoc goi DANG NOI qua cung duong mic (thay nguon mic hien tai). Tra ngay khi bat dau phat; nguoi goi poll
-        /api/call/media {action: status}: mic.alive=false la phat xong."""
-        if self._require_app_login() is None:
-            return self._unauthorized()
-        if self._require_login() is None:
-            return self._send_json({"error": "chua_dang_nhap"}, status=401)
-        raw = self._read_raw()
-        if len(raw) > SAY_MAX_BYTES + 4096:
-            return self._send_json({"error": "am_thanh_qua_lon"}, status=413)
-        fields, files = chat_mod.parse_multipart(raw, self.headers.get("Content-Type") or "")
-        f = (files or {}).get("file")
-        fname, _mime, data = f if f else ("", "", b"")
-        if not data:
-            return self._send_json({"ok": False, "error": "thieu_file"}, status=400)
-        if len(data) > SAY_MAX_BYTES:
-            return self._send_json({"error": "am_thanh_qua_lon"}, status=413)
-        snap = STATE.calls.snapshot()
-        call_id = _coerce_call_id(fields.get("call_id", ""))
-        entry = next((c for c in snap["calls"] if call_id is not None and str(c["call_id"]) == str(call_id)), None) \
-            if call_id is not None else snap["active"]
-        if entry is None or entry["status"] != "answered":
-            return self._send_json({"ok": False, "error": "chua_nghe_may"})
-        call_id = int(entry["call_id"])
-        ext = os.path.splitext(str(fname or ""))[1].lower()
-        if not re.match(r"^\.[a-z0-9]{1,5}$", ext):
-            ext = ".bin"
-        folder = os.path.join(STATE.data_dir, "say")
-        try:
-            os.makedirs(folder, exist_ok=True)
-            _prune_say_files(folder)
-            path = os.path.join(folder, "%s-%d%s" % (call_id, int(time.time() * 1000), ext))
-            with open(path, "wb") as fh:
-                fh.write(data)
-            _start_mic(call_id, path, "auto", loop=False, echo_gate=False)   # MOT lan, khong lap, KHONG gate chong vong
-        except (ValueError, RuntimeError, OSError) as exc:
-            return self._send_json({"ok": False, "error": str(exc)[:120]})
-        return self._send_json({"ok": True, "call_id": call_id, "bytes": len(data)})
-
-    def _handle_call_audio_in(self, call_id):
-        """Nhan PCM16 16 kHz mono (boi so 640 byte) tu mic cua thiet bi bat
-        ky va dua vao cuoc goi. Can dang nhap app."""
-        if self._require_app_login() is None:
-            return self._unauthorized()
-        engine = _engine_for_call(call_id)
-        if engine is None:
-            return self._send_json({"ok": False, "error": "chua_co_media"},
-                                   status=409)
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            length = 0
-        if length <= 0:
-            return self._send_json({"ok": False, "error": "thieu_noi_dung"},
-                                   status=400)
-        if length > call_audio_mod.MAX_IN_BYTES:
-            return self._send_json({"ok": False, "error": "qua_lon"},
-                                   status=413)
-        data = self.rfile.read(length)
-        sent, errors, last = call_audio_mod.feed_frames(engine, data)
-        return self._send_json({"ok": errors == 0, "frames": sent,
-                                "errors": errors, "last_error": last})
 
     def _require_login(self):
         sess = STATE.session
