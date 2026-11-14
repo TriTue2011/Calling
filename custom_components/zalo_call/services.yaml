@@ -8230,6 +8230,11 @@ login_qr:
             value: web
           - label: PC (Zalo PC)
             value: pc
+    force:
+      name: Đăng nhập lại dù đang đăng nhập
+      description: Mặc định dịch vụ từ chối khi Zalo đang đăng nhập (tránh làm mất phiên). Bật để buộc lấy mã QR mới.
+      selector:
+        boolean: null
 logout:
   name: Đăng xuất Zalo
   description: Đăng xuất Zalo (xóa phiên Zalo của app, quay về màn hình mã QR). Tài khoản và mật khẩu đăng nhập app vẫn giữ.

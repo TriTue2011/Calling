@@ -118,6 +118,114 @@ def test_wiring_services_buttons_image_platform_and_docs():
     assert "\nlogin_qr:\n" in y and "\nlogout:\n" in y and "value: web" in y and "value: pc" in y
 
 
+def test_logged_in_from_coordinator_data_unknown_when_missing():
+    assert qr.logged_in({"status": {"login": True}}) is True
+    assert qr.logged_in({"status": {"login": False}}) is False
+    for unknown in (None, {}, {"status": {}}, {"status": None}, {"calls": {}}, "x"):
+        assert qr.logged_in(unknown) is None, unknown                                   # chưa có dữ liệu / app không trả lời: CHƯA BIẾT (không làm mờ gì)
+
+
+def test_login_state_combines_session_and_qr_progress():
+    assert qr.login_state(None, {"state": "waiting"}) is None
+    assert qr.login_state(True, None) == "logged_in" and qr.login_state(True, {"state": "waiting"}) == "logged_in"      # đã đăng nhập thì luôn là đã đăng nhập
+    assert qr.login_state(False, None) == "logged_out" and qr.login_state(False, {"state": "idle"}) == "logged_out"
+    assert qr.login_state(False, {"state": "waiting"}) == "waiting_qr" and qr.login_state(False, {"state": "scanned"}) == "scanned"
+    assert qr.login_state(False, {"state": "expired"}) == "expired"
+    for bad in ("rate_limited", "rejected", "error"):
+        assert qr.login_state(False, {"state": bad}) == "error", bad
+    assert qr.login_state(False, {"state": "done"}) == "logged_out"                      # QR «xong» sót từ lần trước mà phiên đã mất: chưa đăng nhập
+    assert qr.login_state(False, {"state": "la-hoac"}) == "logged_out"
+    for code in qr.LOGIN_STATES:
+        assert qr.LOGIN_STATE_TEXT[code]                                                 # mỗi trạng thái có lời mô tả tiếng Việt
+
+
+def test_login_actions_dim_the_buttons_that_do_not_apply():
+    assert qr.login_actions(True) == {"login": False, "logout": True}                    # đã đăng nhập: ẩn (mờ) đăng nhập, chỉ còn đăng xuất
+    assert qr.login_actions(False) == {"login": True, "logout": False}                   # chưa đăng nhập: ẩn (mờ) đăng xuất, chỉ còn đăng nhập
+    assert qr.login_actions(None) == {"login": True, "logout": True}                     # chưa biết: cả hai sáng, không chặn người dùng
+
+
+def test_wiring_availability_status_sensor_and_service_guard():
+    bt = open(os.path.join(CC, "button.py"), encoding="utf-8").read()
+    assert "def available(self) -> bool:" in bt and "qr_login.login_actions(qr_login.logged_in(self._rt.coordinator.data))" in bt
+    assert 'self._key in ("login_web", "login_pc", "logout")' in bt and "coordinator.async_add_listener(self.async_write_ha_state)" in bt
+    im = open(os.path.join(CC, "image.py"), encoding="utf-8").read()
+    assert 'qr_login.login_actions(qr_login.logged_in(self._rt.coordinator.data))["login"]' in im
+    se = open(os.path.join(CC, "sensor.py"), encoding="utf-8").read()
+    assert "class ZaloLoginStateSensor" in se and "qr_login.login_state(" in se and "list(qr_login.LOGIN_STATES)" in se and "ZaloLoginStateSensor(coordinator, entry)" in se
+    sv = open(os.path.join(CC, "services.py"), encoding="utf-8").read()
+    assert 'qr_login.logged_in(rt.coordinator.data) is True and not call.data.get("force")' in sv and 'vol.Optional("force", default=False): cv.boolean' in sv
+    init = open(os.path.join(CC, "__init__.py"), encoding="utf-8").read()
+    assert 'data["qr"] = await self.api.qr_status()' in init and 'not status.get("login")' in init            # chỉ hỏi QR khi chưa đăng nhập
+    y = open(os.path.join(CC, "services.yaml"), encoding="utf-8").read()
+    assert "Đăng nhập lại dù đang đăng nhập" in y
+
+
+def test_coordinator_stays_alive_when_zalo_is_logged_out():
+    """Số đo thật: chưa đăng nhập Zalo thì /api/calls trả 401; trước đây cả bộ cập nhật hỏng và mọi cảm biến «không khả dụng» (không báo được «chưa đăng nhập»)."""
+    import ast
+    src = open(os.path.join(CC, "__init__.py"), encoding="utf-8").read()
+    tree = ast.parse(src)
+    fn = next(n for c in tree.body if isinstance(c, ast.ClassDef) and c.name == "ZaloCallCoordinator" for n in c.body if getattr(n, "name", "") == "_async_update_data")
+    class ZaloCallError(Exception):
+        pass
+    class ZaloCallAuthError(ZaloCallError):
+        pass
+    class UpdateFailed(Exception):
+        pass
+    class ConfigEntryAuthFailed(Exception):
+        pass
+    ns = {"ZaloCallError": ZaloCallError, "ZaloCallAuthError": ZaloCallAuthError, "UpdateFailed": UpdateFailed, "ConfigEntryAuthFailed": ConfigEntryAuthFailed}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), "x", "exec"), ns)
+    upd = ns["_async_update_data"]
+
+    class Policy:
+        def __init__(self):
+            self.calls = []
+
+        def poll(self, ok):
+            self.calls.append(ok)
+            return ok
+
+    class Api:
+        def __init__(self, status, calls_exc=None):
+            self.st, self.calls_exc, self.fetched = status, calls_exc, []
+
+        async def status(self):
+            if isinstance(self.st, Exception):
+                raise self.st
+            return self.st
+
+        async def calls(self):
+            self.fetched.append("calls")
+            if self.calls_exc:
+                raise self.calls_exc
+            return {"active": None, "calls": [{"call_id": 1}]}
+
+        async def qr_status(self):
+            self.fetched.append("qr")
+            return {"state": "waiting"}
+
+    def run(status, **kw):
+        async def _push():
+            return None
+        me = types.SimpleNamespace(api=Api(status, **kw), bridge=types.SimpleNamespace(policy=Policy(), async_push_defaults=_push), hass=types.SimpleNamespace(async_create_task=lambda c: c.close()))
+        try:
+            return me, asyncio.run(upd(me)), None
+        except Exception as e:  # noqa: BLE001
+            return me, None, e
+    me, data, err = run({"login": True})
+    assert err is None and data["calls"]["calls"] == [{"call_id": 1}] and "qr" not in data and me.api.fetched == ["calls"], (data, err, me.api.fetched)     # đã đăng nhập: như cũ
+    me, data, err = run({"login": False}, calls_exc=ZaloCallError("chua_dang_nhap"))
+    assert err is None, err                                                                                       # chưa đăng nhập: KHÔNG hỏng dù /api/calls sẽ trả 401
+    assert data["status"]["login"] is False and data["calls"] == {"active": None, "calls": []} and data["qr"] == {"state": "waiting"}, data
+    assert me.api.fetched == ["qr"] and me.bridge.policy.calls == [False], (me.api.fetched, me.bridge.policy.calls)    # không gọi /api/calls; cầu nối «chưa sẵn sàng» để đẩy lại mặc định khi đăng nhập xong
+    me, data, err = run(ZaloCallError("mạng đứt"))
+    assert isinstance(err, UpdateFailed) and me.bridge.policy.calls == [False]                                   # app không trả lời vẫn là lỗi thật
+    me, data, err = run(ZaloCallAuthError("sai mật khẩu app"))
+    assert isinstance(err, ConfigEntryAuthFailed)
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

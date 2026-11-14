@@ -10,6 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .api import ZaloCallError
 from .bridge_core import entity_of_label
 from .call_voice import async_take_over
+from . import qr_login
 from .const import DOMAIN
 from .entity import ZaloCallEntity
 
@@ -35,6 +36,20 @@ class CallButton(ZaloCallEntity, ButtonEntity):
         self._rt, self._key = rt, key
         self._attr_name, self._attr_icon = name, icon
 
+    @property
+    def available(self) -> bool:
+        """Nút đăng nhập mờ khi ĐÃ đăng nhập; nút đăng xuất mờ khi CHƯA đăng nhập (chưa biết thì sáng). Các nút khác luôn sáng."""
+        acts = qr_login.login_actions(qr_login.logged_in(self._rt.coordinator.data))
+        if self._key in ("login_web", "login_pc"):
+            return acts["login"]
+        if self._key == "logout":
+            return acts["logout"]
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        if self._key in ("login_web", "login_pc", "logout"):
+            self.async_on_remove(self._rt.coordinator.async_add_listener(self.async_write_ha_state))
+
     async def async_press(self) -> None:
         api, bridge = self._rt.api, self._rt.bridge
         try:
@@ -51,9 +66,11 @@ class CallButton(ZaloCallEntity, ButtonEntity):
             elif self._key in ("login_web", "login_pc"):
                 await api.qr_new(self._key.split("_", 1)[1])        # kiểu đăng nhập theo nút: web / pc
                 await _refresh_qr(self.hass)
+                await self._rt.coordinator.async_request_refresh()
             elif self._key == "logout":
                 await api.zalo_logout()
                 await _refresh_qr(self.hass)
+                await self._rt.coordinator.async_request_refresh()
             elif self._key == "stop_video":
                 await api.media_control({"action": "stop", "target": "video"})
             else:

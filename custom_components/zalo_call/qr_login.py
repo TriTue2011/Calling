@@ -63,3 +63,38 @@ def attributes(status: dict[str, Any] | None) -> dict[str, Any]:
     if st.get("warning"):
         out["canh_bao"] = str(st["warning"])[:200]
     return out
+
+
+# ---- trạng thái Zalo tổng hợp (đã đăng nhập / chưa / đang chờ quét…) và nút nào còn hợp lệ ----
+LOGIN_STATES = ("logged_in", "logged_out", "waiting_qr", "scanned", "expired", "error")
+LOGIN_STATE_TEXT = {"logged_in": "Đã đăng nhập", "logged_out": "Chưa đăng nhập", "waiting_qr": "Đang chờ quét mã QR", "scanned": "Đã quét, chờ xác nhận trên điện thoại",
+                    "expired": "Mã QR hết hạn", "error": "Đăng nhập lỗi"}
+_QR_TO_STATE = {"waiting": "waiting_qr", "scanned": "scanned", "expired": "expired", "rate_limited": "error", "rejected": "error", "error": "error"}
+
+
+def logged_in(coordinator_data: Any) -> bool | None:
+    """Đã đăng nhập Zalo? True/False theo /api/status; None = chưa biết (chưa có dữ liệu, app không trả lời) — khi đó KHÔNG làm mờ thực thể nào."""
+    st = (coordinator_data or {}).get("status") if isinstance(coordinator_data, dict) else None
+    if not isinstance(st, dict) or "login" not in st:
+        return None
+    return bool(st.get("login"))
+
+
+def login_state(is_logged_in: bool | None, qr: dict[str, Any] | None = None) -> str | None:
+    """Mã trạng thái tổng hợp (LOGIN_STATES) hoặc None khi chưa biết. Đã đăng nhập thì luôn «logged_in»; chưa thì theo trạng thái QR (không có QR = logged_out)."""
+    if is_logged_in is None:
+        return None
+    if is_logged_in:
+        return "logged_in"
+    state = str((qr or {}).get("state") or "")
+    if state == "done":                       # QR «xong» còn sót từ lần đăng nhập trước, mà phiên đã mất: chưa đăng nhập
+        return "logged_out"
+    return _QR_TO_STATE.get(state, "logged_out")
+
+
+def login_actions(is_logged_in: bool | None) -> dict[str, bool]:
+    """Nút nào còn hợp lệ: đã đăng nhập thì chỉ «Đăng xuất» (đăng nhập QR và ảnh QR mờ đi); chưa đăng nhập thì chỉ đăng nhập QR (đăng xuất mờ đi);
+    chưa biết thì cả hai cùng sáng để không chặn người dùng."""
+    if is_logged_in is None:
+        return {"login": True, "logout": True}
+    return {"login": not is_logged_in, "logout": bool(is_logged_in)}

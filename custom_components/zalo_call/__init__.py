@@ -76,6 +76,17 @@ class ZaloCallCoordinator(DataUpdateCoordinator[dict]):
     async def _async_update_data(self) -> dict:
         try:
             status = await self.api.status()
+            if isinstance(status, dict) and not status.get("login"):
+                # CHƯA đăng nhập Zalo: /api/calls trả 401 (chua_dang_nhap) nên trước đây cả bộ cập nhật hỏng và mọi cảm biến thành «không khả dụng», không báo được
+                # «chưa đăng nhập». Không có cuộc gọi nào để lấy: bỏ qua; xem trạng thái QR; báo cầu nối «chưa sẵn sàng» để đẩy lại mặc định khi đăng nhập xong.
+                data = {"status": status, "calls": {"active": None, "calls": []}}
+                try:
+                    data["qr"] = await self.api.qr_status()
+                except ZaloCallError:
+                    pass
+                if self.bridge is not None:
+                    self.bridge.policy.poll(False)
+                return data
             calls = await self.api.calls()
         except ZaloCallAuthError as err:
             # Doi mat khau trong WebUI app: dung hoi, de HA mo luong nhap lai mat khau.

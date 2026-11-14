@@ -8409,12 +8409,14 @@ Bắt đầu đăng nhập Zalo bằng mã QR theo kiểu đã chọn. Mã hiệ
 ```yaml
 action: zalo_call.login_qr
 data:
-  type: "web"  # tuỳ chọn - Kiểu đăng nhập
+  type: "web"   # tuỳ chọn - Kiểu đăng nhập
+  force: false  # tuỳ chọn - Đăng nhập lại dù đang đăng nhập
 ```
 
 | Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
 |---|---|---|---|
 | `type` | Kiểu đăng nhập | không | Web (Qua Web) hoặc PC (Zalo PC), mỗi kiểu có mã QR riêng. Bỏ trống thì giữ kiểu hiện tại của app. |
+| `force` | Đăng nhập lại dù đang đăng nhập | không | Mặc định dịch vụ từ chối khi Zalo đang đăng nhập (tránh làm mất phiên). Bật để buộc lấy mã QR mới. |
 
 **Các lựa chọn:**
 

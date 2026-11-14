@@ -706,9 +706,12 @@ async def async_register_services(hass: HomeAssistant) -> None:
             client = qr_login.normalize_client(call.data.get("type"))
         except ValueError as err:
             raise ServiceValidationError(str(err)) from err
+        if qr_login.logged_in(rt.coordinator.data) is True and not call.data.get("force"):
+            raise ServiceValidationError("Zalo đang đăng nhập. Hãy đăng xuất trước (dịch vụ zalo_call.logout), hoặc đặt force: true để đăng nhập lại.")
         try:
             await api.qr_new(client)
             await _refresh_qr_entity(call.data.get("entry_id"))
+            await rt.coordinator.async_request_refresh()
             status = await api.qr_status()
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
@@ -716,10 +719,11 @@ async def async_register_services(hass: HomeAssistant) -> None:
 
     async def logout_zalo(call: ServiceCall) -> dict:
         """Đăng xuất Zalo (xóa phiên Zalo của app, về màn hình QR); không đụng tài khoản/mật khẩu đăng nhập app."""
-        _, api = _api(hass, call)
+        rt, api = _api(hass, call)
         try:
             await api.zalo_logout()
             await _refresh_qr_entity(call.data.get("entry_id"))
+            await rt.coordinator.async_request_refresh()
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
         return {"ok": True}
@@ -959,7 +963,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.ONLY)
     hass.services.async_register(
         DOMAIN, "login_qr", login_qr,
-        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("type"): vol.In(list(qr_login.CLIENTS))}),
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("type"): vol.In(list(qr_login.CLIENTS)), vol.Optional("force", default=False): cv.boolean}),
         supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, "logout", logout_zalo,
