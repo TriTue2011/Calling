@@ -798,15 +798,25 @@ async function rejectCall(a) {
   await loadCalls();
 }
 // Nút bật/tắt mic, loa, camera của cuộc gọi: điều khiển THIẾT BỊ TRONG NHÀ (mic/loa R1, camera) qua /api/call/media và /api/call/video.
-S.cm = { id: "", mic: false, speaker: false, video: false, busy: "" };
+S.cm = { id: "", mic: false, speaker: false, video: false, busy: "", gain: { mic: 100, speaker: 100 } };
 function applyCm(id, r) {
   const on = (x) => !!x && x.alive !== false;
   S.cm = Object.assign(S.cm, { id: String(id), mic: on(r.mic), speaker: on(r.speaker), video: on(r.video) });
+  if (r.gain && typeof r.gain === "object") S.cm.gain = { mic: Number(r.gain.mic) || 0, speaker: Number(r.gain.speaker) || 0 };
   renderCallCard();
 }
 async function refreshCallMedia() {
   const a = S.calls.active; if (!a || S.cm.busy) return;
   try { const r = await api("/api/call/media", "POST", { call_id: a.call_id, action: "status" }); if (!r.error && r.ok !== false) applyCm(a.call_id, r); } catch (e) { /* mạng: thử lại lần sau */ }
+}
+// Tăng/giảm âm lượng mic hoặc loa của cuộc gọi bằng phần mềm (mỗi lần bấm ±10%, 0–300%): hoạt động cả khi loa R1 không nghe lệnh set_volume.
+async function changeGain(target, step) {
+  const a = S.calls.active; if (!a) return;
+  try {
+    const r = await api("/api/call/media", "POST", { call_id: a.call_id, action: "gain", target, step });
+    if (r.error || r.ok === false) { toast("Không chỉnh được âm lượng " + (target === "mic" ? "mic" : "loa") + ": " + (r.error || "lỗi"), 4000); return; }
+    S.cm.gain = Object.assign({}, S.cm.gain, r.gain || {}); renderCallCard();
+  } catch (e) { toast("Lỗi mạng khi chỉnh âm lượng", 4000); }
 }
 async function toggleMedia(target) {
   const a = S.calls.active; if (!a || S.cm.busy) return;
@@ -841,7 +851,14 @@ function mediaToggles() {
     h("button", { class: "tg" + (S.cm[key] ? " on" : ""), type: "button", "aria-pressed": S.cm[key] ? "true" : "false", disabled: !!S.cm.busy,
       title: label + " trong nhà (R1/camera): " + (S.cm[key] ? "đang bật, bấm để tắt" : "đang tắt, bấm để bật"), onclick: () => toggleMedia(key) },
       svg(icon), h("span", {}, label + (S.cm[key] ? " bật" : " tắt"))));
-  return h("div", { class: "tgs" }, row);
+  const gains = [["mic", "Mic"], ["speaker", "Loa"]].map(([key, label]) => {
+    const g = (S.cm.gain && S.cm.gain[key]) ?? 100;
+    return h("div", { class: "gn" + (g === 0 ? " mute" : "") },
+      h("button", { type: "button", "aria-label": "Giảm âm lượng " + label.toLowerCase(), disabled: g <= 0, onclick: () => changeGain(key, -10) }, "−"),
+      h("span", { class: "gv", title: "Âm lượng " + label.toLowerCase() + " (100% = giữ nguyên)" }, label + " " + g + "%"),
+      h("button", { type: "button", "aria-label": "Tăng âm lượng " + label.toLowerCase(), disabled: g >= 300, onclick: () => changeGain(key, 10) }, "+"));
+  });
+  return h("div", {}, h("div", { class: "tgs" }, row), h("div", { class: "gns" }, gains));
 }
 setInterval(() => { const a = S.calls.active; if (a && (a.status === "answered" || a.answered_at)) refreshCallMedia(); }, 3000);
 async function endCall() { const a = S.calls.active; if (!a) return; const r = await api("/api/call/end", "POST", { call_id: a.call_id }); if (r.error) toast("Lỗi kết thúc cuộc gọi: " + r.error, 5000); await loadCalls(); }
@@ -1399,6 +1416,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
 });
 try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
-if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles });   // chỉ để kiểm thử giao diện (jsdom)
+if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain });   // chỉ để kiểm thử giao diện (jsdom)
 applyScale(); setTab("chats"); updateSendButtons(); privacyInit(); boot();
 })();

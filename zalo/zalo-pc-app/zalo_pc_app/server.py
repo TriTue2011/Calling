@@ -133,6 +133,9 @@ from .calls import voice as voice_calls  # noqa: E402  luồng voice tách riên
 AUDIO_SENDERS = voice_calls.AUDIO_SENDERS
 SPEAKER_SINKS = voice_calls.SPEAKER_SINKS
 ECHO_GUARDS = voice_calls.ECHO_GUARDS
+CALL_GAIN = voice_calls.CALL_GAIN
+_set_gain = voice_calls._set_gain
+_gain_of = voice_calls._gain_of
 _stop_mic = voice_calls._stop_mic
 _stop_speaker = voice_calls._stop_speaker
 _guard_for_call = voice_calls._guard_for_call

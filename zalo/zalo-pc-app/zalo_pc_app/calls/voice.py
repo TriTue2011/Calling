@@ -7,6 +7,7 @@ from .. import audio_tx as audio_tx_mod
 
 import queue
 import re
+from .. import audio_gain as audio_gain_mod
 from .. import call_audio as call_audio_mod
 from .. import chat as chat_mod
 from ._srv import srv
@@ -19,6 +20,37 @@ SPEAKER_SINKS = {}               # call_id -> audio_rx.AudioSink (loa truc tiep)
 
 
 ECHO_GUARDS = {}                 # call_id -> audio_rx.EchoGuard (mic nin khi loa phat)
+
+
+CALL_GAIN = {}                   # call_id -> {"mic": %, "speaker": %}: am luong chinh giua cuoc goi (giu qua cac lan mo lai mic/loa)
+
+
+def _gain_of(call_id, target):
+    return CALL_GAIN.get(str(call_id), {}).get(target, audio_gain_mod.DEFAULT_PERCENT)
+
+
+def _set_gain(call_id, target, level=None, step=None):
+    """Dat am luong mic|speaker cua cuoc goi: `level` (%) tuyet doi, hoac `step` (+/-%) so voi muc hien tai. Ghi nho cho ca cuoc goi
+    va ap ngay vao mic/loa dang chay. Nem ValueError neu target sai / thieu level va step / khong phai so. Tra ve muc moi (%)."""
+    if target not in ("mic", "speaker"):
+        raise ValueError("target phai la mic hoac speaker")
+    if level is None and step is None:
+        raise ValueError("thieu level hoac step")
+    if level is not None:
+        new = audio_gain_mod.clamp_percent(level)
+    else:
+        if isinstance(step, bool):
+            raise ValueError("step phai la so")
+        try:
+            delta = int(round(float(step)))
+        except (TypeError, ValueError):
+            raise ValueError("step phai la so") from None
+        new = audio_gain_mod.clamp_percent(_gain_of(call_id, target) + delta)
+    CALL_GAIN.setdefault(str(call_id), {})[target] = new
+    live = (AUDIO_SENDERS if target == "mic" else SPEAKER_SINKS).get(str(call_id))
+    if live is not None:
+        live.gain = new
+    return new
 
 
 def _stop_mic(call_id):
@@ -67,6 +99,7 @@ def _start_speaker(call_id, url):
         return old
     _stop_speaker(call_id)
     sink = audio_rx_mod.AudioSink(engine, url, guard=_guard_for_call(call_id), log=srv()._log_call)
+    sink.gain = _gain_of(call_id, "speaker")
     sink.start()
     SPEAKER_SINKS[str(call_id)] = sink
     srv()._log_call("speaker sink start call_id=%s echo_guard=%s"
@@ -91,6 +124,7 @@ def _start_mic(call_id, source, fmt="auto", loop=True, echo_gate=True):
     guard = _guard_for_call(call_id) if echo_gate else None
     sender = audio_tx_mod.AudioSender(transport.send_pcm, source=source, fmt=fmt,
                                       gate=guard.blocked if guard else None, log=srv()._log_call, loop=loop)
+    sender.gain = _gain_of(call_id, "mic")
     sender.start()
     AUDIO_SENDERS[str(call_id)] = sender
     srv()._log_call("mic start call_id=%s source=%s" % (

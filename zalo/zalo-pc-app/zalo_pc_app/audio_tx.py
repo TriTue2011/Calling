@@ -21,7 +21,7 @@ import subprocess
 import threading
 import time
 
-from . import ffmpeg_log
+from . import audio_gain, ffmpeg_log
 
 FRAME_BYTES = 640           # 20 ms PCM16 mono 16 kHz
 FRAME_SECONDS = 0.02
@@ -68,6 +68,7 @@ class AudioSender:
         self._tail = None
         self._send = send_pcm
         self._gate = gate               # gate() True = bo khung nay (chong vong)
+        self.gain = audio_gain.DEFAULT_PERCENT   # % am luong mic (100 = giu nguyen), doi duoc giua cuoc goi
         self._args = build_ffmpeg_args(source, fmt, loop=loop)
         self._max_backlog = MAX_BACKLOG if loop else ONCE_BACKLOG
         self._popen = popen or subprocess.Popen
@@ -166,6 +167,8 @@ class AudioSender:
                 if _voiced:
                     self.gated_voiced += 1
                 frame = bytes(len(frame))        # (bo han khung thi ben kia thay mat goi: Zalo bao «ket noi khong on dinh»)
+            else:
+                frame = audio_gain.apply_gain(frame, self.gain)
             try:
                 self._send(frame)
                 self.frames += 1
@@ -189,7 +192,7 @@ class AudioSender:
         # trang thai (HA doi doc xong TTS) khong cat cau.
         return {"alive": self.alive or len(self._queue) > 0, "frames": self.frames,
                 "dropped": self.dropped, "gated": self.gated, "gated_voiced": self.gated_voiced, "in_voiced": self.in_voiced, "in_peak": self.in_peak,
-                "errors": self.errors,
+                "errors": self.errors, "gain": self.gain,
                 "last_error": self.last_error,
                 "ffmpeg_err": self.stderr_tail(),
                 "seconds": (round(time.time() - self.started_at, 1)

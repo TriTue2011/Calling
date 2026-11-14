@@ -38,8 +38,18 @@ class MediaControl:
             sd = srv().SPEAKER_SINKS.get(str(call_id))
             return sd.status() if sd else None
 
-        if action not in ("start", "stop", "status"):
+        def gains():
+            return {t: srv()._gain_of(call_id, t) for t in ("mic", "speaker")}
+
+        if action not in ("start", "stop", "status", "gain"):
             return self._send_json({"error": "action_khong_hop_le"}, status=400)
+        if action == "gain":
+            # Tang/giam am luong mic|speaker bang phan mem: level = % tuyet doi (0-300), hoac step = +/-% so voi muc hien tai.
+            try:
+                srv()._set_gain(call_id, str(body.get("target") or "").lower(), level=body.get("level"), step=body.get("step"))
+            except ValueError as exc:
+                return self._send_json({"ok": False, "error": str(exc)[:120]}, status=400)
+            return self._send_json({"ok": True, "call_id": call_id, "gain": gains(), "mic": mstat(), "speaker": sstat()})
         if path == "/api/call/video":
             target = "video"
         elif path == "/api/call/media":
@@ -49,7 +59,7 @@ class MediaControl:
         if action == "status":
             return self._send_json({"ok": True, "call_id": call_id,
                                     "video": vstat(), "mic": mstat(),
-                                    "speaker": sstat()})
+                                    "speaker": sstat(), "gain": gains()})
         if action == "stop":
             if target in ("video", "both"):
                 if srv()._stop_video(call_id) is not None:

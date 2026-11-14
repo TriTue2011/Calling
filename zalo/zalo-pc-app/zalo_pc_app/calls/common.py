@@ -106,6 +106,7 @@ def _calls_snapshot_with_media():
             media["mic"] = _m.status() if _m else None
             _s = srv().SPEAKER_SINKS.get(str(entry["call_id"]))
             media["speaker"] = _s.status() if _s else None
+            media["gain"] = {t: srv()._gain_of(entry["call_id"], t) for t in ("mic", "speaker")}
             entry["media"] = media
     return snap
 
@@ -241,6 +242,7 @@ def _cleanup_call_media(entry):
         srv()._stop_mic(entry["call_id"])
         srv()._stop_speaker(entry["call_id"])
         srv().ECHO_GUARDS.pop(str(entry["call_id"]), None)
+        srv().CALL_GAIN.pop(str(entry["call_id"]), None)
         _CALL_DEVICES.pop(str(entry["call_id"]), None)
         engine_seam.SEAM.stop_media()
         media_endpoints.ENDPOINTS.stop_call(int(entry["call_id"]))

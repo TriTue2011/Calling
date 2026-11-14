@@ -23,7 +23,7 @@ import subprocess
 import threading
 import time
 
-from . import call_audio, ffmpeg_log
+from . import audio_gain, call_audio, ffmpeg_log
 
 RMS_THRESHOLD = 180.0       # duoi muc nay coi la im lang (nen cua luong Opus/DTX)
 HOLD_SECONDS = 0.25         # het tieng that van chan mic them chung nay (duoi vong phong). 0,5 -> 0,25 (13/11): chu may bao mic loa chuyen qua lai bi tre
@@ -91,6 +91,7 @@ class AudioSink:
         self._args = build_ffmpeg_args(url)
         self.target = url               # de nhan ra cung dich (KHONG ghi ra log/trang thai: co khoa)
         self._guard = guard
+        self.gain = audio_gain.DEFAULT_PERCENT   # % am luong loa (100 = giu nguyen), doi duoc giua cuoc goi
         self._popen = popen or subprocess.Popen
         self._clock, self._sleep = clock, sleep
         self._proc = None
@@ -118,10 +119,11 @@ class AudioSink:
     def _write(self, frame):
         if self._guard is not None:
             self._guard.note_far(frame)
+        silent = frame == call_audio.SILENCE
         try:
-            self._proc.stdin.write(frame)
+            self._proc.stdin.write(audio_gain.apply_gain(frame, self.gain))     # sau note_far: nguong chong vong do tren tieng GOC
             self.frames += 1
-            if frame == call_audio.SILENCE:
+            if silent:
                 self.silence += 1
         except (OSError, ValueError) as exc:        # ffmpeg dong (thiet bi tu choi / het cho)
             self.errors += 1
@@ -166,7 +168,7 @@ class AudioSink:
         self._kill()
 
     def status(self):
-        return {"alive": self.alive, "frames": self.frames, "silence": self.silence, "errors": self.errors,
+        return {"alive": self.alive, "frames": self.frames, "silence": self.silence, "errors": self.errors, "gain": self.gain,
                 "last_error": self.last_error,
                 "ffmpeg_err": self.stderr_tail(),
                 "echo_guard": self._guard is not None,

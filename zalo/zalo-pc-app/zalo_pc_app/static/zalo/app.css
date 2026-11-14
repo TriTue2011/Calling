@@ -360,6 +360,14 @@ pre.out { margin: 0.5rem 0 0; padding: 0.625rem; border-radius: 0.5rem; backgrou
 .callcard .tg:hover:not(:disabled) { background: var(--hover); }
 .callcard .tg:disabled { opacity: .55; cursor: progress; }
 .callcard .tg.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.callcard .gns { margin-top: 0.5rem; display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+.callcard .gn { display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; padding: 0.25rem; border: 1px solid var(--line); border-radius: 0.625rem; background: var(--surface-2); font-size: 0.75rem; color: var(--muted); }
+.callcard .gn button { width: 2rem; height: 2rem; border: 0; border-radius: 0.5rem; background: transparent; color: inherit; font-size: 1.125rem; line-height: 1; cursor: pointer; }
+.callcard .gn button:hover:not(:disabled) { background: var(--hover); }
+.callcard .gn button:disabled { opacity: .4; cursor: default; }
+.callcard .gn button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.callcard .gn .gv { flex: 1; text-align: center; font-weight: 500; }
+.callcard .gn.mute .gv { color: var(--danger, #d33); }
 .callcard .tg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .callcard .end { flex: 1; background: var(--bad); color: #fff; border: 0; height: 2.5rem; border-radius: 0.625rem; font-weight: 600; display: flex; gap: 0.5rem; align-items: center; justify-content: center; }
 .toast { position: fixed; left: 50%; bottom: 1.375rem; transform: translateX(-50%); z-index: 80; background: var(--text); color: var(--bg); padding: 0.5625rem 1rem; border-radius: 0.625rem; font-size: 0.8438rem; box-shadow: var(--shadow); max-width: calc(100vw - 2rem); }
