@@ -884,7 +884,7 @@ function videoView(a, mc) {
     const box = h("div", { class: "vvbox" }, el, wait);
     const vv = { id: String(a.call_id), el: box, mode: "stream", errors: 0, timer: null, ratio: 0 };
     const current = () => S.vv === vv;
-    // Khung theo ĐÚNG chiều của hình: điện thoại quay dọc (khung đứng), máy tính nằm ngang. Hình dọc: khung đứng cao tối đa 50% màn hình, căn giữa; hình ngang: rộng hết thẻ.
+    // Khung theo ĐÚNG chiều của hình: điện thoại quay dọc (khung đứng), máy tính nằm ngang. Hình dọc: khung đứng cao tối đa --vcap (70% màn hình; điện thoại 40%), căn giữa; hình ngang: rộng hết thẻ.
     // Kiểm lại mỗi giây vì luồng liên tục không báo khi người kia xoay điện thoại.
     const fit = () => {
       const w = el.naturalWidth, h = el.naturalHeight;
@@ -893,7 +893,7 @@ function videoView(a, mc) {
       if (Math.abs(vv.ratio - r) < 0.01) return;
       vv.ratio = r; box.dataset.ratio = r.toFixed(4);
       box.style.aspectRatio = r.toFixed(4);
-      box.style.width = r >= 1 ? "100%" : "min(100%, calc(50vh * " + r.toFixed(4) + "))";
+      box.style.width = r >= 1 ? "100%" : "min(100%, calc(var(--vcap, 70vh) * " + r.toFixed(4) + "))";
       box.style.marginInline = "auto";
     };
     vv.fit = fit; vv.fitTimer = setInterval(() => { if (!current()) return clearInterval(vv.fitTimer); fit(); }, 1000);
@@ -935,12 +935,19 @@ function mediaToggles() {
 }
 setInterval(() => { const a = S.calls.active; if (a && (a.status === "answered" || a.answered_at)) refreshCallMedia(); }, 3000);
 async function endCall() { const a = S.calls.active; if (!a) return; const r = await api("/api/call/end", "POST", { call_id: a.call_id }); if (r.error) toast("Lỗi kết thúc cuộc gọi: " + r.error, 5000); await loadCalls(); }
+// Cửa sổ riêng của hình đối tác (#vidwin): giữ NGUYÊN phần tử khung giữa các lần vẽ lại thẻ để luồng hình không bị khởi động lại.
+function showVideoWin(box) {
+  const win = $("vidwin");
+  if (!box) { win.hidden = true; if (win.firstChild) win.replaceChildren(); return; }
+  win.hidden = false;
+  if (win.firstChild !== box) put(win, box);
+}
 function renderCallCard() {
   const card = $("callcard"), a = S.calls.active;
-  if (!a) { S.vv = null; card.hidden = true; card.replaceChildren(); return; }
+  if (!a) { S.vv = null; card.hidden = true; card.replaceChildren(); showVideoWin(null); return; }
   const row = rowOf(a.type === "group" ? "group" : "user", a.thread_id) || { id: String(a.thread_id), name: a.peer, type: a.type === "group" ? "group" : "user" };
   if (a.direction === "in" && a.status === "incoming" && !a.answered_at) {       // cuộc gọi ĐẾN, chưa ai nghe: popup hai nút như Zalo PC
-    card.hidden = false; card._since = a.started_at;
+    card.hidden = false; card._since = a.started_at; showVideoWin(null);
     put(card, h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, peerName(a)), h("div", { class: "st" }, a.type === "video" ? "Cuộc gọi video đến…" : "Cuộc gọi đến…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - a.started_at)))),
       h("div", { class: "acts" }, h("button", { class: "end", type: "button", onclick: () => rejectCall(a) }, svg("hang"), "Từ chối"), h("button", { class: "ok", type: "button", onclick: () => answerCall(a) }, svg("phone"), "Nghe")));
     return;
@@ -955,9 +962,9 @@ function renderCallCard() {
     h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, (a.type === "video" ? "Video · " : "") + peerName(a)), h("div", { class: "st" }, answered ? "Đang trong cuộc gọi" : ringing ? "Đang đổ chuông…" : "Đang kết nối…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - since)))),
     answered && noMedia ? h("div", { class: "warn" }, "Đã nối hơn 8 giây nhưng chưa thấy gói tiếng/hình nào chạy qua; bên kia có thể báo “kết nối không ổn định”.") : null,
     a.request_sent === false ? h("div", { class: "warn" }, "Bước 2 chưa gửi được, bên kia có thể chưa đổ chuông.") : null,
-    answered ? videoView(a, mc) : null,
     answered ? mediaToggles() : null,
     h("div", { class: "acts" }, h("button", { class: "end", type: "button", onclick: endCall }, svg("hang"), "Kết thúc")));
+  showVideoWin(answered ? videoView(a, mc) : null);        // khung hình đối tác là CỬA SỔ RIÊNG, không nằm trong thẻ điều khiển cuộc gọi
   if (answered && S.cm.id !== String(a.call_id)) { S.cm.id = String(a.call_id); S.cm.mic = S.cm.speaker = S.cm.video = false; refreshCallMedia(); }
   card._since = since;
 }
@@ -1489,6 +1496,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
 });
 try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
-if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain, mergeMsgs, startCall, openThread, videoView });   // chỉ để kiểm thử giao diện (jsdom)
+if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain, mergeMsgs, startCall, openThread, videoView, showVideoWin, renderCallCard });   // chỉ để kiểm thử giao diện (jsdom)
 applyScale(); setTab("chats"); updateSendButtons(); privacyInit(); boot();
 })();

@@ -47,7 +47,7 @@ JS_CHECKS = [["node", "--check", "zalo_pc_app/static/app.js"],
              ["node", "tests/test_app_js_filein.js"],
              ["node", "tests/test_app_js_media_bubbles.js"],
              ["node", "tests/test_app_js_callcard_upgrade.js"],
-             ["node", "tests/test_app_js_msg_menu.js"], ["node", "tests/test_app_js_video_caption.js"], ["node", "tests/test_app_js_gain.js"], ["node", "tests/test_app_js_album.js"], ["node", "tests/test_app_js_group_call.js"], ["node", "tests/test_app_js_video_fallback.js"]]
+             ["node", "tests/test_app_js_msg_menu.js"], ["node", "tests/test_app_js_video_caption.js"], ["node", "tests/test_app_js_gain.js"], ["node", "tests/test_app_js_album.js"], ["node", "tests/test_app_js_group_call.js"], ["node", "tests/test_app_js_video_fallback.js"], ["node", "tests/test_app_js_video_window.js"]]
 
 
 def main():
