@@ -47,6 +47,9 @@ DATA = {"/api/svc/catalog": CATALOG, "/api/status": {"login": True, "uid": "1000
 
 
 CALL_MODE = {"mode": "none"}
+SEEN = {"mic_posts": [], "listen_gets": []}                 # yêu cầu mic / nghe mà máy chủ giả nhận được
+WAV_SILENCE = (b"RIFF\xff\xff\xff\xffWAVEfmt " + (16).to_bytes(4, "little") + (1).to_bytes(2, "little") + (1).to_bytes(2, "little") + (16000).to_bytes(4, "little")
+               + (32000).to_bytes(4, "little") + (2).to_bytes(2, "little") + (16).to_bytes(2, "little") + b"data\xff\xff\xff\xff" + bytes(32000))
 
 
 def active_call():
@@ -54,7 +57,7 @@ def active_call():
     if m == "none":
         return {"calls": [], "active": None}
     c = {"call_id": "555", "thread_id": "7", "peer": "BenBap", "direction": "out", "type": "user", "status": "answered", "started_at": NOW - 75, "answered_at": NOW - 62,
-         "request_sent": True, "media": {"counters": {"rtp_tx": 500, "rtp_rx": 480, "video_rx": 0}}}
+         "request_sent": True, "media": {"counters": {"rtp_tx": 500, "rtp_rx": 480, "video_rx": 0}, "audio_token": "tok123"}}
     if m == "incoming":
         c.update(direction="in", status="incoming", answered_at=None, type="video", media={})
     elif m == "video":
@@ -70,6 +73,13 @@ class FakeHandler(sv.Handler):
             return self._send_json({"ok": True})
         if p == "/api/calls":
             return self._send_json(active_call())
+        if p.startswith("/api/call/audio/out/"):
+            SEEN["listen_gets"].append(p)
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(len(WAV_SILENCE)))
+            self.end_headers()
+            return self.wfile.write(WAV_SILENCE)
         if p == "/api/call/video/snapshot":
             self.send_response(204)
             self.send_header("Content-Length", "0")
@@ -90,6 +100,10 @@ class FakeHandler(sv.Handler):
 
     def do_POST(self):
         p = self.path.split("?", 1)[0]
+        if p.startswith("/api/call/audio/in/"):
+            n = int(self.headers.get("Content-Length") or 0)
+            SEEN["mic_posts"].append((p, len(self.rfile.read(n)) if n else 0))
+            return self._send_json({"ok": True})
         if p.startswith("/api/") and p not in ("/api/app/login", "/api/app/logout"):
             n = int(self.headers.get("Content-Length") or 0)
             self.rfile.read(n) if n else None
@@ -129,6 +143,10 @@ def test_phone_layout_in_real_chrome():
         return
     m = measure()
     assert m["exceptions"] == [], m["exceptions"]
+    posts = SEEN["mic_posts"]
+    assert posts and all(p == "/api/call/audio/in/555" and n == 3200 for p, n in posts), "mic máy này phải gửi các gói PCM16 16 kHz 100 ms (3200 byte) vào đúng cuộc gọi: %s" % posts[:3]
+    assert len(posts) >= 6, "mic chỉ gửi %d gói trong ~3 giây" % len(posts)
+    assert SEEN["listen_gets"] and SEEN["listen_gets"][0] == "/api/call/audio/out/tok123", "nút Nghe phải mở luồng tiếng bằng audio_token của cuộc gọi: %s" % SEEN["listen_gets"]
     for w in (390, 320):
         for name in ("list", "chat", "info", "contacts", "calls", "services", "watch", "svc_chip"):
             s = m["%s@%d" % (name, w)]
@@ -170,6 +188,11 @@ def test_phone_layout_in_real_chrome():
                 assert c["mt"]["y"] > H * 0.4 and c["mt"]["y"] + c["mt"]["h"] < c["end"]["y"] + 1, "hàng nút mic/loa/camera ở nửa dưới, trên nút cúp: %s" % c["mt"]
             if mode != "video":
                 assert c["endVis"] == "visible" and c["topVis"] == "visible", "gọi thoại/đến: thao tác luôn hiện"
+            if mode == "voice":
+                own = json.loads(c["steps"][0])
+                assert own["mic"] == "true" and own["listen"] == "true", "bấm xong, hai nút phải ở trạng thái bật: %s" % own
+                assert [l for l in own["labels"] if "nhà" in l] and any("Mic máy này" in l for l in own["labels"]), own["labels"]
+                assert any("Mic nhà" in l for l in own["labels"]) and any("Camera nhà" in l for l in own["labels"]), "nhãn thiết bị trong nhà phải ghi rõ «nhà»"
             if mode == "video":
                 assert c["endVis"] == "hidden" and c["topVis"] == "hidden", "gọi video: mặc định ẨN thao tác để nhường chỗ cho hình"
                 t = c["tapped"]

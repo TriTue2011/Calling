@@ -997,6 +997,20 @@ Sticker: `zalo_call.send_sticker` với `keyword: "cảm ơn"` (và `pick: rando
 
 ## 8. WebUI và bình chọn nhóm
 
+### Trong cuộc gọi: mic và loa của máy đang mở WebUI, khác với thiết bị trong nhà
+
+Thẻ cuộc gọi của WebUI có **hai nhóm nút** (dễ lẫn nên tên ghi rõ):
+
+| Nút | Là gì |
+|---|---|
+| **Mic máy này** | Nói vào **mic của điện thoại / máy tính đang mở WebUI** sang bên kia (PCM 16 kHz, gửi mỗi 100 ms vào `/api/call/audio/in/<call_id>`) |
+| **Nghe trên máy này** | Nghe tiếng bên kia **ngay trên máy đang mở WebUI** (luồng `/api/call/audio/out/<token>`) |
+| **Mic nhà / Loa nhà / Camera nhà** | Thiết bị **trong nhà** (R1, loa/mic/camera của Home Assistant) do quy tắc hoặc automation đã chọn; chưa chọn thì báo thiếu thiết bị |
+
+> ⚠️ Trình duyệt **chỉ cho dùng mic trên HTTPS hoặc `localhost`**. Mở `http://<IP>:8080` trên điện thoại thì «Mic máy này» bị chặn (app báo rõ lý do). Mở app qua HTTPS:
+> thanh bên Home Assistant (add-on, Ingress) khi HA chạy HTTPS, reverse proxy có chứng chỉ, Cloudflare Tunnel hoặc Tailscale. Cần cho trang quyền dùng mic lần đầu.
+> Phát tiếng bên kia («Nghe trên máy này») không cần HTTPS. Bật cả hai trên cùng một máy thì có thể bị vọng: dùng tai nghe.
+
 ### WebUI: mọi dịch vụ đều làm được trên tab «Dịch vụ»
 
 Tab **Dịch vụ** của WebUI liệt kê **toàn bộ** dịch vụ (dịch vụ gốc + các API mở rộng của zca-js, gom theo nhóm) và có ô **Tìm dịch vụ**. Chọn thread ở ô «Thread thao tác» rồi bấm **Chạy**:

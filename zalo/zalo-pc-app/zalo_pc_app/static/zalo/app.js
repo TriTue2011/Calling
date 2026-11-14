@@ -858,7 +858,7 @@ async function rejectCall(a) {
   await loadCalls();
 }
 // Nút bật/tắt mic, loa, camera của cuộc gọi: điều khiển THIẾT BỊ TRONG NHÀ (mic/loa R1, camera) qua /api/call/media và /api/call/video.
-S.cm = { id: "", mic: false, speaker: false, video: false, busy: "", gain: { mic: 100, speaker: 100 } };
+S.cm = { id: "", mic: false, speaker: false, video: false, busy: "", gain: { mic: 100, speaker: 100 }, bmic: false, listen: false };
 function applyCm(id, r) {
   const on = (x) => !!x && x.alive !== false && !x.idle;      // bộ gửi im lặng chỉ giữ luồng, không phải mic đang bật
   S.cm = Object.assign(S.cm, { id: String(id), mic: on(r.mic), speaker: on(r.speaker), video: on(r.video) });
@@ -881,6 +881,45 @@ async function changeGain(target, step) {
 // Lỗi thiếu thiết bị của cuộc gọi: nói bằng lời thường (thiết bị do quy tắc/automation chọn, không còn mặc định).
 const MEDIA_ERR = { chua_co_camera: "chưa có camera — quy tắc (automation) của người này chưa chọn camera", chua_co_speaker_url: "chưa có loa — quy tắc (automation) của người này chưa chọn loa", no_live_transport: "cuộc gọi chưa sẵn sàng", no_live_call: "không có cuộc gọi đang diễn ra" };
 const mediaErr = (e) => MEDIA_ERR[e] || e || "lỗi";
+// ---- mic và loa CỦA MÁY ĐANG MỞ WEBUI (điện thoại / máy tính) — khác «Mic nhà / Loa nhà» (thiết bị trong nhà do quy tắc chọn) ----
+// Mic: getUserMedia → PCM16 16 kHz → POST mỗi 100 ms vào /api/call/audio/in/<call_id>. Nghe: <audio> phát luồng WAV /api/call/audio/out/<token> (token nằm ở media.audio_token).
+// Trình duyệt CHỈ cho dùng mic trên HTTPS hoặc localhost: mở app bằng http://IP:8090 trên điện thoại thì bị chặn → báo rõ lý do thay vì im lặng.
+let bmic = null, listenEl = null;
+const micBlockedMsg = () => (window.isSecureContext ? "Trình duyệt không hỗ trợ dùng mic." : "Trình duyệt chỉ cho dùng mic trên HTTPS (hoặc localhost). Mở app bằng HTTPS — thanh bên của Home Assistant, reverse proxy, Tailscale… — rồi bật lại.");
+function stopBrowserMic() {
+  if (bmic) { try { bmic.proc.disconnect(); bmic.src.disconnect(); } catch (e) { /* đã đóng */ } bmic.stream.getTracks().forEach((t) => t.stop()); bmic.ctx.close().catch(() => {}); bmic = null; }
+  if (S.cm.bmic) { S.cm.bmic = false; renderCallCard(); }
+}
+async function startBrowserMic() {
+  const a = S.calls.active; if (!a || bmic) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return toast(micBlockedMsg(), 9000);
+  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+  catch (e) { return toast("Không mở được mic: " + (e && e.name === "NotAllowedError" ? "bạn chưa cho phép dùng mic cho trang này." : (e.message || e)), 7000); }
+  const Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx(), src = ctx.createMediaStreamSource(stream), proc = ctx.createScriptProcessor(4096, 1, 1);
+  const id = a.call_id, ratio = ctx.sampleRate / 16000; let pending = new Int16Array(0);
+  proc.onaudioprocess = (ev) => {
+    const input = ev.inputBuffer.getChannelData(0), n = Math.floor(input.length / ratio), out = new Int16Array(n);
+    for (let i = 0; i < n; i++) {            // hạ về 16 kHz bằng TRUNG BÌNH các mẫu (lọc thô), tránh méo tiếng do bỏ mẫu
+      const from = Math.floor(i * ratio), to = Math.max(from + 1, Math.floor((i + 1) * ratio)); let sum = 0; for (let k = from; k < to && k < input.length; k++) sum += input[k];
+      const v = Math.max(-1, Math.min(1, sum / (to - from))); out[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+    }
+    const merged = new Int16Array(pending.length + out.length); merged.set(pending); merged.set(out, pending.length);
+    let off = 0; while (merged.length - off >= 1600) { fetch("/api/call/audio/in/" + encodeURIComponent(id), { method: "POST", body: merged.slice(off, off + 1600).buffer }).catch(() => {}); off += 1600; }
+    pending = merged.slice(off);
+  };
+  src.connect(proc); proc.connect(ctx.destination);
+  bmic = { stream, ctx, proc, src }; S.cm.bmic = true; renderCallCard();
+}
+function stopListen() { if (listenEl) { try { listenEl.pause(); listenEl.removeAttribute("src"); listenEl.load(); } catch (e) { /* đã dừng */ } listenEl = null; } if (S.cm.listen) { S.cm.listen = false; renderCallCard(); } }
+function startListen() {
+  const a = S.calls.active, tok = a && a.media && a.media.audio_token;
+  if (!tok) return toast("Chưa có luồng tiếng (cuộc gọi chưa nối media).", 4000);
+  if (listenEl) return;
+  listenEl = new Audio(); listenEl.src = "/api/call/audio/out/" + tok;           // gán src (không truyền vào hàm tạo) để lớp bọc Ingress gắn tiền tố
+  listenEl.play().then(() => { S.cm.listen = true; renderCallCard(); }).catch((e) => { listenEl = null; toast("Không phát được tiếng: " + (e.message || e), 5000); });
+}
+const toggleBrowserMic = () => (bmic ? stopBrowserMic() : startBrowserMic());
+const toggleListen = () => (listenEl ? stopListen() : startListen());
 async function toggleMedia(target) {
   const a = S.calls.active; if (!a || S.cm.busy) return;
   const turnOn = !S.cm[target === "video" ? "video" : target];
@@ -946,7 +985,9 @@ function videoView(a, mc) {
   return S.vv.el;
 }
 function mediaToggles() {
-  const row = [["mic", "mic", "Mic"], ["speaker", "speaker", "Loa"], ["video", "cam", "Camera"]].map(([key, icon, label]) =>
+  const own = [["bmic", "mic", "Mic máy này", toggleBrowserMic, "Nói vào mic của máy đang mở WebUI (điện thoại/máy tính) sang bên kia"], ["listen", "speaker", "Nghe trên máy này", toggleListen, "Nghe tiếng bên kia ngay trên máy đang mở WebUI"]].map(([key, icon, label, fn, tip]) =>
+    h("button", { class: "tg" + (S.cm[key] ? " on" : ""), type: "button", "aria-pressed": S.cm[key] ? "true" : "false", title: tip, onclick: fn }, svg(icon), h("span", {}, label + (S.cm[key] ? " bật" : " tắt"))));
+  const row = [["mic", "mic", "Mic nhà"], ["speaker", "speaker", "Loa nhà"], ["video", "cam", "Camera nhà"]].map(([key, icon, label]) =>
     h("button", { class: "tg" + (S.cm[key] ? " on" : ""), type: "button", "aria-pressed": S.cm[key] ? "true" : "false", disabled: !!S.cm.busy,
       title: label + " trong nhà (R1/camera): " + (S.cm[key] ? "đang bật, bấm để tắt" : "đang tắt, bấm để bật"), onclick: () => toggleMedia(key) },
       svg(icon), h("span", {}, label + (S.cm[key] ? " bật" : " tắt"))));
@@ -957,7 +998,7 @@ function mediaToggles() {
       h("span", { class: "gv", title: "Âm lượng " + label.toLowerCase() + " (100% = giữ nguyên)" }, label + " " + g + "%"),
       h("button", { type: "button", "aria-label": "Tăng âm lượng " + label.toLowerCase(), disabled: g >= 300, onclick: () => changeGain(key, 10) }, "+"));
   });
-  return h("div", { class: "mt" }, h("div", { class: "tgs" }, row), h("div", { class: "gns" }, gains));
+  return h("div", { class: "mt" }, h("div", { class: "tgs own" }, own), h("div", { class: "tgs" }, row), h("div", { class: "gns" }, gains));
 }
 setInterval(() => { const a = S.calls.active; if (a && (a.status === "answered" || a.answered_at)) refreshCallMedia(); }, 3000);
 async function endCall() { const a = S.calls.active; if (!a) return; const r = await api("/api/call/end", "POST", { call_id: a.call_id }); if (r.error) toast("Lỗi kết thúc cuộc gọi: " + r.error, 5000); await loadCalls(); }
@@ -994,7 +1035,7 @@ function toggleCallUi() { setCallUi($("callcard").dataset.ui !== "1"); }
 $("callcard").addEventListener("click", () => { if ($("callcard").dataset.ui === "1") setCallUi(true); });
 function renderCallCard() {
   const card = $("callcard"), a = S.calls.active;
-  if (!a) { S.vv = null; card.hidden = true; card.replaceChildren(); showVideoWin(null); delete card.dataset.state; delete card.dataset.video; delete card.dataset.ui; clearTimeout(ccHideT); return; }
+  if (!a) { S.vv = null; card.hidden = true; card.replaceChildren(); showVideoWin(null); delete card.dataset.state; delete card.dataset.video; delete card.dataset.ui; clearTimeout(ccHideT); stopBrowserMic(); stopListen(); return; }
   const row = rowOf(a.type === "group" ? "group" : "user", a.thread_id) || { id: String(a.thread_id), name: a.peer, type: a.type === "group" ? "group" : "user" };
   if (a.direction === "in" && a.status === "incoming" && !a.answered_at) {       // cuộc gọi ĐẾN, chưa ai nghe: popup hai nút như Zalo PC
     card.hidden = false; card._since = a.started_at; showVideoWin(null); card.dataset.state = "incoming"; card.dataset.video = "0";
@@ -1021,7 +1062,7 @@ function renderCallCard() {
   if (vvEl && card.dataset.video !== "1") setCallUi(false);                   // vừa có hình: bắt đầu ở trạng thái ẩn thao tác
   card.dataset.video = vvEl ? "1" : "0";                                      // điện thoại: có hình thì hình phủ cả màn hình, thẻ chỉ còn lớp nút phía trên
   showVideoWin(vvEl);        // khung hình đối tác là CỬA SỔ RIÊNG; đã tách ra cửa sổ trình duyệt thì không vẽ thêm ở đây (tránh hai luồng)
-  if (answered && S.cm.id !== String(a.call_id)) { S.cm.id = String(a.call_id); S.cm.mic = S.cm.speaker = S.cm.video = false; refreshCallMedia(); }
+  if (answered && S.cm.id !== String(a.call_id)) { S.cm.id = String(a.call_id); S.cm.mic = S.cm.speaker = S.cm.video = false; stopBrowserMic(); stopListen(); refreshCallMedia(); }
   card._since = since;
 }
 setInterval(() => { const c = $("callcard"), t = $("call-t"); if (t && c._since) t.textContent = fmtDur(Date.now() / 1000 - c._since); }, 1000);

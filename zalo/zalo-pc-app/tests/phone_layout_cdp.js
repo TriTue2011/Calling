@@ -7,7 +7,10 @@ const getJson = (u) => new Promise((res, rej) => http.get(u, (r) => { let d = ""
 const click = (sel, txt) => `(()=>{const l=[...document.querySelectorAll(${JSON.stringify(sel)})];const e=${txt ? `l.find(x=>x.textContent.trim()===${JSON.stringify(txt)})` : "l[0]"};if(!e)return ${JSON.stringify("THIẾU " + sel)};(e.closest("button")||e).click();return "ok"})()`;
 const SCREENS = {
   list: [], chat: [click("#list .row-name", "BenBap")], info: [click("#list .row-name", "BenBap"), click("#btn-info")],
-  call_incoming: [], call_voice: [], call_video: [],
+  call_incoming: [], call_video: [],
+  call_voice: [`(async()=>{const w=(ms)=>new Promise(r=>setTimeout(r,ms));const b=(t)=>[...document.querySelectorAll("#callcard .tg")].find(x=>x.textContent.includes(t));
+    b("Mic máy này").click();await w(1800);b("Nghe trên máy này").click();await w(1200);
+    return JSON.stringify({mic:b("Mic máy này").getAttribute("aria-pressed"),listen:b("Nghe trên máy này").getAttribute("aria-pressed"),labels:[...document.querySelectorAll("#callcard .tg")].map(x=>x.textContent.trim())});})()`],
   settings_all: [`(async()=>{const w=(ms)=>new Promise(r=>setTimeout(r,ms));const phone=document.documentElement.dataset.bp==="phone";const out={phone,items:[]};
     const h3=()=>((document.querySelector("#set-page .setbody h3")||{}).textContent||"");
     document.getElementById("btn-cog").click(); await w(500);
@@ -41,7 +44,7 @@ const MEASURE = `(()=>{const q=(s)=>document.querySelector(s), r=(s)=>{const e=q
    cc:r("#callcard"), ccState:q("#callcard").dataset.state||"", ccVideo:q("#callcard").dataset.video||"", ccPe:getComputedStyle(q("#callcard")).pointerEvents, end:r("#callcard .end"), ok:r("#callcard .ok"), mt:r("#callcard .mt"), vid:r("#vidwin"), popout:r("#callcard .popout-row"),
    icWide:r(".ic-wide"), icPhone:r(".ic-phone"), clipped:[...document.querySelectorAll(".pane.on *, .listcol *")].filter(e=>{const b=e.getBoundingClientRect();if(!(b.width>0&&b.right>innerWidth+1&&getComputedStyle(e).position!=="fixed"))return false;for(let p=e.parentElement;p&&p!==document.body;p=p.parentElement){if(/auto|scroll/.test(getComputedStyle(p).overflowX))return false}return true}).slice(0,8).map(e=>e.tagName+"."+e.className+"@"+Math.round(e.getBoundingClientRect().right))});})()`;
 (async () => {
-  const chrome = spawn("google-chrome", ["--headless=new", "--no-sandbox", "--disable-gpu", "--hide-scrollbars", "--remote-debugging-port=0", "--user-data-dir=" + fs.mkdtempSync("/tmp/phone-prof-"), "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+  const chrome = spawn("google-chrome", ["--headless=new", "--no-sandbox", "--disable-gpu", "--hide-scrollbars", "--remote-debugging-port=0", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required", "--user-data-dir=" + fs.mkdtempSync("/tmp/phone-prof-"), "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
   const port = await new Promise((res) => { let b = ""; chrome.stderr.on("data", (d) => { b += d; const m = /DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)/.exec(b); if (m) res(m[1]); }); });
   const tab = (await getJson(`http://127.0.0.1:${port}/json`)).find((t) => t.type === "page");
   const ws = new WebSocket(tab.webSocketDebuggerUrl); await new Promise((r) => { ws.onopen = r; });

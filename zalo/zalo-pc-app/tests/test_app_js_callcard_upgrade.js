@@ -23,7 +23,7 @@ async function run(callType) {
   w.eval(js);
   await new Promise((r) => setTimeout(r, 900));
   const btns = Array.from(w.document.getElementById("callcard").querySelectorAll(".tg"));
-  btns[2].click();
+  btns.find((b) => b.textContent.includes("Camera nhà")).click();          // chọn theo nhãn (có thêm «Mic máy này» / «Nghe trên máy này» ở hàng trên)
   await new Promise((r) => setTimeout(r, 300));
   return { posts, errors };
 }
