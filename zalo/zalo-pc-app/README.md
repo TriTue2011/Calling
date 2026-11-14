@@ -135,6 +135,12 @@ tại `<DATA_DIR>/webhooks.json` (mode 0600, cùng chỗ `session.json`).
   Chi tiết định dạng payload + giới hạn: xem
   [bao-cao-webhook.md](bao-cao-webhook.md).
 
+## Lịch sử tin nhắn 1-1 (giới hạn đã biết)
+
+Zalo không có API HTTPS lấy lịch sử chat 1-1; client PC thật đọc từ DB local và đồng bộ từ điện thoại. App này **chỉ có tin 1-1 từ lúc bắt đầu lưu tin xuống
+DB của app** (tin cũ hơn chưa có); tin đến mới vẫn hiện tức thì qua kênh đồng bộ. Nhóm lấy được lịch sử qua API. WebUI **không còn hiện dòng cảnh báo**
+này trong khung chat (cho gọn); API `GET /api/thread/<id>/history` vẫn trả trường `notice` để người viết automation biết.
+
 ## Kiểm tra phiên bản đang chạy
 
 Sau khi redeploy, mở trang app và đọc dòng "Phiên bản:" ở cuối trang

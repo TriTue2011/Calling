@@ -35,6 +35,8 @@ Video của bên kia (H.264 hoặc H.265) hiện ở WebUI; cuộc gọi có th�
 
 ### WebUI
 
+> **Giới hạn đã biết:** tin 1-1 chỉ có từ lúc app bắt đầu lưu tin xuống DB của app (Zalo không có API lấy lịch sử 1-1); tin mới vẫn hiện tức thì. WebUI không còn hiện dòng cảnh báo này (chi tiết: [README app](zalo-pc-app/README.md#lịch-sử-tin-nhắn-1-1-giới-hạn-đã-biết)).
+
 `http://<máy chủ>:8080` (hoặc thanh bên của HA khi dùng add-on có giao diện): danh bạ (nút *Gọi* và *Video*), khung cuộc gọi (nghe bên kia ngay trên trình duyệt,
 mic trình duyệt, *Chuyển sang video*, tắt hình/mic, *Tách cửa sổ*) và trang **Thiết bị**. Mic trình duyệt cần HTTPS hoặc localhost.
 **Trên điện thoại** (màn ≤ 900 px quy đổi) WebUI chuyển sang bố cục kiểu Zalo di động: thanh đầu gradient xanh, thanh tab dưới có nhãn, soạn tin một hàng (nút ít dùng gom vào «…»), nút ≡ mở trang **Thông tin** toàn màn hình. `tests/test_phone_layout.py` đo bố cục bằng Chrome thật ở 390 px và 320 px.

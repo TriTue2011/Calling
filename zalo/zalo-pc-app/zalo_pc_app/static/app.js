@@ -1727,7 +1727,7 @@ function renderMessages(messages) {
     empty.hidden = false;
     empty.textContent = currentThread.type === "group"
       ? "Chưa có tin nhắn nào trong nhóm này."
-      : "Chưa có tin nhắn nào trong phiên này. Lịch sử 1-1 cũ chưa lấy được qua HTTPS — tin nhắn mới đến sẽ tự hiện khi có.";
+      : "Chưa có tin nhắn nào trong phiên này.";
   } else {
     empty.hidden = true;
   }

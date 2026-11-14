@@ -576,14 +576,19 @@ def test_logendcall_is_sent_like_zalo_pc_for_answered_calls_and_not_for_missed_o
     def check(base, mock, endpoints):
         state = app_server.STATE
         _inject_incoming(base, mock)
+        t0 = time.time()
         status, body = _api(base, "POST", "/api/call/answer", {"call_id": CALL_ID_IN})
         assert body["ok"] is True, body
-        assert _wait_active(base, CALL_ID_IN, "answered") is not None
+        act = _wait_active(base, CALL_ID_IN, "answered", timeout=30.0)
+        print("   (nghe may sau %.2fs)" % (time.time() - t0), flush=True)
+        assert act is not None and act["status"] == "answered", ("chua den trang thai answered", act)      # truoc day chi kiem `is not None`: may cham thi cuoc goi chua nghe ma van tiep, duration = 0
         time.sleep(1.2)
         state._on_ctrl_call_event(_parsed_event({"act": "end_call", "callId": CALL_ID_IN, "uidN": CALLER_ID}))
         steps = _wait_steps(mock, CALL_ID_IN, ["logendcall"])
         log = mock.voice_call_state(CALL_ID_IN)["logendcall"]
-        assert log["status"] == 50 and log["role"] is False and log["duration"] >= 1, (steps, log)
+        compact = {k: v for k, v in log.items() if k not in ("logdata", "imei")}
+        hist = [{k: c.get(k) for k in ("call_id", "status", "detail", "started_at", "answered_at", "ended_at")} for c in _api(base, "GET", "/api/calls")[1].get("calls", [])[:2]]
+        assert log["status"] == 50 and log["role"] is False and log["duration"] >= 1, ("log", compact, "lich su", hist, "buoc", steps, "nghe may sau %.2fs" % (time.time() - t0))
         assert str(log["partner_id"]) == CALLER_ID and isinstance(log["logdata"], str), log
         assert json.loads(log["logdata"])["Codec"] == ["opus/16000/1", "20"], log
 

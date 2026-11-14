@@ -25,17 +25,22 @@ from zalo_pc_app import server as sv  # noqa: E402
 NOW = int(time.time())
 
 
-def conv(tid, name, text, ago, typ="user", unread=0, out=False):
+def conv(tid, name, text, ago, typ="user", unread=0, out=False, stranger=False):
     return {"thread_type": typ, "thread_id": tid, "name": name, "last_text": text, "last_ts": NOW - ago * 60, "count": 5, "incoming_count": 3,
-            "unread": unread, "last_out": out, "last_sender_name": "", "stranger": False}
+            "unread": unread, "last_out": out, "last_sender_name": "", "stranger": stranger, "first_ts": NOW - 90000}
 
 
 THREADS = [conv("2", "Vợ Yêu", "[Cuộc gọi video đi]", 6, out=True), conv("3", "AI học hỏi", "Em vừa tắt ir quạt", 9, "group", 3),
            conv("5", "Dịch vụ Hoàng Thành", "Đã giao 5 bình cho PH1 và còn rất nhiều chữ nữa để thử cắt chữ ở khổ hẹp", 24, "group", 120),
-           conv("7", "BenBap", "Chiều nay bố đã về nhà rồi", 180)]
+           conv("7", "BenBap", "Chiều nay bố đã về nhà rồi", 180),
+           conv("14730638310096377", "Thời Tiết", "Chúc một ngày tốt lành, thời tiết hôm nay nhiều mây rải rác", 660, stranger=True),
+           conv("23284958255181415", "Nạp Điện Thoại Nguyễn Văn A", "+20% VinaPhone - Thứ Sáu hàng tuần", 1500, stranger=True)]
 MSGS = [{"id": "m1", "sender_id": "7", "direction": "in", "kind": "text", "time": NOW - 600, "text": "Chiều nay bố đã về nhà rồi, anh Trí Anh cũng đã trở về từ sáng. " * 3},
         {"id": "m2", "sender_id": "me", "direction": "out", "kind": "text", "time": NOW - 500, "text": "Ok em"}]
-DATA = {"/api/status": {"login": True, "uid": "10001", "phonenum": "+84000000000", "version": "t", "sync": "running", "engine": {"attached": True}},
+GROUPS = [{"id": "g%d" % i, "label": "Nhóm dịch vụ số %d" % i} for i in range(12)]
+CATALOG = {"groups": GROUPS, "services": [{"addon": "svc_%d" % i, "addon_no": i, "action": "svc_%d" % i, "label": "Dịch vụ %d" % i, "group": "g%d" % (i % 12), "status": "supported", "fields": [], "thread": "none"}
+                                          for i in range(30)]}
+DATA = {"/api/svc/catalog": CATALOG, "/api/status": {"login": True, "uid": "10001", "phonenum": "+84000000000", "version": "t", "sync": "running", "engine": {"attached": True}},
         "/api/contacts": {"friends": {"rows": [{"id": "2", "name": "Vợ Yêu"}, {"id": "7", "name": "BenBap"}]}, "groups": {"rows": []}},
         "/api/conversations": {"threads": THREADS}, "/api/calls": {"calls": [], "active": None}, "/api/inbox/summary": {"threads": []},
         "/api/privacy/status": {"enabled": False, "unlocked": True}, "/api/file/list": {"files": []}, "/api/reaction/list": {"reactions": []}}
@@ -74,7 +79,7 @@ class FakeHandler(sv.Handler):
         if p in DATA:
             return self._send_json(DATA[p])
         if p.startswith("/api/thread/") and p.endswith("/history"):
-            return self._send_json({"messages": MSGS})
+            return self._send_json({"messages": MSGS, "notice": "Lịch sử 1-1 chỉ có từ khi app bắt đầu lưu tin xuống DB local (tin cũ hơn chưa có)."})
         if p.startswith("/api/thread/") and p.endswith("/updates"):
             return self._send_json({"messages": []})
         if p == "/api/events":
@@ -123,7 +128,7 @@ def test_phone_layout_in_real_chrome():
     m = measure()
     assert m["exceptions"] == [], m["exceptions"]
     for w in (390, 320):
-        for name in ("list", "chat", "info", "contacts", "calls", "services"):
+        for name in ("list", "chat", "info", "contacts", "calls", "services", "watch", "svc_chip"):
             s = m["%s@%d" % (name, w)]
             assert s["bp"] == "phone", (name, w, s["bp"])
             assert s["sw"] <= s["cw"], "%s@%d tràn ngang: scrollWidth %s > %s" % (name, w, s["sw"], s["cw"])
@@ -141,6 +146,7 @@ def test_phone_layout_in_real_chrome():
         assert max(ys) - min(ys) < 24, "soạn tin phải MỘT hàng, lệch %s" % ys
         assert ch["attach"]["disp"] == "none" and ch["like"]["disp"] == "none", "nút ít dùng phải gom vào «…»"
         assert ch["btnInfo"]["w"] > 0 and ch["icPhone"]["w"] > 0 and ch["icWide"]["disp"] == "none", "nút ≡ (không phải biểu tượng bảng bên)"
+        assert ch["noticeHidden"] is True, "dòng «Lịch sử 1-1 chỉ có từ khi…» không được hiện trong khung chat"
         assert ch["moreMenu"] == ["Đính kèm tệp", "Nhãn dán", "Gửi 👍", "Dịch vụ cho hội thoại này"], ch["moreMenu"]
         assert ch["typing"]["send"] != "none" and ch["typing"]["tools"] == "none", "gõ chữ thì hiện Gửi và ẩn mic/ảnh"
         # ---- cuộc gọi trên điện thoại: màn hình toàn màn hình, nút tròn, hàng nút ở nửa dưới, hình phủ cả màn hình ----
@@ -173,6 +179,14 @@ def test_phone_layout_in_real_chrome():
                 assert v["x"] == 0 and v["y"] == 0 and v["w"] == w and v["h"] >= H and v["disp"] != "none", "hình phải phủ toàn màn hình: %s" % v
             else:
                 assert c["vid"] is None or c["vid"]["disp"] == "none" or c["vid"]["w"] == 0, "chưa có video thì không hiện khung hình"
+        # ---- bảng «Theo dõi» thành thẻ, không tràn ngang; hàng chip giữ chip đang chọn trong tầm nhìn ----
+        wt = m["watch@%d" % w]
+        assert wt["tblRowDisp"] == "block" and wt["tblHeadDisp"] == "none", "bảng Theo dõi phải thành thẻ trên điện thoại: %s" % wt
+        assert wt["sw"] <= wt["cw"] and not wt["clipped"], "Theo dõi tràn ngang: %s %s" % (wt["sw"], wt["clipped"])
+        sc = m["svc_chip@%d" % w]
+        assert sc["chips"] and sc["chips"]["sel"], "không thấy chip đang chọn"
+        cr, sr = sc["chips"]["box"], sc["chips"]["sel"]
+        assert sc["chips"]["scrollLeft"] > 0 and sr["x"] >= cr["x"] - 1 and sr["x"] + sr["w"] <= cr["x"] + cr["w"] + 1, "chip vừa chọn phải nằm trong tầm nhìn sau khi dựng lại: %s" % sc["chips"]
         inf = m["info@%d" % w]
         assert inf["info"] == "page" and inf["infoPos"] == "fixed", inf["info"]
         box = inf["infoBox"]

@@ -526,6 +526,15 @@ html[data-bp="phone"] .callcard[data-video="1"] > * { transition: opacity .2s ea
 html[data-bp="phone"] .callcard[data-video="1"][data-ui="0"] > * { opacity: 0; visibility: hidden; }
 html[data-bp="phone"] .callcard[data-video="1"][data-ui="0"] { background: transparent; }
 html[data-bp="phone"] .callcard[data-video="1"][data-ui="1"] > * { opacity: 1; visibility: visible; }
+/* bảng (Theo dõi người lạ…) trên điện thoại: mỗi dòng thành một THẺ, không cuộn ngang */
+html[data-bp="phone"] .tbl thead { display: none; }
+html[data-bp="phone"] .tbl, html[data-bp="phone"] .tbl tbody, html[data-bp="phone"] .tbl tr, html[data-bp="phone"] .tbl td { display: block; width: 100%; }
+html[data-bp="phone"] .tbl tr { padding: .625rem 0; border-bottom: 1px solid var(--line); }
+html[data-bp="phone"] .tbl td { border: 0; padding: .1875rem 0; }
+html[data-bp="phone"] .tbl td[data-l]::before { content: attr(data-l) ": "; color: var(--muted); font-size: .75rem; }
+html[data-bp="phone"] .tbl td.nw { white-space: normal; overflow-wrap: anywhere; }
+html[data-bp="phone"] .tbl .cell-ell { max-width: 100% !important; }
+html[data-bp="phone"] .card.wide { max-width: 100%; overflow-x: hidden; }
 /* man hinh cam ung: vung bam toi thieu ~44px */
 html[data-dev="touch"] .icon-btn { width: 2.75rem; height: 2.75rem; }
 html[data-dev="touch"] .row { padding-top: .8125rem; padding-bottom: .8125rem; }

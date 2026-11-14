@@ -72,7 +72,8 @@ def main(argv):
             print("\n".join("    " + ln for ln in out.splitlines()[-12:]), flush=True)
             if name not in KNOWN_RED:
                 # Chu thich GitHub Actions: hien o trang job VA doc duoc qua API cong khai (log goc can dang nhap) -> biet ngay file nao hong tren CI.
-                msg = " | ".join([b[:200] for b in bad[:4]] + [ln[:200] for ln in out.splitlines()[-3:]])[:900]
+                asserts = [ln for ln in out.splitlines() if ln.startswith(("AssertionError", "E   ", "TimeoutError", "RuntimeError"))]
+                msg = " | ".join([b[:200] for b in bad[:4]] + [a[:1500] for a in asserts[:2]] + [ln[:200] for ln in out.splitlines()[-3:]])[:3500]
                 print("::error title=%s hong::%s" % (name, msg.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")), flush=True)
     print("\n%d file, %d hong, %d canh bao, %d chap chon (qua khi thu lai)" % (len(files), len(failed), len(warned), len(flaky)))
     return 1 if failed else 0

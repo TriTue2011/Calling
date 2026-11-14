@@ -195,6 +195,22 @@ window.addEventListener("orientationchange", () => setTimeout(applyScale, 200));
 function setScale(v) { try { localStorage.setItem("zalo-scale", v); } catch (e) { /* riêng tư */ } applyScale(); }
 function applyTheme(t) { root.dataset.theme = t; try { localStorage.setItem("zalo-theme", t); } catch (e) { /* riêng tư */ } }
 
+// Hàng chip cuộn ngang (nhóm dịch vụ, mục cài đặt, bộ lọc…) bị DỰNG LẠI mỗi lần chọn nên thanh trượt về đầu và chip vừa chọn bị khuất (ảnh chủ máy 14/11).
+// Một bộ quan sát chung: hàng chip nào vừa được chèn vào trang thì cuộn để chip đang chọn nằm giữa tầm nhìn — không phải sửa từng trang.
+function centerSelectedChip(c) {
+  if (c.scrollWidth <= c.clientWidth + 1) return;
+  const sel = c.querySelector('[aria-pressed="true"],[aria-selected="true"]'); if (!sel) return;
+  const cr = c.getBoundingClientRect(), sr = sel.getBoundingClientRect();
+  c.scrollLeft += sr.left - cr.left - (c.clientWidth - sr.width) / 2;
+}
+new MutationObserver((muts) => {
+  for (const m of muts) for (const n of m.addedNodes) {
+    if (n.nodeType !== 1) continue;
+    if (n.classList.contains("chips")) centerSelectedChip(n);
+    for (const c of n.querySelectorAll(".chips")) centerSelectedChip(c);
+  }
+}).observe(document.body, { childList: true, subtree: true });
+
 // ---- menu nổi ----------------------------------------------------------------------
 let popEl = null;
 function closePop() { if (popEl) { popEl.remove(); popEl = null; } }
@@ -346,7 +362,7 @@ async function loadHistory() {
   const d = await api("/api/thread/" + encodeURIComponent(cur.id) + "/history?type=" + typeParam() + "&count=50");
   if (S.cur !== cur) return;
   if (d.error) return setNotice("Lỗi tải lịch sử: " + d.error, true);
-  setNotice(d.notice || "");
+  setNotice("");      // KHÔNG hiện dòng «Lịch sử 1-1 chỉ có từ khi app bắt đầu lưu…» (chủ máy bỏ 14/11); giới hạn này nêu trong README. API vẫn trả `notice`.
   await loadFiles(); await loadReactions(); mergeMsgs(d.messages || []); renderMsgs();
   const ids = (d.messages || []).map((m) => m.id).filter((x) => x && x !== "me");
   if (ids.length) api("/api/thread/" + encodeURIComponent(cur.id) + "/seen", "POST", { type: typeParam(), msg_ids: ids }).catch(() => {});
@@ -1096,9 +1112,9 @@ async function renderWatch() {
           const open = S.watchOpen === c.thread_id, row = convRow(c);
           const tr = h("tr", { class: open ? "sel" : "", style: "cursor:pointer", onclick: async () => { S.watchOpen = open ? null : c.thread_id; if (S.watchOpen && !S.watchMsgs[c.thread_id]) { const d = await api("/api/thread/" + c.thread_id + "/history?type=user&count=10"); S.watchMsgs[c.thread_id] = d.messages || []; } renderWatch(); } },
             h("td", {}, h("div", { style: "display:flex;gap:.625rem;align-items:center" }, avatar(row, "sm"), h("div", {}, h("div", { style: "font-weight:500" }, convName(c)), h("div", { style: "color:var(--muted);font-size:.75rem" }, "Từ " + fmtDT(c.first_ts))))),
-            h("td", { class: "nw" }, h("span", { class: "mono" }, c.thread_id), " ", h("button", { class: "icon-btn", type: "button", "aria-label": "Sao chép threadId", onclick: (e) => { e.stopPropagation(); copyText(c.thread_id, "threadId"); } }, svg("copy"))),
-            h("td", {}, h("div", { style: "max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, c.last_text || ""), h("div", { style: "color:var(--muted);font-size:.75rem" }, fmtRel(c.last_ts))),
-            h("td", {}, c.unread > 0 ? h("span", { class: "badge" }, c.unread) : String(c.incoming_count || 0)),
+            h("td", { class: "nw", "data-l": "threadId" }, h("span", { class: "mono" }, c.thread_id), " ", h("button", { class: "icon-btn", type: "button", "aria-label": "Sao chép threadId", onclick: (e) => { e.stopPropagation(); copyText(c.thread_id, "threadId"); } }, svg("copy"))),
+            h("td", { "data-l": "Tin gần nhất" }, h("div", { class: "cell-ell", style: "max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, c.last_text || ""), h("div", { style: "color:var(--muted);font-size:.75rem" }, fmtRel(c.last_ts))),
+            h("td", { "data-l": "Số tin" }, c.unread > 0 ? h("span", { class: "badge" }, c.unread) : String(c.incoming_count || 0)),
             h("td", {}, h("button", { class: "btn sm", type: "button", onclick: (e) => { e.stopPropagation(); openThread(row); } }, "Mở chat")));
           const out = [tr];
           if (open) out.push(h("tr", {}, h("td", { colspan: "5" }, h("div", { class: "watch-msgs" }, (S.watchMsgs[c.thread_id] || []).slice(-10).map((m) => h("div", { class: "wm" }, h("span", { class: "wt" }, fmtTime(m.time)), h("span", {}, (m.sender_id === c.thread_id ? "" : "Bạn: ") + (m.text || m.file_name || "[" + (m.kind || "tệp") + "]")))), h("div", {}, h("button", { class: "btn sm", type: "button", onclick: () => copyText(JSON.stringify({ thread_id: c.thread_id, name: convName(c), last: c.last_text }), "JSON") }, "Sao chép JSON"))))));

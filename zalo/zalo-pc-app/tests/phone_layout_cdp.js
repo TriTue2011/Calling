@@ -8,6 +8,8 @@ const click = (sel, txt) => `(()=>{const l=[...document.querySelectorAll(${JSON.
 const SCREENS = {
   list: [], chat: [click("#list .row-name", "BenBap")], info: [click("#list .row-name", "BenBap"), click("#btn-info")],
   call_incoming: [], call_voice: [], call_video: [],
+  watch: [click('.rail-btn[data-tab="watch"]')],
+  svc_chip: [click('.rail-btn[data-tab="services"]'), `(()=>{const l=[...document.querySelectorAll("#svc-page .chip")];const e=l[l.length-1];e.scrollIntoView({inline:"end"});e.click();return "ok"})()`],
   contacts: [click('.rail-btn[data-tab="contacts"]')], calls: [click('.rail-btn[data-tab="calls"]')], services: [click('.rail-btn[data-tab="services"]')],
 };
 const MEASURE = `(()=>{const q=(s)=>document.querySelector(s), r=(s)=>{const e=q(s);if(!e)return null;const b=e.getBoundingClientRect();return {x:b.x,y:b.y,w:b.width,h:b.height,disp:getComputedStyle(e).display}};
@@ -17,6 +19,9 @@ const MEASURE = `(()=>{const q=(s)=>document.querySelector(s), r=(s)=>{const e=q
    rail:r("#rail"), railLabels:[...document.querySelectorAll(".rail-btn")].map(b=>getComputedStyle(b,"::after").content.replace(/"/g,"")),
    input:r("#msg-in"), more:r("#btn-more"), emoji:r("#btn-emoji"), img:r("#btn-img"), rec:r("#btn-rec"), attach:r("#btn-attach"), like:r("#btn-like"),
    infoBox:r("#info"), infoPos:getComputedStyle(q("#info")).position, back:r("#info .back"), btnInfo:r("#btn-info"),
+   tblRowDisp:q(".tbl tr")?getComputedStyle(q(".tbl tr")).display:"", tblHeadDisp:q(".tbl thead")?getComputedStyle(q(".tbl thead")).display:"",
+   chips:(()=>{const c=q("#svc-page .chips");if(!c)return null;const sel=c.querySelector('[aria-pressed="true"]');const b=c.getBoundingClientRect(), sb=sel?sel.getBoundingClientRect():null;return {scrollLeft:c.scrollLeft, box:{x:b.x,w:b.width}, sel:sb?{x:sb.x,w:sb.width}:null}})(),
+   noticeHidden:(()=>{const n=q("#chat-notice");return !n||n.hidden||!n.textContent.trim()})(),
    cc:r("#callcard"), ccState:q("#callcard").dataset.state||"", ccVideo:q("#callcard").dataset.video||"", ccPe:getComputedStyle(q("#callcard")).pointerEvents, end:r("#callcard .end"), ok:r("#callcard .ok"), mt:r("#callcard .mt"), vid:r("#vidwin"), popout:r("#callcard .popout-row"),
    icWide:r(".ic-wide"), icPhone:r(".ic-phone"), clipped:[...document.querySelectorAll(".pane.on *, .listcol *")].filter(e=>{const b=e.getBoundingClientRect();if(!(b.width>0&&b.right>innerWidth+1&&getComputedStyle(e).position!=="fixed"))return false;for(let p=e.parentElement;p&&p!==document.body;p=p.parentElement){if(/auto|scroll/.test(getComputedStyle(p).overflowX))return false}return true}).slice(0,8).map(e=>e.tagName+"."+e.className+"@"+Math.round(e.getBoundingClientRect().right))});})()`;
 (async () => {
