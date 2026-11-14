@@ -79,6 +79,9 @@ def _id_match(gid, cid, thread_type, thread_id):
     return "thread_type=? AND thread_id=? AND (" + " OR ".join(conds) + ")", args
 
 
+PREVIEW_LABELS = {"video": "Video", "sticker": "Nhãn dán", "link": "Liên kết", "system": "Thông báo"}   # nhãn xem trước cho tin không phải chữ
+
+
 class MessageStore:
     """SQLite message store trong thu muc /data. Thread-safe
     (mot khoa, mot connection check_same_thread=False)."""
@@ -457,7 +460,12 @@ class MessageStore:
             return "[Tin nhắn thoại]"
         if kind == "file":
             return "[Tệp] " + (m.get("file_name") or "")
-        return m.get("text") or m.get("file_name") or ""
+        out = m.get("text") or m.get("file_name") or ""
+        if not out and kind and kind != "text":
+            # Tin không phải chữ mà không có nội dung (video, nhãn dán, liên kết…): luôn có nhãn loại, không để dòng xem trước trống («Bạn: »).
+            # Loại chưa biết thì nhãn chung, không cần liệt kê hết.
+            out = "[" + PREVIEW_LABELS.get(kind, "Tin đính kèm") + "]"
+        return out
 
     def threads(self, thread_type=None, limit=500):
         """Moi hoi thoai co tin, moi nhat truoc: {thread_type, thread_id,

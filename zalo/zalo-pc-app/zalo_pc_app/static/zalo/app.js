@@ -467,7 +467,7 @@ function touchConv(type, id, msg, opts) {   // cập nhật dòng hội thoại 
   const c = S.conv[key] || (S.conv[key] = { thread_type: type, thread_id: String(id), count: 0, incoming_count: 0, unread: 0, name: "", stranger: false });
   const m = normMsg(msg);
   c.count++; c.last_ts = m._t || Date.now() / 1000; c.last_out = m._out;
-  c.last_text = m.kind === "photo" ? "[Ảnh]" : m.kind === "voice" ? "[Tin nhắn thoại]" : m.kind === "file" ? "[Tệp] " + (m.file_name || "") : (m.text || "");
+  c.last_text = m.kind === "photo" ? "[Ảnh]" : m.kind === "voice" ? "[Tin nhắn thoại]" : m.kind === "file" ? "[Tệp] " + (m.file_name || "") : (m.text || (m.kind && m.kind !== "text" ? "[" + (m.kind === "video" ? "Video" : m.kind === "sticker" ? "Nhãn dán" : "Tin đính kèm") + "]" : ""));
   c.last_sender_name = m.sender_name || c.last_sender_name || "";
   if (!m._out) { c.incoming_count++; if (m.sender_name && type === "user") c.name = m.sender_name; if (!(opts && opts.open)) c.unread++; }
   if (opts && opts.stranger != null) c.stranger = !!opts.stranger;
