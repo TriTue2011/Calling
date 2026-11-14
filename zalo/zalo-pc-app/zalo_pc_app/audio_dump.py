@@ -5,7 +5,7 @@ của bộ khử vọng nằm bên HA và mất khi cúp máy).
 QUYỀN RIÊNG TƯ: tệp chứa GIỌNG NÓI thật của cuộc gọi. Mặc định TẮT; bật bằng ZALO_PC_AUDIO_DUMP_SECONDS=<giây tối đa mỗi cuộc, vd 60>. Chỉ giữ 5 tệp gần nhất
 trên đĩa của chính máy chủ này; không gửi đi đâu. Đo xong thì tắt biến và xoá thư mục diag/echo-*.bin.
 
-Định dạng tệp: lặp lại bản ghi = 1 byte loại (0 = loa/far, 1 = mic/near) + 8 byte float64 giờ đơn điệu (little-endian) + 640 byte PCM16 mono 16 kHz (20 ms).
+Định dạng tệp: lặp lại bản ghi = 1 byte loại (0 = loa/far, 1 = mic/near trước khi chặn, 2 = mic GỬI ĐI sau khi chặn vọng và chỉnh âm lượng) + 8 byte float64 giờ đơn điệu (little-endian) + 640 byte PCM16 mono 16 kHz (20 ms).
 """
 import glob
 import os
@@ -93,3 +93,8 @@ def far(frame):
 def near(frame):
     """Khung tiếng mic NHẬN VỀ (trước khi chặn/chỉnh âm lượng)."""
     _DUMP.record(1, frame)
+
+
+def sent(frame):
+    """Khung mic THỰC SỰ gửi sang bên kia (sau chặn vọng và chỉnh âm lượng): so với `near` để đo bộ chặn giảm được bao nhiêu."""
+    _DUMP.record(2, frame)

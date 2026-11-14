@@ -16,7 +16,9 @@ gui nguoc cho ben kia. Khi loa dang phat tieng that thi tam NGUNG gui mic
 Khong ghi URL (co khoa/mat khau) vao log hay trang thai.
 """
 
+import collections
 import math
+import os
 import shutil
 import struct
 import subprocess
@@ -31,6 +33,29 @@ LEVEL_EDGES = (100, 180, 300, 500, 1000)   # ranh gioi cac bac RMS cua tieng ben
 DUPLEX_SETTLE_SECONDS = 0.8  # cho phien song cong cua R1 mo xong roi moi mo mic
 
 
+def _delay_window():
+    """(thấp, cao) giây của khoảng trễ loa → mic dùng để nhận ra VỌNG TRỄ; (0, 0) = tắt. ZALO_PC_ECHO_DELAY_MS="300-750".
+    Đo thật 14/11 (loa R1 song công): đường bao mic bám tiếng loa ở 450–550 ms, dạng sóng lệch 480–745 ms giữa các đoạn ngắn — trễ KHÔNG cố định nên bộ khử
+    thích nghi trễ cố định không bám được; chặn theo cửa sổ trễ thì bám."""
+    raw = os.environ.get("ZALO_PC_ECHO_DELAY_MS", "300-750").strip()
+    try:
+        if raw in ("", "0"):
+            return 0.0, 0.0
+        lo, hi = raw.split("-", 1)
+        lo, hi = float(lo) / 1000.0, float(hi) / 1000.0
+        return (lo, hi) if 0 < lo < hi else (0.0, 0.0)
+    except ValueError:
+        return 0.0, 0.0
+
+
+def _echo_ratio():
+    """Mic chỉ bị coi là vọng khi RMS khung < K × đỉnh RMS của loa trong cửa sổ trễ; to hơn thì là người nhà nói chen → cho qua. ZALO_PC_ECHO_RATIO (mặc định 2,0)."""
+    try:
+        return float(os.environ.get("ZALO_PC_ECHO_RATIO", "2.0"))
+    except ValueError:
+        return 2.0
+
+
 def frame_rms(frame):
     n = len(frame) // 2
     if not n:
@@ -40,25 +65,56 @@ def frame_rms(frame):
 
 
 class EchoGuard:
-    """Chan mic trong luc loa phat tieng that. `note_far` goi cho MOI khung loa ra;
-    `blocked` hoi mic co phai nin khong. Thread-safe vi chi doi mot so thuc."""
+    """Chặn mic để không gửi NGƯỢC tiếng bên kia (mic và loa cùng một thiết bị). `note_far` gọi cho MỖI khung loa ra; `blocked(mic_rms)` hỏi mic có phải nín không.
+    Hai lớp:
+      * nửa song công (`classic`, chỉ khi bật chống vọng «on»): đang có tiếng loa (+`hold` giây) thì nín mic;
+      * VỌNG TRỄ (cả khi song công): loa có tiếng trong cửa sổ [now-hi, now-lo] (đường phát về loa và mic có độ trễ hàng trăm ms) mà mic chưa to hơn
+        K × đỉnh loa trong cửa sổ đó ⇒ coi là vọng, nín. Mic to hơn ⇒ người nhà nói chen ⇒ cho qua (`passed_double`).
+    Thread-safe vì chỉ đổi vài số và một deque."""
 
-    def __init__(self, threshold=RMS_THRESHOLD, hold=HOLD_SECONDS, clock=time.monotonic):
-        self.threshold, self.hold, self._clock = threshold, hold, clock
+    def __init__(self, threshold=RMS_THRESHOLD, hold=HOLD_SECONDS, clock=time.monotonic, classic=True, delay=None, ratio=None):
+        self.threshold, self.hold, self._clock, self.classic = threshold, hold, clock, classic
+        self.delay = _delay_window() if delay is None else delay
+        self.ratio = _echo_ratio() if ratio is None else ratio
         self._until = 0.0
+        self._hist = collections.deque()               # (giờ, RMS khung loa) trong ~2 s gần nhất
         self.suppressed = 0
+        self.suppressed_delayed = 0                    # trong đó do vọng trễ
+        self.passed_double = 0                         # khung trong cửa sổ trễ nhưng mic to hơn mức vọng: cho qua
         self.levels = [0] * (len(LEVEL_EDGES) + 1)    # so khung loa theo muc RMS (do nen tieng ben kia de biet nguong co hop khong)
 
     def note_far(self, frame):
         rms = frame_rms(frame)
+        now = self._clock()
         self.levels[sum(1 for e in LEVEL_EDGES if rms >= e)] += 1
         if rms >= self.threshold:
-            self._until = self._clock() + self.hold
+            self._until = now + self.hold
+        if self.delay[1] > 0:
+            self._hist.append((now, rms))
+            while self._hist and now - self._hist[0][0] > self.delay[1] + 0.5:
+                self._hist.popleft()
 
-    def blocked(self):
-        if self._clock() < self._until:
+    def _window_peak(self, now):
+        lo, hi = self.delay
+        peak = 0.0
+        for t, rms in self._hist:
+            if now - hi <= t <= now - lo and rms > peak:
+                peak = rms
+        return peak
+
+    def blocked(self, mic_rms=None):
+        now = self._clock()
+        if self.classic and now < self._until:
             self.suppressed += 1
             return True
+        if self.delay[1] > 0:
+            peak = self._window_peak(now)
+            if peak >= self.threshold:
+                if mic_rms is None or mic_rms < self.ratio * peak:
+                    self.suppressed += 1
+                    self.suppressed_delayed += 1
+                    return True
+                self.passed_double += 1
         return False
 
 
@@ -174,6 +230,8 @@ class AudioSink:
                 "ffmpeg_err": self.stderr_tail(),
                 "echo_guard": self._guard is not None,
                 "mic_suppressed": self._guard.suppressed if self._guard else 0,
+                "mic_suppressed_delayed": getattr(self._guard, "suppressed_delayed", 0) if self._guard else 0,
+                "mic_passed_double": getattr(self._guard, "passed_double", 0) if self._guard else 0,
                 "far_levels": ("/".join(str(n) for n in self._guard.levels) if self._guard else "-"),   # <100/<180/<300/<500/<1000/>=1000
                 "seconds": (round(time.time() - self.started_at, 1)
                             if self.started_at else 0)}

@@ -207,6 +207,7 @@ python3 tests/run_tests.py
 | `ZALO_PC_HOST` / `ZALO_PC_PORT` | `127.0.0.1` / `8080` | Bind của app server (compose đặt `0.0.0.0` / `8080`) |
 | `ZALO_PC_PARAM_CIPHER_KEY` | (trống) | Khóa mã hóa tham số API login, cấp lúc deploy, KHÔNG đưa vào repo. Không có nó, client dùng tham số trần + signkey (server chỉ chấp nhận nếu đã tắt mã hóa tham số) |
 | `ZALO_PC_AUDIO_DUMP_SECONDS` | `0` (tắt) | **Chẩn đoán vọng**: ghi tiếng gửi ra loa và tiếng mic nhận về (tối đa ngần này giây mỗi cuộc, giữ 5 tệp) vào `/data/diag/echo-*.bin`; phân tích bằng `python3 tools/echo_analyze.py <tệp>` (độ trễ loa→mic, % vọng còn lại). **Tệp chứa giọng nói thật**: chỉ bật khi đo, đo xong tắt và xoá |
+| `ZALO_PC_ECHO_DELAY_MS` / `ZALO_PC_ECHO_RATIO` | `300-750` / `2.0` | **Chặn vọng TRỄ** (cả khi loa R1 song công): mic bị nín khi loa vừa phát trong khoảng trễ này (đo thật: vọng về sau 450–550 ms) và mic nhỏ hơn `RATIO` × đỉnh loa; mic to hơn (người nhà nói chen) thì cho qua. `ZALO_PC_ECHO_DELAY_MS=0` tắt |
 | `ZALO_PC_COOKIE_NAME` | `zpw_sek` | Tên cookie phiên gửi kèm API sau login |
 | `ZALO_PC_VERSION` | (CI đặt lúc build) | Phiên bản hiển thị ở `GET /api/status`; image tự mang theo (build-arg `APP_VERSION`), không cần đặt |
 

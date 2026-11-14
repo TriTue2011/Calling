@@ -89,7 +89,7 @@ def test_stream_out_header_optional():
 
 def test_echo_guard_blocks_mic_only_while_far_voice_plays():
     now = [100.0]
-    g = audio_rx.EchoGuard(threshold=180, hold=0.5, clock=lambda: now[0])
+    g = audio_rx.EchoGuard(threshold=180, hold=0.5, clock=lambda: now[0], delay=(0, 0))        # lớp nửa song công thuần (vọng trễ: tests/test_echo_guard_delay.py)
     assert g.blocked() is False
     g.note_far(bytes(640))                         # im lang: khong chan
     g.note_far(tone(60))                           # nho hon nguong

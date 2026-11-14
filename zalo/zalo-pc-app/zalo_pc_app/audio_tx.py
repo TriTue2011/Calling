@@ -15,6 +15,7 @@ vao log hay trang thai.
 """
 
 import collections
+import math
 import shutil
 import struct
 import subprocess
@@ -69,7 +70,8 @@ class AudioSender:
         self._log = log
         self._tail = None
         self._send = send_pcm
-        self._gate = gate               # gate() True = bo khung nay (chong vong)
+        self._gate = gate               # gate() True = bo khung nay (chong vong); gate nhan them tham so (RMS khung mic) thi duoc truyen vao
+        self._gate_takes_level = self._takes_arg(gate)
         self.gain = audio_gain.DEFAULT_PERCENT   # % am luong mic (100 = giu nguyen), doi duoc giua cuoc goi
         self.idle = str(source) == "silence"       # chỉ giữ luồng (tiếng im lặng), KHÔNG phải mic đang bật
         self._args = build_ffmpeg_args(source, fmt, loop=loop)
@@ -91,6 +93,16 @@ class AudioSender:
         self.last_error = ""
         self.started_at = None
         self.alive = False
+
+    @staticmethod
+    def _takes_arg(gate):
+        if gate is None:
+            return False
+        try:
+            import inspect
+            return len(inspect.signature(gate).parameters) >= 1
+        except (TypeError, ValueError):
+            return False
 
     def start(self):
         if shutil.which(self._args[0]) is None and self._popen is subprocess.Popen:
@@ -155,7 +167,9 @@ class AudioSender:
                 self._sleep(due - now)
             due += FRAME_SECONDS
             _voiced = False
+            _rms = 0.0
             try:
+                _rms = math.sqrt(sum(x * x for x in struct.unpack("<%dh" % (len(frame) // 2), frame[:len(frame) // 2 * 2])) / max(1, len(frame) // 2)) if frame else 0.0
                 _pk = max(abs(x) for x in struct.unpack("<%dh" % (len(frame) // 2), frame[:len(frame) // 2 * 2])) if frame else 0
                 if _pk > self.in_peak:
                     self.in_peak = _pk
@@ -165,7 +179,7 @@ class AudioSender:
             except struct.error:
                 pass
             audio_dump.near(frame)                  # chẩn đoán vọng (mặc định tắt): tiếng mic nhận về, trước khi chặn/chỉnh âm lượng
-            gated = self._gate is not None and self._gate()
+            gated = self._gate is not None and (self._gate(_rms) if self._gate_takes_level else self._gate())
             if gated:
                 self.gated += 1                  # loa dang phat: KHONG gui tieng mic, nhung van gui khung im lang de luong RTP lien tuc
                 if _voiced:
@@ -173,6 +187,7 @@ class AudioSender:
                 frame = bytes(len(frame))        # (bo han khung thi ben kia thay mat goi: Zalo bao «ket noi khong on dinh»)
             else:
                 frame = audio_gain.apply_gain(frame, self.gain)
+            audio_dump.sent(frame)
             try:
                 self._send(frame)
                 self.frames += 1

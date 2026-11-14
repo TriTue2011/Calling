@@ -80,8 +80,12 @@ def _guard_for_call(call_id):
     key = str(call_id)
     if key in ECHO_GUARDS:
         return ECHO_GUARDS[key]
-    if srv()._devices_for_call(call_id).get("echo_guard"):
-        ECHO_GUARDS[key] = audio_rx_mod.EchoGuard()
+    dev = srv()._devices_for_call(call_id)
+    if dev.get("echo_guard"):
+        ECHO_GUARDS[key] = audio_rx_mod.EchoGuard()                       # nửa song công + vọng trễ
+        return ECHO_GUARDS[key]
+    if audio_rx_mod.is_duplex_url(dev.get("speaker_url")) and audio_rx_mod._delay_window()[1] > 0:
+        ECHO_GUARDS[key] = audio_rx_mod.EchoGuard(classic=False)          # song công (R1 tự khử vọng): mic luôn mở, chỉ chặn VỌNG TRỄ còn sót
         return ECHO_GUARDS[key]
     return None
 
