@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="vi" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>Cuộc gọi Zalo</title>
+<link rel="stylesheet" href="/ui/app.css">
+<link rel="stylesheet" href="/ui/call.css">
+</head>
+<body class="callpage">
+<main class="cw" id="cw" data-state="wait">
+  <header class="cw-head">
+    <div class="cw-who"><div class="cw-nm" id="cw-nm">Cuộc gọi</div><div class="cw-st" id="cw-st">Đang tải…</div></div>
+    <div class="cw-tm" id="cw-tm" aria-live="off"></div>
+  </header>
+  <section class="cw-stage" id="cw-stage" aria-label="Hình từ bên kia">
+    <div class="cw-vbox" id="cw-vbox"><img class="cw-vview" id="cw-vview" alt="Hình từ bên kia" hidden><div class="cw-wait" id="cw-wait">Đang chờ hình…</div></div>
+  </section>
+  <aside class="cw-panel" id="cw-panel" aria-label="Điều khiển cuộc gọi">
+    <div class="cw-toggles" id="cw-toggles"></div>
+    <div class="cw-gains" id="cw-gains"></div>
+    <div class="cw-acts" id="cw-acts"></div>
+  </aside>
+</main>
+<div class="cw-toast" id="cw-toast" role="status" hidden></div>
+<script src="/ui/call.js"></script>
+</body>
+</html>

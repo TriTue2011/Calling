@@ -480,3 +480,8 @@ html[data-dev="touch"] .pop button { padding: .875rem 1rem; }
 .album.n3 a:nth-child(3) img.photo { aspect-ratio: 16 / 10; }
 .album.n5 { grid-template-columns: repeat(3, 1fr); width: min(26rem, 74vw); }
 .album.n10 { grid-template-columns: repeat(4, 1fr); width: min(30rem, 78vw); }
+
+/* Nút «Tách cửa sổ» / «Đưa về đây» của thẻ cuộc gọi */
+.callcard .popout-row { margin-top: 0.5rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: var(--muted); }
+.callcard .popout-row .link { display: inline-flex; align-items: center; gap: 0.25rem; background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+.callcard .popout-row .link svg { width: 1rem; height: 1rem; }

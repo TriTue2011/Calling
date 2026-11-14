@@ -3297,6 +3297,17 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
             if self._require_app_login() is None:
                 return self._send_redirect("/login")
             return self._serve_static("app.html", "text/html")
+        if path == "/call":
+            # Cửa sổ cuộc gọi TÁCH RỜI (mở từ nút «Tách cửa sổ» của WebUI): video + nút điều khiển tự xếp lại theo kích cỡ cửa sổ.
+            if self._require_app_login() is None:
+                return self._send_redirect("/login")
+            return self._serve_static("zalo/call.html", "text/html")
+        if path == "/ui/call.css":
+            return self._serve_static("zalo/call.css", "text/css")
+        if path == "/ui/call.js":
+            if self._require_app_login() is None:
+                return self._unauthorized()
+            return self._serve_static("zalo/call.js", "text/javascript")
         if path == "/ui/app.css":
             return self._serve_static("zalo/app.css", "text/css")
         if path == "/ui/app.js":

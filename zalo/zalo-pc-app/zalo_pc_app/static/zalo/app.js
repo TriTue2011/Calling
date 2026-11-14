@@ -7,6 +7,7 @@
 const $ = (id) => document.getElementById(id);
 const NS = "http://www.w3.org/2000/svg";
 const ICONS = {
+  popout: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 19V8a1.5 1.5 0 0 1 1.5-1.5H10"/>',
   chat: '<path d="M21 12a8 8 0 0 1-11.7 7.1L4 20.5l1.4-4.9A8 8 0 1 1 21 12z"/>',
   contact: '<rect x="4" y="3" width="15" height="18" rx="2.5"/><circle cx="11.5" cy="10" r="2.5"/><path d="M7 17c.6-2 2.4-3 4.5-3s3.9 1 4.5 3M20.5 8v2M20.5 13v2"/>',
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/>',
@@ -813,6 +814,7 @@ async function loadCalls() {
 }
 async function startCall(video) {
   const row = S.cur; if (!row || S.calls.active) return;
+  if (video && callWinPref()) openCallWindow();       // phải mở NGAY trong lúc bấm (trước mọi await) thì trình duyệt mới cho phép cửa sổ bật lên
   const type = row.type === "group" ? "group" : video ? "video" : "user";
   toast("Đang gọi " + (row.name || row.id) + "…");
   // Nhóm: gọi VIDEO nhóm (typeRequest 6) và đổ chuông ĐỦ thành viên (member_ids = topMember + memberIds + currentMems; topMember chỉ là danh sách rút gọn).
@@ -823,6 +825,7 @@ async function startCall(video) {
   await loadCalls();
 }
 async function answerCall(a) {
+  if (a && a.type === "video" && callWinPref()) openCallWindow();
   const r = await api("/api/call/answer", "POST", { call_id: a.call_id });
   if (r.error || r.ok === false) toast("Không nghe máy được: " + (r.error || r.detail || "không rõ"), 6000);
   await loadCalls();
@@ -935,6 +938,21 @@ function mediaToggles() {
 }
 setInterval(() => { const a = S.calls.active; if (a && (a.status === "answered" || a.answered_at)) refreshCallMedia(); }, 3000);
 async function endCall() { const a = S.calls.active; if (!a) return; const r = await api("/api/call/end", "POST", { call_id: a.call_id }); if (r.error) toast("Lỗi kết thúc cuộc gọi: " + r.error, 5000); await loadCalls(); }
+// Cửa sổ cuộc gọi TÁCH RỜI (/call): một cửa sổ trình duyệt riêng, kéo đổi cỡ được; video và nút trong đó tự xếp lại theo cỡ cửa sổ (call.css).
+// Cuộc gọi VIDEO tự mở cửa sổ này khi bấm Gọi video / Nghe (trình duyệt chỉ cho mở cửa sổ ngay trong lúc bấm); «Đưa về đây» tắt thói quen đó.
+S.callWin = null;
+const callWinOpen = () => !!(S.callWin && !S.callWin.closed);
+function callWinPref() { try { return localStorage.getItem("zalo-callwin") !== "0"; } catch (e) { return true; } }
+function setCallWinPref(on) { try { localStorage.setItem("zalo-callwin", on ? "1" : "0"); } catch (e) { /* riêng tư */ } }
+function openCallWindow() {
+  if (callWinOpen()) { try { S.callWin.focus(); } catch (e) { /* ignore */ } return S.callWin; }
+  let win = null;
+  try { win = window.open("/call", "zalo-call", "popup=yes,width=960,height=600,resizable=yes"); } catch (e) { win = null; }
+  if (!win) { toast("Trình duyệt đã chặn cửa sổ bật lên — hãy cho phép cửa sổ bật lên cho trang này rồi bấm «Tách cửa sổ».", 7000); return null; }
+  S.callWin = win; setCallWinPref(true); renderCallCard();
+  return win;
+}
+function closeCallWindow() { setCallWinPref(false); try { if (callWinOpen()) S.callWin.close(); } catch (e) { /* ignore */ } S.callWin = null; renderCallCard(); }
 // Cửa sổ riêng của hình đối tác (#vidwin): giữ NGUYÊN phần tử khung giữa các lần vẽ lại thẻ để luồng hình không bị khởi động lại.
 function showVideoWin(box) {
   const win = $("vidwin");
@@ -960,11 +978,14 @@ function renderCallCard() {
   card.hidden = false;
   put(card,
     h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, (a.type === "video" ? "Video · " : "") + peerName(a)), h("div", { class: "st" }, answered ? "Đang trong cuộc gọi" : ringing ? "Đang đổ chuông…" : "Đang kết nối…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - since)))),
+    answered ? h("div", { class: "popout-row" }, callWinOpen()
+      ? [h("span", { class: "popout-note" }, "Đang mở ở cửa sổ riêng"), h("button", { class: "link", type: "button", onclick: closeCallWindow }, "Đưa về đây")]
+      : h("button", { class: "link", type: "button", title: "Mở cuộc gọi ở một cửa sổ riêng, kéo to nhỏ tùy ý", onclick: openCallWindow }, svg("popout"), " Tách cửa sổ")) : null,
     answered && noMedia ? h("div", { class: "warn" }, "Đã nối hơn 8 giây nhưng chưa thấy gói tiếng/hình nào chạy qua; bên kia có thể báo “kết nối không ổn định”.") : null,
     a.request_sent === false ? h("div", { class: "warn" }, "Bước 2 chưa gửi được, bên kia có thể chưa đổ chuông.") : null,
     answered ? mediaToggles() : null,
     h("div", { class: "acts" }, h("button", { class: "end", type: "button", onclick: endCall }, svg("hang"), "Kết thúc")));
-  showVideoWin(answered ? videoView(a, mc) : null);        // khung hình đối tác là CỬA SỔ RIÊNG, không nằm trong thẻ điều khiển cuộc gọi
+  showVideoWin(answered && !callWinOpen() ? videoView(a, mc) : null);        // khung hình đối tác là CỬA SỔ RIÊNG; đã tách ra cửa sổ trình duyệt thì không vẽ thêm ở đây (tránh hai luồng)
   if (answered && S.cm.id !== String(a.call_id)) { S.cm.id = String(a.call_id); S.cm.mic = S.cm.speaker = S.cm.video = false; refreshCallMedia(); }
   card._since = since;
 }
@@ -1496,6 +1517,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
 });
 try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
-if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain, mergeMsgs, startCall, openThread, videoView, showVideoWin, renderCallCard, applyCm });   // chỉ để kiểm thử giao diện (jsdom)
+if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain, mergeMsgs, startCall, openThread, videoView, showVideoWin, renderCallCard, applyCm, openCallWindow, closeCallWindow, callWinOpen, answerCall });   // chỉ để kiểm thử giao diện (jsdom)
 applyScale(); setTab("chats"); updateSendButtons(); privacyInit(); boot();
 })();
