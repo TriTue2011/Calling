@@ -240,6 +240,34 @@ def test_call_identity_follows_env_and_applies_even_in_pc_login():
         protocol.set_client("web")
 
 
+def test_call_client_web_declares_web_type_and_web_user_agent_only_for_calls():
+    """ZALO_PC_CALL_CLIENT=web (14/11): các cuộc gọi trước 13/11 (mất media ~11%) khai web 30/695 + UA web; từ khi ép PC mất ~42% — cho thử lại."""
+    call = "https://voicecall-wpa.chat.zalo.me/api/voicecall/answer?zpw_ver=693&zpw_type=24&params=abc"
+    chat = "https://tt-chat1-wpa.chat.zalo.me/api/message/sms?zpw_ver=693&zpw_type=24&params=abc"
+    old = os.environ.pop("ZALO_PC_CALL_CLIENT", None)
+    try:
+        for login in ("pc", "web"):
+            protocol.set_client(login)
+            os.environ["ZALO_PC_CALL_CLIENT"] = "web"
+            q = _q(protocol.adapt_url(call))
+            assert (q["zpw_type"], q["zpw_ver"]) == ("30", "695"), (login, q)
+            assert protocol.user_agent_for(call) == "zalo-pc-qr/1.0", login
+            assert protocol.uses_pc_identity(call) is False
+            assert protocol.call_identity() == (30, 695)
+            # ép thử lại bằng PC (Zalo từ chối kiểu) vẫn ra UA PC
+            assert protocol.user_agent_for(call, force_pc=True).startswith("ZaloPC-win32-")
+            # dịch vụ khác theo kiểu đăng nhập, KHÔNG đổi
+            ua = protocol.user_agent_for(chat)
+            assert ua == ("ZaloPC-win32-24v693" if login == "pc" else "zalo-pc-qr/1.0"), (login, ua)
+            os.environ["ZALO_PC_CALL_CLIENT"] = "pc"
+            assert _q(protocol.adapt_url(call))["zpw_type"] == "24" and protocol.user_agent_for(call).startswith("ZaloPC-win32-")
+    finally:
+        os.environ.pop("ZALO_PC_CALL_CLIENT", None)
+        if old is not None:
+            os.environ["ZALO_PC_CALL_CLIENT"] = old
+        protocol.set_client("web")
+
+
 def test_call_version_env_overrides_zpw_ver_only_for_calls():
     call = "https://voicecall-wpa.chat.zalo.me/api/voicecall/answer?zpw_ver=693&zpw_type=24&params=abc"
     chat = "https://tt-chat1-wpa.chat.zalo.me/api/message/sms?zpw_ver=695&zpw_type=30&params=abc"

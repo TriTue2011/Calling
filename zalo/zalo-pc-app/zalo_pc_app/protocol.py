@@ -194,7 +194,7 @@ def user_agent():
     (loại 24, bản 693; nhật ký mạng 13/11/2026: 62 yêu cầu) — nên kiểu «pc» khai y như vậy; kiểu «web» giữ UA cũ của app."""
     if client_name() == "pc":
         return "ZaloPC-win32-%dv%d" % (CLIENTS["pc"][0], CLIENTS["pc"][1])
-    return "zalo-pc-qr/1.0"
+    return WEB_USER_AGENT
 
 
 # ---- Kiểu web nhưng DỊCH VỤ NÀO KHÔNG DÙNG ĐƯỢC với zpw_type/zpw_ver của web thì dùng của PC (chủ máy chốt 13/11/2026) ----
@@ -205,11 +205,13 @@ _PC_HOSTS = set()
 # Danh tính khai cho ĐƯỜNG GỌI ĐIỆN (/api/voicecall/), tách khỏi kiểu đăng nhập (13/11/2026). Mặc định «pc» (24/693). «mobile» = zpw_type 25 như
 # APK Zalo Android (chuỗi `&zpw_type=25&zpw_sek=` trong APK 26.10.02; zpw_ver của APK là cấu hình riêng, máy chủ không kiểm: đo 1/693/695 đều nhận) —
 # thử để điện thoại coi BenBap là máy di động khi xin chuyển thoại sang video. Máy chủ nhóm nhận type 22..25 và 30, từ chối 26/27/31 (đo 13/11).
-CALL_CLIENTS = {"pc": (24, 693), "mobile": (25, 693)}
+CALL_CLIENTS = {"pc": (24, 693), "mobile": (25, 693), "web": CLIENTS["web"]}
+WEB_USER_AGENT = "zalo-pc-qr/1.0"             # UA của kiểu web (cũng là UA các cuộc gọi trước 13/11 khi gọi điện chưa bị ép sang PC)
 
 
 def call_identity():
-    """(zpw_type, zpw_ver) cho yêu cầu gọi điện: ZALO_PC_CALL_CLIENT = pc (mặc định) | mobile; ZALO_PC_CALL_VERSION (số nguyên) ghi đè zpw_ver.
+    """(zpw_type, zpw_ver) cho yêu cầu gọi điện: ZALO_PC_CALL_CLIENT = pc (mặc định) | mobile | web (30/695 + UA web như các cuộc gọi trước 13/11);
+    ZALO_PC_CALL_VERSION (số nguyên) ghi đè zpw_ver.
     Thử 14/11: điện thoại báo «Phiên bản của BenBap chưa hỗ trợ chuyển video» (APK: ZmInCallActivity.b2 mã 4, sinh từ sự kiện 10027 của engine;
     libzrtc có zrtc_call_config_set_client_version) — nghi máy chủ so sánh phiên bản của bên nghe với ngưỡng; zpw_type không đổi được, thử zpw_ver lớn."""
     t, v = CALL_CLIENTS.get(os.environ.get("ZALO_PC_CALL_CLIENT", "pc").strip().lower(), CALL_CLIENTS["pc"])
@@ -228,9 +230,17 @@ def is_call_url(url):
     return "/api/voicecall/" in _split(url).path
 
 
+def call_client_name():
+    """Kiểu khai cho đường gọi điện: pc | mobile | web (ZALO_PC_CALL_CLIENT; lạ/rỗng = pc)."""
+    n = os.environ.get("ZALO_PC_CALL_CLIENT", "pc").strip().lower()
+    return n if n in CALL_CLIENTS else "pc"
+
+
 def uses_pc_identity(url):
     """Yêu cầu tới `url` sẽ khai kiểu PC (kiểu pc đăng nhập, đường gọi điện, hay máy chủ đã học là cần PC)?"""
-    return client_name() == "pc" or is_call_url(url) or _split(url).netloc.lower() in _PC_HOSTS
+    if is_call_url(url):
+        return call_client_name() != "web"
+    return client_name() == "pc" or _split(url).netloc.lower() in _PC_HOSTS
 
 
 def adapt_url(url):
@@ -257,6 +267,8 @@ def user_agent_for(url, force_pc=False):
     """User-Agent của yêu cầu tới `url`: PC nếu yêu cầu khai kiểu PC (force_pc: đang thử lại bằng PC), không thì theo kiểu đăng nhập."""
     if force_pc or uses_pc_identity(url):
         return "ZaloPC-win32-%dv%d" % (CLIENTS["pc"][0], CLIENTS["pc"][1])
+    if is_call_url(url):                      # gọi điện khai kiểu web: UA web dù phiên đăng nhập là pc
+        return WEB_USER_AGENT
     return user_agent()
 
 
