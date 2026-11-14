@@ -71,6 +71,7 @@ signkey, encrypted when a param cipher key is configured) plus the
 session cookie — never the post-login zpw_ver/zpw_type params.
 """
 
+import io
 import json
 import os
 import re
@@ -93,6 +94,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import VERSION as _PKG_VERSION
 from . import app_auth
+from . import ingress as ingress_mod
 from . import call_audio as call_audio_mod
 from . import ffmpeg_log as ffmpeg_log_mod
 from . import account_health
@@ -296,6 +298,19 @@ def _poller_is_alive(poller):
     return True
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
+
+def _ui_enabled(env=None, static_dir=None):
+    """Có phục vụ WebUI không. Image KHÔNG UI (target `noui`) xóa thư mục static/zalo nên tự tắt; ZALO_PC_UI=0 tắt UI trên bản có UI.
+    Biến rỗng (compose `${BIEN:-}`) = mặc định (bật nếu có tệp UI). API không bị ảnh hưởng: tích hợp HA và curl vẫn dùng như cũ."""
+    env = os.environ if env is None else env
+    if (env.get("ZALO_PC_UI") or "").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    return os.path.isfile(os.path.join(static_dir or STATIC_DIR, "zalo", "index.html"))
+
+
+UI_ENABLED = _ui_enabled()
+_UI_PATHS = ("/", "/login", "/classic", "/call", "/app.js", "/style.css")
 FONTS_DIR = os.path.join(STATIC_DIR, "fonts")
 
 
@@ -3187,6 +3202,8 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
         self.wfile.write(data)
 
     def _send_redirect(self, location):
+        if location.startswith("/") and not location.startswith("//"):
+            location = self._ingress_prefix() + location
         self.send_response(302)
         self.send_header("Location", location)
         self.send_header("Content-Length", "0")
@@ -3202,10 +3219,20 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
         refuses to serve, so production never takes this path."""
         if STATE.auth is None:
             return ""
+        if self._ingress_prefix():
+            return STATE.auth.username   # da dang nhap HA: Supervisor tin cay, khong hoi mat khau lan hai
         return STATE.auth.validate_token(self._app_token())
+
+    def _ingress_prefix(self):
+        """Tien to /api/hassio_ingress/<token> neu yeu cau di qua Ingress cua HA va DANG TIN, "" neu khong (xem ingress.py)."""
+        if not hasattr(self, "_ing_cache"):
+            self._ing_cache = ingress_mod.prefix_for(self.client_address[0], self.headers)
+        return self._ing_cache
 
     def _app_token(self):
         """Token phien app trong cookie cua yeu cau ("" neu khong co)."""
+        if self._ingress_prefix():
+            return "ingress"   # khoa cho ma PIN rieng tu: yeu cau ingress khong mang cookie
         cookies = {}
         for part in (self.headers.get("Cookie") or "").split(";"):
             if "=" in part:
@@ -3235,6 +3262,7 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
         return user
 
     def handle_one_request(self):
+        self.__dict__.pop("_ing_cache", None)   # ket noi giu song: moi yeu cau tinh lai tien to ingress
         try:
             super().handle_one_request()
         except privacy_mod.PrivacyLocked:
@@ -3243,6 +3271,10 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
                 self.wfile.flush()
             except OSError:
                 pass
+        finally:
+            orig = self.__dict__.pop("_orig_rfile", None)   # than POST chunked da gom vao bo nho: tra rfile that cho yeu cau ke tiep
+            if orig is not None:
+                self.rfile = orig
 
     def _unauthorized(self):
         return self._send_json({"error": "chua_dang_nhap_app"},
@@ -3275,6 +3307,8 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
     # -- routing ---------------------------------------------------------
     def do_GET(self):
         path = self.path.split("?", 1)[0]
+        if not UI_ENABLED and (path in _UI_PATHS or path.startswith(("/ui/", "/fonts/"))):
+            return self._serve_no_ui(path)
         if path.startswith("/api/call/audio/tap/"):
             # Ban sao khung cho nguoi nghe thu hai (AI); cung xac thuc bang TOKEN.
             return self._serve_call_audio_tap(path[len("/api/call/audio/tap/"):])
@@ -3359,6 +3393,7 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
         if path == "/api/status":
             status = STATE.public_status(app_user)
             status["sync_lag_ms"] = STATE.lag_summary()
+            status["ui"] = UI_ENABLED                      # bản KHÔNG giao diện báo false
             status["keepalive"] = {"opened": _KEEPALIVE_POOL.opened}     # so ket noi poller da mo (it = giu song tot)
             status["receipts"] = {"sent": RECEIPTS.sent, "failed": RECEIPTS.failed, "last_error": RECEIPTS.last_error}
             return self._send_json(status)
@@ -4123,6 +4158,16 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            # Ingress cua HA gui lai than POST dang chunked, khong co Content-Length: gom lai de cac ham doc than ben duoi chay nhu thuong.
+            data = ingress_mod.read_chunked(self.rfile)
+            if data is None:
+                self.close_connection = True
+                return self._send_json({"error": "than_yeu_cau_khong_hop_le"}, status=400)
+            self._orig_rfile = self.rfile
+            self.rfile = io.BytesIO(data)
+            del self.headers["Content-Length"]
+            self.headers["Content-Length"] = str(len(data))
         # CHAT HOOK: route /api/thread/* doc o _handle_thread_post
         # (multipart thi doc raw, khong doc JSON truoc). Dang nhap
         # app kiem tra ngay dau _handle_thread_post (H2) — nhanh
@@ -4726,6 +4771,14 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
             return self._send_json(result)
         return self._send_json({"error": "not_found"}, status=404)
 
+    def _serve_no_ui(self, path):
+        """Bản KHÔNG giao diện: «/» trả mô tả ngắn (200) để kiểm tra sống; mọi đường giao diện khác 404 — không đọc tệp tĩnh nào."""
+        if path == "/":
+            return self._send_json({"ui": False, "message": "Ban nay khong co giao dien web: cau hinh bang bien moi truong .env / tuy chon add-on, "
+                                    "hoac dich vu Home Assistant zalo_call.get_app_settings / set_app_settings, hoac curl toi /api/...",
+                                    "status": "/api/app/status"})
+        return self._send_json({"error": "khong_co_giao_dien", "ui": False}, status=404)
+
     def _serve_static(self, name, ctype):
         # Ten co dinh o do_GET (login.html/app.html/app.js/style.css)
         # cung di qua _safe_static_path: phong thu theo chieu sau,
@@ -4743,6 +4796,12 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
                 body = f.read()
         except (FileNotFoundError, IsADirectoryError, OSError):
             return self._send_json({"error": "not_found"}, status=404)
+        prefix = self._ingress_prefix()
+        if prefix and ctype in ("text/html", "text/css"):
+            text = body.decode("utf-8")
+            text = (ingress_mod.rewrite_html(text, prefix) if ctype == "text/html"
+                    else ingress_mod.rewrite_css(text, prefix))
+            body = text.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -4820,6 +4879,8 @@ def _install_log_tee(data_dir):
 
 def main():
     _install_log_tee(STATE.data_dir)
+    if STATE.webhook_store.seed_from_env():
+        print("[webhook] da dat webhook tu bien moi truong ZALO_PC_WEBHOOK_* (lan dau, chua co cau hinh)", flush=True)
     STATE.retention.start()
     # App login is mandatory: refuse to start without credentials
     # instead of ever serving the app unprotected.

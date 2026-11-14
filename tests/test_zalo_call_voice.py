@@ -84,7 +84,7 @@ class FakeBridge:
         self.reconnected.append((str(call_id), dict(override)))
         return {}
 
-    async def async_call_fields(self, override):
+    async def async_call_fields(self, override, echo_mode=None):
         return {k + "_url": (v or "off") for k, v in override.items() if k in ("speaker", "mic", "camera")}
 
 
@@ -541,7 +541,7 @@ async def test_rule_services_set_list_remove_and_contacts(hass, setup, app):
     contacts = await hass.services.async_call(DOMAIN, "list_contacts", {}, blocking=True, return_response=True)
     assert {"id": THREAD, "name": "Đại ca"} in contacts["friends"] and contacts["groups"][0]["name"] == "AI học hỏi"
     devs = await hass.services.async_call(DOMAIN, "get_default_devices", {}, blocking=True, return_response=True)
-    assert "speaker" in devs and "mic_url" in devs and "call_volume" in devs
+    assert "call_volume" in devs and "speaker" not in devs and "mic_url" not in devs and "camera" not in devs     # không còn loa/mic/camera mặc định: chọn theo quy tắc / từng cuộc gọi
 
 
 async def test_old_settings_entities_are_gone_only_text_style_and_buttons_remain(hass, setup):
@@ -927,16 +927,17 @@ async def test_incoming_call_announces_on_the_speaker_only_when_the_rule_turns_i
     for _ in range(2):
         await _webhook(hass, hass_client_no_auth, _incoming(status="friend", call_id="a3", peer="Nguyễn Việt", call_type_raw=1))
     await hass.async_block_till_done()
-    assert spoken == [{"entity_id": "tts.chatgpt", "media_player_entity_id": "media_player.loa_phong_khach", "message": "Có cuộc gọi video từ Nguyễn Việt.",
+    assert spoken == [{"entity_id": "tts.chatgpt", "media_player_entity_id": "media_player.loa_phong_khach", "message": "Có cuộc gọi video từ Đại ca.",      # tên: quy tắc → danh bạ (tra theo thread_id) → peer của sự kiện (caller_name.spoken_name)
+                       
                        "language": "vi", "options": {"voice": "v1"}}], spoken
     assert not [r for r in app.requests if r["path"] == "/api/call/answer"]
     # Người lạ không có quy tắc strangers: im lặng (quy tắc contacts không áp cho người lạ)
     spoken.clear()
-    await _webhook(hass, hass_client_no_auth, _incoming(status="stranger", call_id="a4"))
+    await _webhook(hass, hass_client_no_auth, _incoming(thread="999", status="stranger", call_id="a4"))
     await hass.async_block_till_done()
     assert spoken == []
     await _set_rule(hass, scope="strangers", announce=True, announce_to="media_player.loa_phong_khach")
-    await _webhook(hass, hass_client_no_auth, _incoming(status="stranger", call_id="a5"))
+    await _webhook(hass, hass_client_no_auth, _incoming(thread="999", status="stranger", call_id="a5"))
     await hass.async_block_till_done()
     assert spoken and spoken[0]["message"] == "Có cuộc gọi thoại từ người lạ."
 
@@ -1101,8 +1102,13 @@ async def test_video_request_is_an_event_and_the_rule_decides_ask_accept_accept_
     await _webhook(hass, hass_client_no_auth, hook)
     await hass.async_block_till_done()
     assert accepts() == []
-    # accept: đồng ý, KHÔNG gửi hình trong nhà
+    # accept NHƯNG công tắc tổng `video_consent` đang TẮT (mặc định): vẫn KHÔNG đồng ý
     await _set_rule(hass, scope="thread", thread_id=THREAD, video_request="accept")
+    await _webhook(hass, hass_client_no_auth, hook)
+    await hass.async_block_till_done()
+    assert accepts() == []
+    await hass.services.async_call(DOMAIN, "set_default_devices", {"video_consent": True}, blocking=True)
+    # accept + công tắc tổng bật: đồng ý, KHÔNG gửi hình trong nhà
     await _webhook(hass, hass_client_no_auth, hook)
     await hass.async_block_till_done()
     assert len(accepts()) == 1 and "camera_url" not in accepts()[0] and accepts()[0]["call_id"] == "555", accepts()

@@ -7,6 +7,32 @@ Không chạy binary PC, không Wine, không QEMU.
 Báo cáo đầy đủ (luồng QR, verdict, câu hỏi mở, quy trình test thật):
 xem [bao-cao.md](bao-cao.md).
 
+## Hai image: có giao diện (`:latest`) và KHÔNG giao diện (`:noui`)
+
+Cùng một mã nguồn và một Dockerfile, hai đích build: `--target ui` (mặc định, có WebUI) và `--target noui` (xóa thư mục `static`, chỉ phục vụ API). CI đẩy cả hai
+(`:latest`, `:vX.Y.Z`, `:noui`, `:vX.Y.Z-noui`). Compose: `docker-compose.yml` (có UI) và `docker-compose.noui.yml`.
+
+**Mọi biến môi trường đều TÙY CHỌN** (xem `.env.example`; compose dùng dạng `${BIEN:-}` nên thiếu biến thì `docker compose up` không báo lỗi; biến rỗng = chưa đặt):
+
+| Không đặt thì | Bản có UI | Bản không UI |
+|---|---|---|
+| `ZALO_PC_APP_USER` / `ZALO_PC_APP_PASSWORD` | tự sinh (user `admin`, mật khẩu ngẫu nhiên), in một lần trong log, lưu `/data/THONG-TIN-DANG-NHAP.txt` (0600); đổi trong WebUI | như bên cạnh; đổi bằng dịch vụ HA `zalo_call.set_app_password` hoặc `POST /api/app/password` |
+| `ZALO_PC_WEBHOOK_URL` (hoặc `ZALO_PC_WEBHOOK_<MESSAGE\|GROUP_EVENT\|REACTION\|CALL>_URL`) | để trống; đặt trong WebUI, hoặc tích hợp HA tự điền | giá trị ban đầu từ biến (chỉ khi CHƯA có cấu hình, không bao giờ đè); sau đó dịch vụ HA `set_app_settings` / `POST /api/webhooks` |
+| Các cài đặt khác (thiết bị, lưu trữ, proxy, bảo mật) | WebUI | dịch vụ HA `get_app_settings` / `set_app_settings`, hoặc curl `/api/settings/devices`, `/api/retention`, `/api/proxy`, `/api/security` |
+
+Giá trị đặt trong `.env` (hoặc tùy chọn add-on) luôn thắng giá trị tự sinh; mật khẩu đổi sau đó trong WebUI/HA không bị biến môi trường đè lại.
+Đăng nhập Zalo bằng QR (không UI): dịch vụ HA `zalo_call.login_qr` (mã hiện ở thực thể ảnh) hoặc `POST /api/qr/new` + `GET /api/qr/status`.
+`GET /api/status` có cờ `ui` (true/false) cho biết đang chạy bản nào. Muốn tắt UI trên bản có giao diện: `ZALO_PC_UI=0` (đừng đặt `ZALO_PC_UI` rỗng trong compose).
+
+```bash
+# Ví dụ curl (bản không UI): đăng nhập app lấy cookie, rồi đọc/đặt cài đặt
+curl -s -c /tmp/ck -H 'Content-Type: application/json' -d '{"username":"admin","password":"..."}' http://127.0.0.1:8080/api/app/login
+curl -s -b /tmp/ck http://127.0.0.1:8080/api/webhooks
+curl -s -b /tmp/ck -H 'Content-Type: application/json' -d '{"call_webhook_url":"http://ha:8123/api/webhook/<ma>"}' http://127.0.0.1:8080/api/webhooks
+```
+
+Lưu ý thật: image `:noui` KHÔNG nhẹ hơn đáng kể (đo: 815 MB cả hai, chênh ~0,7 MB) vì phần nặng là ffmpeg và Python; giá trị của nó là không mở bề mặt WebUI và cấu hình hoàn toàn bằng mã/biến.
+
 ## Đăng nhập app (user / mật khẩu) — cổng ngoài
 
 Mở app phải đăng nhập bằng tài khoản do người quản trị cấp, rồi mới
@@ -59,9 +85,13 @@ và `GET /api/app/status`) trả 401 khi chưa đăng nhập app; trang
 ## Chạy
 
 ```sh
-docker compose pull && docker compose up -d
+docker compose pull && docker compose up -d                              # bản có giao diện
+docker compose -f docker-compose.noui.yml pull && docker compose -f docker-compose.noui.yml up -d   # bản không giao diện
 # UI: http://127.0.0.1:8080
 ```
+
+Trong Home Assistant OS/Supervised dùng add-on thay cho compose (hai add-on `zalo_calling` và `zalo_calling_noui` ở gốc repo,
+cài theo README gốc, mục **Cài đặt**). Add-on có giao diện hiện WebUI ở thanh bên HA qua Ingress (`ZALO_PC_INGRESS=1`).
 
 > Dùng host path làm volume (ví dụ `/opt/zalo:/data`) hay named volume
 > đều không cần bước chown tay nào: entrypoint của image chown thư mục
@@ -153,17 +183,25 @@ python3 tests/run_tests.py
 
 ## Biến môi trường
 
+**Tất cả đều TÙY CHỌN** (xem `.env.example`; compose dùng dạng `${BIEN:-}`, biến rỗng = chưa đặt). Add-on HA không đặt biến: dùng tuỳ chọn add-on
+(`username`, `password`, `webhook_url`) và entrypoint đổi chúng thành các biến dưới đây.
+
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `ZALO_PC_APP_USER` | (không có — bắt buộc) | Tên đăng nhập app; thiếu thì server từ chối khởi động |
-| `ZALO_PC_APP_PASSWORD` | (không có — bắt buộc nếu không dùng HASH) | Mật khẩu app dạng plain text lúc deploy; server hash PBKDF2 rồi lưu salt+hash vào `/data/app_auth.json` (0600) |
-| `ZALO_PC_APP_PASSWORD_HASH` | (không có) | Thay cho PASSWORD: hash `$pbkdf2-sha256$...` tính bằng `python3 -m zalo_pc_app.app_auth`; ưu tiên hơn PASSWORD nếu cả hai cùng có |
+| `ZALO_PC_APP_USER` | tự sinh `admin` | Tên đăng nhập app |
+| `ZALO_PC_APP_PASSWORD` | tự sinh, ngẫu nhiên | Mật khẩu app dạng plain text lúc deploy; server hash PBKDF2 rồi lưu salt+hash vào `/data/app_auth.json` (0600). Không đặt: in một lần trong log và lưu `/data/THONG-TIN-DANG-NHAP.txt` (0600). Mật khẩu đổi sau đó trong WebUI / `zalo_call.set_app_password` được giữ, không bị biến này đè |
+| `ZALO_PC_APP_PASSWORD_HASH` | (không có) | Thay cho PASSWORD: hash `$pbkdf2-sha256$...` tính bằng `python3 -m zalo_pc_app.app_auth`; ưu tiên hơn PASSWORD. Đặt hash thì KHÔNG đổi được mật khẩu từ WebUI/HA |
 | `ZALO_PC_APP_SESSION_HOURS` | `8` | Hạn phiên đăng nhập app (giờ, số > 0) |
 | `ZALO_PC_APP_COOKIE_SECURE` | (trống = 0) | Đặt `1` khi chạy sau HTTPS để cookie có cờ Secure |
-| `ZALO_PC_DATA_DIR` | `./data` | Thư mục volume chứa `session.json` (mode 0600) |
-| `ZALO_PC_HOST` / `ZALO_PC_PORT` | `127.0.0.1` / `8080` | Bind của app server |
+| `ZALO_PC_APP_PIN` / `ZALO_PC_APP_PIN_HASH` / `ZALO_PC_APP_PIN_MINUTES` | (tắt) / (tắt) / `10` | Mã PIN riêng tư (4–32 ký tự, hoặc hash tính bằng `python3 -m zalo_pc_app.privacy`) và số phút không dùng thì tự khoá lại |
+| `ZALO_PC_WEBHOOK_URL` | (trống) | Webhook ban đầu cho cả bốn loại; chỉ dùng khi CHƯA có cấu hình (không bao giờ đè). Từng loại: `ZALO_PC_WEBHOOK_MESSAGE_URL`, `ZALO_PC_WEBHOOK_GROUP_EVENT_URL`, `ZALO_PC_WEBHOOK_REACTION_URL`, `ZALO_PC_WEBHOOK_CALL_URL` |
+| `ZALO_PC_UI` | (bật nếu có `static/`) | `0` / `false` / `no` / `off` tắt WebUI trên bản có giao diện. Image `:noui` không có thư mục `static` nên luôn không giao diện. Đừng đặt rỗng trong compose |
+| `ZALO_PC_INGRESS` | (tắt) | `1` bật chế độ Ingress của HA: tin yêu cầu từ Supervisor (172.30.32.2) có `X-Ingress-Path`, không hỏi mật khẩu, viết lại đường dẫn giao diện. Add-on tự đặt; Docker thường để tắt |
+| `ZALO_PC_DATA_DIR` | `./data` (image: `/data`) | Thư mục volume chứa `session.json` (mode 0600) và dữ liệu app |
+| `ZALO_PC_HOST` / `ZALO_PC_PORT` | `127.0.0.1` / `8080` | Bind của app server (compose đặt `0.0.0.0` / `8080`) |
 | `ZALO_PC_PARAM_CIPHER_KEY` | (trống) | Khóa mã hóa tham số API login, cấp lúc deploy, KHÔNG đưa vào repo. Không có nó, client dùng tham số trần + signkey (server chỉ chấp nhận nếu đã tắt mã hóa tham số) |
 | `ZALO_PC_COOKIE_NAME` | `zpw_sek` | Tên cookie phiên gửi kèm API sau login |
+| `ZALO_PC_VERSION` | (CI đặt lúc build) | Phiên bản hiển thị ở `GET /api/status`; image tự mang theo (build-arg `APP_VERSION`), không cần đặt |
 
 ## Trạng thái
 

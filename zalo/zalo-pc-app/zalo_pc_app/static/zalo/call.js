@@ -27,7 +27,7 @@
   function toast(msg, ms) { const t = $("cw-toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, ms || 4000); }
   async function api(path, method, body) {
     const r = await fetch(path, method === "POST" ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}), credentials: "same-origin" } : { credentials: "same-origin" });
-    if (r.status === 401) { location.href = "/login"; return { error: "chua_dang_nhap" }; }
+    if (r.status === 401) { location.href = (window.__zIng || "") + "/login"; return { error: "chua_dang_nhap" }; }
     try { return await r.json(); } catch (e) { return { error: "HTTP " + r.status }; }
   }
   const fmtDur = (s) => { s = Math.max(0, Math.floor(s)); const m = Math.floor(s / 60); return String(m).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); };

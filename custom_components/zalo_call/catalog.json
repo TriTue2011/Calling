@@ -251,7 +251,7 @@
   "group": "nhom",
   "label": "Tạo nhóm mới",
   "thread": "none",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "name",
@@ -830,7 +830,7 @@
   "group": "ho_so",
   "label": "Đổi biệt danh",
   "thread": "none",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "friend_id",
@@ -852,7 +852,7 @@
   "group": "ho_so",
   "label": "Xóa biệt danh",
   "thread": "none",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "friend_id",
@@ -897,7 +897,7 @@
   "group": "nhom",
   "label": "Thêm phó nhóm",
   "thread": "group",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "member_id",
@@ -914,7 +914,7 @@
   "group": "nhom",
   "label": "Xóa phó nhóm",
   "thread": "group",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "member_id",
@@ -959,7 +959,7 @@
   "group": "nhom",
   "label": "Bật link tham gia nhóm",
   "thread": "group",
-  "danger": false,
+  "danger": true,
   "fields": []
  },
  {
@@ -970,7 +970,7 @@
   "group": "nhom",
   "label": "Tắt link tham gia nhóm",
   "thread": "group",
-  "danger": false,
+  "danger": true,
   "fields": []
  },
  {
@@ -981,7 +981,7 @@
   "group": "nhom",
   "label": "Tham gia nhóm bằng link",
   "thread": "none",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "link",
@@ -1042,7 +1042,7 @@
   "group": "ho_so",
   "label": "Cập nhật cài đặt riêng tư",
   "thread": "none",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "setting_type",
@@ -1220,7 +1220,7 @@
   "group": "hoi_thoai",
   "label": "Đặt PIN hội thoại ẩn",
   "thread": "none",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "pin",
@@ -1237,7 +1237,7 @@
   "group": "hoi_thoai",
   "label": "Gỡ PIN hội thoại ẩn",
   "thread": "none",
-  "danger": false,
+  "danger": true,
   "fields": []
  },
  {
@@ -1746,7 +1746,7 @@
   "group": "nhac",
   "label": "Thêm tin nhắn nhanh",
   "thread": "none",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "keyword",
@@ -1779,7 +1779,7 @@
   "group": "nhac",
   "label": "Xóa tin nhắn nhanh",
   "thread": "none",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "item_ids",
@@ -1796,7 +1796,7 @@
   "group": "nhac",
   "label": "Sửa tin nhắn nhanh",
   "thread": "none",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "item_id",
@@ -2053,7 +2053,7 @@
   "group": "nhom",
   "label": "Bỏ phiếu bình chọn",
   "thread": "group",
-  "danger": false,
+  "danger": true,
   "fields": [
    {
     "key": "poll_id",

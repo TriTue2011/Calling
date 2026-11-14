@@ -1901,7 +1901,9 @@ data:
 <a id="change_friend_alias"></a>
 #### Đổi biệt danh — `zalo_call.change_friend_alias`
 
-Thay đổi biệt danh của một người bạn
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Thay đổi biệt danh của một người bạn (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -1922,7 +1924,9 @@ data:
 <a id="remove_friend_alias"></a>
 #### Xóa biệt danh — `zalo_call.remove_friend_alias`
 
-Xóa biệt danh của một người bạn
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Xóa biệt danh của một người bạn (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -1983,7 +1987,9 @@ data:
 <a id="update_settings"></a>
 #### Cập nhật cài đặt riêng tư — `zalo_call.update_settings`
 
-Cập nhật cài đặt riêng tư
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Cập nhật cài đặt riêng tư (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -2129,7 +2135,9 @@ action: zalo_call.get_settings
 <a id="create_group"></a>
 #### Tạo nhóm mới — `zalo_call.create_group`
 
-Tạo group mới
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Tạo group mới (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -2299,7 +2307,9 @@ data:
 <a id="add_group_deputy"></a>
 #### Thêm phó nhóm — `zalo_call.add_group_deputy`
 
-Thêm phó nhóm
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Thêm phó nhóm (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -2328,7 +2338,9 @@ data:
 <a id="remove_group_deputy"></a>
 #### Xóa phó nhóm — `zalo_call.remove_group_deputy`
 
-Xóa phó nhóm
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Xóa phó nhóm (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -2417,7 +2429,9 @@ data:
 <a id="enable_group_link"></a>
 #### Bật link tham gia nhóm — `zalo_call.enable_group_link`
 
-Kích hoạt và lấy link tham gia nhóm
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Kích hoạt và lấy link tham gia nhóm (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -2444,7 +2458,9 @@ data:
 <a id="disable_group_link"></a>
 #### Tắt link tham gia nhóm — `zalo_call.disable_group_link`
 
-Vô hiệu hóa link tham gia nhóm
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Vô hiệu hóa link tham gia nhóm (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -2471,7 +2487,9 @@ data:
 <a id="join_group"></a>
 #### Tham gia nhóm bằng link — `zalo_call.join_group`
 
-Tham gia nhóm bằng link mời
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Tham gia nhóm bằng link mời (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -2738,7 +2756,9 @@ data:
 <a id="vote_poll"></a>
 #### Bỏ phiếu bình chọn — `zalo_call.vote_poll`
 
-Bỏ phiếu bình chọn
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Bỏ phiếu bình chọn (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -3011,7 +3031,9 @@ data:
 <a id="add_quick_message"></a>
 #### Thêm tin nhắn nhanh — `zalo_call.add_quick_message`
 
-Thêm một tin nhắn nhanh mới
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Thêm một tin nhắn nhanh mới (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -3045,7 +3067,9 @@ action: zalo_call.get_quick_message
 <a id="remove_quick_message"></a>
 #### Xóa tin nhắn nhanh — `zalo_call.remove_quick_message`
 
-Xóa tin nhắn nhanh
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Xóa tin nhắn nhanh (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -3064,7 +3088,9 @@ data:
 <a id="update_quick_message"></a>
 #### Sửa tin nhắn nhanh — `zalo_call.update_quick_message`
 
-Cập nhật tin nhắn nhanh
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Cập nhật tin nhắn nhanh (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -3353,7 +3379,9 @@ data:
 <a id="update_hidden_convers_pin"></a>
 #### Đặt PIN hội thoại ẩn — `zalo_call.update_hidden_convers_pin`
 
-Đặt hoặc thay đổi mã PIN cho các cuộc trò chuyện ẩn
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Đặt hoặc thay đổi mã PIN cho các cuộc trò chuyện ẩn (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 
@@ -3372,7 +3400,9 @@ data:
 <a id="reset_hidden_convers_pin"></a>
 #### Gỡ PIN hội thoại ẩn — `zalo_call.reset_hidden_convers_pin`
 
-Gỡ bỏ mã PIN cho các cuộc trò chuyện ẩn
+> ⚠️ **Dịch vụ nguy hiểm**: xoá hoặc đổi dữ liệu thật trên tài khoản Zalo. Kiểm kỹ trước khi cho automation chạy.
+
+Gỡ bỏ mã PIN cho các cuộc trò chuyện ẩn (không hoàn tác được)
 
 **Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
 

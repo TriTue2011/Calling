@@ -177,6 +177,29 @@ class WebhookStore:
     def exists(self):
         return os.path.exists(self.path)
 
+    def seed_from_env(self, env=None):
+        """Bản KHÔNG WebUI: đặt webhook từ biến môi trường lúc khởi động. ZALO_PC_WEBHOOK_URL = một địa chỉ cho cả bốn loại; ZALO_PC_WEBHOOK_<LOẠI>_URL
+        (MESSAGE, GROUP_EVENT, REACTION, CALL) đặt riêng từng loại. CHỈ khi chưa có tệp cấu hình: không bao giờ đè thứ đã đặt trong WebUI, bằng
+        dịch vụ HA hay do tích hợp HA tự điền. Biến rỗng (compose `${BIEN:-}`) = chưa đặt. Địa chỉ sai bị bỏ qua (kèm cảnh báo). Trả True nếu đã tạo tệp."""
+        env = os.environ if env is None else env
+        if self.exists():
+            return False
+        common = (env.get("ZALO_PC_WEBHOOK_URL") or "").strip()
+        raw = {}
+        for kind, url_field, _ in KINDS:
+            own = (env.get("ZALO_PC_WEBHOOK_%s_URL" % kind.upper()) or "").strip()
+            value = own or common
+            if not value:
+                continue
+            try:
+                raw[url_field] = validate_url(value)
+            except ValueError as e:
+                print("[webhook] bo qua ZALO_PC_WEBHOOK cho %s: %s" % (kind, e), flush=True)
+        if not raw:
+            return False
+        self.save(raw)
+        return True
+
     def load(self):
         """Stored config merged over defaults (a missing/corrupt
         file yields defaults; a corrupt file does NOT raise — the

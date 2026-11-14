@@ -1,6 +1,7 @@
 # Zalo PC app — chạy bằng image dựng sẵn trên GHCR (không cần build, không cài thêm gì).
 #
-#   1) Tạo file .env cạnh file này:   ZALO_PC_APP_USER=...   ZALO_PC_APP_PASSWORD=...
+#   1) (Không bắt buộc) tạo file .env cạnh file này — xem .env.example. KHÔNG có .env thì vẫn chạy: app tự sinh tài khoản,
+#      in một lần trong log và lưu ở /data/THONG-TIN-DANG-NHAP.txt; mật khẩu/webhook... đặt tiếp trong WebUI.
 #   2) docker compose up -d
 #   3) Cập nhật bản mới:              docker compose pull && docker compose up -d
 #      (hoặc để Watchtower tự kéo :latest; muốn ghim phiên bản thì đổi :latest thành :vX.Y.Z)
@@ -20,12 +21,14 @@ services:
       # thư mục dữ liệu cho user app rồi hạ quyền — không cần chown tay.
       - zalo-pc-data:/data
     environment:
-      # BẮT BUỘC — đăng nhập app (cổng ngoài, trước mã QR Zalo). Thiếu hai biến này server từ chối
-      # khởi động. KHÔNG ghi mật khẩu thật vào file này (đặt trong .env hoặc biến môi trường stack).
-      ZALO_PC_APP_USER: "${ZALO_PC_APP_USER}"
-      ZALO_PC_APP_PASSWORD: "${ZALO_PC_APP_PASSWORD}"
+      # TÙY CHỌN (không còn bắt buộc): để trống = app TỰ SINH tài khoản lần đầu (xem docker-entrypoint.py). Dạng `${BIEN:-}` nên thiếu biến
+      # trong .env KHÔNG làm `docker compose up` báo lỗi. KHÔNG ghi mật khẩu thật vào file này (đặt trong .env hoặc biến môi trường stack).
+      ZALO_PC_APP_USER: "${ZALO_PC_APP_USER:-}"
+      ZALO_PC_APP_PASSWORD: "${ZALO_PC_APP_PASSWORD:-}"
       # Thay cho PASSWORD: hash tính sẵn (python3 -m zalo_pc_app.app_auth).
-      # ZALO_PC_APP_PASSWORD_HASH: "${ZALO_PC_APP_PASSWORD_HASH}"
+      # ZALO_PC_APP_PASSWORD_HASH: "${ZALO_PC_APP_PASSWORD_HASH:-}"
+      # Webhook ban đầu (chỉ khi CHƯA có cấu hình; WebUI/HA đã đặt thì không bị đè). Một địa chỉ cho cả bốn loại:
+      ZALO_PC_WEBHOOK_URL: "${ZALO_PC_WEBHOOK_URL:-}"
       # ZALO_PC_APP_SESSION_HOURS: "8"
       ZALO_PC_HOST: "0.0.0.0"
       ZALO_PC_PORT: "8080"

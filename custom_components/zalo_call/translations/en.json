@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect Zalo PC app",
-        "description": "Address and login of the zalo-pc-app container.",
+        "description": "Address of the Zalo app (add-on or Docker) as http://<IP of the machine running the app>:8080, plus the app's username and password. For the no-UI build use the pair set in the add-on options or ZALO_PC_APP_USER/ZALO_PC_APP_PASSWORD (if none was set the app generated one; see the app log).",
         "data": {
           "url": "App URL",
           "username": "Username",

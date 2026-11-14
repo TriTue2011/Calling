@@ -1,0 +1,41 @@
+# Zalo PC app BẢN KHÔNG GIAO DIỆN (image :noui) — nhỏ hơn, cho máy cấu hình yếu. Cùng mã nguồn với bản có WebUI, chỉ khác đích build.
+#
+# Cấu hình KHÔNG có WebUI, theo thứ tự ưu tiên:
+#   1) Biến môi trường / .env (xem .env.example) — thắng mọi thứ khác;
+#   2) Không đặt thì app TỰ SINH (mật khẩu): in một lần trong log, lưu /data/THONG-TIN-DANG-NHAP.txt (0600);
+#   3) Đọc/đổi lúc đang chạy: dịch vụ Home Assistant zalo_call.get_app_settings / set_app_settings / set_app_password,
+#      hoặc curl tới /api/... (đăng nhập POST /api/app/login lấy cookie, rồi GET/POST /api/webhooks, /api/settings/devices ...).
+# Đăng nhập Zalo bằng QR: dịch vụ HA zalo_call.login_qr (mã hiện ở thực thể ảnh) hoặc GET/POST /api/qr/new + /api/qr/status.
+#
+#   docker compose -f docker-compose.noui.yml up -d
+#   Cập nhật: docker compose -f docker-compose.noui.yml pull && docker compose -f docker-compose.noui.yml up -d
+services:
+  zalo-pc:
+    image: ghcr.io/tritue2011/zalo-calling:noui
+    container_name: zalo-calling-noui
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - zalo-pc-data:/data
+    environment:
+      ZALO_PC_APP_USER: "${ZALO_PC_APP_USER:-}"
+      ZALO_PC_APP_PASSWORD: "${ZALO_PC_APP_PASSWORD:-}"
+      # ZALO_PC_APP_PASSWORD_HASH: "${ZALO_PC_APP_PASSWORD_HASH:-}"
+      ZALO_PC_WEBHOOK_URL: "${ZALO_PC_WEBHOOK_URL:-}"
+      ZALO_PC_HOST: "0.0.0.0"
+      ZALO_PC_PORT: "8080"
+      PYTHONFAULTHANDLER: "1"
+    restart: unless-stopped
+    init: true
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: "1.0"
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+volumes:
+  zalo-pc-data:

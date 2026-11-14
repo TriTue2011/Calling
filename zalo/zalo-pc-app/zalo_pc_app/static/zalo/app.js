@@ -33,6 +33,7 @@ const ICONS = {
   hang: '<path d="M3 14c4.5-4 13.5-4 18 0l-1.5 3-4-1.2v-2.3a10 10 0 0 0-7 0v2.3L4.5 17z"/>',
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
   panel: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M15 4.5v15"/>',
+  list: '<path d="M8.5 6h11.5M8.5 12h11.5M8.5 18h11.5"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
   more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
   share: '<path d="M14 5l6 6-6 6M20 11H9a5 5 0 0 0-5 5v2"/>',
   check: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.5l2.7 2.7L16 9.5"/>',
@@ -67,12 +68,12 @@ function h(tag, props, ...kids) {
 }
 // replaceChildren(null) sẽ chèn chữ "null": luôn lọc giá trị rỗng.
 const put = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
-document.querySelectorAll("[data-i]").forEach((n) => n.replaceWith(svg(n.dataset.i)));
+document.querySelectorAll("[data-i]").forEach((n) => { const e = svg(n.dataset.i); n.classList.forEach((c) => e.classList.add(c)); n.replaceWith(e); });   // giữ class của span (vd. ic-wide / ic-phone)
 
 // ---- mạng ----------------------------------------------------------------
 async function api(path, method, body) {
   const r = await fetch(path, { method: method || "GET", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
-  if (r.status === 401) { location.href = "/login"; throw new Error("chua_dang_nhap_app"); }
+  if (r.status === 401) { location.href = (window.__zIng || "") + "/login"; throw new Error("chua_dang_nhap_app"); }
   if (r.status === 423) { showPrivacyLock(); throw new Error("privacy_locked"); }
   try { return await r.json(); } catch (e) { return { error: "HTTP " + r.status }; }
 }
@@ -85,7 +86,7 @@ function showPrivacyLock() {
   const go = async () => {
     msg.textContent = "";
     const r = await fetch("/api/privacy/unlock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: pin.value }) });
-    if (r.status === 401 && (await r.clone().json().catch(() => ({}))).error === "chua_dang_nhap_app") { location.href = "/login"; return; }
+    if (r.status === 401 && (await r.clone().json().catch(() => ({}))).error === "chua_dang_nhap_app") { location.href = (window.__zIng || "") + "/login"; return; }
     if (r.ok) { location.reload(); return; }
     const e = (await r.json().catch(() => ({}))).error;
     msg.textContent = e === "qua_nhieu_lan_sai" ? "Nhập sai quá nhiều lần, thử lại sau 15 phút." : "Sai mã PIN.";
@@ -304,7 +305,7 @@ function renderBadges() {
 // ---- khung chat --------------------------------------------------------------------------------
 function openThread(row) {
   if (S.tab !== "chats") setTab("chats");
-  S.cur = row; S.msgs = []; S.files = {}; S.lastTime = 0; S.stick = true;
+  S.cur = row; S.msgs = []; S.files = {}; S.lastTime = 0; S.stick = true; S.infoPage = false;
   $("app").dataset.pane = "main"; showPane("pane-chat");
   $("chat-av").replaceWith(Object.assign(avatar(row), { id: "chat-av" }));
   $("chat-name").textContent = row.name || row.id;
@@ -766,11 +767,15 @@ function toggleStickers() {
 }
 
 // ---- bảng thông tin bên phải ---------------------------------------------------------------------------
+// Khổ rộng: bảng bên phải bật/tắt bằng S.info. Khổ điện thoại: «Thông tin» là TRANG toàn màn hình (S.infoPage) như Zalo di động, có nút quay lại.
 function syncInfo() {
-  const app = $("app"), on = S.info && S.tab === "chats" && !!S.cur && root.dataset.bp === "wide";
-  app.dataset.info = on ? "on" : "off"; $("btn-info").setAttribute("aria-pressed", String(!!S.info));
-  if (on) renderInfo();
+  const app = $("app"), phone = root.dataset.bp === "phone";
+  if (!S.cur || S.tab !== "chats" || !phone) S.infoPage = false;
+  const on = S.info && S.tab === "chats" && !!S.cur && root.dataset.bp === "wide", page = !!S.infoPage;
+  app.dataset.info = on ? "on" : page ? "page" : "off"; $("btn-info").setAttribute("aria-pressed", String(phone ? page : !!S.info));
+  if (on || page) renderInfo();
 }
+function closeInfoPage() { S.infoPage = false; syncInfo(); }
 function infoSection(title, ...body) { return h("section", { class: "isec" }, h("h4", {}, title), ...body); }
 function renderInfo() {
   const row = S.cur, box = $("info"), isGroup = row.type === "group", c = S.conv[rowKey(row)] || {};
@@ -779,7 +784,7 @@ function renderInfo() {
   const photos = S.msgs.filter((m) => m.kind === "photo" && (photoSrc(m) || m.thumb_url)).slice(-8).reverse();
   const files = S.msgs.filter((m) => m.kind === "file").slice(-6).reverse();
   put(box,
-    h("div", { class: "info-h" }, isGroup ? "Thông tin nhóm" : "Thông tin hội thoại"),
+    h("div", { class: "info-h" }, h("button", { class: "icon-btn back", type: "button", "aria-label": "Quay lại", onclick: closeInfoPage }, svg("back")), isGroup ? "Thông tin nhóm" : "Thông tin hội thoại"),
     h("div", { class: "info-top" }, avatar(row, "xl"), h("div", { class: "info-name" }, row.name || row.id),
       h("div", { class: "info-sub" }, isGroup ? "Nhóm" : c.stranger || row.stranger ? "Người lạ (không có trong danh bạ)" : "Bạn bè"),
       h("div", { style: "margin-top:.5rem;display:flex;justify-content:center;align-items:center;gap:.25rem" }, h("span", { class: "mono" }, row.id), h("button", { class: "icon-btn", type: "button", "aria-label": "Sao chép threadId", title: "Sao chép threadId", onclick: () => copyText(row.id, "threadId") }, svg("copy"))),
@@ -901,7 +906,8 @@ function videoView(a, mc) {
     };
     vv.fit = fit; vv.fitTimer = setInterval(() => { if (!current()) return clearInterval(vv.fitTimer); fit(); }, 1000);
     box.title = "Bấm để chuyển giữa «vừa khung» và «phủ đầy khung»";
-    box.addEventListener("click", () => box.classList.toggle("fill"));
+    box.addEventListener("click", () => { if (root.dataset.bp === "phone") toggleCallUi(); else box.classList.toggle("fill"); });
+    box.addEventListener("dblclick", () => { if (root.dataset.bp === "phone") box.classList.toggle("fill"); });      // điện thoại: chạm đúp = vừa khung / phủ đầy
     const snapLoop = () => {
       if (!current() || vv.mode !== "snap") return;
       const img = new Image();
@@ -934,7 +940,7 @@ function mediaToggles() {
       h("span", { class: "gv", title: "Âm lượng " + label.toLowerCase() + " (100% = giữ nguyên)" }, label + " " + g + "%"),
       h("button", { type: "button", "aria-label": "Tăng âm lượng " + label.toLowerCase(), disabled: g >= 300, onclick: () => changeGain(key, 10) }, "+"));
   });
-  return h("div", {}, h("div", { class: "tgs" }, row), h("div", { class: "gns" }, gains));
+  return h("div", { class: "mt" }, h("div", { class: "tgs" }, row), h("div", { class: "gns" }, gains));
 }
 setInterval(() => { const a = S.calls.active; if (a && (a.status === "answered" || a.answered_at)) refreshCallMedia(); }, 3000);
 async function endCall() { const a = S.calls.active; if (!a) return; const r = await api("/api/call/end", "POST", { call_id: a.call_id }); if (r.error) toast("Lỗi kết thúc cuộc gọi: " + r.error, 5000); await loadCalls(); }
@@ -942,12 +948,12 @@ async function endCall() { const a = S.calls.active; if (!a) return; const r = a
 // Cuộc gọi VIDEO tự mở cửa sổ này khi bấm Gọi video / Nghe (trình duyệt chỉ cho mở cửa sổ ngay trong lúc bấm); «Đưa về đây» tắt thói quen đó.
 S.callWin = null;
 const callWinOpen = () => !!(S.callWin && !S.callWin.closed);
-function callWinPref() { try { return localStorage.getItem("zalo-callwin") !== "0"; } catch (e) { return true; } }
+function callWinPref() { if (root.dataset.bp === "phone") return false; try { return localStorage.getItem("zalo-callwin") !== "0"; } catch (e) { return true; } }
 function setCallWinPref(on) { try { localStorage.setItem("zalo-callwin", on ? "1" : "0"); } catch (e) { /* riêng tư */ } }
 function openCallWindow() {
   if (callWinOpen()) { try { S.callWin.focus(); } catch (e) { /* ignore */ } return S.callWin; }
   let win = null;
-  try { win = window.open("/call", "zalo-call", "popup=yes,width=960,height=600,resizable=yes"); } catch (e) { win = null; }
+  try { win = window.open((window.__zIng || "") + "/call", "zalo-call", "popup=yes,width=960,height=600,resizable=yes"); } catch (e) { win = null; }
   if (!win) { toast("Trình duyệt đã chặn cửa sổ bật lên — hãy cho phép cửa sổ bật lên cho trang này rồi bấm «Tách cửa sổ».", 7000); return null; }
   S.callWin = win; setCallWinPref(true); renderCallCard();
   return win;
@@ -960,12 +966,21 @@ function showVideoWin(box) {
   win.hidden = false;
   if (win.firstChild !== box) put(win, box);
 }
+// Điện thoại + cuộc gọi VIDEO: mặc định ẨN mọi thao tác để nhường chỗ cho hình; chạm vào hình thì hiện, tự ẩn sau 5 giây không chạm (chạm nút cũng gia hạn).
+let ccHideT = 0;
+function setCallUi(on) {
+  const card = $("callcard"); clearTimeout(ccHideT);
+  card.dataset.ui = on ? "1" : "0";
+  if (on) ccHideT = setTimeout(() => setCallUi(false), 5000);
+}
+function toggleCallUi() { setCallUi($("callcard").dataset.ui !== "1"); }
+$("callcard").addEventListener("click", () => { if ($("callcard").dataset.ui === "1") setCallUi(true); });
 function renderCallCard() {
   const card = $("callcard"), a = S.calls.active;
-  if (!a) { S.vv = null; card.hidden = true; card.replaceChildren(); showVideoWin(null); return; }
+  if (!a) { S.vv = null; card.hidden = true; card.replaceChildren(); showVideoWin(null); delete card.dataset.state; delete card.dataset.video; delete card.dataset.ui; clearTimeout(ccHideT); return; }
   const row = rowOf(a.type === "group" ? "group" : "user", a.thread_id) || { id: String(a.thread_id), name: a.peer, type: a.type === "group" ? "group" : "user" };
   if (a.direction === "in" && a.status === "incoming" && !a.answered_at) {       // cuộc gọi ĐẾN, chưa ai nghe: popup hai nút như Zalo PC
-    card.hidden = false; card._since = a.started_at; showVideoWin(null);
+    card.hidden = false; card._since = a.started_at; showVideoWin(null); card.dataset.state = "incoming"; card.dataset.video = "0";
     put(card, h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, peerName(a)), h("div", { class: "st" }, a.type === "video" ? "Cuộc gọi video đến…" : "Cuộc gọi đến…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - a.started_at)))),
       h("div", { class: "acts" }, h("button", { class: "end", type: "button", onclick: () => rejectCall(a) }, svg("hang"), "Từ chối"), h("button", { class: "ok", type: "button", onclick: () => answerCall(a) }, svg("phone"), "Nghe")));
     return;
@@ -975,7 +990,7 @@ function renderCallCard() {
     // (ảnh 12/11: cuộc gọi đến chạy bình thường vẫn bị báo sai ngay giây đầu).
     const since = (answered && a.answered_at) || a.started_at, mc = a.media && a.media.counters, flowing = !!(mc && (mc.rtp_tx > 0 || mc.rtp_rx > 0));
     const noMedia = answered && Date.now() / 1000 - since > 8 && !flowing;
-  card.hidden = false;
+  card.hidden = false; card.dataset.state = answered ? "live" : "ring";
   put(card,
     h("div", { class: "top" }, avatar(row), h("div", { style: "flex:1;min-width:0" }, h("div", { class: "nm" }, (a.type === "video" ? "Video · " : "") + peerName(a)), h("div", { class: "st" }, answered ? "Đang trong cuộc gọi" : ringing ? "Đang đổ chuông…" : "Đang kết nối…"), h("div", { class: "tm", id: "call-t" }, fmtDur(Date.now() / 1000 - since)))),
     answered ? h("div", { class: "popout-row" }, callWinOpen()
@@ -985,7 +1000,10 @@ function renderCallCard() {
     a.request_sent === false ? h("div", { class: "warn" }, "Bước 2 chưa gửi được, bên kia có thể chưa đổ chuông.") : null,
     answered ? mediaToggles() : null,
     h("div", { class: "acts" }, h("button", { class: "end", type: "button", onclick: endCall }, svg("hang"), "Kết thúc")));
-  showVideoWin(answered && !callWinOpen() ? videoView(a, mc) : null);        // khung hình đối tác là CỬA SỔ RIÊNG; đã tách ra cửa sổ trình duyệt thì không vẽ thêm ở đây (tránh hai luồng)
+  const vvEl = answered && !callWinOpen() ? videoView(a, mc) : null;
+  if (vvEl && card.dataset.video !== "1") setCallUi(false);                   // vừa có hình: bắt đầu ở trạng thái ẩn thao tác
+  card.dataset.video = vvEl ? "1" : "0";                                      // điện thoại: có hình thì hình phủ cả màn hình, thẻ chỉ còn lớp nút phía trên
+  showVideoWin(vvEl);        // khung hình đối tác là CỬA SỔ RIÊNG; đã tách ra cửa sổ trình duyệt thì không vẽ thêm ở đây (tránh hai luồng)
   if (answered && S.cm.id !== String(a.call_id)) { S.cm.id = String(a.call_id); S.cm.mic = S.cm.speaker = S.cm.video = false; refreshCallMedia(); }
   card._since = since;
 }
@@ -1365,7 +1383,7 @@ async function setSecurity() {
       h("dt", {}, "Đổi mật khẩu"), h("dd", {}, "ở mục Tài khoản")),
     h("div", { class: "field-row", style: "margin-top:.75rem;flex-wrap:wrap" },
       h("button", { class: "btn", type: "button", onclick: async () => { const r = await api("/api/security", "POST", { action: "revoke_others" }); toast("Đã đăng xuất " + (r.revoked || 0) + " thiết bị khác"); renderSettings("set-security"); } }, "Đăng xuất thiết bị khác"),
-      h("button", { class: "btn", type: "button", onclick: async () => { await api("/api/security", "POST", { action: "revoke_all" }); location.href = "/login"; } }, "Đăng xuất mọi thiết bị"),
+      h("button", { class: "btn", type: "button", onclick: async () => { await api("/api/security", "POST", { action: "revoke_all" }); location.href = (window.__zIng || "") + "/login"; } }, "Đăng xuất mọi thiết bị"),
       (S.privacy && S.privacy.enabled ? h("button", { class: "btn", type: "button", onclick: async () => { await fetch("/api/privacy/lock", { method: "POST" }); location.reload(); } }, "🔒 Khoá màn hình") : null),
       h("button", { class: "btn danger", type: "button", onclick: async () => { if (confirm("Đăng xuất Zalo? Phải quét lại QR để vào lại.")) { await api("/api/zalo/logout", "POST"); S.qrClient = null; location.reload(); } } }, "Đăng xuất Zalo (xoá phiên QR)")));
 }
@@ -1456,7 +1474,7 @@ function cogMenu() {
     { label: "Webhook, proxy, bảo mật", icon: "db", run: () => openSettings("webhook") },
     { label: "Ngôn ngữ: Tiếng Việt", icon: "globe", run: () => toast("Hiện chỉ có Tiếng Việt.") },
     { label: "Hỗ trợ", icon: "help", run: () => window.open("https://github.com/TriTue2011/Zalo-calling/issues", "_blank", "noopener") }, "-",
-    { label: "Đăng xuất", icon: "logout", red: true, run: async () => { await api("/api/app/logout", "POST"); location.href = "/login"; } }], { right: true, up: true });
+    { label: "Đăng xuất", icon: "logout", red: true, run: async () => { await api("/api/app/logout", "POST"); location.href = (window.__zIng || "") + "/login"; } }], { right: true, up: true });
 }
 async function boot() {
   let st; try { st = await api("/api/status"); } catch (e) { return; }
@@ -1494,7 +1512,12 @@ $("chat-back").addEventListener("click", toList);
 $("q").addEventListener("input", (e) => { S.q = e.target.value; if (S.tab === "calls") { renderCallRows($("list")); renderCallsPage(); } else if (S.tab === "contacts") renderContactsPage(); else renderList(); });
 $("btn-reload").addEventListener("click", async () => { toast("Đang tải lại…"); await Promise.all([loadContacts(true), loadConversations()]); });
 $("btn-call").addEventListener("click", () => startCall(false)); $("btn-video").addEventListener("click", () => startCall(true));
-$("btn-info").addEventListener("click", () => { S.info = !S.info; try { localStorage.setItem("zalo-info", S.info ? "1" : "0"); } catch (e) { /* bỏ qua */ } syncInfo(); });
+$("btn-more").addEventListener("click", () => popup($("btn-more"), [
+  { label: "Đính kèm tệp", icon: "clip", run: () => $("btn-attach").click() },
+  { label: "Nhãn dán", icon: "sticker", run: () => $("btn-sticker").click() },
+  { label: "Gửi 👍", icon: "thumb", run: () => $("btn-like").click() },
+  { label: "Dịch vụ cho hội thoại này", icon: "grid", run: () => $("btn-thread-svc").click() }], { up: true, right: false }));
+$("btn-info").addEventListener("click", () => { if (root.dataset.bp === "phone") { S.infoPage = !S.infoPage; syncInfo(); return; } S.info = !S.info; try { localStorage.setItem("zalo-info", S.info ? "1" : "0"); } catch (e) { /* bỏ qua */ } syncInfo(); });
 $("btn-thread-svc").addEventListener("click", () => setTab("services"));
 $("btn-send").addEventListener("click", sendText); $("btn-like").addEventListener("click", () => sendRaw("👍"));
 $("btn-attach").addEventListener("click", () => $("file-in").click()); $("btn-img").addEventListener("click", () => $("img-in").click());

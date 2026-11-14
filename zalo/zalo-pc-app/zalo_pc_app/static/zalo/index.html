@@ -13,13 +13,13 @@
 <div id="app" class="app" data-tab="chats" data-pane="list" data-info="off">
   <nav class="rail" aria-label="Điều hướng chính" id="rail">
     <button class="me" id="me-btn" aria-label="Tài khoản" title="Tài khoản"></button>
-    <button class="rail-btn" data-tab="chats" aria-label="Tin nhắn" title="Tin nhắn"><span data-i="chat"></span><span class="dot" id="dot-chats" hidden></span></button>
-    <button class="rail-btn" data-tab="contacts" aria-label="Danh bạ" title="Danh bạ"><span data-i="contact"></span></button>
-    <button class="rail-btn" data-tab="calls" aria-label="Cuộc gọi" title="Cuộc gọi"><span data-i="phone"></span><span class="dot live" id="dot-calls" hidden></span></button>
-    <button class="rail-btn" data-tab="watch" aria-label="Theo dõi người lạ" title="Theo dõi người lạ nhắn tin"><span data-i="eye"></span><span class="dot" id="dot-watch" hidden></span></button>
-    <button class="rail-btn" data-tab="services" aria-label="Dịch vụ (96)" title="96 dịch vụ"><span data-i="grid"></span></button>
+    <button class="rail-btn" data-tab="chats" data-label="Tin nhắn" aria-label="Tin nhắn" title="Tin nhắn"><span data-i="chat"></span><span class="dot" id="dot-chats" hidden></span></button>
+    <button class="rail-btn" data-tab="contacts" data-label="Danh bạ" aria-label="Danh bạ" title="Danh bạ"><span data-i="contact"></span></button>
+    <button class="rail-btn" data-tab="calls" data-label="Cuộc gọi" aria-label="Cuộc gọi" title="Cuộc gọi"><span data-i="phone"></span><span class="dot live" id="dot-calls" hidden></span></button>
+    <button class="rail-btn" data-tab="watch" data-label="Theo dõi" aria-label="Theo dõi người lạ" title="Theo dõi người lạ nhắn tin"><span data-i="eye"></span><span class="dot" id="dot-watch" hidden></span></button>
+    <button class="rail-btn" data-tab="services" data-label="Dịch vụ" aria-label="Dịch vụ (96)" title="96 dịch vụ"><span data-i="grid"></span></button>
     <span class="rail-sp"></span>
-    <button class="rail-btn" id="btn-cog" aria-label="Cài đặt" aria-haspopup="menu" title="Cài đặt"><span data-i="cog"></span></button>
+    <button class="rail-btn" id="btn-cog" data-label="Cài đặt" aria-label="Cài đặt" aria-haspopup="menu" title="Cài đặt"><span data-i="cog"></span></button>
   </nav>
 
   <section class="listcol" id="listcol" aria-label="Danh sách">
@@ -44,7 +44,7 @@
         <div class="head-main"><div class="head-name" id="chat-name"></div><div class="head-sub" id="chat-sub"></div></div>
         <button class="icon-btn" id="btn-call" aria-label="Gọi thoại" title="Gọi thoại"><span data-i="phone"></span></button>
         <button class="icon-btn" id="btn-video" aria-label="Gọi video" title="Gọi video"><span data-i="video"></span></button>
-        <button class="icon-btn" id="btn-info" aria-label="Thông tin hội thoại" aria-pressed="false" title="Thông tin hội thoại"><span data-i="panel"></span></button>
+        <button class="icon-btn" id="btn-info" aria-label="Thông tin hội thoại" aria-pressed="false" title="Thông tin hội thoại"><span data-i="panel" class="ic-wide"></span><span data-i="list" class="ic-phone"></span></button>
       </header>
       <div class="notice" id="chat-notice" hidden></div>
       <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Tin nhắn"></div>
@@ -53,6 +53,7 @@
         <input type="file" id="file-in" multiple hidden>
         <input type="file" id="img-in" accept="image/*" multiple hidden>
         <div class="ctools">
+          <button class="icon-btn phone-only" id="btn-more" aria-label="Thêm" aria-haspopup="menu" title="Thêm" data-pop="1"><span data-i="more"></span></button>
           <button class="icon-btn" id="btn-img" aria-label="Gửi ảnh" title="Gửi ảnh"><span data-i="image"></span></button>
           <button class="icon-btn" id="btn-attach" aria-label="Đính kèm tệp" title="Đính kèm tệp"><span data-i="clip"></span></button>
           <button class="icon-btn" id="btn-sticker" aria-label="Gửi nhãn dán" title="Nhãn dán"><span data-i="sticker"></span></button>

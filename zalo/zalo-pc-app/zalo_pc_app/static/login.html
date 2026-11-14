@@ -63,7 +63,7 @@
   var err = document.getElementById("login-error");
   // Da dang nhap app roi thi ve thang trang chinh.
   fetch("/api/app/status").then(function (r) { return r.json(); })
-    .then(function (s) { if (s.logged_in) window.location.href = "/"; })
+    .then(function (s) { if (s.logged_in) window.location.href = (window.__zIng || "") + "/"; })
     .catch(function () { /* o lai trang dang nhap */ });
   form.addEventListener("submit", function (e) {
     e.preventDefault();
@@ -79,7 +79,7 @@
       }),
     }).then(function (r) {
       btn.disabled = false;
-      if (r.ok) { window.location.href = "/"; return; }
+      if (r.ok) { window.location.href = (window.__zIng || "") + "/"; return; }
       // Loi chung: khong lo la sai user hay sai mat khau.
       err.textContent = "Tên đăng nhập hoặc mật khẩu không đúng.";
       err.hidden = false;

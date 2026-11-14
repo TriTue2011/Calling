@@ -78,6 +78,66 @@ def _apply_addon_options(env=None, options_path=ADDON_OPTIONS_FILE, data_dir=Non
     return shown
 
 
+def _apply_addon_extras(env=None, options_path=ADDON_OPTIONS_FILE):
+    """Chay duoi add-on: bat Ingress (WebUI hien trong bang ben HA) va doi tuy chon webhook_url thanh ZALO_PC_WEBHOOK_URL.
+
+    Webhook chi la gia tri KHOI DAU (xem WebhookStore.seed_from_env): da co webhooks.json thi bo qua, dung de doi
+    sau bang WebUI hoac dich vu zalo_call.set_app_settings. Khong co options.json (Docker thuong) = khong dong vao gi."""
+    env = os.environ if env is None else env
+    try:
+        with open(options_path, encoding="utf-8") as fh:
+            opts = json.load(fh)
+    except (OSError, ValueError):
+        return
+    if not isinstance(opts, dict):
+        return
+    if not (env.get("ZALO_PC_INGRESS") or "").strip():
+        env["ZALO_PC_INGRESS"] = "1"
+    hook = str(opts.get("webhook_url") or "").strip()
+    if hook and not (env.get("ZALO_PC_WEBHOOK_URL") or "").strip():
+        env["ZALO_PC_WEBHOOK_URL"] = hook
+
+
+def _auto_credentials(env=None, data_dir=None):
+    """Chạy cho CẢ Docker thường lẫn add-on: không đặt tài khoản app trong .env/compose thì TỰ SINH, khỏi lỗi «thiếu ZALO_PC_APP_USER/PASSWORD».
+
+    Quy ước: biến rỗng (compose `${BIEN:-}` cho ra chuỗi rỗng) = CHƯA ĐẶT. Có HASH hoặc đủ USER + PASSWORD → không đụng gì (giá trị người dùng đặt luôn thắng).
+    Thiếu thì: user = giá trị đã đặt hoặc «admin»; mật khẩu lấy lại từ THONG-TIN-DANG-NHAP.txt (0600, thư mục dữ liệu) nếu đã có, không thì sinh mới và
+    lưu vào đó để khởi động lại không đổi. Đổi mật khẩu trong WebUI/dịch vụ HA vẫn được (app giữ mật khẩu đã đổi, không bị biến môi trường đè).
+    Trả về mật khẩu VỪA SINH (để in log đúng một lần), hoặc None."""
+    env = os.environ if env is None else env
+    if (env.get("ZALO_PC_APP_PASSWORD_HASH") or "").strip():
+        return None
+    user = (env.get("ZALO_PC_APP_USER") or "").strip()
+    password = env.get("ZALO_PC_APP_PASSWORD") or ""
+    if user and password:
+        return None
+    user = user or "admin"
+    data_dir = data_dir or env.get("ZALO_PC_DATA_DIR") or DEFAULT_DATA_DIR
+    info = os.path.join(data_dir, LOGIN_INFO_NAME)
+    generated = None
+    if not password:
+        try:
+            with open(info, encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith(_PW_PREFIX):
+                        password = line[len(_PW_PREFIX):].strip()
+        except OSError:
+            pass
+        if not password:
+            password = generated = secrets.token_urlsafe(12)
+            try:
+                os.makedirs(data_dir, exist_ok=True)
+                fd = os.open(info, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write("Ten dang nhap: %s\n%s%s\n" % (user, _PW_PREFIX, password))
+            except OSError as e:
+                print("entrypoint: cannot save %s: %s" % (info, e), file=sys.stderr)
+    env["ZALO_PC_APP_USER"] = user
+    env["ZALO_PC_APP_PASSWORD"] = password
+    return generated
+
+
 def _fix_data_dir():
     data_dir = os.environ.get("ZALO_PC_DATA_DIR", DEFAULT_DATA_DIR)
     try:
@@ -120,11 +180,16 @@ def _drop_privileges():
 
 
 def main():
+    _apply_addon_extras()
     generated = _apply_addon_options()
     if generated:
         print("Add-on Zalo Calling: dang nhap WebUI = %s / %s (mat khau tu sinh; doi duoc trong WebUI "
               "hoac dat o tuy chon add-on)" % (os.environ.get("ZALO_PC_APP_USER"), generated),
               flush=True)
+    new_pw = _auto_credentials()
+    if new_pw:
+        print("Zalo Calling: khong dat ZALO_PC_APP_USER/PASSWORD nen TU SINH tai khoan app: %s / %s (luu o %s/%s, doi duoc trong WebUI hoac dich vu HA set_app_password)"
+              % (os.environ.get("ZALO_PC_APP_USER"), new_pw, os.environ.get("ZALO_PC_DATA_DIR", DEFAULT_DATA_DIR), LOGIN_INFO_NAME), flush=True)
     _fix_data_dir()
     _drop_privileges()
     cmd = sys.argv[1:] or DEFAULT_COMMAND

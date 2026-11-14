@@ -6,27 +6,76 @@ Gọi **thoại và video Zalo** từ Home Assistant: điện thoại đổ chu�
 > ⚠️ App không chính thức, đăng nhập Zalo bằng mã QR. **Dùng tài khoản Zalo phụ.**
 > Telegram: xem kho riêng [Telegram-calling](https://github.com/TriTue2011/Telegram-calling).
 
-## Thêm nhanh vào Home Assistant
+## Cài đặt
 
-Cần **2 phần**: ① app Zalo (add-on hoặc Docker) và ② tích hợp **Zalo Call** (HACS). Bấm các nút (cần
-[My Home Assistant](https://my.home-assistant.io) trỏ về HA của bạn):
+Cần **2 phần**: ① **app Zalo** (chạy bằng add-on hoặc Docker, đăng nhập Zalo bằng mã QR) và ② **tích hợp Zalo Call** (HACS).
+Chọn **một** cách chạy app — hai add-on và hai image Docker dùng chung một mã nguồn, chỉ khác có WebUI hay không:
 
-| Bước | Nút |
-|---|---|
-| ① Thêm kho add-on (HAOS / Supervised) | [![Thêm kho add-on](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FTriTue2011%2Fhas-addons) |
-| ② Mở tích hợp trong HACS | [![Mở trong HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TriTue2011&repository=Zalo-calling&category=integration) |
-| ③ Thêm tích hợp (sau khi tải + khởi động lại HA) | [![Thêm tích hợp](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=zalo_call) |
+| Cách chạy app | Hợp với | Cấu hình ở đâu |
+|---|---|---|
+| **Add-on «Zalo Calling»** | HAOS / Supervised. WebUI hiện ngay ở **thanh bên** HA (Ingress), không cần mở cổng | Tuỳ chọn add-on (không bắt buộc) + WebUI |
+| Add-on «Zalo Calling (không giao diện)» | HAOS / Supervised, máy yếu | Tuỳ chọn add-on: `username` và `password` **bắt buộc** |
+| Docker `:latest` — `docker-compose.yml` | HA Container / Core, hoặc app chạy ở máy khác | `.env` (không bắt buộc) + WebUI |
+| Docker `:noui` — `docker-compose.noui.yml` | Máy yếu, không cần WebUI | `.env` (không bắt buộc) + dịch vụ HA hoặc `curl` |
 
-**Không dùng được nút?** Làm tay:
+Bản không giao diện **không nhẹ hơn đáng kể** (cùng ~815 MB vì phần nặng là ffmpeg và Python); lợi ở chỗ không mở bề mặt WebUI và cấu hình hoàn toàn bằng mã/biến.
+Cổng của app luôn là **8080**. Chỉ chạy **một** bản trên cùng cổng.
 
-1. **App:** Cài đặt → Add-on → Cửa hàng → ⋮ → Kho lưu trữ → `https://github.com/TriTue2011/has-addons` → cài **Zalo Calling**
-   (hoặc chạy Docker: xem [hướng dẫn đầy đủ](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling/README.md#docker)).
-2. **Tích hợp (HACS 2.x):** HACS → **⋮ → Custom repositories** → dán `https://github.com/TriTue2011/Zalo-calling`,
-   **Type = Integration** → **Add** → tìm **Zalo Call** trong HACS → **Download** → khởi động lại HA.
-3. **Cài đặt → Thiết bị & Dịch vụ → Thêm tích hợp → Zalo Call**: địa chỉ app `http://<IP HA>:8080` + tài khoản WebUI.
+### A. Add-on (HAOS / Supervised)
 
-Hướng dẫn từng bước, cách cấu hình loa/mic/camera, gọi bằng service, lỗi thường gặp:
-**[zalo_calling/README.md](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling/README.md)** (kho has-addons).
+[![Thêm kho add-on](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FTriTue2011%2FZalo-calling)
+
+1. **Cài đặt → Add-on → Cửa hàng → ⋮ → Kho lưu trữ** → dán `https://github.com/TriTue2011/Zalo-calling` → **Thêm**.
+2. Cài **Zalo Calling** (hoặc **Zalo Calling (không giao diện)**), bấm **Khởi động**.
+3. Bản có giao diện: bật *Hiện trong thanh bên*, mở **Zalo Calling** → **Qua PC** (gọi thoại/video) hoặc **Qua Web** (chỉ nhắn tin) → quét QR bằng Zalo trên điện thoại.
+   Mở bằng thanh bên thì **không hỏi mật khẩu** (HA đã xác thực bạn). Bản không giao diện: xem mục D.
+
+| Tuỳ chọn add-on | Bản có giao diện | Bản không giao diện | Ý nghĩa |
+|---|---|---|---|
+| `username` | không bắt buộc (mặc định `admin`) | **bắt buộc** | Tên đăng nhập app (cổng 8080 và tích hợp HA) |
+| `password` | không bắt buộc | **bắt buộc**, từ 8 ký tự | Bỏ trống ở bản có giao diện: app tự sinh, in **một lần** trong tab *Nhật ký*, lưu `/data/THONG-TIN-DANG-NHAP.txt` |
+| `webhook_url` | không bắt buộc | không bắt buộc | Webhook ban đầu cho cả bốn loại; chỉ dùng khi CHƯA có cấu hình (không đè giá trị đã đặt ở WebUI/HA) |
+
+Mật khẩu đổi sau đó trong WebUI hoặc bằng `zalo_call.set_app_password` được giữ, không bị tuỳ chọn ghi đè lại. Dữ liệu ở `/data` của add-on, đi theo bản sao lưu của HA.
+
+### B. Docker
+
+```sh
+mkdir zalo && cd zalo
+curl -LO https://github.com/TriTue2011/Zalo-calling/releases/latest/download/docker-compose.yml   # bản có giao diện
+# bản không giao diện: tải docker-compose.noui.yml ở thư mục zalo/zalo-pc-app của repo
+cp .env.example .env     # TUỲ CHỌN: không có .env vẫn chạy, app tự sinh tài khoản và in một lần trong log
+docker compose up -d     # có giao diện: mở http://<máy chủ>:8080 rồi quét QR
+docker compose -f docker-compose.noui.yml up -d      # (thay cho dòng trên) bản không giao diện
+docker compose pull && docker compose up -d          # cập nhật (hoặc để Watchtower kéo :latest)
+```
+
+Mọi biến môi trường đều không bắt buộc (compose dùng `${BIEN:-}`, biến rỗng = chưa đặt). Bảng biến và chi tiết:
+[zalo/zalo-pc-app/README.md](zalo/zalo-pc-app/README.md). Compose mặc định chỉ mở `127.0.0.1:8080`; đổi thành `"8080:8080"`
+nếu HA ở máy khác.
+
+### C. Tích hợp Home Assistant (HACS)
+
+[![Mở trong HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TriTue2011&repository=Zalo-calling&category=integration)
+[![Thêm tích hợp](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=zalo_call)
+
+1. **HACS → ⋮ → Custom repositories** → `https://github.com/TriTue2011/Zalo-calling`, **Type = Integration** → **Add** → tải **Zalo Call** → khởi động lại HA.
+2. **Cài đặt → Thiết bị & Dịch vụ → Thêm tích hợp → Zalo Call**: địa chỉ app `http://<IP máy chạy app>:8080` + tên đăng nhập/mật khẩu của app
+   (đúng cặp ở tuỳ chọn add-on hoặc `.env`; không đặt thì lấy cặp app tự sinh trong nhật ký).
+3. Tích hợp tự lo webhook sang HA; người nhận thêm ở *⚙️ Cấu hình → Người và nhóm nhận*.
+
+### D. Đăng nhập Zalo và cài đặt khi KHÔNG có WebUI
+
+- **Đăng nhập Zalo:** dịch vụ `zalo_call.login_qr` (`type: pc` để gọi thoại/video, `web` chỉ nhắn tin) rồi mở thực thể ảnh **Mã QR đăng nhập** và quét.
+  Cảm biến **Trạng thái Zalo** cho biết `logged_in` / `logged_out` / `waiting_qr` / `scanned` / `expired` / `error`; các nút đăng nhập/đăng xuất tự mờ khi không hợp trạng thái.
+  Đăng xuất: `zalo_call.logout`.
+- **Đọc/đổi cài đặt của app:** `zalo_call.get_app_settings` (`sections`, `reveal_secrets`) và `zalo_call.set_app_settings`
+  (`section`: `webhooks` · `devices` · `retention` · `proxy` · `security`, kèm `values`); đổi mật khẩu app `zalo_call.set_app_password`; thử webhook `zalo_call.test_webhook`.
+  Dùng được trong blueprint/automation, nên blueprint nào cần webhook có thể tự đọc hoặc tự đặt.
+- **Bằng `curl`:** `POST /api/app/login` lấy cookie, rồi `GET/POST /api/webhooks`, `/api/settings/devices`, `/api/retention`, `/api/proxy`, `/api/security`; kiểm sống `GET /api/app/status`.
+  `GET /api/status` có cờ `ui` cho biết đang chạy bản có hay không có giao diện.
+
+Cuộc gọi, tin nhắn và các dịch vụ còn lại: xem các mục bên dưới (danh mục đầy đủ ở mục 7).
 
 ## Mục lục
 
@@ -813,7 +862,7 @@ automation:
         data: {volume: 60}
 ```
 
-Loa/mic/camera mặc định và các tuỳ chọn đi kèm đặt bằng dịch vụ **`zalo_call.set_default_devices`** (`speaker`, `mic`, `mic_url`, `camera`, `call_volume`, `auto_mic` = tự phát mic khi nghe máy, `auto_video` / `auto_video_delay` = tự đồng ý khi bên kia xin gọi video, `echo_guard` = chống vọng; nếu loa R1 bị nhại tiếng: đặt `duplex` và R1 chọn engine **nâng cao**). Xem lại bằng `get_default_devices`.
+**Loa, mic, camera không có «mặc định» toàn cục** (nguyên tắc riêng tư ở mục 1): chọn theo **quy tắc** của từng người (`zalo_call.set_rule`, ô loa/mic/camera/`connect`) hoặc ghi đè cho từng cuộc gọi (`make_call`, `answer_call`). Các chế độ tự động chung đặt bằng **`zalo_call.set_default_devices`**: `auto_mic` (tự phát mic khi nghe máy), `auto_video` / `auto_video_delay` (tự đồng ý khi bên kia xin gọi video), `video_consent` (công tắc tổng cho việc đồng ý chuyển sang video), `echo_guard` (chống vọng) và `call_volume` (âm lượng loa khi nghe máy). Xem lại bằng `get_default_devices`.
 
 ### Sự kiện cho automation
 
@@ -1072,11 +1121,11 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | [Xem lời mời kết bạn đã gửi](docs/DICH-VU.md#get_sent_friend_requests) | `zalo_call.get_sent_friend_requests` | Lấy danh sách lời mời kết bạn đã gửi |
 | [Thu hồi lời mời kết bạn](docs/DICH-VU.md#undo_friend_request) | `zalo_call.undo_friend_request` | Thu hồi lời mời kết bạn đã gửi |
 | [Hủy kết bạn](docs/DICH-VU.md#remove_friend) | `zalo_call.remove_friend` | Hủy kết bạn với một người dùng (không hoàn tác được) |
-| [Đổi biệt danh](docs/DICH-VU.md#change_friend_alias) | `zalo_call.change_friend_alias` | Thay đổi biệt danh của một người bạn |
-| [Xóa biệt danh](docs/DICH-VU.md#remove_friend_alias) | `zalo_call.remove_friend_alias` | Xóa biệt danh của một người bạn |
+| [Đổi biệt danh](docs/DICH-VU.md#change_friend_alias) | `zalo_call.change_friend_alias` | Thay đổi biệt danh của một người bạn (không hoàn tác được) |
+| [Xóa biệt danh](docs/DICH-VU.md#remove_friend_alias) | `zalo_call.remove_friend_alias` | Xóa biệt danh của một người bạn (không hoàn tác được) |
 | [get_all_groups](docs/DICH-VU.md#get_all_groups) | `zalo_call.get_all_groups` | Lấy danh sách tất cả nhóm đã tham gia |
 | [Cập nhật thông tin cá nhân](docs/DICH-VU.md#update_profile) | `zalo_call.update_profile` | Cập nhật thông tin cá nhân |
-| [Cập nhật cài đặt riêng tư](docs/DICH-VU.md#update_settings) | `zalo_call.update_settings` | Cập nhật cài đặt riêng tư |
+| [Cập nhật cài đặt riêng tư](docs/DICH-VU.md#update_settings) | `zalo_call.update_settings` | Cập nhật cài đặt riêng tư (không hoàn tác được) |
 | [Chặn xem nhật ký](docs/DICH-VU.md#block_view_feed) | `zalo_call.block_view_feed` | Chặn/bỏ chặn một người bạn xem nhật ký |
 | [Đổi ảnh đại diện](docs/DICH-VU.md#change_account_avatar) | `zalo_call.change_account_avatar` | Thay đổi ảnh đại diện |
 | [Xem ảnh đại diện đã dùng](docs/DICH-VU.md#get_avatar_list) | `zalo_call.get_avatar_list` | Lấy danh sách các ảnh đại diện đã sử dụng |
@@ -1084,19 +1133,19 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | [Từ chối lời mời kết bạn](docs/DICH-VU.md#reject_friend_request) | `zalo_call.reject_friend_request` | Từ chối lời mời kết bạn |
 | [Xem cài đặt riêng tư](docs/DICH-VU.md#get_settings) | `zalo_call.get_settings` | Xem cài đặt riêng tư |
 | **Nhóm** | | |
-| [Tạo nhóm mới](docs/DICH-VU.md#create_group) | `zalo_call.create_group` | Tạo group mới |
+| [Tạo nhóm mới](docs/DICH-VU.md#create_group) | `zalo_call.create_group` | Tạo group mới (không hoàn tác được) |
 | [Xem thông tin nhóm](docs/DICH-VU.md#get_group_info) | `zalo_call.get_group_info` | Lấy info group |
 | [Mời thành viên vào nhóm](docs/DICH-VU.md#add_user_to_group) | `zalo_call.add_user_to_group` | Thêm thành viên vào group |
 | [Đuổi thành viên](docs/DICH-VU.md#remove_user_from_group) | `zalo_call.remove_user_from_group` | Xóa thành viên khỏi group (không hoàn tác được) |
 | [Đổi tên nhóm](docs/DICH-VU.md#change_group_name) | `zalo_call.change_group_name` | Đổi tên nhóm |
 | [Đổi ảnh đại diện nhóm](docs/DICH-VU.md#change_group_avatar) | `zalo_call.change_group_avatar` | Đổi ảnh đại diện nhóm |
-| [Thêm phó nhóm](docs/DICH-VU.md#add_group_deputy) | `zalo_call.add_group_deputy` | Thêm phó nhóm |
-| [Xóa phó nhóm](docs/DICH-VU.md#remove_group_deputy) | `zalo_call.remove_group_deputy` | Xóa phó nhóm |
+| [Thêm phó nhóm](docs/DICH-VU.md#add_group_deputy) | `zalo_call.add_group_deputy` | Thêm phó nhóm (không hoàn tác được) |
+| [Xóa phó nhóm](docs/DICH-VU.md#remove_group_deputy) | `zalo_call.remove_group_deputy` | Xóa phó nhóm (không hoàn tác được) |
 | [Chuyển quyền sở hữu nhóm](docs/DICH-VU.md#change_group_owner) | `zalo_call.change_group_owner` | Chuyển quyền sở hữu nhóm (không hoàn tác được) |
 | [Giải tán nhóm](docs/DICH-VU.md#disperse_group) | `zalo_call.disperse_group` | Giải tán nhóm (không hoàn tác được) |
-| [Bật link tham gia nhóm](docs/DICH-VU.md#enable_group_link) | `zalo_call.enable_group_link` | Kích hoạt và lấy link tham gia nhóm |
-| [Tắt link tham gia nhóm](docs/DICH-VU.md#disable_group_link) | `zalo_call.disable_group_link` | Vô hiệu hóa link tham gia nhóm |
-| [Tham gia nhóm bằng link](docs/DICH-VU.md#join_group) | `zalo_call.join_group` | Tham gia nhóm bằng link mời |
+| [Bật link tham gia nhóm](docs/DICH-VU.md#enable_group_link) | `zalo_call.enable_group_link` | Kích hoạt và lấy link tham gia nhóm (không hoàn tác được) |
+| [Tắt link tham gia nhóm](docs/DICH-VU.md#disable_group_link) | `zalo_call.disable_group_link` | Vô hiệu hóa link tham gia nhóm (không hoàn tác được) |
+| [Tham gia nhóm bằng link](docs/DICH-VU.md#join_group) | `zalo_call.join_group` | Tham gia nhóm bằng link mời (không hoàn tác được) |
 | [Rời nhóm](docs/DICH-VU.md#leave_group) | `zalo_call.leave_group` | Rời khỏi nhóm (không hoàn tác được) |
 | [Tạo ghi chú trong nhóm](docs/DICH-VU.md#create_note_group) | `zalo_call.create_note_group` | Tạo ghi chú mới trong nhóm |
 | [Sửa ghi chú trong nhóm](docs/DICH-VU.md#edit_note_group) | `zalo_call.edit_note_group` | Chỉnh sửa ghi chú trong nhóm |
@@ -1105,7 +1154,7 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | [Xem chi tiết bình chọn](docs/DICH-VU.md#get_poll_detail) | `zalo_call.get_poll_detail` | Lấy thông tin chi tiết của một cuộc bình chọn |
 | [Khóa bình chọn](docs/DICH-VU.md#lock_poll) | `zalo_call.lock_poll` | Khóa một cuộc bình chọn |
 | [Xem link nhóm](docs/DICH-VU.md#get_group_link) | `zalo_call.get_group_link` | Xem link nhóm |
-| [Bỏ phiếu bình chọn](docs/DICH-VU.md#vote_poll) | `zalo_call.vote_poll` | Bỏ phiếu bình chọn |
+| [Bỏ phiếu bình chọn](docs/DICH-VU.md#vote_poll) | `zalo_call.vote_poll` | Bỏ phiếu bình chọn (không hoàn tác được) |
 | **Sticker** | | |
 | [Gửi sticker](docs/DICH-VU.md#send_sticker) | `zalo_call.send_sticker` | Gửi sticker |
 | [Xem danh mục sticker](docs/DICH-VU.md#get_stickers) | `zalo_call.get_stickers` | Tìm kiếm sticker theo từ khóa |
@@ -1117,10 +1166,10 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | [Xem chi tiết nhắc hẹn](docs/DICH-VU.md#get_reminder) | `zalo_call.get_reminder` | Lấy thông tin chi tiết của một nhắc hẹn |
 | [Xem danh sách nhắc hẹn](docs/DICH-VU.md#get_list_reminder) | `zalo_call.get_list_reminder` | Lấy danh sách các nhắc hẹn trong một cuộc trò chuyện |
 | [Xem phản hồi nhắc hẹn](docs/DICH-VU.md#get_reminder_responses) | `zalo_call.get_reminder_responses` | Lấy danh sách phản hồi cho một nhắc hẹn |
-| [Thêm tin nhắn nhanh](docs/DICH-VU.md#add_quick_message) | `zalo_call.add_quick_message` | Thêm một tin nhắn nhanh mới |
+| [Thêm tin nhắn nhanh](docs/DICH-VU.md#add_quick_message) | `zalo_call.add_quick_message` | Thêm một tin nhắn nhanh mới (không hoàn tác được) |
 | [Xem tin nhắn nhanh](docs/DICH-VU.md#get_quick_message) | `zalo_call.get_quick_message` | Lấy danh sách tin nhắn nhanh |
-| [Xóa tin nhắn nhanh](docs/DICH-VU.md#remove_quick_message) | `zalo_call.remove_quick_message` | Xóa tin nhắn nhanh |
-| [Sửa tin nhắn nhanh](docs/DICH-VU.md#update_quick_message) | `zalo_call.update_quick_message` | Cập nhật tin nhắn nhanh |
+| [Xóa tin nhắn nhanh](docs/DICH-VU.md#remove_quick_message) | `zalo_call.remove_quick_message` | Xóa tin nhắn nhanh (không hoàn tác được) |
+| [Sửa tin nhắn nhanh](docs/DICH-VU.md#update_quick_message) | `zalo_call.update_quick_message` | Cập nhật tin nhắn nhanh (không hoàn tác được) |
 | **Hội thoại** | | |
 | [Tắt thông báo](docs/DICH-VU.md#set_mute) | `zalo_call.set_mute` | Tắt thông báo cho cuộc trò chuyện |
 | [Ghim/bỏ ghim hội thoại](docs/DICH-VU.md#set_pinned_conversation) | `zalo_call.set_pinned_conversation` | Ghim hoặc bỏ ghim cuộc trò chuyện |
@@ -1133,8 +1182,8 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | [Bật/tắt tự xóa tin nhắn](docs/DICH-VU.md#update_auto_delete_chat) | `zalo_call.update_auto_delete_chat` | Bật/tắt chế độ tự động xóa tin nhắn |
 | [Xem hội thoại ẩn](docs/DICH-VU.md#get_hidden_conversations) | `zalo_call.get_hidden_conversations` | Lấy danh sách các cuộc trò chuyện đang bị ẩn bằng mã PIN |
 | [Ẩn/bỏ ẩn hội thoại](docs/DICH-VU.md#set_hidden_conversations) | `zalo_call.set_hidden_conversations` | Ẩn hoặc bỏ ẩn một cuộc trò chuyện |
-| [Đặt PIN hội thoại ẩn](docs/DICH-VU.md#update_hidden_convers_pin) | `zalo_call.update_hidden_convers_pin` | Đặt hoặc thay đổi mã PIN cho các cuộc trò chuyện ẩn |
-| [Gỡ PIN hội thoại ẩn](docs/DICH-VU.md#reset_hidden_convers_pin) | `zalo_call.reset_hidden_convers_pin` | Gỡ bỏ mã PIN cho các cuộc trò chuyện ẩn |
+| [Đặt PIN hội thoại ẩn](docs/DICH-VU.md#update_hidden_convers_pin) | `zalo_call.update_hidden_convers_pin` | Đặt hoặc thay đổi mã PIN cho các cuộc trò chuyện ẩn (không hoàn tác được) |
+| [Gỡ PIN hội thoại ẩn](docs/DICH-VU.md#reset_hidden_convers_pin) | `zalo_call.reset_hidden_convers_pin` | Gỡ bỏ mã PIN cho các cuộc trò chuyện ẩn (không hoàn tác được) |
 | [Xem danh sách tắt thông báo](docs/DICH-VU.md#get_mute) | `zalo_call.get_mute` | Lấy danh sách các cuộc trò chuyện đang bị tắt thông báo |
 | [Xem hội thoại đã ghim](docs/DICH-VU.md#get_pin_conversations) | `zalo_call.get_pin_conversations` | Lấy danh sách các cuộc trò chuyện đã được ghim |
 | **Nhãn và «đang nhập»** | | |
@@ -1419,12 +1468,18 @@ Năm mẫu automation dựng sẵn cho Zalo Call, nằm ở kho **[TriTue2011/Bl
 
 ## Kho này gồm
 
-| Thư mục | Là gì |
+| Thư mục / tệp | Là gì |
 |---|---|
 | `custom_components/zalo_call/` | Tích hợp Home Assistant (HACS bắt buộc đặt ở gốc kho; **một tích hợp mỗi kho**) |
-| `zalo/zalo-pc-app/` | App Zalo dạng PC chạy Docker: đăng nhập QR, gọi thoại/video, WebUI. Ảnh `ghcr.io/tritue2011/zalo-calling` |
-| `tests/` | Test của tích hợp (bộ test của app nằm trong `zalo/zalo-pc-app/tests/`) |
-| `.github/workflows/` | `ci.yml` (test), `release.yml` (thẻ `vX` → Release + `zalo_call.zip`), `image.yml` (thẻ `vX` → ảnh Docker) |
+| `zalo/zalo-pc-app/` | App Zalo dạng PC: đăng nhập QR, gọi thoại/video, WebUI. Một Dockerfile, hai image `ghcr.io/tritue2011/zalo-calling` (`:latest` có giao diện, `:noui` không); `docker-compose.yml`, `docker-compose.noui.yml`, `.env.example` |
+| `zalo_calling/`, `zalo_calling_noui/` | Hai add-on HA (có / không giao diện), `repository.yaml` ở gốc để thêm kho vào Supervisor |
+| `tests/` | Test của tích hợp và của gói add-on (bộ test của app nằm trong `zalo/zalo-pc-app/tests/`) |
+| `.github/workflows/` | `ci.yml` (test), `release.yml` (thẻ `vX` → Release + `zalo_call.zip`, kiểm phiên bản add-on), `image.yml` (thẻ `vX` → hai image đa kiến trúc) |
 
-Phát hành: đẩy thẻ `vX.Y.Z.N` khớp `version` trong `custom_components/zalo_call/manifest.json`.
-Chi tiết kỹ thuật của app: [`zalo/README.md`](zalo/README.md).
+Phát hành: đẩy thẻ `vX.Y.Z.N` khớp `version` trong `custom_components/zalo_call/manifest.json`; phiên bản của add-on là cùng số đó
+(`zalo_calling_noui` thêm hậu tố `-noui`) — `tests/test_addon_packaging.py` kiểm, hỏng thì CI đỏ.
+Chi tiết kỹ thuật của app: [`zalo/README.md`](zalo/README.md), [`zalo/zalo-pc-app/README.md`](zalo/zalo-pc-app/README.md).
+
+**Quy ước giữ tài liệu khớp mã:** README này, `zalo/README.md` và README của app phải đổi cùng lúc với mã (thêm dịch vụ, biến môi trường, tuỳ chọn add-on,
+cách cài). Các khối dịch vụ sinh tự động (`python3 zalo/zalo-pc-app/tools/gen_ha_catalog.py` rồi `tools/gen_service_docs.py`);
+`tests/test_zalo_call_docs.py` và `tests/test_readme_matches_code.py` làm CI đỏ nếu lệch.

@@ -591,7 +591,7 @@ send_friend_request:
       default: Xin chào, hãy kết bạn với tôi!
 create_group:
   name: Tạo nhóm mới
-  description: Tạo group mới
+  description: Tạo group mới (không hoàn tác được)
   fields:
     entry_id: *id001
     name:
@@ -1358,7 +1358,7 @@ remove_friend:
       example: '5841349563795164131'
 change_friend_alias:
   name: Đổi biệt danh
-  description: Thay đổi biệt danh của một người bạn
+  description: Thay đổi biệt danh của một người bạn (không hoàn tác được)
   fields:
     entry_id: *id001
     friend_id:
@@ -1377,7 +1377,7 @@ change_friend_alias:
       example: Bạn thân
 remove_friend_alias:
   name: Xóa biệt danh
-  description: Xóa biệt danh của một người bạn
+  description: Xóa biệt danh của một người bạn (không hoàn tác được)
   fields:
     entry_id: *id001
     friend_id:
@@ -1425,7 +1425,7 @@ get_group_chat_history:
       default: 50
 add_group_deputy:
   name: Thêm phó nhóm
-  description: Thêm phó nhóm
+  description: Thêm phó nhóm (không hoàn tác được)
   fields:
     entry_id: *id001
     thread_id:
@@ -1453,7 +1453,7 @@ add_group_deputy:
       example: '5841349563795164131'
 remove_group_deputy:
   name: Xóa phó nhóm
-  description: Xóa phó nhóm
+  description: Xóa phó nhóm (không hoàn tác được)
   fields:
     entry_id: *id001
     thread_id:
@@ -1530,7 +1530,7 @@ disperse_group:
           - group
 enable_group_link:
   name: Bật link tham gia nhóm
-  description: Kích hoạt và lấy link tham gia nhóm
+  description: Kích hoạt và lấy link tham gia nhóm (không hoàn tác được)
   fields:
     entry_id: *id001
     thread_id:
@@ -1551,7 +1551,7 @@ enable_group_link:
           - group
 disable_group_link:
   name: Tắt link tham gia nhóm
-  description: Vô hiệu hóa link tham gia nhóm
+  description: Vô hiệu hóa link tham gia nhóm (không hoàn tác được)
   fields:
     entry_id: *id001
     thread_id:
@@ -1572,7 +1572,7 @@ disable_group_link:
           - group
 join_group:
   name: Tham gia nhóm bằng link
-  description: Tham gia nhóm bằng link mời
+  description: Tham gia nhóm bằng link mời (không hoàn tác được)
   fields:
     entry_id: *id001
     link:
@@ -1645,7 +1645,7 @@ update_profile:
       default: 0
 update_settings:
   name: Cập nhật cài đặt riêng tư
-  description: Cập nhật cài đặt riêng tư
+  description: Cập nhật cài đặt riêng tư (không hoàn tác được)
   fields:
     entry_id: *id001
     setting_type:
@@ -1896,7 +1896,7 @@ set_hidden_conversations:
         boolean: null
 update_hidden_convers_pin:
   name: Đặt PIN hội thoại ẩn
-  description: Đặt hoặc thay đổi mã PIN cho các cuộc trò chuyện ẩn
+  description: Đặt hoặc thay đổi mã PIN cho các cuộc trò chuyện ẩn (không hoàn tác được)
   fields:
     entry_id: *id001
     pin:
@@ -1908,7 +1908,7 @@ update_hidden_convers_pin:
       example: '1234'
 reset_hidden_convers_pin:
   name: Gỡ PIN hội thoại ẩn
-  description: Gỡ bỏ mã PIN cho các cuộc trò chuyện ẩn
+  description: Gỡ bỏ mã PIN cho các cuộc trò chuyện ẩn (không hoàn tác được)
   fields:
     entry_id: *id001
 get_mute:
@@ -2713,7 +2713,7 @@ get_reminder_responses:
       example: reminder123456
 add_quick_message:
   name: Thêm tin nhắn nhanh
-  description: Thêm một tin nhắn nhanh mới
+  description: Thêm một tin nhắn nhanh mới (không hoàn tác được)
   fields:
     entry_id: *id001
     keyword:
@@ -2736,7 +2736,7 @@ get_quick_message:
     entry_id: *id001
 remove_quick_message:
   name: Xóa tin nhắn nhanh
-  description: Xóa tin nhắn nhanh
+  description: Xóa tin nhắn nhanh (không hoàn tác được)
   fields:
     entry_id: *id001
     item_ids:
@@ -2748,7 +2748,7 @@ remove_quick_message:
       example: '12345678'
 update_quick_message:
   name: Sửa tin nhắn nhanh
-  description: Cập nhật tin nhắn nhanh
+  description: Cập nhật tin nhắn nhanh (không hoàn tác được)
   fields:
     entry_id: *id001
     item_id:
@@ -3026,7 +3026,7 @@ get_settings:
     entry_id: *id001
 vote_poll:
   name: Bỏ phiếu bình chọn
-  description: Bỏ phiếu bình chọn
+  description: Bỏ phiếu bình chọn (không hoàn tác được)
   fields:
     entry_id: *id001
     thread_id:
@@ -7764,7 +7764,9 @@ stop_call_mic:
         text: null
 set_default_devices:
   name: Đặt thiết bị mặc định
-  description: 'Đặt các chế độ tự động mặc định (tự phát mic, tự đồng ý video, chống vọng, âm lượng). Loa, mic, camera KHÔNG còn mặc định - do quy tắc/automation chọn cho từng cuộc gọi. Trường nào bỏ trống thì giữ nguyên.'
+  description: Đặt các chế độ tự động mặc định (tự phát mic, tự đồng ý video, chống vọng, âm lượng). Loa,
+    mic, camera KHÔNG còn mặc định - do quy tắc/automation chọn cho từng cuộc gọi. Trường nào bỏ trống
+    thì giữ nguyên.
   fields:
     entry_id: *id001
     auto_mic:
@@ -8217,7 +8219,10 @@ get_default_devices:
     entry_id: *id001
 get_app_settings:
   name: Đọc cài đặt của app
-  description: 'Đọc mọi cài đặt của app Zalo Call (tài khoản app, webhook, thiết bị, lưu trữ, proxy, bảo mật, đồng bộ lịch sử) cùng cài đặt phía HA. Dùng để cấu hình/sao lưu từ HA, nhất là khi app chạy không có giao diện web. Bí mật (địa chỉ webhook, mật khẩu) bị che trừ khi bật «Hiện bí mật». Mật khẩu app được app lưu dạng băm nên không đọc ngược được: «Hiện bí mật» chỉ cho thấy mật khẩu HA đang dùng.'
+  description: 'Đọc mọi cài đặt của app Zalo Call (tài khoản app, webhook, thiết bị, lưu trữ, proxy, bảo
+    mật, đồng bộ lịch sử) cùng cài đặt phía HA. Dùng để cấu hình/sao lưu từ HA, nhất là khi app chạy không
+    có giao diện web. Bí mật (địa chỉ webhook, mật khẩu) bị che trừ khi bật «Hiện bí mật». Mật khẩu app
+    được app lưu dạng băm nên không đọc ngược được: «Hiện bí mật» chỉ cho thấy mật khẩu HA đang dùng.'
   fields:
     entry_id: *id001
     sections:
@@ -8243,12 +8248,15 @@ get_app_settings:
             value: history_sync
     reveal_secrets:
       name: Hiện bí mật
-      description: Bật thì phản hồi chứa địa chỉ webhook đầy đủ và mật khẩu HA dùng với app. Phản hồi có thể nằm trong vết chạy automation, nên chỉ bật khi cần.
+      description: Bật thì phản hồi chứa địa chỉ webhook đầy đủ và mật khẩu HA dùng với app. Phản hồi
+        có thể nằm trong vết chạy automation, nên chỉ bật khi cần.
       selector:
         boolean: null
 set_app_settings:
   name: Ghi cài đặt của app
-  description: 'Ghi một mục cài đặt của app. App tự kiểm giá trị và báo lỗi rõ ràng. Ví dụ: mục «webhooks» với {"message_webhook_url": "...", "message_enabled": true}; mục «retention» với các khóa của app; mục «proxy» với {"action": "add", "url": "..."}.'
+  description: 'Ghi một mục cài đặt của app. App tự kiểm giá trị và báo lỗi rõ ràng. Ví dụ: mục «webhooks»
+    với {"message_webhook_url": "...", "message_enabled": true}; mục «retention» với các khóa của app;
+    mục «proxy» với {"action": "add", "url": "..."}.'
   fields:
     entry_id: *id001
     section:
@@ -8276,7 +8284,9 @@ set_app_settings:
         object: null
 set_app_password:
   name: Đổi mật khẩu app
-  description: Đổi mật khẩu đăng nhập app Zalo Call và cập nhật luôn mật khẩu HA dùng với app (tích hợp tự tải lại). Các phiên khác của app bị thu hồi. Không đổi được nếu mật khẩu app đặt bằng biến môi trường.
+  description: Đổi mật khẩu đăng nhập app Zalo Call và cập nhật luôn mật khẩu HA dùng với app (tích hợp
+    tự tải lại). Các phiên khác của app bị thu hồi. Không đổi được nếu mật khẩu app đặt bằng biến môi
+    trường.
   fields:
     entry_id: *id001
     old_password:
@@ -8315,12 +8325,14 @@ test_webhook:
             value: call
 login_qr:
   name: Đăng nhập Zalo bằng mã QR
-  description: Bắt đầu đăng nhập Zalo bằng mã QR theo kiểu đã chọn. Mã hiện ở thực thể ảnh «Mã QR đăng nhập» của thiết bị Zalo Call; quét bằng ứng dụng Zalo trên điện thoại rồi xác nhận.
+  description: Bắt đầu đăng nhập Zalo bằng mã QR theo kiểu đã chọn. Mã hiện ở thực thể ảnh «Mã QR đăng
+    nhập» của thiết bị Zalo Call; quét bằng ứng dụng Zalo trên điện thoại rồi xác nhận.
   fields:
     entry_id: *id001
     type:
       name: Kiểu đăng nhập
-      description: Web (Qua Web) hoặc PC (Zalo PC), mỗi kiểu có mã QR riêng. Bỏ trống thì giữ kiểu hiện tại của app.
+      description: Web (Qua Web) hoặc PC (Zalo PC), mỗi kiểu có mã QR riêng. Bỏ trống thì giữ kiểu hiện
+        tại của app.
       selector:
         select:
           options:
@@ -8330,12 +8342,14 @@ login_qr:
             value: pc
     force:
       name: Đăng nhập lại dù đang đăng nhập
-      description: Mặc định dịch vụ từ chối khi Zalo đang đăng nhập (tránh làm mất phiên). Bật để buộc lấy mã QR mới.
+      description: Mặc định dịch vụ từ chối khi Zalo đang đăng nhập (tránh làm mất phiên). Bật để buộc
+        lấy mã QR mới.
       selector:
         boolean: null
 logout:
   name: Đăng xuất Zalo
-  description: Đăng xuất Zalo (xóa phiên Zalo của app, quay về màn hình mã QR). Tài khoản và mật khẩu đăng nhập app vẫn giữ.
+  description: Đăng xuất Zalo (xóa phiên Zalo của app, quay về màn hình mã QR). Tài khoản và mật khẩu
+    đăng nhập app vẫn giữ.
   fields:
     entry_id: *id001
 end_call:

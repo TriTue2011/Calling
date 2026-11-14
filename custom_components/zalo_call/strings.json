@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Kết nối app Zalo PC",
-        "description": "Nhập địa chỉ và tài khoản của container zalo-pc-app.",
+        "description": "Nhập địa chỉ app Zalo (add-on hoặc Docker), dạng http://<IP máy chạy app>:8080, và tên đăng nhập/mật khẩu của app. Bản không giao diện: dùng đúng cặp đã đặt ở tuỳ chọn add-on hoặc ZALO_PC_APP_USER/ZALO_PC_APP_PASSWORD (không đặt thì app tự sinh, xem nhật ký của app).",
         "data": {
           "url": "Địa chỉ app",
           "username": "Tên đăng nhập",

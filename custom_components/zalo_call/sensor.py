@@ -105,6 +105,8 @@ class ZaloLoginStateSensor(CoordinatorEntity, SensorEntity):
         data = self.coordinator.data or {}
         st = data.get("status") or {}
         out = {"mo_ta": qr_login.LOGIN_STATE_TEXT.get(self._state or "", "")}
+        if "ui" in st:                      # app báo có WebUI hay không (bản :noui / add-on không giao diện): để người dùng biết đang chạy bản nào
+            out["co_webui"] = bool(st["ui"])
         if st.get("login"):
             out.update({"uid": st.get("uid"), "so_dien_thoai": st.get("phonenum")})
         else:

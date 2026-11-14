@@ -24,7 +24,11 @@ IDLE_RECHECK_SECONDS = 60.0          # đã đăng nhập (không có QR): chỉ
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, add: AddEntitiesCallback) -> None:
     ent = ZaloQrImage(hass, entry, hass.data[DOMAIN][entry.entry_id])
     hass.data.setdefault(DOMAIN + "_qr_entities", {})[entry.entry_id] = ent
-    entry.async_on_unload(lambda: hass.data.get(DOMAIN + "_qr_entities", {}).pop(entry.entry_id, None))
+
+    def _forget() -> None:                   # PHẢI trả None: HA coi giá trị trả về của hàm tháo là một tác vụ (trả thực thể → FAILED_UNLOAD, không tải lại được)
+        hass.data.get(DOMAIN + "_qr_entities", {}).pop(entry.entry_id, None)
+
+    entry.async_on_unload(_forget)
     add([ent])
 
 

@@ -65,3 +65,17 @@ jobs:
             ghcr.io/tritue2011/zalo-calling:${{ needs.test.outputs.tag }}
             ghcr.io/tritue2011/zalo-calling:${{ needs.test.outputs.version }}
             ghcr.io/tritue2011/zalo-calling:latest
+      # Bản KHÔNG giao diện (cùng mã nguồn, đích build `noui`): thẻ :noui (luôn mới nhất), :vX-noui, :X-noui.
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./zalo/zalo-pc-app
+          file: ./zalo/zalo-pc-app/Dockerfile
+          target: noui
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            APP_VERSION=${{ needs.test.outputs.tag }}
+          tags: |
+            ghcr.io/tritue2011/zalo-calling:${{ needs.test.outputs.tag }}-noui
+            ghcr.io/tritue2011/zalo-calling:${{ needs.test.outputs.version }}-noui
+            ghcr.io/tritue2011/zalo-calling:noui

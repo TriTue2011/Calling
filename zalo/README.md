@@ -2,52 +2,41 @@
 
 Thư mục này gom **toàn bộ phần Zalo** của repo Zalo-calling:
 
-- `zalo-pc-app/` — app Zalo dạng PC chạy Docker (đăng nhập QR kiểu PC, tin nhắn, **gọi thoại và video có tiếng thật**, WebUI). Chi tiết: `zalo-pc-app/README.md`, báo cáo kỹ thuật `zalo-pc-app/bao-cao.md`.
-- Tích hợp Home Assistant **`zalo_call`** nằm ở `../custom_components/zalo_call` (HACS bắt buộc `custom_components/` ở gốc repo).
+- `zalo-pc-app/` — app Zalo dạng PC (đăng nhập QR, tin nhắn, **gọi thoại và video có tiếng thật**, WebUI). Chi tiết, bảng biến môi trường: [`zalo-pc-app/README.md`](zalo-pc-app/README.md); báo cáo kỹ thuật `zalo-pc-app/bao-cao.md`.
+- Tích hợp Home Assistant **`zalo_call`** ở `../custom_components/zalo_call` (HACS bắt buộc `custom_components/` ở gốc repo).
+- Hai add-on HA ở `../zalo_calling/` (có WebUI, hiện ở thanh bên qua Ingress) và `../zalo_calling_noui/` (không giao diện).
 
-Image Docker: `ghcr.io/tritue2011/zalo-calling` (tag `vX.Y.Z` và `latest`).
+Image Docker: `ghcr.io/tritue2011/zalo-calling` — `:latest` / `:vX.Y.Z` / `:X.Y.Z` có giao diện; `:noui` / `:vX.Y.Z-noui` / `:X.Y.Z-noui` không giao diện (amd64 + arm64).
 
 ## Cài đặt và cập nhật
 
-**1. App Zalo PC (Docker).** Image dựng sẵn, đã kèm ffmpeg (libx264), libopus và OpenSSL — không cài thêm gì:
+Hướng dẫn cài từng bước (add-on, Docker, HACS, đăng nhập Zalo khi không có WebUI): mục **Cài đặt** của [README gốc](../README.md#cài-đặt).
+Tóm tắt:
 
-```sh
-mkdir zalo && cd zalo
-curl -LO https://github.com/TriTue2011/Zalo-calling/releases/latest/download/docker-compose.yml
-printf 'ZALO_PC_APP_USER=ten\nZALO_PC_APP_PASSWORD=mat-khau-dai\n' > .env
-docker compose up -d          # mở http://<máy chủ>:8080, quét QR Zalo
-docker compose pull && docker compose up -d   # cập nhật bản mới
-```
+- **Add-on** (HAOS/Supervised): thêm kho `https://github.com/TriTue2011/Zalo-calling`, cài *Zalo Calling* hoặc *Zalo Calling (không giao diện)*; bản không giao diện **bắt buộc** điền `username` và `password` (≥ 8 ký tự).
+- **Docker:** `docker-compose.yml` (có giao diện) hoặc `docker-compose.noui.yml`; `.env` là tuỳ chọn — không đặt thì app tự sinh tài khoản và in một lần trong log.
+  Cập nhật: `docker compose pull && docker compose up -d` (hoặc Watchtower kéo `:latest`). Bản đang chạy: `GET /api/status` (`version`, `deps`, `ui`).
+- **Tích hợp:** HACS → Custom repositories → repo này (*Integration*) → tải **Zalo Call** → khởi động lại HA → Thêm tích hợp (địa chỉ app `http://<IP>:8080` + tài khoản app).
 
-Mỗi tag `vX.Y.Z` tự dựng image `ghcr.io/tritue2011/zalo-calling:vX.Y.Z` và `:latest` (amd64 + arm64), rồi tạo
-GitHub Release. Kiểm tra bản đang chạy ở `GET /api/status` (`version`, `deps`). Có Watchtower thì tự kéo `:latest`.
-
-**2. Tích hợp Home Assistant (HACS).** HACS → ⋮ → Kho tùy chỉnh → `https://github.com/TriTue2011/Zalo-calling`
-(loại *Integration*) → tải **Zalo Call** → khởi động lại HA → Cài đặt → Thiết bị & dịch vụ → Thêm tích hợp →
-*Zalo Call* (địa chỉ app, tài khoản app). Cập nhật: HACS báo khi có release mới.
+Mỗi thẻ `vX.Y.Z.N` (khớp `version` trong manifest) tự tạo GitHub Release (`zalo_call.zip` cho HACS) và dựng hai image; phiên bản add-on theo cùng số đó.
 
 ### Thiết bị cuộc gọi (loa, mic, camera)
 
-Cài đặt **ngay trên thiết bị Zalo Call** (không cần bánh răng): các thực thể *Loa mặc định*, *Mic mặc định*,
-*Camera mặc định*, *Mic URL*, hai công tắc *Tự phát mic khi nghe máy* và *Tự đồng ý khi bên kia xin gọi video*, và các nút
-*Chuyển sang video*, *Tắt hình*, *Tắt mic cuộc gọi*. Mỗi cuộc gọi vẫn ghi đè được bằng trường `speaker`, `mic`, `mic_url`,
-`camera` của service `make_call` / `answer_call` (để rỗng = tắt thiết bị đó cho cuộc này).
+Không có loa/mic/camera «mặc định» toàn cục: thiết bị chỉ được dùng khi **quy tắc** của người đó (`set_rule`) hoặc **chính cuộc gọi** (`make_call`, `answer_call`) chọn
+và tích ô `connect` / `connect_now`. Chưa chọn là không dùng, AI cũng không tự dùng.
 
 - **Loa**: bất kỳ `media_player` (app phát WAV liên tục, HA bảo loa phát).
-- **Mic**: `camera` (tiếng của luồng camera), `assist_satellite` của camera Imou/Dahua (dùng `mic_url` của dahua_talk)
-  hoặc của loa R1 (luồng PCM 16 kHz `/api/r1_speaker/mic/<entry>?k=<khoá>` của r1_speaker), hoặc URL bất kỳ
-  (rtsp/http/rtmp). HA chỉ phân giải ra URL, **app tự dùng ffmpeg đọc** và phát lên cuộc gọi.
+- **Mic**: `camera` (tiếng của luồng camera), `assist_satellite`, hoặc URL bất kỳ (`mic_url`: rtsp/http/rtmp). HA chỉ phân giải ra URL, **app tự dùng ffmpeg đọc** và phát lên cuộc gọi.
 - **Camera**: bất kỳ `camera` có stream (go2rtc/RTSP): app mã hoá H.264 bằng ffmpeg và phát hình lên cuộc gọi video.
+- Các chế độ tự động chung (`auto_mic`, `auto_video`, `echo_guard`, `call_volume`…) đặt bằng `set_default_devices`.
 
-**Gọi thoại rồi chuyển sang video** khi đang nói: service `zalo_call.upgrade_to_video` (hoặc nút, hoặc nút
-*Chuyển sang video* trong WebUI). Bên kia xin chuyển sang video thì app tự đồng ý và phát camera mặc định (tắt bằng công tắc).
-
-Service mới: `upgrade_to_video`, `start_call_video`, `stop_call_video`, `start_call_mic`, `stop_call_mic`,
-`set_default_devices`; `make_call` thêm `type: video` và chọn thiết bị bằng bộ chọn thực thể.
+**Gọi thoại rồi chuyển sang video** khi đang nói: dịch vụ `zalo_call.upgrade_to_video`, nút *Chuyển sang video* của tích hợp, hoặc nút trong WebUI.
+Video của bên kia (H.264 hoặc H.265) hiện ở WebUI; cuộc gọi có thể tách thành cửa sổ riêng (`/call`). Gọi nhóm: có tín hiệu và danh sách người tham gia, nhưng hình/tiếng nhóm (máy chủ SFU của Zalo) chưa được hỗ trợ.
 
 ### WebUI
 
-`http://<máy chủ>:8080`: danh bạ (nút *Gọi* và *Video*), khung cuộc gọi (nghe bên kia ngay trên trình duyệt, mic mặc định /
-âm 440 Hz / mic trình duyệt, *Chuyển sang video*, camera mặc định / hình thử, tắt hình/mic) và trang **Thiết bị** (nguồn mic,
-nguồn camera, thông số hình, hai công tắc tự động). Mic trình duyệt cần HTTPS hoặc localhost.
-
+`http://<máy chủ>:8080` (hoặc thanh bên của HA khi dùng add-on có giao diện): danh bạ (nút *Gọi* và *Video*), khung cuộc gọi (nghe bên kia ngay trên trình duyệt,
+mic trình duyệt, *Chuyển sang video*, tắt hình/mic, *Tách cửa sổ*) và trang **Thiết bị**. Mic trình duyệt cần HTTPS hoặc localhost.
+**Trên điện thoại** (màn ≤ 900 px quy đổi) WebUI chuyển sang bố cục kiểu Zalo di động: thanh đầu gradient xanh, thanh tab dưới có nhãn, soạn tin một hàng (nút ít dùng gom vào «…»), nút ≡ mở trang **Thông tin** toàn màn hình. `tests/test_phone_layout.py` đo bố cục bằng Chrome thật ở 390 px và 320 px.
+Đăng nhập Zalo ở màn hình đầu: **Qua PC** (gọi thoại/video) hoặc **Qua Web** (chỉ nhắn tin). Bản không giao diện không có các trang này: cấu hình bằng `.env` / tuỳ chọn add-on,
+dịch vụ HA `get_app_settings` / `set_app_settings` hoặc `curl`.

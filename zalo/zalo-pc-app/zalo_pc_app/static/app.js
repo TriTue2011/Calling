@@ -98,7 +98,7 @@ async function api(path, method, body) {
   // Het phien dang nhap app (hoac chua dang nhap): ve trang dang nhap.
   // Trang /login la cong ngoai; QR Zalo nam sau no.
   if (r.status === 401) {
-    window.location.href = "/login";
+    window.location.href = (window.__zIng || "") + "/login";
     throw new Error("chua_dang_nhap_app");
   }
   return r.json();
@@ -2590,8 +2590,8 @@ function closeMenu() {
 $("btn-qr").onclick = startQr;
 $("btn-qr-again").onclick = startQr;
 $("btn-logout").onclick = () =>
-  api("/api/logout", "POST").then(() => { window.location.href = "/login"; })
-    .catch(() => { window.location.href = "/login"; });
+  api("/api/logout", "POST").then(() => { window.location.href = (window.__zIng || "") + "/login"; })
+    .catch(() => { window.location.href = (window.__zIng || "") + "/login"; });
 $("btn-end").onclick = endCall;
 $("btn-answered").onclick = markAnswered;
 $("btn-back").onclick = () => loadMain();

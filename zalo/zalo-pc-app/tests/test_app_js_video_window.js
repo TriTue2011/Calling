@@ -39,7 +39,7 @@ const $ = (id) => w.document.getElementById(id);
   ok.push(["hết cuộc gọi: cửa sổ video ẩn và xóa sạch, thẻ cũng ẩn", $("vidwin").hidden === true && !$("vidwin").firstChild && $("callcard").hidden === true]);
   // CSS: cửa sổ riêng, bên trái thẻ trên máy tính, phía trên trên điện thoại; mọi quy tắc khung không còn lồng trong .callcard
   ok.push(["CSS: .vidwin đứng riêng (position: fixed) và các quy tắc .vvbox/.vview không còn lồng trong .callcard", /\.vidwin \{[^}]*position: fixed/.test(css) && !/\.callcard \.vvbox|\.callcard \.vview|\.callcard \.vv-wait/.test(css)]);
-  ok.push(["CSS: điện thoại đặt cửa sổ video phía trên (top) và hạ trần chiều cao video (--vcap: 40vh)", /html\[data-bp="phone"\] \.vidwin \{[^}]*top: \.625rem[^}]*--vcap: 40vh/.test(css)]);
+  ok.push(["CSS: điện thoại cho hình phủ TOÀN MÀN HÌNH (inset: 0), thao tác ẩn mặc định khi gọi video", /html\[data-bp="phone"\] \.vidwin \{[^}]*position: fixed; inset: 0/.test(css) && /\.callcard\[data-video="1"\]\[data-ui="0"\] > \* \{ opacity: 0; visibility: hidden/.test(css)]);
   let bad = 0; for (const [n, v, x] of ok) { console.log(v ? "ĐẠT " : "HỎNG", n, v ? "" : "(" + (x || "") + ")"); if (!v) bad++; }
   console.log("lỗi trình duyệt:", errors); process.exit(bad || errors.length ? 1 : 0);
 })();

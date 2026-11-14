@@ -87,9 +87,10 @@
   --line: #dfe5ec; --text: #081c36; --muted: #5b6b80;
   --accent: #0068ff; --accent-ink: #ffffff; --accent-soft: #e5efff;
   --rail-bg: #0068ff; --rail-ink: #ffffff; --rail-sel: rgba(0, 20, 70, .24);
-  --bubble-out: #dbeaff; --bubble-in: #ffffff; --bubble-out-ink: #081c36;
+  --bubble-out: #d5f0ff; --bubble-in: #ffffff; --bubble-out-ink: #081c36;
   --ok: #0f7b3f; --warn: #9a5b00; --bad: #c4261d;
   --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0.375rem 1.25rem rgba(16, 24, 40, .08);
+  --hdr-a: #3b7ff6; --hdr-b: #4ba4f4; --chat-bg: #e2e9f1;
   --r: 0.75rem; --rail: 4.375rem; --listw: 23.75rem; --infow: 22.5rem;
   --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -100,6 +101,7 @@
   --line: #243040; --text: #e8edf5; --muted: #96a4b8;
   --accent: #3d8bff; --accent-ink: #04132b; --accent-soft: #15315c;
   --rail-bg: #0a3a8c; --rail-sel: rgba(0, 0, 0, .28);
+  --hdr-a: #0d3f94; --hdr-b: #145ab8; --chat-bg: #0c1118;
   --bubble-out: #174a96; --bubble-in: #1c2532; --bubble-out-ink: #f2f7ff;
   --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
   --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 0.5rem 1.5rem rgba(0, 0, 0, .4);
@@ -111,6 +113,7 @@
     --line: #243040; --text: #e8edf5; --muted: #96a4b8;
     --accent: #3d8bff; --accent-ink: #04132b; --accent-soft: #15315c;
     --rail-bg: #0a3a8c; --rail-sel: rgba(0, 0, 0, .28);
+    --hdr-a: #0d3f94; --hdr-b: #145ab8; --chat-bg: #0c1118;
     --bubble-out: #174a96; --bubble-in: #1c2532; --bubble-out-ink: #f2f7ff;
     --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 0.5rem 1.5rem rgba(0, 0, 0, .4);
@@ -396,9 +399,11 @@ pre.out { margin: 0.5rem 0 0; padding: 0.625rem; border-radius: 0.5rem; backgrou
 
 /* ---- diem gay bo cuc: JS dat html[data-bp] theo do rong da chia cho he so thu phong ---- */
 html[data-bp="mid"] .app[data-info="on"], html[data-bp="phone"] .app[data-info="on"] { grid-template-columns: var(--rail) var(--listw) minmax(0, 1fr); }
-html[data-bp="mid"] .info, html[data-bp="phone"] .info, html[data-bp="mid"] #btn-info, html[data-bp="phone"] #btn-info { display: none !important; }
+html[data-bp="mid"] .info, html[data-bp="mid"] #btn-info, html[data-bp="phone"] .info { display: none !important; }
+html[data-bp="phone"] .app[data-info="page"] .info { display: block !important; }
+.phone-only, .ic-phone { display: none; }
 html[data-bp="mid"] { --listw: 21rem; }
-html[data-bp="phone"] .app, html[data-bp="phone"] .app[data-tab="services"], html[data-bp="phone"] .app[data-tab="settings"], html[data-bp="phone"] .app[data-tab="watch"] { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+html[data-bp="phone"] .app, html[data-bp="phone"] .app[data-tab="services"], html[data-bp="phone"] .app[data-tab="settings"], html[data-bp="phone"] .app[data-tab="watch"] { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }   /* minmax(0,…): 1fr trần lấy bề rộng tối thiểu của thanh tab (330 px > màn 320 px) */
 html[data-bp="phone"] .rail { order: 2; flex-direction: row; justify-content: space-around; padding: .25rem .375rem calc(.25rem + env(safe-area-inset-bottom)); gap: 0; }
 html[data-bp="phone"] .rail .me, html[data-bp="phone"] .rail-sp { display: none; }
 html[data-bp="phone"] .rail-btn { width: 3.5rem; height: 2.875rem; }
@@ -406,14 +411,119 @@ html[data-bp="phone"] .listcol, html[data-bp="phone"] .mainpane { grid-row: 1; g
 html[data-bp="phone"] .app[data-pane="list"] .mainpane { display: none; }
 html[data-bp="phone"] .app[data-pane="main"] .listcol, html[data-bp="phone"] .app[data-pane="main"] .rail { display: none; }
 html[data-bp="phone"] .app[data-tab="services"] .listcol, html[data-bp="phone"] .app[data-tab="settings"] .listcol, html[data-bp="phone"] .app[data-tab="watch"] .listcol { display: none; }
-html[data-bp="phone"] .back { display: grid; }
+html[data-bp="phone"] .back, html[data-bp="phone"] .phone-only { display: grid; }
+html[data-bp="phone"] .ic-phone { display: block; }
+html[data-bp="phone"] .ic-wide { display: none; }
 html[data-bp="phone"] .msg { max-width: 90%; }
-html[data-bp="phone"] .callcard { right: .625rem; left: .625rem; width: auto; bottom: 4.75rem; }
-html[data-bp="phone"] .vidwin { right: .625rem; left: .625rem; width: auto; top: .625rem; bottom: auto; --vcap: 40vh; }
-html[data-bp="phone"] .app[data-pane="main"] .callcard { bottom: .75rem; }
 html[data-bp="phone"] .kv { grid-template-columns: 1fr; }
 html[data-bp="phone"] .cbar { flex-wrap: wrap; }
 html[data-bp="phone"] .page { padding: 1rem .875rem 2rem; }
+/* ---- điện thoại: bám giao diện Zalo di động (thanh đầu gradient xanh, tab dưới có nhãn, chat một hàng soạn tin, trang «Thông tin» toàn màn hình).
+   Chỉ khi html[data-bp="phone"]; khổ rộng giữ nguyên. Màu đo từ ảnh chụp Zalo thật: gradient #3b7ff6 → #4ba4f4, nền chat #e2e9f1. ---- */
+html[data-bp="phone"] body { background: var(--surface); }
+html[data-bp="phone"] .list-head { background: linear-gradient(90deg, var(--hdr-a), var(--hdr-b)); padding: calc(.5rem + env(safe-area-inset-top)) .5rem 0; gap: 0; }
+html[data-bp="phone"] .searchbar { padding-bottom: .5rem; }
+html[data-bp="phone"] .list-head .search svg, html[data-bp="phone"] .searchbar .icon-btn { color: #fff; }
+html[data-bp="phone"] .list-head .search input { background: transparent; color: #fff; border-color: transparent; height: 2.75rem; font-size: 1rem; }
+html[data-bp="phone"] .list-head .search input::placeholder { color: rgba(255, 255, 255, .78); }
+html[data-bp="phone"] .list-head .search input:focus { background: rgba(255, 255, 255, .18); border-color: transparent; }
+html[data-bp="phone"] .searchbar .icon-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .16); color: #fff; }
+html[data-bp="phone"] .list-head .tabs, html[data-bp="phone"] .list-head .chips { background: var(--surface); margin: 0 -.5rem; padding-left: 1rem; padding-right: 1rem; }
+html[data-bp="phone"] .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+html[data-bp="phone"] .chips::-webkit-scrollbar { display: none; }
+html[data-bp="phone"] .chip { flex: none; height: 2rem; }
+html[data-bp="phone"] .list li { position: relative; }
+html[data-bp="phone"] .list li::after { content: ""; position: absolute; left: 5.25rem; right: 0; bottom: 0; border-bottom: 1px solid var(--line); }
+html[data-bp="phone"] .row { gap: .875rem; padding: .75rem 1rem; }
+html[data-bp="phone"] .row .av { width: 3.5rem; height: 3.5rem; font-size: 1.125rem; }
+html[data-bp="phone"] .row-name { font-size: 1.0625rem; }
+html[data-bp="phone"] .row-sub { font-size: .9375rem; }
+html[data-bp="phone"] .listcol { border-right: 0; }
+/* thanh tab dưới: nền trắng, biểu tượng xám + nhãn, mục đang chọn xanh */
+html[data-bp="phone"] .rail { background: var(--surface); color: var(--muted); border-top: 1px solid var(--line); padding: .25rem .125rem calc(.25rem + env(safe-area-inset-bottom)); }
+html[data-bp="phone"] .rail-btn { flex: 1; min-width: 0; width: auto; height: 3.375rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1875rem; color: var(--muted); border-radius: .5rem; }
+html[data-bp="phone"] .rail-btn svg.i { width: 1.5rem; height: 1.5rem; }
+html[data-bp="phone"] .rail-btn::after { content: attr(data-label); font-size: .6875rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+html[data-bp="phone"] .rail-btn:hover { background: var(--hover); color: var(--muted); }
+html[data-bp="phone"] .rail-btn[aria-current="page"] { background: none; color: var(--accent); font-weight: 500; }
+html[data-bp="phone"] .rail :focus-visible { outline-color: var(--accent); }
+html[data-bp="phone"] .rail .dot { top: .125rem; right: calc(50% - 1.75rem); }
+/* thanh đầu của mọi trang (chat, danh bạ, cuộc gọi, cài đặt…) */
+html[data-bp="phone"] .head { background: linear-gradient(90deg, var(--hdr-a), var(--hdr-b)); color: #fff; border-bottom: 0; min-height: 3.5rem; padding: calc(.375rem + env(safe-area-inset-top)) .375rem .375rem .25rem; gap: .125rem; }
+html[data-bp="phone"] .head .icon-btn { color: #fff; }
+html[data-bp="phone"] .head .icon-btn:hover:not(:disabled), html[data-bp="phone"] .head .icon-btn[aria-pressed="true"] { background: rgba(255, 255, 255, .18); color: #fff; }
+html[data-bp="phone"] .head-name { color: #fff; font-size: 1.125rem; font-weight: 500; }
+html[data-bp="phone"] .head-sub, html[data-bp="phone"] #chat-av { display: none; }
+html[data-bp="phone"] .head :focus-visible, html[data-bp="phone"] .info-h :focus-visible { outline-color: #fff; }
+/* khung chat */
+html[data-bp="phone"] .mainpane { background: var(--chat-bg); }
+html[data-bp="phone"] .msgs { padding: .625rem .5rem; gap: .125rem; }
+html[data-bp="phone"] .msg { max-width: 88%; }
+html[data-bp="phone"] .bub { border-radius: 1rem; font-size: 1rem; box-shadow: 0 1px 1px rgba(16, 24, 40, .05); }
+html[data-bp="phone"] .day { background: rgba(60, 70, 85, .5); color: #fff; padding: .1875rem .875rem; }
+html[data-bp="phone"] .notice { margin: .5rem; }
+/* soạn tin MỘT hàng: [cảm xúc] [ô nhập] [… mic ảnh] — các nút ít dùng gom vào menu «…» */
+html[data-bp="phone"] .composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+html[data-bp="phone"] .composer > * { grid-column: 1 / -1; }
+html[data-bp="phone"] .composer > .cinput { grid-column: 1; grid-row: 50; padding: .25rem 0 .25rem .25rem; }
+html[data-bp="phone"] .composer > .ctools { grid-column: 2; grid-row: 50; padding: .25rem .25rem .25rem 0; }
+html[data-bp="phone"] .cinput #btn-emoji { order: -1; }
+html[data-bp="phone"] .cinput textarea { font-size: 1rem; padding: .625rem .25rem; }
+html[data-bp="phone"] #btn-attach, html[data-bp="phone"] #btn-sticker, html[data-bp="phone"] #btn-thread-svc, html[data-bp="phone"] #btn-like { display: none; }
+html[data-bp="phone"] .composer:has(#btn-send:not([hidden])) .ctools { display: none; }
+html[data-bp="phone"] .composer:has(#btn-send:not([hidden])) .cinput { grid-column: 1 / -1; padding-right: .25rem; }
+html[data-bp="phone"] #btn-send { color: var(--accent); }
+/* trang «Thông tin» (mở bằng nút ≡ ở thanh đầu chat) */
+html[data-bp="phone"] .app[data-info="page"] .info { position: fixed; inset: 0; z-index: 40; background: var(--bg); border-left: 0; overflow-y: auto; }
+html[data-bp="phone"] .info-h { display: flex; justify-content: flex-start; align-items: center; gap: .25rem; height: auto; min-height: 3.5rem; padding: calc(.375rem + env(safe-area-inset-top)) .5rem .375rem .25rem; background: linear-gradient(90deg, var(--hdr-a), var(--hdr-b)); color: #fff; border-bottom: 0; font-size: 1.125rem; font-weight: 500; }
+html[data-bp="phone"] .info-h .icon-btn { color: #fff; }
+html[data-bp="phone"] .info-top { background: var(--surface); padding: 1.5rem 1rem .75rem; }
+html[data-bp="phone"] .info-top .av.xl { width: 7.5rem; height: 7.5rem; font-size: 2.5rem; margin-bottom: .875rem; }
+html[data-bp="phone"] .info-name { font-size: 1.5rem; font-weight: 600; }
+html[data-bp="phone"] .info-acts { justify-content: space-around; gap: 0; margin: 1.25rem 0 .75rem; }
+html[data-bp="phone"] .iact { flex: 1; font-size: .875rem; }
+html[data-bp="phone"] .iact span.c { width: 3.25rem; height: 3.25rem; }
+html[data-bp="phone"] .isec { background: var(--surface); border-top: .5rem solid var(--bg); padding: .875rem 1rem; }
+html[data-bp="phone"] .isec h4 { font-size: 1rem; font-weight: 500; }
+html[data-bp="phone"] .imembers { max-height: none; }
+/* ---- cuộc gọi trên điện thoại: MÀN HÌNH TOÀN MÀN HÌNH như Zalo di động ----
+   đến: ảnh to + tên + hai nút tròn Từ chối / Nghe; đang gọi thoại: ảnh to, giờ, hàng nút (mic/loa/camera trong nhà) và nút cúp tròn đỏ;
+   đang gọi video: hình bên kia phủ cả màn hình (đen, vừa khung; chạm để phủ đầy), tên + giờ ở trên, nút ở dưới trên nền mờ. */
+html[data-bp="phone"] .callcard { inset: 0; width: auto; max-width: none; z-index: 60; display: flex; flex-direction: column; padding: calc(1.5rem + env(safe-area-inset-top)) 1.25rem calc(1.5rem + env(safe-area-inset-bottom)); border: 0; border-radius: 0; box-shadow: none; overflow-y: auto;
+  background: linear-gradient(180deg, #1c52bd 0%, #0c2b6a 100%); color: #fff; }
+html[data-bp="phone"] .callcard .top { flex-direction: column; text-align: center; gap: .75rem; margin-top: 12vh; }
+html[data-bp="phone"] .callcard .top .av { width: 7.5rem; height: 7.5rem; font-size: 2.5rem; border: 3px solid rgba(255, 255, 255, .6); }
+html[data-bp="phone"] .callcard .nm { font-size: 1.5rem; }
+html[data-bp="phone"] .callcard .st, html[data-bp="phone"] .callcard .tm { color: rgba(255, 255, 255, .85); font-size: 1rem; }
+html[data-bp="phone"] .callcard .popout-row { display: none; }
+html[data-bp="phone"] .callcard .warn { background: rgba(255, 255, 255, .16); color: #fff; }
+html[data-bp="phone"] .callcard .mt { margin-top: auto; padding-top: 1rem; }
+html[data-bp="phone"] .callcard .tg { border: 0; background: rgba(255, 255, 255, .16); color: #fff; padding: .75rem .25rem; border-radius: 1rem; font-size: .8125rem; }
+html[data-bp="phone"] .callcard .tg:hover:not(:disabled) { background: rgba(255, 255, 255, .24); }
+html[data-bp="phone"] .callcard .tg.on { background: #fff; color: #0c2b6a; }
+html[data-bp="phone"] .callcard .gn { border: 0; background: rgba(255, 255, 255, .12); color: #fff; }
+html[data-bp="phone"] .callcard .gn button { color: #fff; }
+html[data-bp="phone"] .callcard .acts { margin-top: 1.25rem; justify-content: center; gap: 3.5rem; }
+html[data-bp="phone"] .callcard[data-state="incoming"] .acts { margin-top: auto; }
+html[data-bp="phone"] .callcard .end, html[data-bp="phone"] .callcard .ok { flex: none; width: 4.5rem; height: 4.5rem; border-radius: 50%; padding: 0; font-size: 0; gap: 0; justify-content: center; }
+html[data-bp="phone"] .callcard .end svg, html[data-bp="phone"] .callcard .ok svg { width: 1.75rem; height: 1.75rem; }
+html[data-bp="phone"] .callcard :focus-visible { outline-color: #fff; }
+/* có hình: hình bên kia phủ toàn màn hình, thẻ cuộc gọi chỉ là lớp nút nổi phía trên (chạm vào hình vẫn đổi «vừa khung / phủ đầy») */
+html[data-bp="phone"] .vidwin { position: fixed; inset: 0; z-index: 59; width: auto; min-width: 0; max-height: none; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: #000; display: grid; }
+html[data-bp="phone"] .vidwin .vvbox { width: 100% !important; height: 100%; aspect-ratio: auto !important; border-radius: 0; margin: 0 !important; }
+html[data-bp="phone"] .vidwin .vidwrap { width: 100%; height: 100%; }
+html[data-bp="phone"] .callcard[data-video="1"] { background: linear-gradient(180deg, rgba(0, 0, 0, .6) 0%, rgba(0, 0, 0, 0) 26%, rgba(0, 0, 0, 0) 58%, rgba(0, 0, 0, .7) 100%); pointer-events: none; }
+html[data-bp="phone"] .callcard[data-video="1"] button { pointer-events: auto; }
+html[data-bp="phone"] .callcard[data-video="1"] .top { flex-direction: row; text-align: left; margin-top: 0; gap: .625rem; }
+html[data-bp="phone"] .callcard[data-video="1"] .top .av { width: 2.75rem; height: 2.75rem; font-size: 1rem; border-width: 2px; }
+html[data-bp="phone"] .callcard[data-video="1"] .nm { font-size: 1.0625rem; }
+html[data-bp="phone"] .callcard[data-video="1"] .st, html[data-bp="phone"] .callcard[data-video="1"] .tm { font-size: .8125rem; }
+html[data-bp="phone"] .callcard[data-video="1"] .gns { display: none; }
+/* cuộc gọi video: thao tác ẨN mặc định (chỉ có hình), chạm vào hình để hiện — xem setCallUi() trong app.js */
+html[data-bp="phone"] .callcard[data-video="1"] > * { transition: opacity .2s ease, visibility .2s; }
+html[data-bp="phone"] .callcard[data-video="1"][data-ui="0"] > * { opacity: 0; visibility: hidden; }
+html[data-bp="phone"] .callcard[data-video="1"][data-ui="0"] { background: transparent; }
+html[data-bp="phone"] .callcard[data-video="1"][data-ui="1"] > * { opacity: 1; visibility: visible; }
 /* man hinh cam ung: vung bam toi thieu ~44px */
 html[data-dev="touch"] .icon-btn { width: 2.75rem; height: 2.75rem; }
 html[data-dev="touch"] .row { padding-top: .8125rem; padding-bottom: .8125rem; }

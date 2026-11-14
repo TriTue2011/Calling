@@ -1,0 +1,185 @@
+"""WebUI ở khổ điện thoại bám Zalo di động, đo bằng Chrome thật (14/11/2026).
+
+Kiểm trên 390 px và 320 px: không tràn ngang; thanh đầu gradient xanh; tab dưới có nhãn; chat soạn tin MỘT hàng (cảm xúc, ô nhập, «…», ảnh, mic cùng hàng; nút
+ít dùng gom vào «…»); gõ chữ thì hiện nút gửi và ẩn mic/ảnh; nút ≡ mở trang «Thông tin» phủ toàn màn hình và nút quay lại đóng được; không có ngoại lệ JS.
+Tự bỏ qua khi máy không có google-chrome hoặc node >= 22. Chạy: python3 tests/test_phone_layout.py"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.request
+from http.server import ThreadingHTTPServer
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, ".."))
+tmp = tempfile.mkdtemp(prefix="zalo-pc-phone-")
+os.environ.update(ZALO_PC_DATA_DIR=tmp, ZALO_PC_PORT="0", ZALO_PC_APP_USER="u", ZALO_PC_APP_PASSWORD="mat-khau-thu-123")
+os.environ.pop("ZALO_PC_APP_PASSWORD_HASH", None)
+os.environ.pop("ZALO_PC_INGRESS", None)
+from zalo_pc_app import server as sv  # noqa: E402
+
+NOW = int(time.time())
+
+
+def conv(tid, name, text, ago, typ="user", unread=0, out=False):
+    return {"thread_type": typ, "thread_id": tid, "name": name, "last_text": text, "last_ts": NOW - ago * 60, "count": 5, "incoming_count": 3,
+            "unread": unread, "last_out": out, "last_sender_name": "", "stranger": False}
+
+
+THREADS = [conv("2", "Vợ Yêu", "[Cuộc gọi video đi]", 6, out=True), conv("3", "AI học hỏi", "Em vừa tắt ir quạt", 9, "group", 3),
+           conv("5", "Dịch vụ Hoàng Thành", "Đã giao 5 bình cho PH1 và còn rất nhiều chữ nữa để thử cắt chữ ở khổ hẹp", 24, "group", 120),
+           conv("7", "BenBap", "Chiều nay bố đã về nhà rồi", 180)]
+MSGS = [{"id": "m1", "sender_id": "7", "direction": "in", "kind": "text", "time": NOW - 600, "text": "Chiều nay bố đã về nhà rồi, anh Trí Anh cũng đã trở về từ sáng. " * 3},
+        {"id": "m2", "sender_id": "me", "direction": "out", "kind": "text", "time": NOW - 500, "text": "Ok em"}]
+DATA = {"/api/status": {"login": True, "uid": "10001", "phonenum": "+84000000000", "version": "t", "sync": "running", "engine": {"attached": True}},
+        "/api/contacts": {"friends": {"rows": [{"id": "2", "name": "Vợ Yêu"}, {"id": "7", "name": "BenBap"}]}, "groups": {"rows": []}},
+        "/api/conversations": {"threads": THREADS}, "/api/calls": {"calls": [], "active": None}, "/api/inbox/summary": {"threads": []},
+        "/api/privacy/status": {"enabled": False, "unlocked": True}, "/api/file/list": {"files": []}, "/api/reaction/list": {"reactions": []}}
+
+
+CALL_MODE = {"mode": "none"}
+
+
+def active_call():
+    m = CALL_MODE["mode"]
+    if m == "none":
+        return {"calls": [], "active": None}
+    c = {"call_id": "555", "thread_id": "7", "peer": "BenBap", "direction": "out", "type": "user", "status": "answered", "started_at": NOW - 75, "answered_at": NOW - 62,
+         "request_sent": True, "media": {"counters": {"rtp_tx": 500, "rtp_rx": 480, "video_rx": 0}}}
+    if m == "incoming":
+        c.update(direction="in", status="incoming", answered_at=None, type="video", media={})
+    elif m == "video":
+        c.update(type="video", media={"counters": {"rtp_tx": 900, "rtp_rx": 880, "video_rx": 300}})
+    return {"calls": [c], "active": c}
+
+
+class FakeHandler(sv.Handler):
+    def do_GET(self):
+        p = self.path.split("?", 1)[0]
+        if p == "/__call":
+            CALL_MODE["mode"] = self.path.split("mode=", 1)[1]
+            return self._send_json({"ok": True})
+        if p == "/api/calls":
+            return self._send_json(active_call())
+        if p == "/api/call/video/snapshot":
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            return self.end_headers()
+        if p == "/api/call/video/view":
+            return self._send_json({"error": "x"}, status=409)
+        if p in DATA:
+            return self._send_json(DATA[p])
+        if p.startswith("/api/thread/") and p.endswith("/history"):
+            return self._send_json({"messages": MSGS})
+        if p.startswith("/api/thread/") and p.endswith("/updates"):
+            return self._send_json({"messages": []})
+        if p == "/api/events":
+            return self._send_json({"error": "x"}, status=404)
+        return super().do_GET()
+
+    def do_POST(self):
+        p = self.path.split("?", 1)[0]
+        if p.startswith(("/api/thread/", "/api/svc/", "/api/call/")):
+            n = int(self.headers.get("Content-Length") or 0)
+            self.rfile.read(n) if n else None
+            return self._send_json({"ok": True})
+        return super().do_POST()
+
+
+def _node_ok():
+    node = shutil.which("node")
+    if not node:
+        return False
+    try:
+        return int(subprocess.run([node, "-v"], capture_output=True, text=True).stdout.strip().lstrip("v").split(".")[0]) >= 22
+    except (ValueError, OSError):
+        return False
+
+
+def measure():
+    sv.STATE = sv.AppState(tmp)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), FakeHandler)
+    base = "http://127.0.0.1:%d/" % httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        req = urllib.request.Request(base + "api/app/login", method="POST", data=json.dumps({"username": "u", "password": "mat-khau-thu-123"}).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            cookie = r.headers.get("Set-Cookie").split(";", 1)[0]
+        p = subprocess.run(["node", os.path.join(HERE, "phone_layout_cdp.js"), base, cookie, "390,320"], capture_output=True, text=True, timeout=240)
+        assert p.returncode == 0 and p.stdout.strip(), p.stderr[-800:]
+        return json.loads(p.stdout.strip().splitlines()[-1])
+    finally:
+        httpd.shutdown()
+
+
+def test_phone_layout_in_real_chrome():
+    if not (shutil.which("google-chrome") and _node_ok()):
+        print("SKIP: không có google-chrome / node >= 22")
+        return
+    m = measure()
+    assert m["exceptions"] == [], m["exceptions"]
+    for w in (390, 320):
+        for name in ("list", "chat", "info", "contacts", "calls", "services"):
+            s = m["%s@%d" % (name, w)]
+            assert s["bp"] == "phone", (name, w, s["bp"])
+            assert s["sw"] <= s["cw"], "%s@%d tràn ngang: scrollWidth %s > %s" % (name, w, s["sw"], s["cw"])
+            assert not s["clipped"], "%s@%d phần tử vượt mép phải: %s" % (name, w, s["clipped"])
+        lst = m["list@%d" % w]
+        assert "linear-gradient" in lst["listHead"], "thanh tìm kiếm phải là gradient xanh"
+        assert lst["rail"]["y"] > 700 and lst["rail"]["w"] == w, "tab dưới phải nằm đáy màn hình, rộng hết khổ"
+        assert lst["railLabels"] == ["Tin nhắn", "Danh bạ", "Cuộc gọi", "Theo dõi", "Dịch vụ", "Cài đặt"], lst["railLabels"]
+        ch = m["chat@%d" % w]
+        assert ch["pane"] == "main" and "linear-gradient" in ch["head"], ch["head"]
+        assert ch["rail"]["disp"] == "none", "đang chat thì ẩn tab dưới (như Zalo)"
+        row = [ch[k] for k in ("emoji", "input", "more", "img", "rec")]
+        assert all(r and r["w"] > 0 for r in row), row
+        ys = [r["y"] + r["h"] / 2 for r in row]
+        assert max(ys) - min(ys) < 24, "soạn tin phải MỘT hàng, lệch %s" % ys
+        assert ch["attach"]["disp"] == "none" and ch["like"]["disp"] == "none", "nút ít dùng phải gom vào «…»"
+        assert ch["btnInfo"]["w"] > 0 and ch["icPhone"]["w"] > 0 and ch["icWide"]["disp"] == "none", "nút ≡ (không phải biểu tượng bảng bên)"
+        assert ch["moreMenu"] == ["Đính kèm tệp", "Nhãn dán", "Gửi 👍", "Dịch vụ cho hội thoại này"], ch["moreMenu"]
+        assert ch["typing"]["send"] != "none" and ch["typing"]["tools"] == "none", "gõ chữ thì hiện Gửi và ẩn mic/ảnh"
+        # ---- cuộc gọi trên điện thoại: màn hình toàn màn hình, nút tròn, hàng nút ở nửa dưới, hình phủ cả màn hình ----
+        H = 844
+        for mode in ("incoming", "voice", "video"):
+            c = m["call_%s@%d" % (mode, w)]
+            cc = c["cc"]
+            assert cc and cc["x"] == 0 and cc["y"] == 0 and cc["w"] == w and cc["h"] >= H, "%s@%d thẻ cuộc gọi phải phủ toàn màn hình: %s" % (mode, w, cc)
+            assert c["ccState"] == {"incoming": "incoming", "voice": "live", "video": "live"}[mode], c["ccState"]
+            assert c["sw"] <= c["cw"], "%s@%d tràn ngang" % (mode, w)
+            assert c["popout"] is None or c["popout"]["disp"] == "none", "điện thoại không có «Tách cửa sổ»"
+            for k in (("end", "ok") if mode == "incoming" else ("end",)):
+                b = c[k]
+                assert abs(b["w"] - b["h"]) < 2 and b["w"] >= 56, "nút %s phải tròn, đủ lớn để chạm: %s" % (k, b)
+                assert b["y"] > H * 0.7, "nút %s phải ở đáy màn hình: %s" % (k, b)
+            if mode == "incoming":
+                assert abs(c["end"]["y"] - c["ok"]["y"]) < 2 and c["end"]["x"] < c["ok"]["x"], "Từ chối bên trái, Nghe bên phải, cùng hàng"
+            else:
+                assert c["mt"]["y"] > H * 0.4 and c["mt"]["y"] + c["mt"]["h"] < c["end"]["y"] + 1, "hàng nút mic/loa/camera ở nửa dưới, trên nút cúp: %s" % c["mt"]
+            if mode != "video":
+                assert c["endVis"] == "visible" and c["topVis"] == "visible", "gọi thoại/đến: thao tác luôn hiện"
+            if mode == "video":
+                assert c["endVis"] == "hidden" and c["topVis"] == "hidden", "gọi video: mặc định ẨN thao tác để nhường chỗ cho hình"
+                t = c["tapped"]
+                assert t["ui"] == "1" and t["end"] == "visible" and t["top"] == "visible" and t["endPe"] == "auto", "chạm vào hình phải hiện thao tác (bấm được): %s" % t
+                assert c["tappedAgain"] == "hidden", "chạm lần nữa thì ẩn lại"
+                assert c["autoHide"] == "hidden", "tự ẩn sau vài giây không chạm"
+                v = c["vid"]
+                assert c["ccVideo"] == "1" and c["ccPe"] == "none", "có hình: thẻ chỉ là lớp nút, không chặn chạm vào hình"
+                assert v["x"] == 0 and v["y"] == 0 and v["w"] == w and v["h"] >= H and v["disp"] != "none", "hình phải phủ toàn màn hình: %s" % v
+            else:
+                assert c["vid"] is None or c["vid"]["disp"] == "none" or c["vid"]["w"] == 0, "chưa có video thì không hiện khung hình"
+        inf = m["info@%d" % w]
+        assert inf["info"] == "page" and inf["infoPos"] == "fixed", inf["info"]
+        box = inf["infoBox"]
+        assert box["x"] == 0 and box["y"] == 0 and box["w"] == w and box["h"] >= 844, "trang Thông tin phải phủ toàn màn hình: %s" % box
+        assert inf["back"]["w"] > 0 and inf["afterBack"] == "off", "nút quay lại phải đóng trang Thông tin"
+
+
+if __name__ == "__main__":
+    test_phone_layout_in_real_chrome()
+    print("ALL PHONE LAYOUT TESTS PASSED")

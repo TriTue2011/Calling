@@ -75,7 +75,7 @@ class ZaloCallConfigFlow(ConfigFlow, domain=DOMAIN):
                           CONF_PASSWORD: user_input[CONF_PASSWORD],
                           CONF_WEBHOOK_ID: webhook.async_generate_id()})
         schema = vol.Schema({
-            vol.Required(CONF_URL, default="http://172.16.10.110:8080"): str,
+            vol.Required(CONF_URL, default="http://homeassistant.local:8080"): str,
             vol.Required(CONF_USERNAME): str,
             vol.Required(CONF_PASSWORD): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
