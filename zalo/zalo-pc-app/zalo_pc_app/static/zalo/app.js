@@ -33,6 +33,7 @@ const ICONS = {
   hang: '<path d="M3 14c4.5-4 13.5-4 18 0l-1.5 3-4-1.2v-2.3a10 10 0 0 0-7 0v2.3L4.5 17z"/>',
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
   panel: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M15 4.5v15"/>',
+  chev: '<path d="M9 6l6 6-6 6"/>',
   list: '<path d="M8.5 6h11.5M8.5 12h11.5M8.5 18h11.5"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
   more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
   share: '<path d="M14 5l6 6-6 6M20 11H9a5 5 0 0 0-5 5v2"/>',
@@ -1189,21 +1190,39 @@ function svcBody(s) {
 
 // ---- cài đặt: mỗi mục một trang riêng (bấm mục nào chỉ hiện mục đó) ------------------------------------------------------------
 const section = (id, title, ...kids) => h("div", { class: "card", id }, h("h3", {}, title), ...kids);
-const SET_SECS = [["account", "Tài khoản"], ["privacy", "Quyền riêng tư"], ["history", "Đồng bộ lịch sử"], ["data", "Dữ liệu và tự xóa"], ["calls", "Cuộc gọi và thiết bị"], ["ui", "Giao diện"], ["webhook", "Webhook"], ["proxy", "Proxy"], ["security", "Bảo mật"]];
-function openSettings(sec) { S.setSec = sec || S.setSec || "account"; setTab("settings"); }
+// Cài đặt kiểu Zalo PC: menu bên trái chia nhóm, bấm mục nào hiện ĐÚNG trang mục đó. Điện thoại: «Cài đặt» là danh sách mục, bấm vào mở trang, nút quay lại về danh sách.
+const SET_GROUPS = [
+  ["Tài khoản và bảo mật", [["account", "Tài khoản", "user"], ["security", "Bảo mật", "cog"], ["privacy", "Quyền riêng tư", "eye"]]],
+  ["Tin nhắn", [["history", "Đồng bộ tin nhắn", "refresh"], ["data", "Dữ liệu và tự xóa", "db"]]],
+  ["Cuộc gọi", [["calls", "Cuộc gọi và thiết bị", "phone"]]],
+  ["Giao diện", [["ui", "Giao diện", "grid"]]],
+  ["Kết nối", [["webhook", "Webhook", "share"], ["proxy", "Proxy", "globe"]]]];
+const SET_SECS = SET_GROUPS.flatMap(([, items]) => items.map(([id, label]) => [id, label]));
+function openSettings(sec) { S.setSec = sec || S.setSec || "account"; S.setOpen = !!sec; setTab("settings"); }      // có chỉ định mục = mở thẳng trang mục đó; không = (điện thoại) hiện danh sách mục
 const PW_ERRORS = { sai_mat_khau_cu: "Mật khẩu hiện tại không đúng.", mat_khau_qua_ngan: "Mật khẩu mới phải từ 8 ký tự.", mat_khau_qua_dai: "Mật khẩu mới quá dài (tối đa 256 ký tự).", mat_khau_trung: "Mật khẩu mới phải khác mật khẩu cũ.", managed_by_env: "Mật khẩu đang đặt bằng biến môi trường ZALO_PC_APP_PASSWORD_HASH của container: đổi ở cấu hình container, không đổi được ở đây.", qua_nhieu_lan_sai: "Sai quá nhiều lần, thử lại sau 15 phút." };
 const pillOf = (t, c) => h("span", { class: "pill " + (c || "") }, t);
 const runPill = (v) => (v === "running" ? pillOf("đang chạy", "ok") : pillOf(v || "?", "warn"));
 async function renderSettings(focusId) {
-  const box = $("set-page");
-  if (focusId && String(focusId).startsWith("set-")) S.setSec = String(focusId).slice(4);
+  const box = $("set-page"), phone = root.dataset.bp === "phone";
+  if (focusId && String(focusId).startsWith("set-")) { S.setSec = String(focusId).slice(4); S.setOpen = true; }
   if (!SET_SECS.some(([id]) => id === S.setSec)) S.setSec = "account";
-  const sec = S.setSec;
-  const nav = h("div", { class: "chips setnav", role: "tablist", "aria-label": "Mục cài đặt" }, SET_SECS.map(([id, label]) => h("button", { class: "chip", type: "button", role: "tab", "aria-selected": String(sec === id), "aria-pressed": String(sec === id), onclick: () => { S.setSec = id; renderSettings(); } }, label)));
-  box.replaceChildren(nav);
+  const sec = S.setSec, open = !phone || !!S.setOpen;          // điện thoại: mở trang thì ẩn danh sách, chưa mở thì chỉ có danh sách
+  const item = ([id, label, icon]) => h("button", { class: "setitem", type: "button", "data-sec": id, "aria-current": !phone && sec === id ? "page" : null,
+    onclick: () => { S.setSec = id; S.setOpen = true; renderSettings(); } }, svg(icon), h("span", {}, label), svg("chev"));
+  const menu = h("nav", { class: "setmenu", "aria-label": "Mục cài đặt" },
+    SET_GROUPS.map(([title, items]) => h("div", { class: "setgrp" }, h("div", { class: "setgrp-t" }, title), items.map(item))),
+    h("div", { class: "setgrp" }, h("div", { class: "setgrp-t" }, "Khác"),
+      h("button", { class: "setitem", type: "button", onclick: () => toast("Hiện chỉ có Tiếng Việt.") }, svg("globe"), h("span", {}, "Ngôn ngữ: Tiếng Việt"), svg("chev")),
+      h("button", { class: "setitem", type: "button", onclick: () => window.open("https://github.com/TriTue2011/Zalo-calling/issues", "_blank", "noopener") }, svg("help"), h("span", {}, "Hỗ trợ"), svg("chev"))));
+  const bodyBox = h("div", { class: "setbody" });
+  const wrap = h("div", { class: "setwrap", "data-open": open ? "1" : "0" }, menu, bodyBox);
+  box.replaceChildren(wrap);
+  const label = (SET_SECS.find(([id]) => id === sec) || [])[1] || "Cài đặt";
+  document.querySelector("#pane-settings .head-name").textContent = phone && open ? label : "Cài đặt";
+  if (!open) return;                                         // điện thoại, chưa chọn mục: chỉ danh sách
   const build = { account: setAccount, privacy: setPrivacy, history: setHistory, data: setData, calls: setCalls, ui: setUi, webhook: setWebhook, proxy: setProxy, security: setSecurity }[sec];
   let body; try { body = await build(); } catch (e) { body = h("p", { class: "notice bad" }, "Không tải được mục này: " + (e && e.message || e)); }
-  if (box.firstChild === nav) box.append(body);        // người dùng đã bấm mục khác trong lúc chờ thì bỏ kết quả cũ
+  if (box.firstChild === wrap && S.setSec === sec) bodyBox.append(body);        // người dùng đã bấm mục khác trong lúc chờ thì bỏ kết quả cũ
 }
 async function setAccount() {
   let st = S.status; try { st = await api("/api/status"); S.status = st; } catch (e) { /* giữ */ }
@@ -1483,11 +1502,10 @@ for (const b of document.querySelectorAll("#qr [data-client]")) b.addEventListen
 // ---- khởi động ------------------------------------------------------------------------------------------------------------------------------------
 let booted = false;
 function cogMenu() {
+  if (root.dataset.bp === "phone") { S.setOpen = false; setTab("settings"); return; }      // điện thoại: «Cài đặt» là danh sách mục, không popup
+  const it = ([id, label, icon]) => ({ label, icon, run: () => openSettings(id) });
   popup($("btn-cog"), [
-    { label: "Thông tin tài khoản", icon: "user", run: () => openSettings("account") },
-    { label: "Cài đặt cuộc gọi và thiết bị", icon: "phone", run: () => openSettings("calls") },
-    { label: "Cài đặt chung", icon: "cog", run: () => openSettings("ui") }, "-",
-    { label: "Webhook, proxy, bảo mật", icon: "db", run: () => openSettings("webhook") },
+    ...SET_GROUPS.flatMap(([, items], i) => [...(i ? ["-"] : []), ...items.map(it)]), "-",
     { label: "Ngôn ngữ: Tiếng Việt", icon: "globe", run: () => toast("Hiện chỉ có Tiếng Việt.") },
     { label: "Hỗ trợ", icon: "help", run: () => window.open("https://github.com/TriTue2011/Zalo-calling/issues", "_blank", "noopener") }, "-",
     { label: "Đăng xuất", icon: "logout", red: true, run: async () => { await api("/api/app/logout", "POST"); location.href = (window.__zIng || "") + "/login"; } }], { right: true, up: true });
@@ -1523,7 +1541,7 @@ async function loadContacts(force) {
 document.querySelectorAll(".rail-btn[data-tab]").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
 $("me-btn").addEventListener("click", () => openSettings("account"));
 $("btn-cog").addEventListener("click", cogMenu); $("btn-cog").dataset.pop = "1";
-document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", () => { $("app").dataset.pane = "list"; if (WIDE.has(S.tab)) setTab("chats"); else toList(); }));
+document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", () => { if (S.tab === "settings" && root.dataset.bp === "phone" && S.setOpen) { S.setOpen = false; renderSettings(); return; } $("app").dataset.pane = "list"; if (WIDE.has(S.tab)) setTab("chats"); else toList(); }));
 $("chat-back").addEventListener("click", toList);
 $("q").addEventListener("input", (e) => { S.q = e.target.value; if (S.tab === "calls") { renderCallRows($("list")); renderCallsPage(); } else if (S.tab === "contacts") renderContactsPage(); else renderList(); });
 $("btn-reload").addEventListener("click", async () => { toast("Đang tải lại…"); await Promise.all([loadContacts(true), loadConversations()]); });

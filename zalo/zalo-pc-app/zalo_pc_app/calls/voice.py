@@ -176,13 +176,21 @@ def _watch_dead_media(call_id, delay=None, sleep=time.sleep):
     if delay <= 0:
         return None
 
+    def answered_entry():
+        return next((c for c in srv().STATE.calls.snapshot()["calls"]
+                     if str(c["call_id"]) == str(call_id) and c["status"] == "answered"), None)
+
+    # Nhớ ĐÚNG lần nghe máy mà bộ canh này được tạo cho. Nếu sau `delay` giây cùng call_id đã là một lần nghe máy KHÁC (Zalo tái dùng mã, hoặc
+    # test chạy liên tiếp với mã cố định) thì không được kết thúc cuộc gọi mới: CI 14/11 hỏng vì bộ canh của test trước thức dậy giữa test sau.
+    first = answered_entry()
+    stamp = first.get("answered_at") if first else None
+
     def run():
         sleep(delay)
         try:
-            live = next((c for c in srv().STATE.calls.snapshot()["calls"]
-                         if str(c["call_id"]) == str(call_id) and c["status"] == "answered"), None)
+            live = answered_entry()
             tr = srv()._transport_for_call(call_id)
-            if live is None or tr is None or not _media_is_dead(getattr(tr, "counters", {})):
+            if live is None or live.get("answered_at") != stamp or tr is None or not _media_is_dead(getattr(tr, "counters", {})):
                 return
             srv()._log_call("dead media call_id=%s: %.0fs sau khi nghe may dien thoai chua gui goi nao -> ket thuc de goi lai" % (call_id, delay))
             srv()._terminate_call(int(call_id), "dead_media", srv().STATE.session)

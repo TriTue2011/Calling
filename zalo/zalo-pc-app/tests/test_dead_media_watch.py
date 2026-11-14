@@ -67,6 +67,43 @@ def test_ignores_calls_not_answered_anymore_or_without_transport_or_disabled():
     assert ended == [] and slept == []                      # 0 = tắt
 
 
+def test_watch_of_an_earlier_answer_never_ends_a_later_call_with_the_same_id():
+    """CI 14/11: bộ canh của test/lần nghe trước thức dậy giữa cuộc gọi SAU dùng lại cùng call_id và kết thúc nhầm (dead_media sau 0,15 s). Mỗi bộ canh
+    chỉ được tác động lên ĐÚNG lần nghe máy (answered_at) mà nó được tạo cho."""
+    ended = []
+    answers = [{"call_id": 7, "status": "answered", "answered_at": 100.0}]
+
+    class Calls:
+        def snapshot(self):
+            return {"calls": list(answers), "active": None}
+
+    class St:
+        calls, session = Calls(), {"uid": "1"}
+    st_orig, tr_orig, term_orig, thread_cls = server.STATE, server._transport_for_call, server._terminate_call, server.threading.Thread
+    server.STATE = St()
+    server._transport_for_call = lambda cid: type("T", (), {"counters": {"rtp_rx": 0}})()
+    server._terminate_call = lambda cid, reason, sess, *a, **k: ended.append((cid, reason))
+    started = []
+
+    class Deferred:
+        def __init__(self, target=None, **kw):
+            self.t = target
+
+        def start(self):
+            started.append(self.t)
+    server.threading.Thread = Deferred
+    try:
+        server._watch_dead_media(7, delay=5.0, sleep=lambda s: None)       # bộ canh cho lần nghe máy answered_at=100
+        answers[:] = [{"call_id": 7, "status": "answered", "answered_at": 250.0}]      # sau đó cùng call_id được nghe LẠI (cuộc mới)
+        started[0]()                                                       # bộ canh cũ thức dậy
+        assert ended == [], "bộ canh cũ không được kết thúc cuộc gọi mới"
+        answers[:] = [{"call_id": 7, "status": "answered", "answered_at": 100.0}]      # cùng lần nghe máy: vẫn kết thúc như thường
+        started[0]()
+        assert ended == [(7, "dead_media")]
+    finally:
+        server.STATE, server._transport_for_call, server._terminate_call, server.threading.Thread = st_orig, tr_orig, term_orig, thread_cls
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

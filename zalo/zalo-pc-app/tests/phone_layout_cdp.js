@@ -8,6 +8,22 @@ const click = (sel, txt) => `(()=>{const l=[...document.querySelectorAll(${JSON.
 const SCREENS = {
   list: [], chat: [click("#list .row-name", "BenBap")], info: [click("#list .row-name", "BenBap"), click("#btn-info")],
   call_incoming: [], call_voice: [], call_video: [],
+  settings_all: [`(async()=>{const w=(ms)=>new Promise(r=>setTimeout(r,ms));const phone=document.documentElement.dataset.bp==="phone";const out={phone,items:[]};
+    const h3=()=>((document.querySelector("#set-page .setbody h3")||{}).textContent||"");
+    document.getElementById("btn-cog").click(); await w(500);
+    out.menuOnOpen=phone?!!document.querySelector("#set-page .setmenu")&&getComputedStyle(document.querySelector("#set-page .setmenu")).display!=="none":document.querySelectorAll(".pop button").length;
+    out.sections=phone?[...document.querySelectorAll("#set-page .setitem[data-sec]")].map(b=>b.dataset.sec):[];
+    if(!phone){document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"}));await w(200);}
+    const n=9;
+    for(let i=0;i<n;i++){
+      if(phone){const it=[...document.querySelectorAll("#set-page .setitem[data-sec]")][i];const sec=it.dataset.sec;it.click();await w(700);
+        out.items.push({sec,head:document.querySelector("#pane-settings .head-name").textContent,h3:h3(),menuHidden:getComputedStyle(document.querySelector("#set-page .setmenu")).display==="none"});
+        document.querySelector("#pane-settings [data-back]").click();await w(300);
+        out.items[out.items.length-1].backToMenu=getComputedStyle(document.querySelector("#set-page .setmenu")).display!=="none"&&document.getElementById("app").dataset.tab==="settings";}
+      else{document.getElementById("btn-cog").click();await w(300);[...document.querySelectorAll(".pop button")][i].click();await w(700);
+        const cur=document.querySelector("#set-page .setitem[aria-current=page]");out.items.push({sec:cur?cur.dataset.sec:"",h3:h3()});}
+    }
+    return JSON.stringify(out);})()`],
   watch: [click('.rail-btn[data-tab="watch"]')],
   svc_chip: [click('.rail-btn[data-tab="services"]'), `(()=>{const l=[...document.querySelectorAll("#svc-page .chip")];const e=l[l.length-1];e.scrollIntoView({inline:"end"});e.click();return "ok"})()`],
   contacts: [click('.rail-btn[data-tab="contacts"]')], calls: [click('.rail-btn[data-tab="calls"]')], services: [click('.rail-btn[data-tab="services"]')],
@@ -33,7 +49,7 @@ const MEASURE = `(()=>{const q=(s)=>document.querySelector(s), r=(s)=>{const e=q
   ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pend.has(d.id)) { pend.get(d.id)(d); pend.delete(d.id); }
     if (d.method === "Runtime.exceptionThrown") logs.push((d.params.exceptionDetails.exception || {}).description || "exception"); };
   const send = (method, params = {}) => new Promise((r) => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
-  const ev = async (js) => { const r = await send("Runtime.evaluate", { expression: js, awaitPromise: true, returnByValue: true }); if (r.result.exceptionDetails) throw new Error("JS: " + r.result.exceptionDetails.exception.description.slice(0, 300) + " | " + js.slice(0, 60)); return r.result.result.value; };
+  const ev = async (js) => { const r = await send("Runtime.evaluate", { expression: js, awaitPromise: true, returnByValue: true }); if (!r.result) throw new Error("CDP: " + JSON.stringify(r.error) + " | " + js.slice(0, 80)); if (r.result.exceptionDetails) throw new Error("JS: " + r.result.exceptionDetails.exception.description.slice(0, 300) + " | " + js.slice(0, 60)); return r.result.result.value; };
   await send("Runtime.enable"); await send("Page.enable"); await send("Network.enable");
   const host = new URL(base).hostname;
   await send("Network.setCookie", { name: cookie.split("=")[0], value: cookie.split("=")[1], domain: host, path: "/" });
@@ -42,6 +58,7 @@ const MEASURE = `(()=>{const q=(s)=>document.querySelector(s), r=(s)=>{const e=q
     await send("Emulation.setDeviceMetricsOverride", { width: w, height: 844, deviceScaleFactor: 1, mobile: true });
     await send("Emulation.setTouchEmulationEnabled", { enabled: true });
     for (const [name, steps] of Object.entries(SCREENS)) {
+      if (w > 900 && name !== "settings_all") continue;          // khổ rộng: chỉ kiểm cài đặt
       await send("Page.navigate", { url: base }); await sleep(600);
       await ev(`fetch("/__call?mode=${name.startsWith("call_") ? name.slice(5) : "none"}")`); await sleep(200);     // máy chủ giả: đổi cuộc gọi đang diễn ra
       await send("Page.navigate", { url: base }); await sleep(1800);

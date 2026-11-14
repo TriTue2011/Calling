@@ -84,11 +84,13 @@ class FakeHandler(sv.Handler):
             return self._send_json({"messages": []})
         if p == "/api/events":
             return self._send_json({"error": "x"}, status=404)
+        if p.startswith("/api/") and p not in ("/api/app/status", "/api/app/logout"):
+            return self._send_json({})                              # API chưa mô phỏng: 200 rỗng (thật thì 401 vì chưa đăng nhập Zalo → giao diện chuyển sang /login, làm hỏng phép đo)
         return super().do_GET()
 
     def do_POST(self):
         p = self.path.split("?", 1)[0]
-        if p.startswith(("/api/thread/", "/api/svc/", "/api/call/")):
+        if p.startswith("/api/") and p not in ("/api/app/login", "/api/app/logout"):
             n = int(self.headers.get("Content-Length") or 0)
             self.rfile.read(n) if n else None
             return self._send_json({"ok": True})
@@ -114,7 +116,7 @@ def measure():
         req = urllib.request.Request(base + "api/app/login", method="POST", data=json.dumps({"username": "u", "password": "mat-khau-thu-123"}).encode(), headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=10) as r:
             cookie = r.headers.get("Set-Cookie").split(";", 1)[0]
-        p = subprocess.run(["node", os.path.join(HERE, "phone_layout_cdp.js"), base, cookie, "390,320"], capture_output=True, text=True, timeout=240)
+        p = subprocess.run(["node", os.path.join(HERE, "phone_layout_cdp.js"), base, cookie, "390,320,1280"], capture_output=True, text=True, timeout=240)
         assert p.returncode == 0 and p.stdout.strip(), p.stderr[-800:]
         return json.loads(p.stdout.strip().splitlines()[-1])
     finally:
@@ -194,6 +196,30 @@ def test_phone_layout_in_real_chrome():
         assert inf["back"]["w"] > 0 and inf["afterBack"] == "off", "nút quay lại phải đóng trang Thông tin"
 
 
+def test_settings_menu_opens_exactly_the_chosen_section():
+    """Cài đặt: bấm mục nào hiện ĐÚNG trang mục đó (9 mục, 9 trang khác nhau) — ở khổ điện thoại (danh sách → trang → quay lại) và khổ rộng (menu bánh răng)."""
+    if not (shutil.which("google-chrome") and _node_ok()):
+        print("SKIP: không có google-chrome / node >= 22")
+        return
+    m = measure()
+    want = {"account": "Tài khoản và kết nối", "security": "Bảo mật", "privacy": "Quyền riêng tư", "history": "Đồng bộ lịch sử chat từ điện thoại",
+            "data": "Dữ liệu và tự xóa", "calls": "Mic (tiếng gửi sang bên kia)", "ui": "Giao diện", "webhook": "Webhook (Home Assistant, n8n…)", "proxy": "Proxy ra Zalo"}
+    for w in (390, 320, 1280):
+        r = json.loads(m["settings_all@%d" % w]["steps"][0])
+        assert len(r["items"]) == 9, r
+        got = {i["sec"]: i["h3"] for i in r["items"]}
+        assert got == want, "%d px: bấm mục nào phải ra đúng trang mục đó: %s" % (w, got)
+        assert len(set(got.values())) == 9, "mỗi mục một trang khác nhau"
+        if r["phone"]:
+            assert sorted(r["sections"]) == sorted(want), r["sections"]
+            for i in r["items"]:
+                assert i["menuHidden"] is True and i["backToMenu"] is True, "điện thoại: mở trang thì ẩn danh sách, nút quay lại về danh sách: %s" % i
+                assert i["head"] != "Cài đặt", "tiêu đề phải là tên mục: %s" % i
+        else:
+            assert r["menuOnOpen"] >= 9, "menu bánh răng liệt kê đủ 9 mục: %s" % r["menuOnOpen"]
+
+
 if __name__ == "__main__":
     test_phone_layout_in_real_chrome()
+    test_settings_menu_opens_exactly_the_chosen_section()
     print("ALL PHONE LAYOUT TESTS PASSED")
