@@ -34,7 +34,7 @@ def test_static_nothing_frozen_at_import_and_no_hardcoded_versions():
     for path in sorted(glob.glob(os.path.join(PKG, "*.py"))):
         name = os.path.basename(path)
         tree = ast.parse(open(path, encoding="utf-8").read())
-        if name != "protocol.py":
+        if name != "protocol.py" and not name.startswith("identity_"):      # identity_*.py = nguồn DUY NHẤT của số phiên bản từng kiểu
             for n in ast.walk(tree):
                 if isinstance(n, ast.Constant) and n.value in (693, 694, 695) and isinstance(n.value, int):
                     bad.append("%s:%d số cứng %s" % (name, n.lineno, n.value))

@@ -99,6 +99,42 @@ from . import recall_queue as recall_mod
 from . import profile_names as profile_names_mod
 from . import video_probe as video_probe_mod
 from . import image_size as image_size_mod
+from . import call_tags as call_tags_mod
+from .calls import outgoing as outgoing_calls  # noqa: E402  (calls/outgoing.py)
+_ring_timeout_fire = outgoing_calls._ring_timeout_fire
+_arm_ring_timer = outgoing_calls._arm_ring_timer
+_disarm_ring_timer = outgoing_calls._disarm_ring_timer
+_send_answerack_async = outgoing_calls._send_answerack_async
+EXTEND_PROFILES = outgoing_calls.EXTEND_PROFILES
+_extend_profile_for_call = outgoing_calls._extend_profile_for_call
+from .calls import incoming as incoming_calls  # noqa: E402  (calls/incoming.py)
+_send_ringring_async = incoming_calls._send_ringring_async
+_offer_extend = incoming_calls._offer_extend
+_reject_signals = incoming_calls._reject_signals
+_answer_incoming = incoming_calls._answer_incoming
+from .calls import voice as voice_calls  # noqa: E402  luồng voice tách riêng (calls/voice.py)
+AUDIO_SENDERS = voice_calls.AUDIO_SENDERS
+SPEAKER_SINKS = voice_calls.SPEAKER_SINKS
+ECHO_GUARDS = voice_calls.ECHO_GUARDS
+_stop_mic = voice_calls._stop_mic
+_stop_speaker = voice_calls._stop_speaker
+_guard_for_call = voice_calls._guard_for_call
+_start_speaker = voice_calls._start_speaker
+_start_mic = voice_calls._start_mic
+DEAD_MEDIA_SECONDS = voice_calls.DEAD_MEDIA_SECONDS
+_media_is_dead = voice_calls._media_is_dead
+_watch_dead_media = voice_calls._watch_dead_media
+from .calls import video as video_calls  # noqa: E402  luồng video tách riêng (calls/video.py)
+VIDEO_SENDERS = video_calls.VIDEO_SENDERS
+VIDEO_START_DELAY_S = video_calls.VIDEO_START_DELAY_S
+CAMERA_STATE_REPEAT = video_calls.CAMERA_STATE_REPEAT
+CAMERA_STATE_KEEP_SECONDS = video_calls.CAMERA_STATE_KEEP_SECONDS
+_stop_video = video_calls._stop_video
+_send_camera_inband = video_calls._send_camera_inband
+_send_camera_state_async = video_calls._send_camera_state_async
+_repeat_camera_state = video_calls._repeat_camera_state
+_start_video = video_calls._start_video
+_send_a2v_async = video_calls._send_a2v_async
 from . import conv_ttl as conv_ttl_mod
 from . import privacy as privacy_mod
 from . import call_errors
@@ -715,7 +751,7 @@ def _log_call(msg):
     end with the REAL reason + duration. Call ids / peer names /
     thread ids only — never secrets, tokens, or message content.
     """
-    print("[call] %s" % msg, flush=True)
+    print("[call] %s%s" % (msg, call_tags_mod.suffix(msg, lambda cid: STATE.calls.find(cid), protocol.client_name(), protocol.call_client_name())), flush=True)
 
 
 def _describe_session_value(session):
@@ -865,173 +901,15 @@ def _terminate_call(call_id, reason, sess, group_data=None,
     return ended, signal, zalo_ok, zalo_error, data
 
 
-def _ring_timeout_fire(call_id):
-    """Background ring-timeout: a call still ringing after
-    RING_TIMEOUT_SECONDS ends itself (cancel on the wire, reason
-    ring_timeout). The live entry is re-checked first — a stale
-    timer (call already ended, or superseded by another call) is a
-    no-op, so a call can never be ended twice. An ANSWERED call
-    is never ring-timed-out (2026-11-08 fix): the timer is disarmed
-    on answer, and this check is the second layer — a stale timer
-    firing late must not kill a connected call. The session is read
-    fresh from STATE: without one (logged out mid-ring) the call
-    still ends locally so it never stays "connecting" forever."""
-    _disarm_ring_timer(call_id)
-    snap = STATE.calls.snapshot()
-    active = snap.get("active")
-    if active is None or str(active["call_id"]) != str(call_id):
-        return
-    if active.get("status") == "answered":
-        return
-    sess = STATE.session
-    if not sess or not sess.get("zpw_sek"):
-        sess = None
-    diag = active.get("diag") or {}
-    ended, signal, zalo_ok, zalo_error, _data = _terminate_call(
-        call_id, "ring_timeout", sess)
-    if ended is None:
-        return
-    # One-line diagnosis summary: a single line from `docker logs`
-    # carries everything the no-ring question needs (11300/11301
-    # status, the relay addresses actually used, the cancel
-    # outcome) — the user pastes this line alone and the cause can
-    # be judged from it.
-    _log_call("timeout-summary call_id=%s peer=%s toId=%s "
-              "step1_status=%s step2_status=%s request_sent=%s "
-              "rtp=%s rtcp=%s duration=%.0fs zalo_signal=%s "
-              "zalo_ok=%s%s"
-              % (ended["call_id"], ended.get("peer", ""),
-                 ended.get("thread_id", ""),
-                 diag.get("step1_status"), diag.get("step2_status"),
-                 ended.get("request_sent"),
-                 diag.get("rtp"), diag.get("rtcp"),
-                 max(0.0, float(ended.get("ended_at") or 0)
-                     - float(ended.get("started_at") or 0)),
-                 signal, zalo_ok,
-                 (" zalo_error=" + zalo_error) if zalo_error else ""))
 
 
-def _arm_ring_timer(call_id):
-    """Arm the ring timeout for a call whose step 2 was sent (the
-    peer is ringing from now). Daemon thread: it must never block
-    process exit. The handle is kept in _RING_TIMERS so answering
-    can disarm it (2026-11-08 fix); re-arming replaces a stale
-    handle for the same call_id."""
-    timer = threading.Timer(RING_TIMEOUT_SECONDS,
-                            _ring_timeout_fire, [call_id])
-    timer.daemon = True
-    with _RING_TIMERS_LOCK:
-        old = _RING_TIMERS.pop(str(call_id), None)
-        _RING_TIMERS[str(call_id)] = timer
-    if old is not None:
-        try:
-            old.cancel()
-        except Exception:  # noqa: BLE001 - cancel is best-effort
-            pass
-    timer.start()
 
 
-def _disarm_ring_timer(call_id):
-    """Cancel + forget the ring timer for a call (on answer, and
-    when the call ends any other way). Best-effort, never raises;
-    a timer that already fired is a harmless no-op."""
-    with _RING_TIMERS_LOCK:
-        timer = _RING_TIMERS.pop(str(call_id), None)
-    if timer is not None:
-        try:
-            timer.cancel()
-        except Exception:  # noqa: BLE001 - cancel is best-effort
-            pass
 
 
-def _send_ringring_async(call_id, thread_id):
-    """Best-effort ringring (11302, bundle wZ ringRingVoiceCall):
-    the callee reports ringing to the caller. Runs on a daemon
-    thread so it never blocks the ctrl poller — the call_event
-    callback runs on the poller's thread, and a slow signaling
-    round-trip there would stall the whole ctrl channel. The
-    session is read fresh from STATE; without one the ring is
-    skipped (logged, not fatal: the incoming entry is still
-    recorded). Only for 1-1 calls. On success the entry's diag
-    gains incoming_ringring_sent=True, so POST /api/call/answer
-    knows it does not need to ring again."""
-    sess = STATE.session
-    if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
-        _log_call("ringring call_id=%s ok=False error=no_session"
-                  % call_id)
-        return
-    try:
-        transport = make_transport(sess["zpw_sek"])
-        sig = signaling_mod.Signaling(transport, sess["device_id"],
-                                      sess["zpw_enk"])
-        sig.ringring(thread_id, call_id)
-        STATE.calls.record_diag(
-            call_id, {"incoming_ringring_sent": True})
-        _log_call("ringring call_id=%s ok=True" % call_id)
-    except Exception as e:  # noqa: BLE001 - best-effort
-        _log_call("ringring call_id=%s ok=False error=%s"
-                  % (call_id, e))
 
 
-def _send_answerack_async(call_id, thread_id):
-    """Best-effort answerack (11304, bundle wZ sendAnswerACKCall):
-    the caller ACKs the callee's answer. Runs on a daemon thread
-    so it never blocks the caller — the first-media hook runs on
-    the transport's receiver thread, and a 30s signaling round-trip
-    there would stall media reception. The session is read fresh
-    from STATE; without one the ACK is skipped (logged, not fatal:
-    the call is already marked answered). Only for 1-1 calls."""
-    sess = STATE.session
-    if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
-        _log_call("answerack call_id=%s ok=False error=no_session"
-                  % call_id)
-        return
-    try:
-        transport = make_transport(sess["zpw_sek"])
-        sig = signaling_mod.Signaling(transport, sess["device_id"],
-                                      sess["zpw_enk"])
-        sig.answer_ack(thread_id, call_id)
-        _log_call("answerack call_id=%s ok=True" % call_id)
-    except Exception as e:  # noqa: BLE001 - best-effort
-        _log_call("answerack call_id=%s ok=False error=%s"
-                  % (call_id, e))
 
-
-def _send_camera_inband(call_id, cam_on):
-    """Bao camera bat/tat NGAY TRONG kenh relay UDP (ReqForward sub 7/8) — duong Zalo PC that dung (khong co 12006 qua HTTPS)."""
-    try:
-        tr = _transport_for_call(call_id)
-        ok = bool(tr is not None and tr.send_camera_state(bool(cam_on)))
-        _log_call("camera state inband call_id=%s on=%s ok=%s" % (call_id, bool(cam_on), ok))
-        return ok
-    except Exception as e:  # noqa: BLE001 - best-effort
-        _log_call("camera state inband call_id=%s on=%s ok=False error=%s" % (call_id, bool(cam_on), str(e)[:100]))
-        return False
-
-
-def _send_camera_state_async(call_id, thread_id, cam_on):
-    """Bao dien thoai camera cua ta bat/tat: trong kenh relay UDP (ReqForward sub 7/8, nhu Zalo PC that) VA 12006 qua HTTPS (giu nhu cu).
-    Chay luong rieng, khong nem loi: hinh van gui duoc du bao that bai, chi la dien thoai khong ve."""
-    _send_camera_inband(call_id, cam_on)
-    def run():
-        sess = STATE.session
-        if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
-            _log_call("camera state call_id=%s ok=False error=no_session"
-                      % call_id)
-            return
-        try:
-            transport = make_transport(sess["zpw_sek"])
-            sig = signaling_mod.Signaling(transport, sess["device_id"],
-                                          sess["zpw_enk"])
-            _resp = sig.conf(thread_id, call_id, cam=1 if cam_on else 0)
-            _log_call("camera state call_id=%s on=%s ok=True body=%s phan_hoi=%s"
-                      % (call_id, bool(cam_on),
-                         json.dumps({"calleeId": str(thread_id), "callId": call_id, "isOnCam": 1 if cam_on else 0, "isOnMic": -1}, sort_keys=True),
-                         json.dumps(_resp, ensure_ascii=False, sort_keys=True, default=str)[:300]))
-        except Exception as e:  # noqa: BLE001 - best-effort
-            _log_call("camera state call_id=%s on=%s ok=False error=%s"
-                      % (call_id, bool(cam_on), str(e)[:120]))
-    threading.Thread(target=run, daemon=True).start()
 
 
 def _thread_of_call(call_id):
@@ -1041,17 +919,8 @@ def _thread_of_call(call_id):
     return ""
 
 
-EXTEND_PROFILES = ("native", "pc", "zca")
 
 
-def _extend_profile_for_call(body):
-    """Hồ sơ extendData của cuộc gọi đi: body `extend_profile` > env
-    ZALO_PC_EXTEND_PROFILE > "native" (mặc định: y hệt engine zcall-native của
-    Zalo-Linux, đã chạy thật với điện thoại — xem media_endpoints.native_extend_data).
-    "pc" = bộ cũ (newZrtc=0), "zca" = bộ của zca-js."""
-    want = str((body or {}).get("extend_profile")
-               or os.environ.get("ZALO_PC_EXTEND_PROFILE") or "native").strip().lower()
-    return want if want in EXTEND_PROFILES else "native"
 
 
 def _find_req_id(obj, depth=0):
@@ -1120,19 +989,9 @@ def _engine_for_call(call_id):
     return None
 
 
-VIDEO_SENDERS = {}               # call_id -> video_tx.VideoSender
-AUDIO_SENDERS = {}               # call_id -> audio_tx.AudioSender (mic len cuoc goi)
 _CALL_DEVICES = {}               # call_id -> ghi de rieng cua cuoc goi (mic/camera)
-SPEAKER_SINKS = {}               # call_id -> audio_rx.AudioSink (loa truc tiep)
-ECHO_GUARDS = {}                 # call_id -> audio_rx.EchoGuard (mic nin khi loa phat)
 _CALL_DEVICE_KEYS = ("mic_url", "mic_format", "camera_url", "speaker_url", "echo_guard")
 
-
-def _stop_video(call_id):
-    sender = VIDEO_SENDERS.pop(str(call_id), None)
-    if sender is not None:
-        sender.stop()
-    return sender
 
 
 def _log_media_stats(kind, call_id, obj):
@@ -1157,18 +1016,6 @@ def _as_uid(v):
         return None
 
 
-def _offer_extend(event):
-    """extendData bên gọi khai trong sự kiện cuộc gọi đến. Các lớp data / params / extendData có thể là dict HOẶC chuỗi JSON (tuỳ máy và
-    phiên bản Zalo), nên mở từng lớp. Trả {} nếu không có."""
-    def unwrap(o):
-        if isinstance(o, (str, bytes)):
-            try:
-                o = json.loads(o)
-            except ValueError:
-                return {}
-        return o if isinstance(o, dict) else {}
-    d = unwrap(event.get("data"))
-    return unwrap(unwrap(d.get("params")).get("extendData")) or unwrap(d.get("extendData"))
 
 
 def _key_fp(key):
@@ -1179,57 +1026,12 @@ def _key_fp(key):
     return hashlib.sha1(key if isinstance(key, (bytes, bytearray)) else str(key).encode()).hexdigest()[:6]
 
 
-def _stop_mic(call_id):
-    sender = AUDIO_SENDERS.pop(str(call_id), None)
-    if sender is not None:
-        _log_media_stats("mic", call_id, sender)
-        sender.stop()
-    return sender
 
 
-def _stop_speaker(call_id):
-    sink = SPEAKER_SINKS.pop(str(call_id), None)
-    if sink is not None:
-        _log_media_stats("speaker", call_id, sink)
-    if sink is not None:
-        sink.stop()
-    return sink
 
 
-def _guard_for_call(call_id):
-    """EchoGuard cua cuoc goi (tao khi cai dat bat chong vong), dung chung cho mic va loa."""
-    key = str(call_id)
-    if key in ECHO_GUARDS:
-        return ECHO_GUARDS[key]
-    if _devices_for_call(call_id).get("echo_guard"):
-        ECHO_GUARDS[key] = audio_rx_mod.EchoGuard()
-        return ECHO_GUARDS[key]
-    return None
 
 
-def _start_speaker(call_id, url):
-    """Phat tieng ben kia thang vao loa `url` (cua bo dam A-law 8 kHz, hoac phien song cong cua R1
-    PCM16 16 kHz). Da chay dung dich thi giu nguyen (dong POST = ket thuc phien song cong cua R1,
-    keo theo luong mic). Nem RuntimeError."""
-    engine = _engine_for_call(call_id)
-    # Tieng dau tien tu dien thoai co the toi truoc khi _answer_incoming kip gan engine (hang chuc ms): co transport roi thi doi engine toi 2 s.
-    for _ in range(20):
-        if engine is not None or _transport_for_call(call_id) is None:
-            break
-        time.sleep(0.1)
-        engine = _engine_for_call(call_id)
-    if engine is None:
-        raise RuntimeError("no_live_transport")
-    old = SPEAKER_SINKS.get(str(call_id))
-    if old is not None and old.alive and getattr(old, "target", None) == url:
-        return old
-    _stop_speaker(call_id)
-    sink = audio_rx_mod.AudioSink(engine, url, guard=_guard_for_call(call_id), log=_log_call)
-    sink.start()
-    SPEAKER_SINKS[str(call_id)] = sink
-    _log_call("speaker sink start call_id=%s echo_guard=%s"
-              % (call_id, bool(ECHO_GUARDS.get(str(call_id)))))
-    return sink
 
 
 def _remember_call_devices(call_id, body):
@@ -1315,38 +1117,8 @@ def _logendcall_async(entry, status=None, rx=0, tx=0):
     threading.Thread(target=run, daemon=False).start()
 
 
-def _reject_signals(sess, caller_id, call_id, decline=True):
-    """Tu choi cuoc goi DEN nhu Zalo PC that (engine-core.js `reject`): 11303 voi status 3, codec "[]\n", extendData "{}\n", dia chi rong,
-    phien cua tin cuoc goi den. Loi thi roi ve cach zca-js rejectIncomingCall: cancel 11305 roi endcall 11306 (moi cai best-effort).
-    -> (ok, loi cuoi)."""
-    zalo_ok, zalo_error = True, ""
-    _info = _INCOMING_INFO.pop(str(call_id), None) or {}
-    if decline:                              # bận (decline=False) giữ cách cũ cancel + endcall để người gọi nhận báo máy bận
-        try:
-            transport = make_transport(sess["zpw_sek"])
-            sig = signaling_mod.Signaling(transport, sess["device_id"], sess["zpw_enk"])
-            sig.answer(caller_id, call_id, 3, "[]\n", "", "", _info.get("session") or "", "{}\n")
-            return True, ""
-        except Exception as e:  # noqa: BLE001 - rơi về cách cũ
-            _log_call("reject call_id=%s 11303(status 3) failed: %s -> cancel+endcall" % (call_id, str(e)[:120]))
-    for signal in ("cancel", "endcall"):
-        try:
-            transport = make_transport(sess["zpw_sek"])
-            sig = signaling_mod.Signaling(transport, sess["device_id"], sess["zpw_enk"])
-            if signal == "cancel":
-                # callerId = the CALLER (peer), callType = the 1-1 audio enum (1), like _send_end_signal.
-                sig.cancel(caller_id, call_id, _type_request_for("user"))
-            else:
-                sig.endcall(caller_id, call_id)
-        except Exception as e:  # noqa: BLE001 - best-effort
-            zalo_ok, zalo_error = False, str(e)
-    return zalo_ok, zalo_error
 
 
-def _answer_incoming(sess, body, source="api"):
-    """Nghe may cuoc goi DEN: thuc hien o `incoming_call.answer_incoming` (tach rieng khoi cuoc goi di)."""
-    from . import incoming_call
-    return incoming_call.answer_incoming(sys.modules[__name__], sess, body, source)
 
 
 def _devices_for_call(call_id):
@@ -1361,28 +1133,6 @@ def _transport_for_call(call_id):
     return (rec or {}).get("transport")
 
 
-def _start_mic(call_id, source, fmt="auto", loop=True, echo_gate=True):
-    """Phat `source` len cuoc goi; thay bo gui cu. Nem ValueError/RuntimeError."""
-    transport = _transport_for_call(call_id)
-    if transport is None:
-        raise RuntimeError("no_live_transport")
-    # Loa la phien song cong cua R1: phai mo phien TRUOC roi moi mo mic, neu khong HA tra luong
-    # mic tho (chua khu vong) cho den het cuoc goi.
-    spk = _devices_for_call(call_id).get("speaker_url") or ""
-    if audio_rx_mod.is_duplex_url(spk) and str(call_id) not in SPEAKER_SINKS:
-        _start_speaker(call_id, spk)
-        time.sleep(audio_rx_mod.DUPLEX_SETTLE_SECONDS)
-    _stop_mic(call_id)
-    # Chong vong chi danh cho MIC THAT (mic va loa cung thiet bi). Giong noi TTS (echo_gate=False) khong the gay vong, ma neu bi gate thi
-    # moi khung bi chan luc loa phat tieng ben kia -> nghe GIAT CUC (su co 11/11).
-    guard = _guard_for_call(call_id) if echo_gate else None
-    sender = audio_tx_mod.AudioSender(transport.send_pcm, source=source, fmt=fmt,
-                                      gate=guard.blocked if guard else None, log=_log_call, loop=loop)
-    sender.start()
-    AUDIO_SENDERS[str(call_id)] = sender
-    _log_call("mic start call_id=%s source=%s" % (
-        call_id, "test" if source == "test" else "stream"))
-    return sender
 
 
 SAY_MAX_BYTES = 8 * 1024 * 1024
@@ -1401,23 +1151,6 @@ def _prune_say_files(folder):
             pass
 
 
-# Bao «camera bat» (12006) CHI MOT LAN la hay hut: dien thoai co the chua san sang nhan luc ta vua nghe may (13/11: bao luc +2 giay sau answerack,
-# dien thoai van giu «BenBap dang tat camera» du nhan du goi hinh, TWCC ok lost=0). Gui lai theo nhip thua dan cho toi khi hinh dung; trang thai la
-# idempotent (isOnCam=1 nhieu lan khong hai gi).
-CAMERA_STATE_REPEAT = (2.0, 4.0, 8.0, 15.0)
-CAMERA_STATE_KEEP_SECONDS = 20.0
-
-
-def _repeat_camera_state(call_id, sender, delays=CAMERA_STATE_REPEAT, keep=CAMERA_STATE_KEEP_SECONDS, sleep=time.sleep):
-    def run():
-        waits = list(delays)
-        while True:
-            sleep(waits.pop(0) if waits else keep)
-            if VIDEO_SENDERS.get(str(call_id)) is not sender:        # hinh da dung / cuoc goi da ket thuc / thay nguon
-                return
-            _send_camera_state_async(call_id, _thread_of_call(call_id), True)
-    threading.Thread(target=run, daemon=True, name="camera-state-repeat").start()
-
 
 def _schedule_recall(thread_type, thread_id, res, after):
     """Hẹn thu hồi tin vừa gửi sau `after` giây (0 = không). Trả thời điểm thu hồi (epoch giây) hoặc 0 khi không hẹn được."""
@@ -1430,54 +1163,6 @@ def _schedule_recall(thread_type, thread_id, res, after):
         return 0
     return STATE.recall.add(thread_type, thread_id, msg_id, res.get("client_id"), after)
 
-
-def _start_video(call_id, source, params=None):
-    """Phat hinh `source` len cuoc goi (+ bao camera bat). Nem ValueError/RuntimeError."""
-    transport = _transport_for_call(call_id)
-    if transport is None:
-        raise RuntimeError("no_live_transport")
-    cfg = dict(STATE.devices.get()["video"])
-    cfg.update({k: v for k, v in (params or {}).items() if k in cfg})
-    _stop_video(call_id)
-    sender = video_tx_mod.VideoSender(
-        transport.send_video_frame, source=source or "test",
-        width=int(cfg["width"]), height=int(cfg["height"]),
-        fps=int(cfg["fps"]), bitrate_kbps=int(cfg["bitrate_kbps"]), log=_log_call)
-    sender.start()
-    VIDEO_SENDERS[str(call_id)] = sender
-    _send_camera_state_async(call_id, _thread_of_call(call_id), True)
-    _repeat_camera_state(call_id, sender)
-    _log_call("video start call_id=%s source=%s" % (
-        call_id, "test" if (source or "test") == "test" else "stream"))
-    return sender
-
-
-def _send_a2v_async(call_id, thread_id, status):
-    """Xin (status 1) hoac dong y (status 2) chuyen thoai -> video; 12056."""
-    def run():
-        sess = STATE.session
-        if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
-            _log_call("audio2video call_id=%s ok=False error=no_session"
-                      % call_id)
-            return
-        try:
-            transport = make_transport(sess["zpw_sek"])
-            sig = signaling_mod.Signaling(transport, sess["device_id"],
-                                          sess["zpw_enk"])
-            _resp = sig.audio_to_video(thread_id, call_id, status)
-            _log_call("audio2video call_id=%s status=%s ok=True phan_hoi=%s"
-                      % (call_id, status, json.dumps(_resp, ensure_ascii=False, sort_keys=True, default=str)[:400]))
-        except Exception as e:  # noqa: BLE001 - best-effort
-            _log_call("audio2video call_id=%s status=%s ok=False error=%s inner=%s"
-                      % (call_id, status, str(e)[:160], json.dumps(getattr(e, "inner", None), ensure_ascii=False, default=str)[:300]))
-    threading.Thread(target=run, daemon=True).start()
-
-
-# Hinh chi duoc phat sau khoang cho nay ke tu luc nghe may. Do 10/11/2026 tren dien thoai
-# that: bat hinh NGAY luc nghe may thi tin hieu «camera bat» (12006) toi truoc buoc xac nhan
-# nghe may (answerack) nen dien thoai bo qua — hinh nhay mot lan roi mat. Bat tay sau 2 s
-# (kich ban 01:40) thi hinh len on dinh.
-VIDEO_START_DELAY_S = 2.0
 
 
 def _auto_media_async(call_id):
@@ -1583,38 +1268,10 @@ VIDEO_VIEW_COUNT = [0]
 VIDEO_VIEW_FFMPEG = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-flags", "low_delay", "-probesize", "16384", "-analyzeduration", "100000",
                      "-framerate", "15", "-f", "h264", "-i", "pipe:0", "-vf", "scale=640:-2,format=yuvj420p", "-q:v", "7",
                      "-f", "mpjpeg", "-boundary_tag", "frame", "pipe:1"]
-DEAD_MEDIA_SECONDS = float(os.environ.get("ZALO_PC_DEAD_MEDIA_SECONDS", "7") or 0)
 
 
-def _media_is_dead(counters):
-    """Chết = chưa nhận gói tiếng/hình nào GIẢI MÃ ĐƯỢC. rtp_rx đếm cả gói bị loại (xác thực SRTP hỏng) nên trừ rtp_rx_dropped;
-    RTCP không tính (điện thoại vẫn gửi RTCP dù không gửi tiếng). Cuộc 14/11 23:14: 12 gói đều bị loại + 2 RTCP, điện thoại
-    không gửi tiếng và tự cúp sau 17 giây, mà bộ canh cũ tưởng còn sống."""
-    c = counters or {}
-    return not (max(0, c.get("rtp_rx", 0) - c.get("rtp_rx_dropped", 0)) or c.get("video_rx", 0))
 
 
-def _watch_dead_media(call_id, delay=None, sleep=time.sleep):
-    """Sau `delay` giây kể từ lúc nghe máy: nếu cuộc vẫn đang nối mà không nhận gói nào từ điện thoại thì kết thúc với lý do dead_media."""
-    delay = DEAD_MEDIA_SECONDS if delay is None else delay
-    if delay <= 0:
-        return None
-
-    def run():
-        sleep(delay)
-        try:
-            live = next((c for c in STATE.calls.snapshot()["calls"]
-                         if str(c["call_id"]) == str(call_id) and c["status"] == "answered"), None)
-            tr = _transport_for_call(call_id)
-            if live is None or tr is None or not _media_is_dead(getattr(tr, "counters", {})):
-                return
-            _log_call("dead media call_id=%s: %.0fs sau khi nghe may dien thoai chua gui goi nao -> ket thuc de goi lai" % (call_id, delay))
-            _terminate_call(int(call_id), "dead_media", STATE.session)
-        except Exception as e:  # noqa: BLE001 - bộ canh không được làm hỏng gì
-            _log_call("dead media call_id=%s: loi bo canh %s: %s" % (call_id, type(e).__name__, str(e)[:80]))
-    t = threading.Thread(target=run, daemon=True, name="dead-media-watch")
-    t.start()
-    return t
 
 
 def _mark_answered(call_id, source, send_ack=True):
@@ -1735,7 +1392,7 @@ def _type_request_for(call_type):
     return protocol.CALL_TYPE_AUDIO_1_1
 
 
-class AppState:
+class AppState(incoming_calls.IncomingCalls):
     def __init__(self, data_dir, auth=None):
         self.data_dir = data_dir
         # Nho che do SRTP nao tung nhan duoc goi that tu ben kia (che do
@@ -2981,130 +2638,6 @@ class AppState:
             timer.daemon = True
             timer.start()
 
-    def _on_incoming_call_request(self, event):
-        """Cuoc goi den (call_event act "request"): ghi entry
-        "incoming" (thay the cuoc live truoc), gui ringring 11302
-        best-effort tren daemon thread, day webhook call.incoming.
-        Khong arm ring timer — phia goi quyet dinh khi nao dung
-        do chuong."""
-        call_id = int(event["call_id"])
-        caller_id = str(event.get("caller_id") or "")
-        peer = event.get("caller_name") or caller_id
-        snap = STATE.calls.snapshot()
-        # Moi call_id chi xu ly MOT lan: Zalo co the gui lai `request`; neu khong, cuoc dang noi bi dat lai thanh "dang chuong"
-        # (va tu nghe may se chay lan nua).
-        if STATE.calls.has_call(call_id):
-            _log_call("incoming call_id=%s bo qua (su kien request lap lai)" % call_id)
-            return
-        live = snap["active"]
-        # BAN chi khi cuoc dang song con media that: ban ghi "answered"/"sent" bi treo (mat su kien ket thuc) khong duoc
-        # chan moi cuoc goi den — truong hop do giu hanh vi cu (cuoc moi thay cuoc cu).
-        if live is not None and live["status"] in ("answered", "sent") \
-                and media_endpoints.ENDPOINTS.active_record(int(live["call_id"])) is not None:
-            self._reject_busy(call_id, caller_id, peer)
-            return
-        try:
-            _rtp, _rtcp = event.get("rtp_address"), event.get("rtcp_address")
-            if _rtp and _rtcp:
-                if len(_INCOMING_RELAY) > 50:
-                    _INCOMING_RELAY.clear()
-                _INCOMING_RELAY[str(event.get("call_id"))] = (
-                    str(_rtp), str(_rtcp))
-        except Exception:  # noqa: BLE001
-            pass
-        # Cuoc goi VIDEO den ghi la "video" (nhu cuoc goi di): truoc day luon "user" nen buoc tu bat camera sau khi nghe may (_auto_media_async chi
-        # chay _start_video khi type == "video") khong bao gio chay — dien thoai chi thay «BenBap dang tat camera» (do 12/11 10:02).
-        entry = STATE.calls.record_incoming(
-            call_id, peer, caller_id, "video" if event.get("is_video") else "user")
-        _explicit_key = ctrl_poll_mod.find_srtp_key(event.get("data"))
-        # Khong co khoa tuong minh thi dung khoa tu sessId cua chinh su kien
-        # (ben goi dung sessId nay; tren may that khong thay khoa nao khac).
-        from . import srtp_pure as _srtp_pure
-        _key = _explicit_key or _srtp_pure.key_from_session(
-            event.get("session"))
-        if _key:
-            if len(_INCOMING_SRTP) > 50:
-                _INCOMING_SRTP.clear()
-            _INCOMING_SRTP[str(call_id)] = _key
-        STATE.calls.record_diag(call_id, {
-            "incoming_codec": event.get("codec") or "",
-            "incoming_srtp_key_present": bool(_explicit_key),
-            "incoming_session_present": bool(event.get("session")),
-            "incoming_rtp_present": bool(event.get("rtp_address")),
-            "incoming_ringring_sent": False})
-        try:                               # lưu extendData bên gọi khai để nghe máy trả lời theo đúng máy đó (mỗi điện thoại có thể khác nhau)
-            _d = event.get("data")
-            _d = json.loads(_d) if isinstance(_d, str) else (_d or {})
-            _sess = event.get("session") or (_d.get("session") if isinstance(_d, dict) else None)
-            if isinstance(_sess, str) and _sess:
-                if len(_INCOMING_INFO) > 50:
-                    _INCOMING_INFO.clear()
-                _INCOMING_INFO[str(call_id)] = {"session": _sess, "uid_from": _as_uid(_d.get("uidFrom")), "uid_to": _as_uid(_d.get("uidTo"))}
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            _off = _offer_extend(event)
-            if _off:
-                if len(_INCOMING_OFFER) > 50:
-                    _INCOMING_OFFER.clear()
-                _INCOMING_OFFER[str(call_id)] = _off
-        except Exception:  # noqa: BLE001 - chẩn đoán/thích ứng là best-effort
-            pass
-        try:                               # điện thoại (bên gọi) khai gì: cắt ngắn chuỗi dài, che khoá/phiên/token (chỉ để chẩn đoán)
-            def _shrink(o, name=""):
-                if isinstance(o, dict):
-                    return {k: _shrink(v, k) for k, v in o.items()}
-                if isinstance(o, list):
-                    return [_shrink(v, name) for v in o[:6]]
-                if isinstance(o, str):
-                    if any(w in name.lower() for w in ("sess", "key", "token")):
-                        return "<%d ky tu>" % len(o)
-                    try:
-                        j = json.loads(o)
-                        if isinstance(j, (dict, list)):
-                            return _shrink(j, name)
-                    except ValueError:
-                        pass
-                    return o if len(o) <= 40 else o[:40] + "..."
-                return o
-            _log_call("incoming offer call_id=%s event=%s" % (call_id, json.dumps(_shrink({k: v for k, v in event.items() if k != "session"}), ensure_ascii=False)[:6000]))
-            try:   # tham so day du cua loi moi (dong tren bi cat o 6000 ky tu): de so cuoc thanh cong voi cuoc -101. Khong ghi session (bi mat).
-                def _obj(x):   # params / extendData cua Zalo la CHUOI JSON (khong phai dict): giai ma neu can
-                    if isinstance(x, str):
-                        try:
-                            x = json.loads(x)
-                        except ValueError:
-                            return {}
-                    return x if isinstance(x, dict) else {}
-                _d = _obj(event.get("data"))
-                _pr = _obj(_d.get("params"))
-                _ex = dict(_obj(_pr.get("extendData")))
-                _pr = dict(_pr, settings=_obj(_pr.get("settings")) or _pr.get("settings"), fec=_obj(_pr.get("fec")) or _pr.get("fec"))
-                for _k in ("p2p", "serverAddr"):
-                    if isinstance(_ex.get(_k), list):
-                        _ex[_k] = "n=%d" % len(_ex[_k])
-                _top = {k: v for k, v in _d.items() if k not in ("session", "params", "codec")}
-                _rest = {k: v for k, v in _pr.items() if k not in ("settings", "fec", "extendData")}
-                _log_call("offer-params call_id=%s top=%s settings=%s fec=%s ext=%s rest=%s" % (
-                    call_id, json.dumps(_top, ensure_ascii=False, sort_keys=True), json.dumps(_pr.get("settings"), ensure_ascii=False, sort_keys=True),
-                    json.dumps(_pr.get("fec"), sort_keys=True), json.dumps(_ex, ensure_ascii=False, sort_keys=True), json.dumps(_rest, ensure_ascii=False, sort_keys=True)))
-            except Exception:  # noqa: BLE001 - chan doan khong duoc lam hong viec nhan cuoc goi
-                pass
-        except Exception:  # noqa: BLE001 - chỉ chẩn đoán
-            pass
-        _log_call("incoming key call_id=%s explicit=%s session_in_event=%s key=%s"
-                  % (call_id, bool(_explicit_key), bool(event.get("session")), _key_fp(_key)))
-        _log_call("incoming call_id=%s peer=%s thread=%s"
-                  % (call_id, peer, caller_id))
-        thread = threading.Thread(
-            target=_send_ringring_async,
-            args=(call_id, caller_id), daemon=True)
-        thread.start()
-        webhooks_mod.dispatch_call_event(
-            STATE.webhook_dispatcher, entry,
-            (STATE.session or {}).get("uid", ""),
-            extra={"contact_status": self.contact_status("user", caller_id),       # friend / stranger / unknown (khong doan)
-                   "call_type_raw": event.get("call_type")})                      # 0 thoai / 1 video theo zca-js (CHUA kiem tren cuoc goi that)
 
     def _reject_busy(self, call_id, caller_id, peer):
         """Co cuoc goi DEN khi ta dang ban (dang noi hoac dang goi di): tu choi cuoc MOI (cancel + endcall), giu nguyen cuoc
@@ -3120,40 +2653,6 @@ class AppState:
         except Exception:  # noqa: BLE001
             pass
 
-    def _on_incoming_call_ended(self, event, act):
-        """Caller ket thuc truoc khi ta tra loi (cancel/end), hoac
-        ket thuc mot cuoc dang noi: chi GHI NHAN, khong gui tin
-        hieu (phia kia da ket thuc roi). Incoming chua tra loi ->
-        "missed" (cuoc goi nho); outgoing/answered -> peer ket
-        thuc. Webhook call.ended."""
-        call_id = int(event["call_id"])
-        snap = STATE.calls.snapshot()
-        target = None
-        for c in snap["calls"]:
-            if str(c["call_id"]) == str(call_id) \
-                    and c["status"] in ("incoming", "sent",
-                                        "answered"):
-                target = c
-                break
-        if target is None:
-            _log_call("call_event %s call_id=%s ignored=no_live"
-                      % (act, call_id))
-            return
-        if target["status"] == "incoming":
-            detail = "missed"
-        elif act in ("cancel", "cancelcall"):
-            detail = "peer_declined"
-        else:
-            detail = "peer_ended"
-        entry = STATE.calls.record_end(call_id, detail)
-        if entry is not None:
-            _disarm_ring_timer(call_id)
-            _cleanup_call_media(entry)
-            _log_call("call_event %s call_id=%s ended detail=%s"
-                      % (act, call_id, detail))
-            webhooks_mod.dispatch_call_event(
-                STATE.webhook_dispatcher, entry,
-                (STATE.session or {}).get("uid", ""))
 
     @staticmethod
     def _sync_error_text(exc):
@@ -4005,7 +3504,7 @@ def _link_preview(link):
         return "", "", ""
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(outgoing_calls.OutgoingCalls, BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *args):
@@ -4286,7 +3785,7 @@ class Handler(BaseHTTPRequestHandler):
         if action == "stop":
             if target in ("video", "both"):
                 if _stop_video(call_id) is not None:
-                    _send_camera_state_async(
+                    video_calls._send_camera_state_async(
                         call_id, _thread_of_call(call_id), False)
             if target in ("mic", "both"):
                 _stop_mic(call_id)
@@ -5321,6 +4820,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         STATE.auth.revoke_token(self._cookie_token())
 
+
     def _api_post(self, path, body, app_user):
         if path == "/api/app/password":
             # Doi mat khau app tu WebUI. Can phien dang nhap + mat khau cu; dung chung
@@ -5549,424 +5049,7 @@ class Handler(BaseHTTPRequestHandler):
                 extra_headers=[("Set-Cookie",
                                 app_auth.clear_cookie_header())])
         if path == "/api/call/request":
-            sess = self._require_login()
-            if sess is None:
-                return self._send_json({"error": "chua_dang_nhap"},
-                                       status=401)
-            # Log the attempt for the calling monitor (GET /api/calls):
-            # the UI sends the peer's display name; the log never
-            # carries secrets, only who/when/which thread/result.
-            # The requestcall body is built to match the real client
-            # (§7k): call_id is minted from the process counter
-            # (deep comparison §5.1 — engine: small counter 1, 2,
-            # 3, ...; the body's call_id is NOT trusted, like
-            # type_request) and type_request is derived from the
-            # thread type (1-1 audio=1, group audio=5) — the body's
-            # own type_request is NOT trusted (the pre-fix UI sent 0).
-            # The effective call_id is returned so the UI uses the
-            # same id for /api/call/end (endcall must carry the same
-            # callId the requestcall used).
-            call_id = _normalize_call_id(body.get("call_id"))
-            _remember_call_devices(call_id, body)
-            thread_id = body.get("callee_id", "")
-            call_type = body.get("type") or "user"
-            type_request = _type_request_for(call_type)
-            peer = body.get("peer_name") or thread_id
-            try:
-                transport = make_transport(sess["zpw_sek"])
-                sig = signaling_mod.Signaling(transport, sess["device_id"],
-                                              sess["zpw_enk"])
-                # Calls are addressed by threadID (addon/zca-js model):
-                # type "user"  -> 1-1 requestcall (11300), calleeId is
-                #   the user threadId; type "group" -> group/requestcall
-                #   (12433), groupId is the group threadId. Sending a
-                #   group id through the 1-1 endpoint is wrong.
-                if call_type == "group":
-                    data = sig.request_call_group(
-                        thread_id,
-                        call_id,
-                        type_request,
-                        body.get("data"),
-                        body.get("partners"))
-                else:
-                    # 11300 codec (zca-js: the engine always sends
-                    # its Opus JSON list here; "[]" is only the
-                    # factory fallback). An explicit UI codec still
-                    # wins so a later test can force another list.
-                    data = sig.request_call(
-                        thread_id,
-                        call_id,
-                        body.get("codec")
-                        or media_endpoints.DEFAULT_ZALO_AUDIO_CODEC,
-                        type_request)
-                # §7l — SECOND STEP, the one the 17:51 live call was
-                # missing: after requestcall the real client sends
-                # `request` (11301, 1-1) / `group/request` (12434)
-                # with the caller's media endpoints, and only then
-                # does the server hold a complete invitation for the
-                # far end. Without it the requestcall is accepted
-                # (no error) but the callee's phone never rings.
-                # Phase 2 (stage 2): the endpoints come from the
-                # real relay allocation (`media_endpoints`, backed
-                # by `Udp4200Transport`) — the 11300 response's
-                # `servers` (real shape: list of dicts with
-                # `rtcpaddr`/`rtpIPv6`, seen live 2026-11-05;
-                # legacy `zrtc_config.servers` string as fallback)
-                # / `sessId` (LIVE 2026-11-06: the 11301 token —
-                # 115 bytes / 154 chars — there is NO `token` key
-                # in the real 11300) / `srtpKey` (LIVE 2026-11-06:
-                # the real 11300 carries NO srtpKey, so signaling
-                # proceeds handshake-only and voice stays unwired
-                # until the key source is found — see
-                # `allocation_from_requestcall_data`). When
-                # that allocation is missing, `for_call` raises
-                # `MissingTransportParam` NAMING the missing
-                # parameter instead of returning the phase-1 empty
-                # placeholders: the real engine NEVER sends 416
-                # with empty addresses, so this app does not
-                # either. The step stays BEST-EFFORT: the call is
-                # still reported ok (requestcall succeeded) but
-                # request_sent=False is returned and logged, so
-                # the UI/monitor can tell "invitation may not
-                # have been delivered" apart from "fully sent".
-                # Media hooks (Opus 16 kHz + SRTP) are best-effort
-                # too: `pc_media.media_hooks_for_call` builds them
-                # when libopus/libsrtp2 are available; when they
-                # are not (the stdlib-only image), the transport
-                # still handshakes and the call signals, but voice
-                # stays unwired — never a crash, never a lie.
-                # Call diagnostics (2026-11-08): step-1 outcome.
-                # Log the 11300 shape + status/msg (shape only,
-                # never values), and refuse a server-side 11300
-                # rejection instead of proceeding to step 2 with
-                # garbage. status 0 = accepted (real success case,
-                # live 2026-11-06); any other status is a refusal,
-                # msg carries the reason; status absent (the mock
-                # {"ok": True} shape) = unknown, treated as
-                # accepted.
-                step1_status, step1_msg = \
-                    media_endpoints.requestcall_status(data)
-                step1_shape = \
-                    media_endpoints.describe_requestcall_shape(data)
-                # rtpIP/rtcpIP values (2026-11-08, step 1): the
-                # shape string above never carries values (it is
-                # also the API response's data_shape), so the
-                # actual designated addresses are appended here,
-                # on the LOG line only — relay IPs are public
-                # diagnostic info, not secrets, and the live
-                # no-ring question needs them visible. The same
-                # allocation feeds the step1 diag below.
-                try:
-                    _step1_alloc = media_endpoints.\
-                        allocation_from_requestcall_data(data)
-                except Exception:  # noqa: BLE001 - log/diag only
-                    _step1_alloc = {}
-                _step1_addrs = ""
-                if _step1_alloc.get("rtp_ip") \
-                        or _step1_alloc.get("rtcp_ip"):
-                    _step1_addrs = (" rtpIP=%s rtcpIP=%s" % (
-                        _step1_alloc.get("rtp_ip") or "-",
-                        _step1_alloc.get("rtcp_ip") or "-"))
-                _log_call("step1 call_id=%s status=%s%s %s%s"
-                          % (call_id, step1_status,
-                             (" msg=" + step1_msg[:120])
-                             if step1_msg else "",
-                             step1_shape, _step1_addrs))
-                if not media_endpoints.requestcall_accepted(data):
-                    raise RuntimeError(
-                        "11300 bi tu choi: status=%s%s" % (
-                            step1_status,
-                            (" msg=" + step1_msg[:120])
-                            if step1_msg else ""))
-                # Snapshot the live call first: record_start closes
-                # it when a new call supersedes it, and the log must
-                # say so (with its duration) instead of letting the
-                # earlier call vanish silently. Moved up (was after
-                # step 2): the diag + the early end on a rejected
-                # step 2 need the entry to exist already.
-                prev_active = STATE.calls.snapshot()["active"]
-                sent_entry = STATE.calls.record_start(
-                    call_id, peer, thread_id, call_type)
-                STATE.calls.record_diag(
-                    call_id, {"step1_status": step1_status,
-                              "step1_msg": step1_msg[:120]})
-                # rtpIP/rtcpIP (2026-11-08, step 1): the relay
-                # addresses the 11300 response designates — the
-                # step1 log line above carries their values; the
-                # diag carries them too, so /api/calls shows which
-                # addresses 11300 named (IP:port only, never
-                # session/token values). _step1_alloc was computed
-                # with the log line above.
-                STATE.calls.record_diag(
-                    call_id, {"rtp_ip": _step1_alloc.get("rtp_ip"),
-                              "rtcp_ip": _step1_alloc.get("rtcp_ip")})
-                if (prev_active is not None
-                        and str(prev_active["call_id"]) != str(call_id)):
-                    _log_call(
-                        "end call_id=%s reason=superseded_by_new_call "
-                        "duration=%.0fs" % (
-                            prev_active["call_id"],
-                            max(0.0, time.time()
-                                - float(prev_active["started_at"] or 0))))
-                    # Withdraw the superseded invitation on the wire
-                    # AND stop its transport: without a cancel the
-                    # previous peer keeps ringing (same ghost-call
-                    # bug as the missing end signal), and for_call
-                    # started a transport for it that nothing else
-                    # ever stops. Best-effort; a failure is logged,
-                    # never breaks the new call.
-                    media_endpoints.ENDPOINTS.stop_call(
-                        int(prev_active["call_id"]))
-                    _sig, _ok, _err, _data = _send_end_signal(
-                        prev_active, sess)
-                    if _sig != "none":
-                        _log_call(
-                            "end call_id=%s reason=superseded_by_new_call "
-                            "zalo_signal=%s zalo_ok=%s%s"
-                            % (prev_active["call_id"], _sig, _ok,
-                               (" zalo_error=" + _err) if _err else ""))
-                _log_call("start call_id=%s peer=%s thread=%s type=%s"
-                          % (call_id, peer, thread_id, call_type))
-                request_sent, request_error = True, ""
-                server_rejected_step2 = False
-                step2_status, step2_msg = None, ""
-                step_code = "12434" if call_type == "group" else "11301"
-                endpoints = None
-                try:
-                    hooks, _local_key = {}, None
-                    _alloc = media_endpoints.\
-                        allocation_from_requestcall_data(data)
-                    # Hook ma hoa LUON duoc dung (khong phu thuoc
-                    # libopus): thieu no thi transport khong gui duoc ca
-                    # khung im lang giu ket noi va ben nhan bao "tin hieu
-                    # yeu". Truoc 2026-11-09 hook chi duoc dung khi 11300
-                    # tra srtp_key — ma server khong bao gio tra.
-                    _srtp_mode, _srtp_src = _srtp_mode_for_call(body)
-                    try:
-                        from . import pc_media, srtp_pure
-                        if _alloc.get("srtp_key") is not None:
-                            _srtp_mode = "server"
-                            hooks, _notes = pc_media.hooks_for_call(
-                                _alloc["srtp_key"])
-                        elif _srtp_mode == "sess" and srtp_pure.\
-                                key_from_session(_alloc.get("session")):
-                            hooks, _notes = pc_media.hooks_for_call(
-                                srtp_pure.key_from_session(
-                                    _alloc["session"]))
-                        elif _srtp_mode == "key":
-                            _local_key = srtp_pure.new_master_key_b64()
-                            hooks, _notes = pc_media.hooks_for_call(
-                                _local_key)
-                        else:
-                            if _srtp_mode == "sess":
-                                _srtp_mode = "off"   # 11300 khong co sessId
-                            hooks, _notes = pc_media.hooks_for_call(None)
-                        if _srtp_mode in SRTP_MODES:
-                            _CALL_SRTP[str(call_id)] = (_srtp_mode, _srtp_src)
-                        _log_call("media hooks call_id=%s srtp_mode=%s "
-                                  "source=%s srtp=%s opus=%s"
-                                  % (call_id, _srtp_mode, _srtp_src,
-                                     _notes["srtp"], _notes["opus"][:90]))
-                    except Exception as exc:  # noqa: BLE001 - optional
-                        hooks, _local_key = {}, None
-                        _log_call("media hooks failed call_id=%s: %s"
-                                  % (call_id, str(exc)[:160]))
-                    # §7o — local_session / peer_session (2026-11-06):
-                    # CA HAI lay tu response 11300 (`_alloc`):
-                    # `local_session` = `fromId`, `peer_session` =
-                    # `toId` (goi 1-1; goi nhom None) — id 32-bit
-                    # RIENG do server cap (disassembly: parser
-                    # 0x71ebd1 doc "fromId" -> resp+0x10,
-                    # "toId" -> resp+0x14; `_prepareCallConfig,
-                    # resp` 0x7ed1d0 copy vao CallConfig+0/+4 ->
-                    # SSRC). KHONG suy tu session uid (uid that la
-                    # 64-bit — live test 09:23 +07 2026-11-06 da
-                    # bac; khong low-32/high-32/hash) va KHONG suy
-                    # tu threadId (threadId 19 chu so khong phai
-                    # userId cua peer). Thieu fromId -> `for_call`
-                    # loi trung thuc neu `local_session` + `fromId`,
-                    # buoc 2 bao request_sent=false. Day la cho duy
-                    # nhat noi hai gia tri nay vao `for_call`
-                    # (`ENDPOINTS` la global, khong dat default
-                    # theo phien — id thay doi theo response).
-                    # First-media hook (2026-11-08): the first
-                    # INBOUND media packet (type-04 downlink from the
-                    # relay, or P2P media) is evidence the peer
-                    # answered — the captures show inbound media only
-                    # after an answer (file 1/4) and ZERO inbound in
-                    # 29.5 s of ringing (file 2) — so the transport
-                    # marks the call answered through this callback
-                    # — no sync channel needed. It is a PROXY, not
-                    # the answer signal itself (that is the peer's
-                    # answer on voicecall/sync, still unparsed; the
-                    # explicit path is POST /api/call/answered), and
-                    # OUTBOUND media proves nothing (file 2: the
-                    # caller sends type-03 uplink all through
-                    # ringing with no answer). It runs on the
-                    # transport's receiver thread; _mark_answered
-                    # only touches locked state + logging + async
-                    # webhook, and the answerack goes on a daemon
-                    # thread, so it never blocks media reception.
-                    def _on_first_media():
-                        _mark_answered(call_id, "media")
-
-                    endpoints = media_endpoints.ENDPOINTS.for_call(
-                        call_id=call_id, callee_id=thread_id,
-                        call_type=call_type, codec=body.get("codec"),
-                        local_session=_alloc.get("local_session"),
-                        peer_session=(
-                            _alloc.get("peer_session")
-                            if call_type != "group" else None),
-                        requestcall_data=data,
-                        is_video=(call_type == "video"),
-                        on_first_media=_on_first_media,
-                        extend_profile=_extend_profile_for_call(body),
-                        **dict(hooks, **(
-                            {"srtp_key": _local_key,
-                             "advertise_srtp_key": True}
-                            if _local_key else {})))
-                except Exception as exc:  # noqa: BLE001 - best-effort
-                    request_sent, request_error = False, str(exc)
-                if endpoints is not None:
-                    # Log what goes into step 2 BEFORE sending: the
-                    # relay addresses actually used + session
-                    # presence/length (never the session value) +
-                    # codec — the live no-ring question ("did 11301
-                    # carry a real relay?") is answered by this
-                    # line alone.
-                    _log_call("step2 send call_id=%s rtp=%s rtcp=%s "
-                              "rtp_source=%s session=%s codec=%s extend=%s"
-                              % (call_id, endpoints["rtp_address"],
-                                 endpoints["rtcp_address"],
-                                 endpoints.get("rtp_source", "selected"),
-                                 _describe_session_value(
-                                     endpoints["session"]),
-                                 endpoints["codec"],
-                                 _extend_profile_for_call(body)))
-                    step2_resp = None
-                    try:
-                        if call_type == "group":
-                            step2_resp = sig.send_request_group(
-                                thread_id, call_id, type_request,
-                                body.get("data"), endpoints["session"],
-                                body.get("partners"), thread_id)
-                        else:
-                            step2_resp = sig.send_request(
-                                thread_id, endpoints["rtcp_address"],
-                                endpoints["rtp_address"],
-                                endpoints["codec"],
-                                endpoints["session"], call_id,
-                                endpoints["extend_data"])
-                        # Step 2 accepted: attach the media engine
-                        # to the started transport (best-effort;
-                        # never breaks the call when it fails).
-                        engine_seam.SEAM.attach_pc_media(
-                            media_endpoints.ENDPOINTS.active_record(
-                                call_id))
-                    except signaling_mod.ServerRejectedError as exc:
-                        # The server refused step 2 (inner
-                        # error_code, e.g. 114): an explicit
-                        # refusal, not a network failure — the call
-                        # ends early below (server_rejected).
-                        request_sent, request_error = False, str(exc)
-                        server_rejected_step2 = True
-                    except Exception as exc:  # noqa: BLE001 - best-effort
-                        request_sent, request_error = False, str(exc)
-                    if step2_resp is not None:
-                        # The response itself may carry the refusal
-                        # (data-level status, which the envelope
-                        # check cannot see): read it, log its shape,
-                        # and treat a non-zero status as a rejection.
-                        accepted, step2_status, step2_msg = \
-                            media_endpoints.request_step_outcome(
-                                step2_resp)
-                        _log_call("step2 resp call_id=%s %s"
-                                  % (call_id,
-                                     media_endpoints.describe_request_shape(
-                                         step2_resp, step_code)))
-                        if not accepted:
-                            request_sent = False
-                            request_error = (
-                                "may chu tu choi %s: status=%s%s"
-                                % (step_code, step2_status,
-                                   (" msg=" + step2_msg[:120])
-                                   if step2_msg else ""))
-                            server_rejected_step2 = True
-                    STATE.calls.record_diag(call_id, {
-                        "step2_status": step2_status,
-                        "step2_msg": step2_msg[:120],
-                        "rtp": endpoints["rtp_address"],
-                        "rtcp": endpoints["rtcp_address"],
-                        "rtp_source": endpoints.get("rtp_source",
-                                                    "selected"),
-                        "session_present":
-                            endpoints["session"] is not None,
-                        "session_len": (
-                            len(endpoints["session"])
-                            if isinstance(endpoints["session"],
-                                          (str, bytes, bytearray))
-                            else None),
-                        "codec": endpoints["codec"]})
-                STATE.calls.record_request(call_id, request_sent,
-                                           request_error)
-                _log_call("step2 call_id=%s request_sent=%s "
-                          "step2_status=%s%s"
-                          % (call_id, request_sent, step2_status,
-                             (" error=" + request_error)
-                             if request_error else ""))
-                # Ring timeout: if nobody answers within
-                # RING_TIMEOUT_SECONDS the call ends itself (cancel
-                # on the wire, reason ring_timeout) instead of
-                # staying "sent" forever — see _ring_timeout_fire.
-                # Only when step 2 was sent: without it the peer
-                # never rang, so there is nothing to time out. A
-                # server-rejected step 2 never arms the timer
-                # either — that call ends early below instead.
-                if request_sent and not server_rejected_step2:
-                    _arm_ring_timer(call_id)
-                # WEBHOOK HOOK (webhooks.py): call.sent fires NOW —
-                # the app is the source, no sync channel needed.
-                # Fire-and-forget: never blocks the call response.
-                webhooks_mod.dispatch_call_event(
-                    STATE.webhook_dispatcher, sent_entry,
-                    sess.get("uid", ""))
-                # The raw 11300 response is NOT returned: it may
-                # carry the SRTP key / token / session, which must
-                # never reach the browser (or a log). Only its
-                # SHAPE (key names + counts) is returned, so the UI
-                # can still show what the response carried.
-                if server_rejected_step2:
-                    # The server said no to step 2: withdraw the
-                    # 11300 invitation with cancel NOW (reason
-                    # server_rejected) instead of leaving the call
-                    # "sent" with no timer — the old code left it
-                    # live forever, and the peer never rang. The
-                    # call.sent webhook above already fired; the
-                    # end webhook fires from _terminate_call.
-                    _terminate_call(call_id, "server_rejected", sess)
-                    return self._send_json(
-                        {"ok": True, "data_shape": step1_shape,
-                         "call_id": call_id,
-                         "request_sent": False,
-                         "request_error": request_error,
-                         "ended_reason": "server_rejected"})
-                return self._send_json(
-                    {"ok": True,
-                     "data_shape": step1_shape,
-                     "call_id": call_id,
-                     "request_sent": request_sent,
-                     "request_error": request_error})
-            except Exception as e:  # noqa: BLE001
-                err_entry = STATE.calls.record_error(call_id, peer, thread_id,
-                                         call_type, str(e),
-                                         kind=call_errors.classify(e))
-                _log_call("error call_id=%s peer=%s thread=%s error=%s"
-                          % (call_id, peer, thread_id, e))
-                # WEBHOOK HOOK (webhooks.py): call.error, same as above.
-                webhooks_mod.dispatch_call_event(
-                    STATE.webhook_dispatcher, err_entry,
-                    sess.get("uid", ""))
-                return self._send_json({"error": str(e)}, status=502)
+            return self._api_call_request(body)
         if path == "/api/call/end":
             sess = self._require_login()
             if sess is None:

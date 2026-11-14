@@ -109,7 +109,7 @@ def test_endpoints():
         f, popen=lambda *a, **k: _Proc(), **kw)
     sent = []
     sv._send_a2v_async = lambda cid, thread, status: sent.append(("a2v", cid, thread, status))
-    sv._send_camera_state_async = lambda cid, thread, on: sent.append(("cam", cid, thread, on))
+    sv.video_calls._send_camera_state_async = lambda cid, thread, on: sent.append(("cam", cid, thread, on))
     sv.ffmpeg_ok = True
     import shutil
     real_which = shutil.which

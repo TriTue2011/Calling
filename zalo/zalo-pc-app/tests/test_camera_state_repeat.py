@@ -12,8 +12,8 @@ def _run(senders_after, delays=(1.0, 2.0), keep=9.0):
     sent, sleeps, done = [], [], threading.Event()
     sender = object()
     server.VIDEO_SENDERS["777"] = sender
-    orig_async, orig_thread = server._send_camera_state_async, server._thread_of_call
-    server._send_camera_state_async = lambda cid, tid, on: sent.append((cid, tid, on))
+    orig_async, orig_thread = server.video_calls._send_camera_state_async, server._thread_of_call
+    server.video_calls._send_camera_state_async = lambda cid, tid, on: sent.append((cid, tid, on))
     server._thread_of_call = lambda cid: "peer"
     try:
         def fake_sleep(sec):
@@ -34,7 +34,7 @@ def _run(senders_after, delays=(1.0, 2.0), keep=9.0):
             server.threading.Thread = orig_thread_cls
         assert done.is_set()
     finally:
-        server._send_camera_state_async, server._thread_of_call = orig_async, orig_thread
+        server.video_calls._send_camera_state_async, server._thread_of_call = orig_async, orig_thread
         server.VIDEO_SENDERS.pop("777", None)
     return sent, sleeps
 

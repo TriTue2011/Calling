@@ -29,6 +29,8 @@ import threading
 import time
 import urllib.parse
 
+from . import identity_mobile, identity_pc, identity_web
+
 AUTH_DOMAIN = "https://wpa.zalo.me"
 CHAT_DOMAIN = "https://chat-wpa.zalo.me"
 VOICECALL_DOMAIN = "https://voicecall-wpa.zalo.me"
@@ -173,7 +175,7 @@ CALL_TYPES_GROUP = (CALL_TYPE_AUDIO_GROUP, CALL_TYPE_VIDEO_GROUP)
 # Hai kiểu đăng nhập do người dùng chọn lúc quét QR (13/11/2026): «web» khai zpw_type 30/ver 695 (bundle web), «pc» khai
 # zpw_type 24/ver 693 (như Zalo PC 26.11.10 thật, nhật ký mạng Chromium). Mỗi kiểu là MỘT phiên riêng của Zalo: đăng nhập
 # Zalo Web ở nơi khác đá kiểu web; mở Zalo PC thật cùng tài khoản đá kiểu pc (đã thấy 13/11).
-CLIENTS = {"web": (30, 695), "pc": (24, 693)}
+CLIENTS = {identity_web.NAME: (identity_web.TYPE, identity_web.VERSION), identity_pc.NAME: (identity_pc.TYPE, identity_pc.VERSION)}
 
 
 def client_name():
@@ -193,7 +195,7 @@ def user_agent():
     """User-Agent khai cho MỌI yêu cầu HTTP và WebSocket, theo kiểu đăng nhập. Zalo PC 26.11.10 thật khai «ZaloPC-win32-24v693»
     (loại 24, bản 693; nhật ký mạng 13/11/2026: 62 yêu cầu) — nên kiểu «pc» khai y như vậy; kiểu «web» giữ UA cũ của app."""
     if client_name() == "pc":
-        return "ZaloPC-win32-%dv%d" % (CLIENTS["pc"][0], CLIENTS["pc"][1])
+        return identity_pc.USER_AGENT
     return WEB_USER_AGENT
 
 
@@ -205,8 +207,9 @@ _PC_HOSTS = set()
 # Danh tính khai cho ĐƯỜNG GỌI ĐIỆN (/api/voicecall/), tách khỏi kiểu đăng nhập (13/11/2026). Mặc định «pc» (24/693). «mobile» = zpw_type 25 như
 # APK Zalo Android (chuỗi `&zpw_type=25&zpw_sek=` trong APK 26.10.02; zpw_ver của APK là cấu hình riêng, máy chủ không kiểm: đo 1/693/695 đều nhận) —
 # thử để điện thoại coi BenBap là máy di động khi xin chuyển thoại sang video. Máy chủ nhóm nhận type 22..25 và 30, từ chối 26/27/31 (đo 13/11).
-CALL_CLIENTS = {"pc": (24, 693), "mobile": (25, 693), "web": CLIENTS["web"]}
-WEB_USER_AGENT = "zalo-pc-qr/1.0"             # UA của kiểu web (cũng là UA các cuộc gọi trước 13/11 khi gọi điện chưa bị ép sang PC)
+CALL_CLIENTS = {identity_pc.NAME: (identity_pc.TYPE, identity_pc.VERSION), identity_mobile.NAME: (identity_mobile.TYPE, identity_mobile.VERSION),
+                identity_web.NAME: (identity_web.TYPE, identity_web.VERSION)}
+WEB_USER_AGENT = identity_web.USER_AGENT             # UA của kiểu web (cũng là UA các cuộc gọi trước 13/11 khi gọi điện chưa bị ép sang PC)
 
 
 def call_identity():
@@ -266,7 +269,7 @@ def to_pc(url, identity=None):
 def user_agent_for(url, force_pc=False):
     """User-Agent của yêu cầu tới `url`: PC nếu yêu cầu khai kiểu PC (force_pc: đang thử lại bằng PC), không thì theo kiểu đăng nhập."""
     if force_pc or uses_pc_identity(url):
-        return "ZaloPC-win32-%dv%d" % (CLIENTS["pc"][0], CLIENTS["pc"][1])
+        return identity_pc.USER_AGENT
     if is_call_url(url):                      # gọi điện khai kiểu web: UA web dù phiên đăng nhập là pc
         return WEB_USER_AGENT
     return user_agent()

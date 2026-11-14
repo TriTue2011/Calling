@@ -270,6 +270,15 @@ class CallLog:
                     return dict(c)
             return None
 
+    def find(self, call_id):
+        """Bản sao bản ghi của call_id (mới nhất trước), hoặc None."""
+        key = str(call_id)
+        with self._lock:
+            for c in reversed(self._calls):
+                if c["call_id"] == key:
+                    return dict(c)
+        return None
+
     def snapshot(self):
         """{"calls": [newest first], "active": <live entry or None>}."""
         with self._lock:
