@@ -1081,6 +1081,17 @@ def _normalize_call_id(value):
     return _next_call_id()
 
 
+def _end_diag(raw_id, snap):
+    """Chẩn đoán khi «Kết thúc» báo không có cuộc gọi sống (14/11/2026: cuộc gọi ĐI vẫn chạy mà nút Kết thúc không tác dụng): id UI gửi + 5 bản ghi mới nhất
+    (id/trạng thái/hướng/loại) + các id còn transport. Không ghi gì nhạy cảm."""
+    try:
+        rows = ["%s:%s:%s:%s" % (c["call_id"], c["status"], c.get("direction"), c.get("type")) for c in (snap.get("calls") or [])[:5]]
+        eps = sorted(str(k) for k in getattr(media_endpoints.ENDPOINTS, "active", {}).keys())
+        return "ui_id=%r active=%s ban_ghi=%s transport=%s" % (raw_id, (snap.get("active") or {}).get("call_id"), rows, eps)
+    except Exception as e:  # noqa: BLE001
+        return "diag_loi=%s" % e
+
+
 def _coerce_call_id(value):
     """Coerce a UI-supplied call_id to the JSON NUMBER the real
     client sends (native engine: callId is uint32), or None when it
@@ -4359,7 +4370,7 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
             if target_id is None and live is not None:
                 target_id = int(live["call_id"])
             if target_id is None:
-                _log_call("end call_id=None reason=no_live_call")
+                _log_call("end call_id=None reason=no_live_call (khong co ban ghi song) %s" % _end_diag(raw_id, snap))
                 return self._send_json(
                     {"ok": True, "ended_call_id": None,
                      "zalo_endcall_ok": False,
@@ -4368,7 +4379,7 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
                 target_id, "user_end", sess,
                 body.get("data"), body.get("partners"))
             if ended is None:
-                _log_call("end call_id=None reason=no_live_call")
+                _log_call("end call_id=None reason=no_live_call (_terminate_call tra None cho %s) %s" % (target_id, _end_diag(raw_id, STATE.calls.snapshot())))
                 return self._send_json(
                     {"ok": True, "ended_call_id": None,
                      "zalo_endcall_ok": False,
