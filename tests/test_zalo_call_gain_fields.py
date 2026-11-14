@@ -73,7 +73,7 @@ def test_services_and_bridge_know_the_new_fields():
     assert 'for key, field in (("mic_gain", "mic_url"), ("speaker_gain", "speaker_url"))' in br
 
 
-def test_outgoing_call_devices_come_from_the_rule_without_ai_and_only_when_ha_did_not_connect():
+def test_calls_without_ha_devices_get_the_rule_devices_outgoing_or_answered_by_hand():
     src = os.path.join(CC, "call_voice.py")
     rules = load_rules()
     if rules is None:
@@ -93,15 +93,14 @@ def test_outgoing_call_devices_come_from_the_rule_without_ai_and_only_when_ha_di
     assert od(dict(house, connect=[], connect_now=[])) == {}                          # quy tắc không cài nối gì: không nối
     assert od({}) == {}
     # chỉ áp cho cuộc gọi 1-1 ĐI chưa có thiết bị
-    assert ap("video", "7", set(), False) is True and ap("user", "7", set(), False) is True
-    assert ap("group", "7", set(), False) is False                                    # nhóm: không
-    assert ap("video", "7", {"7"}, False) is False                                    # cuộc gọi ĐẾN đã có đường nghe máy riêng
-    assert ap("video", "7", set(), True) is False                                     # HA (make_call) đã nối thiết bị: không nối lần hai
+    assert ap("video", "7", False) is True and ap("user", "7", False) is True          # gọi đi từ WebUI, hoặc cuộc gọi ĐẾN do người dùng nghe máy tay
+    assert ap("group", "7", False) is False                                           # nhóm: không
+    assert ap("video", "7", True) is False                                            # HA đã nối thiết bị (nghe máy theo quy tắc / make_call): không nối lần hai
 
 
 def test_bridge_has_devices_and_call_voice_wires_outgoing_by_rule():
     cv = open(os.path.join(CC, "call_voice.py"), encoding="utf-8").read()
-    assert "rt.bridge.has_devices(cid)" in cv and "_connect_outgoing_by_rule(hass, rt, cid, payload)" in cv
+    assert "outgoing_should_apply(payload.get(\"call_type\"), cid, rt.bridge.has_devices(cid))" in cv and "_connect_outgoing_by_rule(hass, rt, cid, payload)" in cv
     br = open(os.path.join(CC, "bridge.py"), encoding="utf-8").read()
     assert "def has_devices(self, call_id" in br
 

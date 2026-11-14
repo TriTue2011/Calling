@@ -726,14 +726,15 @@ def outgoing_devices(rule: dict[str, Any]) -> dict[str, Any]:
     return {**base, **rule_devices_now(rule)}
 
 
-def outgoing_should_apply(call_type: Any, call_id: str, incoming: set, already_started: bool) -> bool:
-    """Chỉ áp cho cuộc gọi 1-1 ĐI chưa có thiết bị nào: không phải cuộc gọi đến, không phải nhóm, và HA (dịch vụ make_call) chưa tự nối thiết bị."""
-    return str(call_type) != "group" and str(call_id) not in incoming and not already_started
+def outgoing_should_apply(call_type: Any, call_id: str, already_started: bool) -> bool:
+    """Áp quy tắc cho cuộc gọi 1-1 được nghe/gọi mà HA CHƯA nối thiết bị nào: người dùng gọi từ WebUI, hoặc nghe máy tay trên WebUI (nghe máy theo quy tắc,
+    hay HA tự gọi bằng make_call kèm thiết bị, thì đã có thiết bị nên bỏ qua). Nhóm: không (phải qua máy chủ nhóm)."""
+    return str(call_type) != "group" and not already_started
 
 
 async def _connect_outgoing_by_rule(hass: HomeAssistant, rt: Any, call_id: str, payload: dict[str, Any]) -> None:
-    """Cuộc gọi đi được nghe máy mà HA không tự nối thiết bị (người dùng gọi từ WebUI): áp quy tắc của người đó (theo threadID) để
-    camera/mic/loa vào cuộc gọi theo automation, không phải bấm tay. Không có quy tắc hoặc quy tắc không cài thiết bị thì KHÔNG làm gì."""
+    """Cuộc gọi được nghe/gọi mà HA không tự nối thiết bị (người dùng gọi từ WebUI hoặc nghe máy tay trên WebUI): áp quy tắc của người đó (theo threadID)
+    để camera/mic/loa vào cuộc gọi theo automation, không phải bấm tay. Không có quy tắc hoặc quy tắc không cài thiết bị thì KHÔNG làm gì."""
     rule = resolve_rule(get_rules(rt.defaults), payload.get("thread_id"), "user", payload.get("contact_status"))
     if not rule:
         return
@@ -838,7 +839,7 @@ def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, termin
         plan = voice.plans.pop(cid, None)
         if plan is not None and cid not in voice.tasks:
             voice.tasks[cid] = hass.async_create_task(_run_plan(hass, rt, cid, plan))
-        elif plan is None and payload and outgoing_should_apply(payload.get("call_type"), cid, voice.incoming, rt.bridge.has_devices(cid)):
+        elif plan is None and payload and outgoing_should_apply(payload.get("call_type"), cid, rt.bridge.has_devices(cid)):
             hass.async_create_task(_connect_outgoing_by_rule(hass, rt, cid, payload))
     elif state in terminal:
         _stop_announce(voice, cid)
