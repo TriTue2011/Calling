@@ -253,8 +253,16 @@ class CallAudioBridge:
             out["mic_format"] = res["mic_format"]
         if out.get("speaker_url", "off") != "off":
             out["echo_guard"] = res["echo_guard"]
+        gains = {k: (override or {}).get(k) for k in ("mic_gain", "speaker_gain")}
+        # Loa R1 KHÔNG nghe lệnh chỉnh âm lượng của HA (Android ghim ở mức tối đa): «Âm lượng loa» của quy tắc phải thành độ to phần mềm thì mới có tác dụng.
+        # Mức tính theo tối đa của R1 (22% = bằng 22% biên độ gốc). `speaker_gain` ghi rõ của quy tắc thì thắng.
+        pct = self.volume_for(override)
+        if not gains["speaker_gain"] and pct > 0 and out.get("speaker_url", "off") != "off":
+            dev = device_of_url(out["speaker_url"])
+            if dev and dev[0] == "r1_speaker":
+                gains["speaker_gain"] = pct
         for key, field in (("mic_gain", "mic_url"), ("speaker_gain", "speaker_url")):      # độ to phần mềm: chỉ kèm khi nhóm đó thật sự được nối
-            val = (override or {}).get(key)
+            val = gains[key]
             if val and out.get(field, "off") != "off":
                 out[key] = str(int(val))
         return out

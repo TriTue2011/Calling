@@ -179,6 +179,44 @@ def test_snapshot_204_when_no_picture_yet_and_errors_like_the_stream():
         httpd.shutdown()
 
 
+def test_view_and_snapshot_start_ffmpeg_with_the_phones_codec_h265_or_h264():
+    # Điện thoại gửi H.265 (log thật 14/11): ffmpeg phải được chạy với «-f hevc», không phải «-f h264» (lúc đó ffmpeg báo «Output file does not contain any stream»).
+    for first, want in ((b"\x00\x00\x00\x01\x40\x01vps", "hevc"), (b"\x00\x00\x00\x01\x67sps", "h264")):
+        httpd, base = _serve()
+        tr = FakeTransport()
+        tr.q = queue.Queue()
+        tr.q.put((first, True))
+        proc = FakeProc([b"--frame\r\nJPEGA"])
+        seen = []
+        saved = _patched(tr, proc)
+        S.subprocess.Popen = lambda cmd, *a, **k: (seen.append(list(cmd)), proc)[1]
+        try:
+            _get(base, "/api/call/video/view?call_id=111")
+            cmd = seen[0]
+            assert cmd[cmd.index("-i") - 1] == want and "mpjpeg" in cmd, cmd
+            assert any("video-view start call_id=111 codec=%s" % ("h265" if want == "hevc" else "h264") in l for l in LOGS), LOGS
+        finally:
+            _restore(saved)
+            httpd.shutdown()
+        # đường ảnh mới nhất cũng chọn đúng loại
+        httpd, base = _serve()
+        tr2 = FakeTransport()
+        tr2.q = queue.Queue()
+        tr2.q.put((first, True))
+        proc2 = FakeProc([JPEG1])
+        seen2 = []
+        saved = _patched(tr2, proc2)
+        S.subprocess.Popen = lambda cmd, *a, **k: (seen2.append(list(cmd)), proc2)[1]
+        S.VIDEO_SNAPSHOTS.clear()
+        try:
+            _snap_get(base)
+            assert seen2 and seen2[0][seen2[0].index("-i") - 1] == want and "image2pipe" in seen2[0], seen2
+        finally:
+            _restore(saved)
+            S.VIDEO_SNAPSHOTS.clear()
+            httpd.shutdown()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

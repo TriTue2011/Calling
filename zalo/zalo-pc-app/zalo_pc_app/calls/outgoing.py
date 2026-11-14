@@ -127,6 +127,19 @@ def _extend_profile_for_call(body):
     return want if want in EXTEND_PROFILES else "native"
 
 
+
+def deep_shape(obj, depth=3):
+    """Mô tả DẠNG của dữ liệu (khóa, kiểu, độ dài; tối đa `depth` cấp) mà KHÔNG ghi giá trị — an toàn để đưa vào nhật ký/dán khi chẩn đoán."""
+    if isinstance(obj, dict):
+        if depth <= 0:
+            return "dict(%d)" % len(obj)
+        return "{" + ", ".join("%s: %s" % (k, deep_shape(v, depth - 1)) for k, v in sorted(obj.items(), key=lambda kv: str(kv[0]))[:30]) + "}"
+    if isinstance(obj, list):
+        return "list(%d)%s" % (len(obj), (" of " + deep_shape(obj[0], depth - 1)) if obj and depth > 0 else "")
+    if isinstance(obj, str):
+        return "str(%d)" % len(obj)
+    return type(obj).__name__
+
 class OutgoingCalls:
     """Phương thức của Handler thuộc trục này (gộp vào Handler bằng kế thừa)."""
 
@@ -261,6 +274,13 @@ class OutgoingCalls:
                          (" msg=" + step1_msg[:120])
                          if step1_msg else "",
                          step1_shape, _step1_addrs))
+            if call_type == "group" and isinstance(data, dict):
+                # Gọi nhóm: Zalo trả dạng KHÁC 1-1 (hostCall/params/partnerIds, không có servers/sessId): chỉ ghi DẠNG của từng trường (tên khóa, kiểu, độ dài), không ghi giá trị.
+                try:
+                    srv()._log_call("group step1 shape call_id=%s %s" % (call_id, "; ".join(
+                        "%s=%s" % (k, deep_shape(data.get(k))[:700]) for k in ("hostCall", "params", "partnerIds") if k in data)))
+                except Exception:  # noqa: BLE001 - chẩn đoán, không chen ngang cuộc gọi
+                    pass
             if not media_endpoints.requestcall_accepted(data):
                 raise RuntimeError(
                     "11300 bi tu choi: status=%s%s" % (

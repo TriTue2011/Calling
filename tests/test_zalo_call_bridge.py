@@ -201,6 +201,31 @@ def test_call_fields_and_start_use_sink_not_play_media():
     asyncio.run(run())
 
 
+def test_rule_volume_becomes_software_speaker_gain_only_for_r1_and_explicit_gain_wins():
+    # Chủ máy 14/11: «âm lượng loa và mic chưa lấy theo auto». Loa R1 không nghe set_volume nên «Âm lượng loa 22%» của quy tắc phải thành độ to phần mềm.
+    async def run():
+        hass, api, dd, br = _make({"speaker": "media_player.r1_loa", "mic": "assist_satellite.r1"}, options={"ha_url": "http://ha.lan:8123"})
+        _ent("r1_speaker", "media_player.r1_loa", "r1entry")
+        _ent("r1_speaker", "assist_satellite.r1", "r1entry")
+        H["entries"]["r1entry"].data = {"intercom_key": "KHOA"}
+        assert "speaker_gain" not in await br.async_call_fields(None)                         # không đặt âm lượng: không gửi gì (app giữ 100%)
+        f = await br.async_call_fields({"volume": 22})
+        assert f["speaker_gain"] == "22" and "mic_gain" not in f, f                          # R1: 22% thành độ to phần mềm 22%
+        f = await br.async_call_fields({"volume": 22, "speaker_gain": 150, "mic_gain": 120})
+        assert f["speaker_gain"] == "150" and f["mic_gain"] == "120", f                     # ghi rõ của quy tắc thắng
+        f = await br.async_call_fields({"volume": 22, "speaker": ""})
+        assert "speaker_gain" not in f and f["speaker_url"] == "off", f                       # loa không nối: không kèm
+        f = await br.async_call_fields({"volume": 0})
+        assert "speaker_gain" not in f
+        # Loa KHÁC R1 (camera Imou/Dahua có cửa bộ đàm): âm lượng thiết bị vẫn nghe lệnh HA, KHÔNG nhân đôi bằng phần mềm
+        hass2, api2, dd2, br2 = _make({"speaker": "camera.imou_loa", "mic": "camera.imou_loa"}, options={"ha_url": "http://ha.lan:8123"})
+        _ent("dahua_talk", "camera.imou_loa", "d1entry")
+        H["entries"]["d1entry"].data = {"intercom_key": "K2"}
+        f2 = await br2.async_call_fields({"volume": 30})
+        assert f2.get("speaker_url", "").endswith("d1entry?k=K2") and "speaker_gain" not in f2, f2
+    asyncio.run(run())
+
+
 def test_push_policy_retries_after_failure_and_recovery():
     p = core.PushPolicy()
     assert p.poll(True) is True               # chua dua duoc lan nao -> dua

@@ -1,4 +1,4 @@
-"""Ghép gói RTP H.264 (RFC 6184) của điện thoại thành khung Annex-B để xem trên WebUI (13/11/2026).
+"""Ghép gói RTP H.264 (RFC 6184) hoặc H.265/HEVC (kiểu đóng gói Zalo) của điện thoại thành khung Annex-B để xem trên WebUI (13/11/2026; H.265 14/11/2026).
 
 Điện thoại gửi hình bằng RTP PT 98 (khung khoá) / 121 (khác), payload H.264 chuẩn: NAL đơn (1..23), STAP-A (24), FU-A (28). Module thuần
 (không phụ thuộc mạng) để kiểm thử: `H264Depacketizer.push(payload, marker, seq)` trả (annexb, is_key) khi đủ một khung, ngược lại None.
@@ -6,6 +6,24 @@ Mất gói giữa khung thì bỏ khung đó (không ghép bậy) và chờ khun
 """
 
 START = b"\x00\x00\x00\x01"
+
+# H.265 (log thật 14/11: cuộc gọi video điện thoại gửi HEVC, gói đầu «1c80 00000001 4001» = VPS; H.264 bắt đầu bằng SPS 0x67).
+HEVC_PARAM = {32: "vps", 33: "sps", 34: "pps"}
+
+
+def detect_codec(data):
+    """"h265" | "h264" | None (chưa đủ dữ liệu) theo NAL đầu tiên của dãy Annex-B (hoặc NAL trần). Tiêu đề HEVC dài 2 byte: byte đầu (loại<<1) với loại
+    32/33/34 (VPS/SPS/PPS) = 0x40/0x42/0x44 và byte hai = 0x01 (lớp 0, tid 0); các byte đó không phải tiêu đề H.264 hợp lệ thường gặp (0x67/0x68/0x65/0x41...)."""
+    data = bytes(data)
+    i = data.find(b"\x00\x00\x01")
+    nal = data[i + 3:] if i >= 0 else data
+    if len(nal) < 2:
+        return None
+    if nal[0] in (0x40, 0x42, 0x44) and nal[1] == 0x01:
+        return "h265"
+    if nal[0] in (0x26, 0x28, 0x02, 0x4e) and nal[1] == 0x01:           # IDR_W_RADL / IDR_N_LP / TRAIL_R / SEI prefix: mở giữa luồng H.265
+        return "h265"
+    return "h264"
 
 
 def split_annexb(data):
@@ -87,6 +105,8 @@ class H264Depacketizer:
         self._broken = False       # khung hiện tại mất gói: bỏ
         self._need_key = True      # đầu cuộc / sau mất gói: chỉ phát từ khung khoá
         self.sps = self.pps = None
+        self.vps = None
+        self.codec = None          # "h264" | "h265": nhận biết từ NAL đầu tiên của luồng
         self.stats = {"frames": 0, "key": 0, "dropped": 0, "bad": 0}
 
     @property
@@ -102,20 +122,37 @@ class H264Depacketizer:
                 self.stats["dropped"] += 1
                 self._need_key = True
             return None
-        types = [n[0] & 0x1F for n in nals]
-        for n, t in zip(nals, types):
-            if t == 7:
-                self.sps = n
-            elif t == 8:
-                self.pps = n
-        is_key = 5 in types
+        if self.codec is None:
+            self.codec = detect_codec(START + nals[0])
+        if self.codec == "h265":
+            types = [(n[0] >> 1) & 0x3F for n in nals]
+            for n, t in zip(nals, types):
+                if t == 32:
+                    self.vps = n
+                elif t == 33:
+                    self.sps = n
+                elif t == 34:
+                    self.pps = n
+            is_key = any(16 <= t <= 21 for t in types)                # IRAP: BLA/IDR/CRA
+            params = [self.vps, self.sps, self.pps]
+            have_params = any(t in (32, 33, 34) for t in types)
+        else:
+            types = [n[0] & 0x1F for n in nals]
+            for n, t in zip(nals, types):
+                if t == 7:
+                    self.sps = n
+                elif t == 8:
+                    self.pps = n
+            is_key = 5 in types
+            params = [self.sps, self.pps]
+            have_params = 7 in types
         if self._need_key and not is_key:
             self.stats["dropped"] += 1
             return None
         if is_key:
             self._need_key = False
-            if self.sps and self.pps and 7 not in types:      # khung khoá thiếu SPS/PPS: thêm để bộ giải mã khởi động được
-                nals = [self.sps, self.pps] + nals
+            if all(params) and not have_params:                      # khung khoá thiếu tập thông số: thêm để bộ giải mã khởi động được
+                nals = params + nals
         self.stats["frames"] += 1
         self.stats["key"] += 1 if is_key else 0
         return b"".join(START + n for n in nals), is_key

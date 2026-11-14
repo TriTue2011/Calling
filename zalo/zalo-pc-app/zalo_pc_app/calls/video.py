@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import urllib.request
 from .. import ffmpeg_log as ffmpeg_log_mod
+from .. import h264_rx as h264_rx_mod
 from ._srv import srv
 
 
@@ -230,6 +231,22 @@ VIDEO_VIEW_FFMPEG = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-flags", "
                      "-f", "mpjpeg", "-boundary_tag", "frame", "pipe:1"]
 
 
+def _ffmpeg_cmd(base, codec):
+    """Lệnh ffmpeg với đầu vào đúng loại video của điện thoại: `-f h264` đổi thành `-f hevc` khi luồng là H.265."""
+    fmt = "hevc" if codec == "h265" else "h264"
+    return [fmt if i > 0 and base[i - 1] == "-f" and a == "h264" else a for i, a in enumerate(base)]
+
+
+def _peek_codec(tap, transport, timeout=5.0):
+    """(codec, khung đầu) — chờ khung đầu tiên (tối đa `timeout` giây) để biết điện thoại gửi H.264 hay H.265. Khung đã lấy phải được bơm vào ffmpeg trước."""
+    known = getattr(getattr(transport, "_h264", None), "codec", None)
+    try:
+        first = tap.get(timeout=timeout)
+    except queue.Empty:
+        return known or "h264", None
+    return h264_rx_mod.detect_codec(first[0]) or known or "h264", first
+
+
 # Ảnh MỚI NHẤT của hình đối tác (không cần luồng dài): trình duyệt hỏi từng ảnh, nên chạy được qua mọi proxy/tunnel gom bộ đệm luồng MJPEG.
 VIDEO_SNAP_FFMPEG = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-flags", "low_delay", "-probesize", "16384", "-analyzeduration", "100000",
                      "-framerate", "15", "-f", "h264", "-i", "pipe:0", "-vf", "fps=5,scale=640:-2,format=yuvj420p", "-q:v", "7",
@@ -250,12 +267,14 @@ class VideoSnapshot:
         self._cv = threading.Condition()
         self.stats = {"in": 0, "key_in": 0, "jpeg_out": 0, "t0": clock()}
         self.proc = self.tap = self.tail = None
+        self.codec, self._first = None, None
 
     def start(self):
-        self.proc = subprocess.Popen(VIDEO_SNAP_FFMPEG, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
-        self.tail = ffmpeg_log_mod.StderrTail(self.proc)
         self.tap = self.transport.add_video_tap()
-        srv()._log_call("video-snap start call_id=%s" % self.call_id)
+        self.codec, self._first = _peek_codec(self.tap, self.transport)
+        self.proc = subprocess.Popen(_ffmpeg_cmd(VIDEO_SNAP_FFMPEG, self.codec), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        self.tail = ffmpeg_log_mod.StderrTail(self.proc)
+        srv()._log_call("video-snap start call_id=%s codec=%s" % (self.call_id, self.codec))
         threading.Thread(target=self._feed, daemon=True, name="video-snap-feed").start()
         threading.Thread(target=self._read, daemon=True, name="video-snap-read").start()
 
@@ -276,10 +295,14 @@ class VideoSnapshot:
     def _feed(self):
         try:
             while self._alive():
-                try:
-                    annexb, key = self.tap.get(timeout=1)
-                except queue.Empty:
-                    continue
+                if self._first is not None:
+                    annexb, key = self._first
+                    self._first = None
+                else:
+                    try:
+                        annexb, key = self.tap.get(timeout=1)
+                    except queue.Empty:
+                        continue
                 self.stats["in"] += 1
                 self.stats["key_in"] += 1 if key else 0
                 self.proc.stdin.write(annexb)
@@ -395,11 +418,12 @@ class VideoHandler:
         tap = transport.add_video_tap()
         proc = None
         try:
-            proc = subprocess.Popen(VIDEO_VIEW_FFMPEG, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+            codec, first = _peek_codec(tap, transport)        # H.264 hay H.265: ffmpeg phải biết trước
+            proc = subprocess.Popen(_ffmpeg_cmd(VIDEO_VIEW_FFMPEG, codec), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
             tail = ffmpeg_log_mod.StderrTail(proc)
             # Đo từng chặng để biết hình đứng ở đâu: khung vào ffmpeg (có khung khoá không) -> ảnh JPEG ra -> byte tới trình duyệt.
             stats = {"in": 0, "key_in": 0, "out_frames": 0, "out_bytes": 0, "t0": time.time()}
-            srv()._log_call("video-view start call_id=%s" % call_id)
+            srv()._log_call("video-view start call_id=%s codec=%s" % (call_id, codec))
             self.send_response(200)
             self.send_header("Content-Type", "multipart/x-mixed-replace;boundary=frame")
             self.send_header("Cache-Control", "no-store")
@@ -407,15 +431,20 @@ class VideoHandler:
             self.end_headers()
             self.close_connection = True
 
+            pending = [first] if first is not None else []
+
             def feed():
                 try:
                     while proc.poll() is None:
                         if srv()._transport_for_call(call_id) is not transport:        # cuộc gọi đã kết thúc
                             break
-                        try:
-                            annexb, _key = tap.get(timeout=1)
-                        except queue.Empty:
-                            continue
+                        if pending:
+                            annexb, _key = pending.pop()
+                        else:
+                            try:
+                                annexb, _key = tap.get(timeout=1)
+                            except queue.Empty:
+                                continue
                         stats["in"] += 1
                         stats["key_in"] += 1 if _key else 0
                         proc.stdin.write(annexb)

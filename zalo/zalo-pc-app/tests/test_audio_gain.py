@@ -142,6 +142,25 @@ def test_rule_gain_from_ha_is_the_default_and_the_buttons_win():
         sv.CALL_GAIN.pop(str(cid), None)
 
 
+def test_buttons_change_only_the_current_call_and_the_next_call_starts_from_the_rule_again():
+    for cid in (95, 96):
+        sv._CALL_DEVICES.pop(str(cid), None)
+        sv.CALL_GAIN.pop(str(cid), None)
+    rule = {"mic_url": "test", "mic_gain": 150, "speaker_gain": 22}                 # mức do automation (quy tắc) đặt cho MỖI cuộc gọi
+    sv._remember_call_devices(95, rule)
+    assert (sv._gain_of(95, "mic"), sv._gain_of(95, "speaker")) == (150, 22)
+    sv._set_gain(95, "mic", step=-50)
+    sv._set_gain(95, "speaker", level=300)                                           # người dùng chỉnh TRỰC TIẾP giữa cuộc gọi: thắng quy tắc
+    assert (sv._gain_of(95, "mic"), sv._gain_of(95, "speaker")) == (100, 300)
+    sv._cleanup_call_media({"call_id": 95, "thread_id": "20001", "status": "answered"})   # hết cuộc gọi: bỏ mức đã chỉnh bằng tay
+    assert "95" not in sv.CALL_GAIN
+    sv._remember_call_devices(96, rule)                                              # cuộc gọi kế tiếp: lại theo quy tắc, không dính mức cũ
+    assert (sv._gain_of(96, "mic"), sv._gain_of(96, "speaker")) == (150, 22)
+    for cid in (95, 96):
+        sv._CALL_DEVICES.pop(str(cid), None)
+        sv.CALL_GAIN.pop(str(cid), None)
+
+
 BASE = ""
 _COOKIE = ""
 
