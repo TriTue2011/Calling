@@ -148,6 +148,9 @@ def _member_count(info, members):
     return len(members)
 
 
+MAX_GROUP_MEMBER_IDS = 5000          # trần an toàn (nhóm Zalo lớn nhất vài nghìn người)
+
+
 def _group_row(group_id, info):
     """One group row from a gridInfoMap item (getmg-v2): the bundle's
     _preFormatData maps name -> displayName, avt -> avatar,
@@ -173,12 +176,15 @@ def _group_row(group_id, info):
             members.append(m)
     # member_ids: danh sach DE HIEN THI (WebUI). Hop topMember + memberIds + currentMems vi Zalo khi thi chi tra mot trong ba
     # (truoc day WebUI chi doc topMember nen hien «Thanh vien (0)»). KHONG doi `members` vi no la danh sach nguoi can GOI khi goi nhom.
+    # memVerList = TOÀN BỘ thành viên dạng "userId_phiênbản" (log thật 14/11: Zalo trả memVerList + memberIds + currentMems, KHÔNG có topMember;
+    # memberIds/currentMems là danh sách rút gọn khi hasMoreMember). Phải đọc nó thì nhóm lớn (200 người) mới đổ chuông đủ.
+    mem_ver = [str(x).split("_", 1)[0] for x in (info.get("memVerList") or []) if isinstance(x, (str, int))]
     seen, member_ids = set(), []
-    for src in (members, info.get("memberIds") or [], info.get("currentMems") or []):
+    for src in (members, info.get("memberIds") or [], info.get("currentMems") or [], mem_ver):
         for m in src if isinstance(src, list) else []:
             mid = (m.get("id") or m.get("userId") or m.get("uid")) if isinstance(m, dict) else m
             mid = str(mid or "")
-            if mid and mid not in seen and len(member_ids) < 1000:
+            if mid and mid not in seen and len(member_ids) < MAX_GROUP_MEMBER_IDS:
                 seen.add(mid)
                 member_ids.append(mid)
     return {"id": str(group_id), "name": name, "avatar": avatar,

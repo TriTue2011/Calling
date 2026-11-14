@@ -113,7 +113,8 @@ def test_group_row_member_ids_merges_three_sources_but_members_stays_the_call_li
     only_ids = contacts._group_row("G2", {"name": "N", "memberIds": ["7", "8"]})
     assert only_ids["members"] == [] and only_ids["member_ids"] == ["7", "8"]       # ca «Thành viên (0)» trước đây
     assert contacts._group_row("G3", {})["member_ids"] == []
-    assert len(contacts._group_row("G4", {"memberIds": [str(i) for i in range(1500)]})["member_ids"]) == 1000
+    assert len(contacts._group_row("G4", {"memberIds": [str(i) for i in range(6000)]})["member_ids"]) == contacts.MAX_GROUP_MEMBER_IDS == 5000    # trần an toàn (đã nâng từ 1000: nhóm 200 người phải đủ)
+    assert len(contacts._group_row("G5", {"memberIds": [str(i) for i in range(1500)]})["member_ids"]) == 1500
 
 
 if __name__ == "__main__":

@@ -153,7 +153,13 @@ class OutgoingCalls:
         srv()._remember_call_devices(call_id, body)
         thread_id = body.get("callee_id", "")
         call_type = body.get("type") or "user"
-        type_request = srv()._type_request_for(call_type)
+        type_request = srv()._type_request_for(call_type, bool(body.get("video")))
+        partners = body.get("partners")
+        if call_type == "group":
+            # Gọi nhóm: đổ chuông ĐỦ thành viên (UI chỉ gửi topMember rút gọn); log số người để biết nhóm lớn có bị thiếu không.
+            partners, _total = srv().STATE._group_call_partners(thread_id, partners)
+            srv()._log_call("group partners call_id=%s gui=%d da_biet=%d (nhom lon: Zalo chi tra danh sach rut gon thi nguoi con lai co the khong do chuong)"
+                            % (call_id, len(partners), _total))
         peer = body.get("peer_name") or thread_id
         try:
             transport = srv().make_transport(sess["zpw_sek"])
@@ -170,7 +176,7 @@ class OutgoingCalls:
                     call_id,
                     type_request,
                     body.get("data"),
-                    body.get("partners"))
+                    partners)
             else:
                 # 11300 codec (zca-js: the engine always sends
                 # its Opus JSON list here; "[]" is only the
@@ -432,7 +438,7 @@ class OutgoingCalls:
                         step2_resp = sig.send_request_group(
                             thread_id, call_id, type_request,
                             body.get("data"), endpoints["session"],
-                            body.get("partners"), thread_id)
+                            partners, thread_id)
                     else:
                         step2_resp = sig.send_request(
                             thread_id, endpoints["rtcp_address"],

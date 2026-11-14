@@ -309,7 +309,7 @@ function openThread(row) {
   $("chat-name").textContent = row.name || row.id;
   const kind = row.type === "group" ? "Nhóm" + (row.members && row.members.length ? " · " + row.members.length + " thành viên" : "") : (row.stranger || (S.conv[rowKey(row)] || {}).stranger ? "Người lạ" : "Bạn bè");
   $("chat-sub").replaceChildren(kind + " · ", h("button", { class: "link mono", type: "button", title: "Sao chép threadId", onclick: () => copyText(row.id, "threadId") }, row.id));
-  $("btn-video").hidden = row.type === "group";
+  $("btn-call").hidden = row.type === "group"; $("btn-video").hidden = false;     // nhóm chỉ có gọi VIDEO nhóm (không có gọi thoại nhóm)
   setNotice(""); $("msg-in").value = ""; autosize(); setReply(null); S.mentions = []; S.pending = []; renderTray(); updateSendButtons();
   history.replaceState(null, "", "#/" + row.type + "/" + encodeURIComponent(row.id));
   const c = S.conv[rowKey(row)]; if (c) c.unread = 0;
@@ -783,8 +783,8 @@ function renderInfo() {
       h("div", { class: "info-sub" }, isGroup ? "Nhóm" : c.stranger || row.stranger ? "Người lạ (không có trong danh bạ)" : "Bạn bè"),
       h("div", { style: "margin-top:.5rem;display:flex;justify-content:center;align-items:center;gap:.25rem" }, h("span", { class: "mono" }, row.id), h("button", { class: "icon-btn", type: "button", "aria-label": "Sao chép threadId", title: "Sao chép threadId", onclick: () => copyText(row.id, "threadId") }, svg("copy"))),
       h("div", { class: "info-acts" },
-        h("button", { class: "iact", type: "button", disabled: !!S.calls.active, onclick: () => startCall(false) }, h("span", { class: "c" }, svg("phone")), "Gọi thoại"),
-        isGroup ? null : h("button", { class: "iact", type: "button", disabled: !!S.calls.active, onclick: () => startCall(true) }, h("span", { class: "c" }, svg("video")), "Gọi video"),
+        isGroup ? null : h("button", { class: "iact", type: "button", disabled: !!S.calls.active, onclick: () => startCall(false) }, h("span", { class: "c" }, svg("phone")), "Gọi thoại"),
+        h("button", { class: "iact", type: "button", disabled: !!S.calls.active, onclick: () => startCall(true) }, h("span", { class: "c" }, svg("video")), isGroup ? "Gọi video nhóm" : "Gọi video"),
         h("button", { class: "iact", type: "button", onclick: () => setTab("services") }, h("span", { class: "c" }, svg("grid")), "Dịch vụ"))),
     isGroup ? infoSection("Thành viên (" + members.length + ")", members.length ? h("div", { class: "imembers" }, members.slice(0, 100).map((m) => h("div", { class: "imember" }, avatar({ id: m.id, name: nameOf(m), avatar: (rowOf("user", m.id) || {}).avatar }, "sm"), h("span", {}, nameOf(m))))) : h("p", { class: "inote" }, "Chưa tải được danh sách thành viên.")) : null,
     infoSection("Ảnh/Video", photos.length ? h("div", { class: "igrid" }, photos.map((m) => h("a", { href: photoSrc(m) || m.file_url, target: "_blank", rel: "noopener" }, h("img", { src: photoSrc(m) || m.thumb_url, alt: m.file_name || "Ảnh", loading: "lazy" })))) : h("p", { class: "inote" }, "Chưa có ảnh nào được tải trong cuộc trò chuyện này.")),
@@ -815,7 +815,9 @@ async function startCall(video) {
   const row = S.cur; if (!row || S.calls.active) return;
   const type = row.type === "group" ? "group" : video ? "video" : "user";
   toast("Đang gọi " + (row.name || row.id) + "…");
-  const r = await api("/api/call/request", "POST", { callee_id: row.id, type, peer_name: row.name || row.id, partners: row.members || [] });
+  // Nhóm: gọi VIDEO nhóm (typeRequest 6) và đổ chuông ĐỦ thành viên (member_ids = topMember + memberIds + currentMems; topMember chỉ là danh sách rút gọn).
+  const partners = (row.member_ids && row.member_ids.length >= (row.members || []).length ? row.member_ids : row.members) || [];
+  const r = await api("/api/call/request", "POST", { callee_id: row.id, type, video: row.type === "group" || video, peer_name: row.name || row.id, partners });
   if (r.error) return toast("Không gọi được: " + r.error, 6000);
   if (r.request_sent === false) toast("Đã gửi yêu cầu nhưng bước 2 chưa gửi được: " + (r.request_error || "không rõ"), 7000);
   await loadCalls();
@@ -866,16 +868,36 @@ async function toggleMedia(target) {
 }
 // Hình điện thoại gửi sang: <img> MJPEG (/api/call/video/view). Giữ MỘT nút ảnh suốt cuộc gọi (thẻ vẽ lại mỗi vài giây — tạo ảnh mới sẽ nối lại luồng liên tục).
 S.vv = null;
+// Hai đường lấy hình: luồng liên tục (MJPEG, trễ thấp) và, nếu luồng không lên sau 6 giây hoặc lỗi 2 lần (proxy/tunnel gom bộ đệm), từng ảnh mới nhất
+// (/api/call/video/snapshot, hỏi ~4 lần/giây, chạy qua mọi proxy).
 function videoView(a, mc) {
   if (!(a.type === "video" || (mc && mc.video_rx > 0))) { S.vv = null; return null; }
   if (!S.vv || S.vv.id !== String(a.call_id)) {
-    const url = () => "/api/call/video/view?call_id=" + encodeURIComponent(a.call_id) + "&t=" + Date.now();
+    const id = encodeURIComponent(a.call_id);
+    const streamUrl = () => "/api/call/video/view?call_id=" + id + "&t=" + Date.now();
+    const snapUrl = () => "/api/call/video/snapshot?call_id=" + id + "&t=" + Date.now();
     const wait = h("div", { class: "vv-wait" }, "Đang chờ hình từ điện thoại…");
-    const el = h("img", { class: "vview", alt: "Hình từ điện thoại", src: url() });
+    const el = h("img", { class: "vview", alt: "Hình từ điện thoại", src: streamUrl() });
     const box = h("div", { class: "vvbox" }, el, wait);
-    el.addEventListener("load", () => box.classList.add("on"));
-    el.addEventListener("error", () => { box.classList.remove("on"); setTimeout(() => { if (S.vv && S.vv.el === box) el.src = url(); }, 3000); });   // chưa có hình (409) / ffmpeg đang dậy: thử lại
-    S.vv = { id: String(a.call_id), el: box };
+    const vv = { id: String(a.call_id), el: box, mode: "stream", errors: 0, timer: null };
+    const current = () => S.vv === vv;
+    const snapLoop = () => {
+      if (!current() || vv.mode !== "snap") return;
+      const img = new Image();
+      img.onload = () => { if (!current()) return; el.src = img.src; box.classList.add("on"); vv.timer = setTimeout(snapLoop, 250); };
+      img.onerror = () => { if (!current()) return; vv.timer = setTimeout(snapLoop, 700); };      // 204 = chưa có ảnh: thử lại
+      img.src = snapUrl();
+    };
+    vv.fallback = () => { if (vv.mode === "snap" || !current()) return; vv.mode = "snap"; clearTimeout(vv.timer); box.dataset.mode = "snap"; snapLoop(); };
+    el.addEventListener("load", () => { if (vv.mode === "stream") { clearTimeout(vv.timer); box.classList.add("on"); } });
+    el.addEventListener("error", () => {
+      if (vv.mode !== "stream") return;
+      box.classList.remove("on"); vv.errors++;
+      if (vv.errors >= 2) return vv.fallback();
+      setTimeout(() => { if (current() && vv.mode === "stream") el.src = streamUrl(); }, 3000);      // chưa có hình (409) / ffmpeg đang dậy: thử lại một lần
+    });
+    vv.timer = setTimeout(() => { if (current() && !box.classList.contains("on")) vv.fallback(); }, 6000);      // luồng không ra hình sau 6 giây
+    S.vv = vv;
   }
   return S.vv.el;
 }
@@ -1449,6 +1471,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
 });
 try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
-if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain, mergeMsgs });   // chỉ để kiểm thử giao diện (jsdom)
+if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain, mergeMsgs, startCall, openThread, videoView });   // chỉ để kiểm thử giao diện (jsdom)
 applyScale(); setTab("chats"); updateSendButtons(); privacyInit(); boot();
 })();

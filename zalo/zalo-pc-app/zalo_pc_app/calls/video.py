@@ -230,8 +230,150 @@ VIDEO_VIEW_FFMPEG = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-flags", "
                      "-f", "mpjpeg", "-boundary_tag", "frame", "pipe:1"]
 
 
+# Ảnh MỚI NHẤT của hình đối tác (không cần luồng dài): trình duyệt hỏi từng ảnh, nên chạy được qua mọi proxy/tunnel gom bộ đệm luồng MJPEG.
+VIDEO_SNAP_FFMPEG = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-flags", "low_delay", "-probesize", "16384", "-analyzeduration", "100000",
+                     "-framerate", "15", "-f", "h264", "-i", "pipe:0", "-vf", "fps=5,scale=640:-2,format=yuvj420p", "-q:v", "7",
+                     "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"]
+VIDEO_SNAP_IDLE_SECONDS = 15.0          # không ai hỏi ảnh trong chừng này giây thì dừng ffmpeg
+VIDEO_SNAPSHOTS = {}                    # call_id -> VideoSnapshot (một ffmpeg cho mỗi cuộc gọi, dùng chung mọi người xem)
+VIDEO_SNAP_LOCK = threading.Lock()
+
+
+class VideoSnapshot:
+    """Một ffmpeg giải mã khung H.264 của cuộc gọi thành ảnh JPEG (5 ảnh/giây), giữ ảnh mới nhất. Tự dừng khi cuộc gọi hết hoặc không ai hỏi ảnh."""
+
+    def __init__(self, call_id, transport, clock=time.time):
+        self.call_id, self.transport, self._clock = call_id, transport, clock
+        self._jpeg, self._jpeg_at = b"", 0.0
+        self._touched = clock()
+        self._stop = threading.Event()
+        self._cv = threading.Condition()
+        self.stats = {"in": 0, "key_in": 0, "jpeg_out": 0, "t0": clock()}
+        self.proc = self.tap = self.tail = None
+
+    def start(self):
+        self.proc = subprocess.Popen(VIDEO_SNAP_FFMPEG, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        self.tail = ffmpeg_log_mod.StderrTail(self.proc)
+        self.tap = self.transport.add_video_tap()
+        srv()._log_call("video-snap start call_id=%s" % self.call_id)
+        threading.Thread(target=self._feed, daemon=True, name="video-snap-feed").start()
+        threading.Thread(target=self._read, daemon=True, name="video-snap-read").start()
+
+    def touch(self):
+        self._touched = self._clock()
+
+    def latest(self, wait=0.0):
+        """(jpeg, thời điểm) mới nhất; chưa có ảnh thì chờ tối đa `wait` giây."""
+        with self._cv:
+            if not self._jpeg and wait > 0:
+                self._cv.wait(wait)
+            return self._jpeg, self._jpeg_at
+
+    def _alive(self):
+        return (not self._stop.is_set() and self.proc.poll() is None and srv()._transport_for_call(self.call_id) is self.transport
+                and self._clock() - self._touched < VIDEO_SNAP_IDLE_SECONDS)
+
+    def _feed(self):
+        try:
+            while self._alive():
+                try:
+                    annexb, key = self.tap.get(timeout=1)
+                except queue.Empty:
+                    continue
+                self.stats["in"] += 1
+                self.stats["key_in"] += 1 if key else 0
+                self.proc.stdin.write(annexb)
+        except (OSError, ValueError):
+            pass
+        finally:
+            self.stop()
+
+    def _read(self):
+        buf = b""
+        try:
+            while True:
+                chunk = self.proc.stdout.read(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while True:
+                    end = buf.find(b"\xff\xd9")           # hết một ảnh JPEG (FF trong dữ liệu luôn được chèn 00 nên FFD9 không xuất hiện giữa ảnh)
+                    if end < 0:
+                        break
+                    frame, buf = buf[:end + 2], buf[end + 2:]
+                    start = frame.rfind(b"\xff\xd8")
+                    if start >= 0:
+                        with self._cv:
+                            self._jpeg, self._jpeg_at = frame[start:], self._clock()
+                            self._cv.notify_all()
+                        self.stats["jpeg_out"] += 1
+        except (OSError, ValueError):
+            pass
+        finally:
+            self.stop()
+
+    def stop(self):
+        if self._stop.is_set():
+            return
+        self._stop.set()
+        with VIDEO_SNAP_LOCK:
+            if VIDEO_SNAPSHOTS.get(self.call_id) is self:
+                del VIDEO_SNAPSHOTS[self.call_id]
+        try:
+            srv()._log_call("video-snap end call_id=%s giay=%.1f khung_vao=%d khung_khoa=%d anh_ra=%d ffmpeg_err=%s" % (
+                self.call_id, self._clock() - self.stats["t0"], self.stats["in"], self.stats["key_in"], self.stats["jpeg_out"], (self.tail.text() if self.tail else "") or "-"))
+        except Exception:  # noqa: BLE001 - ghi log không được làm hỏng việc dừng
+            pass
+        if self.tap is not None:
+            self.transport.remove_video_tap(self.tap)
+        try:
+            self.proc.stdin.close()
+        except (OSError, ValueError, AttributeError):
+            pass
+        ffmpeg_log_mod.kill_and_reap(self.proc)
+        with self._cv:
+            self._cv.notify_all()
+
+
 class VideoHandler:
     """Phương thức của Handler thuộc trục này (gộp vào Handler bằng kế thừa)."""
+
+    def _serve_call_video_snapshot(self):
+        """GET /api/call/video/snapshot?call_id=: ảnh JPEG MỚI NHẤT của hình đối tác (204 khi chưa có ảnh). Dùng khi luồng dài /video/view không tới được trình duyệt."""
+        qs = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        call_id = srv()._coerce_call_id((qs.get("call_id") or [""])[0])
+        if call_id is None:
+            live = srv().STATE.calls.snapshot()["active"]
+            call_id = int(live["call_id"]) if live is not None else None
+        transport = srv()._transport_for_call(call_id) if call_id is not None else None
+        if transport is None or not hasattr(transport, "add_video_tap"):
+            return self._send_json({"error": "chua_co_hinh"}, status=409)
+        if shutil.which("ffmpeg") is None:
+            return self._send_json({"error": "thieu_ffmpeg"}, status=503)
+        with VIDEO_SNAP_LOCK:
+            snap = VIDEO_SNAPSHOTS.get(call_id)
+            if snap is not None and snap.transport is not transport:
+                snap = None
+            if snap is None:
+                snap = VIDEO_SNAPSHOTS[call_id] = VideoSnapshot(call_id, transport)
+                try:
+                    snap.start()
+                except (OSError, ValueError):
+                    del VIDEO_SNAPSHOTS[call_id]
+                    return self._send_json({"error": "khong_chay_duoc_ffmpeg"}, status=503)
+        snap.touch()
+        jpeg, _at = snap.latest(wait=1.5)
+        if not jpeg:
+            self.send_response(204)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(jpeg)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(jpeg)
 
     def _serve_call_video_view(self):
         """Xem hình điện thoại gửi sang (WebUI): khung H.264 đã giải mã SRTP + ghép (udp_transport add_video_tap) -> ffmpeg -> MJPEG nhiều phần

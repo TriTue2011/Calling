@@ -149,6 +149,7 @@ from .calls import video as video_calls  # noqa: E402  luồng video tách riên
 VIDEO_VIEWERS_MAX = video_calls.VIDEO_VIEWERS_MAX
 VIDEO_VIEW_LOCK = video_calls.VIDEO_VIEW_LOCK
 VIDEO_VIEW_COUNT = video_calls.VIDEO_VIEW_COUNT
+VIDEO_SNAPSHOTS = video_calls.VIDEO_SNAPSHOTS
 VIDEO_VIEW_FFMPEG = video_calls.VIDEO_VIEW_FFMPEG
 VIDEO_SENDERS = video_calls.VIDEO_SENDERS
 VIDEO_START_DELAY_S = video_calls.VIDEO_START_DELAY_S
@@ -1134,16 +1135,16 @@ def _coerce_call_id(value):
     return n
 
 
-def _type_request_for(call_type):
-    """typeRequest for an AUDIO call of this thread type: 1 for a
-    1-1 call, 5 for a group call (bundle makeCall enum
-    1/3/5/6 — see protocol.CALL_TYPE_*). The body's type_request
+def _type_request_for(call_type, video=False):
+    """typeRequest of this thread type: 1 for a 1-1 audio call, 3 for 1-1 video,
+    5 for a group AUDIO call, 6 for a group VIDEO call (bundle makeCall enum
+    1/3/5/6 — see protocol.CALL_TYPE_*). `video` only matters for groups (the
+    1-1 video call is call_type "video"). The body's type_request
     is NOT trusted: the pre-fix UI sent 0, a value that exists
     nowhere in the client's vocabulary and drew inner 114 from
-    the real server (§7k). Video would be 3/6, but this app only
-    places audio calls."""
+    the real server (§7k)."""
     if call_type == "group":
-        return protocol.CALL_TYPE_AUDIO_GROUP
+        return protocol.CALL_TYPE_VIDEO_GROUP if video else protocol.CALL_TYPE_AUDIO_GROUP
     if call_type == "video":
         return protocol.CALL_TYPE_VIDEO_1_1
     return protocol.CALL_TYPE_AUDIO_1_1
@@ -2960,6 +2961,33 @@ class AppState(events_calls.CallEvents, video_calls.VideoCalls, incoming_calls.I
             return "no_endpoints"
         return "stopped"
 
+    def _group_call_partners(self, thread_id, given):
+        """Người cần ĐỔ CHUÔNG khi gọi nhóm: hợp danh sách UI gửi với đủ thành viên trong danh bạ đã nạp (member_ids = topMember + memberIds + currentMems).
+        topMember chỉ là danh sách RÚT GỌN của Zalo (nhóm lớn có hasMoreMember) nên chỉ dùng nó thì nhóm 200 người chỉ đổ chuông một phần.
+        Không gọi mạng (dùng bộ nhớ đệm danh bạ). Trả (partners, tổng_thành_viên_đã_biết): partners không trùng, giữ thứ tự (người UI gửi trước)."""
+        out, seen = [], set()
+
+        def add(items):
+            for m in items or []:
+                mid = str(m.get("id") or m.get("userId") or "") if isinstance(m, dict) else str(m or "")
+                if mid and mid not in seen:
+                    seen.add(mid)
+                    out.append(mid)
+        add(given)
+        total = 0
+        with self._contacts_lock:
+            cache = self._contacts_cache
+        for row in ((cache or {}).get("groups") or {}).get("rows") or []:
+            if isinstance(row, dict) and str(row.get("id")) == str(thread_id):
+                add(row.get("member_ids"))
+                add(row.get("members"))
+                try:
+                    total = int(row.get("member_count") or 0)
+                except (TypeError, ValueError):
+                    total = 0
+                break
+        return out, max(total, len(out)) if total else len(out)
+
     def _friend_ids(self):
         """Tap userId ban be tu cache danh ba; None neu chua tai danh ba."""
         with self._contacts_lock:
@@ -3369,6 +3397,10 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
             if self._require_login() is None:
                 return self._send_json({"error": "chua_dang_nhap"}, status=401)
             return self._serve_call_video_view()
+        if path == "/api/call/video/snapshot":
+            if self._require_login() is None:
+                return self._send_json({"error": "chua_dang_nhap"}, status=401)
+            return self._serve_call_video_snapshot()
         if path == "/api/calls":
             sess = self._require_login()
             if sess is None:

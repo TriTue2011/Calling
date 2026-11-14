@@ -122,6 +122,63 @@ def test_errors_no_transport_no_ffmpeg_and_too_many_viewers():
         httpd.shutdown()
 
 
+JPEG1 = b"\xff\xd8\xff\xe0JFIF-anh-1\xff\xd9"
+JPEG2 = b"\xff\xd8\xff\xe0JFIF-anh-2-moi-hon\xff\xd9"
+
+
+def _snap_get(base, path="/api/call/video/snapshot?call_id=111"):
+    try:
+        with urllib.request.urlopen(base + path, timeout=8) as r:
+            return r.status, r.headers.get("Content-Type"), r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers.get("Content-Type"), e.read()
+
+
+def test_snapshot_returns_latest_jpeg_through_ffmpeg_and_logs_stages():
+    # Đường dự phòng cho luồng dài: mỗi lần hỏi trả MỘT ảnh JPEG mới nhất (chạy qua mọi proxy gom bộ đệm luồng MJPEG).
+    httpd, base = _serve()
+    tr, proc = FakeTransport(), FakeProc([JPEG1 + JPEG2[:6], JPEG2[6:]])             # ảnh thứ hai bị cắt đôi giữa hai lần đọc
+    saved = _patched(tr, proc)
+    S.VIDEO_SNAPSHOTS.clear()
+    try:
+        st, ct, body = _snap_get(base)
+        assert st == 200 and ct == "image/jpeg" and body == JPEG2, (st, ct, body)      # ghép đúng ảnh bị cắt đôi, trả ảnh MỚI NHẤT
+        assert proc.written and proc.written[0].startswith(b"\x00\x00\x00\x01")        # khung khoá được bơm vào ffmpeg
+        import time as _t
+        _t.sleep(0.3)
+        assert tr.removed == 1 and proc.killed is True and not S.VIDEO_SNAPSHOTS        # ffmpeg hết dữ liệu: dọn tap + tiến trình + bản ghi
+        end = [l for l in LOGS if "video-snap end call_id=111" in l]
+        assert any("video-snap start call_id=111" in l for l in LOGS) and end and "anh_ra=2" in end[0] and "khung_khoa=1" in end[0], LOGS
+    finally:
+        _restore(saved)
+        S.VIDEO_SNAPSHOTS.clear()
+        httpd.shutdown()
+
+
+def test_snapshot_204_when_no_picture_yet_and_errors_like_the_stream():
+    httpd, base = _serve()
+    S.VIDEO_SNAPSHOTS.clear()
+    try:
+        saved = _patched(FakeTransport(), FakeProc([]))                 # ffmpeg chưa ra ảnh nào
+        try:
+            assert _snap_get(base)[0] == 204
+        finally:
+            _restore(saved)
+        saved = _patched(None, FakeProc([]))
+        try:
+            assert _snap_get(base)[0] == 409                            # không có transport = chưa có hình
+        finally:
+            _restore(saved)
+        saved = _patched(FakeTransport(), FakeProc([]), which=None)
+        try:
+            assert _snap_get(base)[0] == 503                            # thiếu ffmpeg
+        finally:
+            _restore(saved)
+    finally:
+        S.VIDEO_SNAPSHOTS.clear()
+        httpd.shutdown()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
