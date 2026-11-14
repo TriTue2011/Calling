@@ -62,7 +62,12 @@ def _get(base, path):
         return e.code, e.headers.get("Content-Type"), e.read()
 
 
+LOGS = []
+
+
 def _patched(transport, proc, which="/usr/bin/ffmpeg"):
+    LOGS.clear()
+    S._log_call = LOGS.append
     saved = (S._transport_for_call, S.subprocess.Popen, S.shutil.which, S.STATE.require_login if hasattr(S.STATE, "require_login") else None)
     S._transport_for_call = lambda cid: transport
     S.subprocess.Popen = lambda *a, **k: proc
@@ -85,6 +90,9 @@ def test_streams_mjpeg_from_ffmpeg_and_cleans_up():
         assert tr.removed == 1 and proc.killed is True                     # dọn người xem + ffmpeg
         assert S.VIDEO_VIEW_COUNT[0] == 0
         assert proc.written and proc.written[0].startswith(b"\x00\x00\x00\x01")   # khung khoá đã được bơm vào ffmpeg
+        assert any("video-view start call_id=111" in l for l in LOGS), LOGS
+        end = [l for l in LOGS if "video-view end call_id=111" in l]
+        assert end and "khung_vao=1" in end[0] and "khung_khoa=1" in end[0] and "anh_ra=1" in end[0] and "byte_ra=21" in end[0], end   # nhật ký đo từng chặng
     finally:
         _restore(saved)
         httpd.shutdown()

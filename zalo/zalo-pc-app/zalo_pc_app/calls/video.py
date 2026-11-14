@@ -253,7 +253,11 @@ class VideoHandler:
         tap = transport.add_video_tap()
         proc = None
         try:
-            proc = subprocess.Popen(VIDEO_VIEW_FFMPEG, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+            proc = subprocess.Popen(VIDEO_VIEW_FFMPEG, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+            tail = ffmpeg_log_mod.StderrTail(proc)
+            # Đo từng chặng để biết hình đứng ở đâu: khung vào ffmpeg (có khung khoá không) -> ảnh JPEG ra -> byte tới trình duyệt.
+            stats = {"in": 0, "key_in": 0, "out_frames": 0, "out_bytes": 0, "t0": time.time()}
+            srv()._log_call("video-view start call_id=%s" % call_id)
             self.send_response(200)
             self.send_header("Content-Type", "multipart/x-mixed-replace;boundary=frame")
             self.send_header("Cache-Control", "no-store")
@@ -270,6 +274,8 @@ class VideoHandler:
                             annexb, _key = tap.get(timeout=1)
                         except queue.Empty:
                             continue
+                        stats["in"] += 1
+                        stats["key_in"] += 1 if _key else 0
                         proc.stdin.write(annexb)
                 except (OSError, ValueError):
                     pass
@@ -283,11 +289,16 @@ class VideoHandler:
                 chunk = proc.stdout.read(65536)
                 if not chunk:
                     break
+                stats["out_bytes"] += len(chunk)
+                stats["out_frames"] += chunk.count(b"--frame")
                 self.wfile.write(chunk)
                 self.wfile.flush()
         except OSError:
             pass                            # trình duyệt đóng thẻ: bình thường
         finally:
+            if proc is not None:
+                srv()._log_call("video-view end call_id=%s giay=%.1f khung_vao=%d khung_khoa=%d anh_ra=%d byte_ra=%d ffmpeg_err=%s" % (
+                    call_id, time.time() - stats["t0"], stats["in"], stats["key_in"], stats["out_frames"], stats["out_bytes"], tail.text() or "-"))
             transport.remove_video_tap(tap)
             ffmpeg_log_mod.kill_and_reap(proc)
             with VIDEO_VIEW_LOCK:
