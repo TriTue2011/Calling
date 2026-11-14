@@ -8215,6 +8215,26 @@ get_default_devices:
   description: Trả về cài đặt thiết bị mặc định hiện tại (đặt bằng set_default_devices).
   fields:
     entry_id: *id001
+login_qr:
+  name: Đăng nhập Zalo bằng mã QR
+  description: Bắt đầu đăng nhập Zalo bằng mã QR theo kiểu đã chọn. Mã hiện ở thực thể ảnh «Mã QR đăng nhập» của thiết bị Zalo Call; quét bằng ứng dụng Zalo trên điện thoại rồi xác nhận.
+  fields:
+    entry_id: *id001
+    type:
+      name: Kiểu đăng nhập
+      description: Web (Qua Web) hoặc PC (Zalo PC), mỗi kiểu có mã QR riêng. Bỏ trống thì giữ kiểu hiện tại của app.
+      selector:
+        select:
+          options:
+          - label: Web (Qua Web)
+            value: web
+          - label: PC (Zalo PC)
+            value: pc
+logout:
+  name: Đăng xuất Zalo
+  description: Đăng xuất Zalo (xóa phiên Zalo của app, quay về màn hình mã QR). Tài khoản và mật khẩu đăng nhập app vẫn giữ.
+  fields:
+    entry_id: *id001
 end_call:
   name: Kết thúc cuộc gọi
   description: Kết thúc (hoặc huỷ khi còn đổ chuông) cuộc gọi đang có.

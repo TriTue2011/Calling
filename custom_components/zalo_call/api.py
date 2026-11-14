@@ -250,5 +250,14 @@ class ZaloCallApi:
     async def set_webhooks(self, cfg: dict) -> dict:
         return await self._request("POST", "/api/webhooks", json=cfg)
 
-    async def qr_new(self) -> dict:
-        return await self._request("POST", "/api/qr/new", json={})
+    async def qr_new(self, client: str | None = None) -> dict:
+        """Bắt đầu đăng nhập bằng QR. client "web" | "pc" chọn kiểu đăng nhập; None = giữ kiểu hiện tại của app."""
+        return await self._request("POST", "/api/qr/new", json={"client": client} if client else {})
+
+    async def qr_status(self) -> dict:
+        """Trạng thái đăng nhập QR: state, qr_image (data URL PNG), countdown, client, uid, error…"""
+        return await self._request("GET", "/api/qr/status")
+
+    async def zalo_logout(self) -> dict:
+        """Đăng xuất ZALO (xóa phiên Zalo, về màn hình QR); GIỮ phiên của app (user/mật khẩu)."""
+        return await self._request("POST", "/api/zalo/logout", json={})

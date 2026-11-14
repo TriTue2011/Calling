@@ -1396,6 +1396,8 @@ Toàn bộ **363 dịch vụ** (tin nhắn, bạn bè, nhóm, hồ sơ, nhắc h
 | **Khác** | | |
 | [Chuyển giọng nói thành văn bản (Zalo AI)](docs/DICH-VU.md#voice_to_text) | `zalo_call.voice_to_text` | Gửi một tin nhắn thoại (URL tệp .aac/.mp3/.m4a trên máy chủ Zalo) cho Zalo AI và trả về văn bản. Chỉ dùng cho... |
 | [Gắn thẻ và ghi chú cho người](docs/DICH-VU.md#set_contact_tags) | `zalo_call.set_contact_tags` | Gắn thẻ (ví dụ «gia đình») và ghi chú cho một người hoặc nhóm. Đặt quy tắc cho một thẻ (dịch vụ «Đặt quy... |
+| [Đăng nhập Zalo bằng mã QR](docs/DICH-VU.md#login_qr) | `zalo_call.login_qr` | Bắt đầu đăng nhập Zalo bằng mã QR theo kiểu đã chọn. Mã hiện ở thực thể ảnh «Mã QR đăng nhập» của thiết bị... |
+| [Đăng xuất Zalo](docs/DICH-VU.md#logout) | `zalo_call.logout` | Đăng xuất Zalo (xóa phiên Zalo của app, quay về màn hình mã QR). Tài khoản và mật khẩu đăng nhập app vẫn giữ. |
 
 <!-- DICH-VU:CHI-MUC:END -->
 

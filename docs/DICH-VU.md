@@ -4,7 +4,7 @@
 
 Mọi dịch vụ gọi bằng `action: zalo_call.<tên>` (Công cụ nhà phát triển → Hành động, hoặc trong automation). Ô `entry_id` có ở mọi dịch vụ (chọn tài khoản Zalo) và **chỉ cần khi bạn có nhiều tài khoản**, nên các ví dụ bỏ qua. Dịch vụ đánh dấu ⚠️ xoá hoặc đổi dữ liệu thật.
 
-Có **365 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi, AI, cảnh báo và quy tắc: xem [README](../README.md).  
+Có **367 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi, AI, cảnh báo và quy tắc: xem [README](../README.md).  
 
 ## Mục lục
 
@@ -30,7 +30,7 @@ Có **365 dịch vụ**. Hướng dẫn các trường hợp dùng cuộc gọi,
 - **Sticker (nâng cao)** (21): [`get_a_i_sticker_list`](#get_a_i_sticker_list), [`get_default_guggy_gifs`](#get_default_guggy_gifs), [`get_gif_categories`](#get_gif_categories), [`get_gif_dictionaries`](#get_gif_dictionaries), [`get_gifs_by_category`](#get_gifs_by_category), [`get_gifs_by_dictionary`](#get_gifs_by_dictionary), [`get_message_effect_by_id`](#get_message_effect_by_id), [`get_message_effects`](#get_message_effects), [`get_personalized_sticker_list`](#get_personalized_sticker_list), [`get_recommended_stickers`](#get_recommended_stickers), [`get_sticker_categories_v2`](#get_sticker_categories_v2), [`get_sticker_category_detail`](#get_sticker_category_detail), [`get_sticker_hello`](#get_sticker_hello), [`get_sticker_suggest_keywords`](#get_sticker_suggest_keywords), [`get_sticker_suggestion`](#get_sticker_suggestion), [`get_tenor_sticker_mapping`](#get_tenor_sticker_mapping), [`get_trending_gifs`](#get_trending_gifs), [`search_gifs`](#search_gifs), [`search_guggy_gifs`](#search_guggy_gifs), [`search_sticker`](#search_sticker), [`update_personalized_sticker_list`](#update_personalized_sticker_list)
 - **Ghi chú, bình chọn, việc cần làm** (21): [`ack_ding_todo`](#ack_ding_todo), [`add_poll_options`](#add_poll_options), [`create_note`](#create_note), [`create_todo`](#create_todo), [`delete_todo`](#delete_todo), [`ding_todo`](#ding_todo), [`edit_note`](#edit_note), [`get_list_pin_topics`](#get_list_pin_topics), [`get_todo_detail`](#get_todo_detail), [`get_todo_list`](#get_todo_list), [`multi_unpin_board_topics`](#multi_unpin_board_topics), [`pin_board_topic`](#pin_board_topic), [`pin_friend_message`](#pin_friend_message), [`reorder_friend_board`](#reorder_friend_board), [`reorder_pin_topics`](#reorder_pin_topics), [`share_poll`](#share_poll), [`unpin_board_topic`](#unpin_board_topic), [`unpin_friend_messages`](#unpin_friend_messages), [`update_todo`](#update_todo), [`update_todo_status`](#update_todo_status), [`verify_todo`](#verify_todo)
 - **Zalo Business (OA)** (30): [`add_conversation_label`](#add_conversation_label), [`block_o_a`](#block_o_a), [`convert_o_a_ids`](#convert_o_a_ids), [`create_auto_reply`](#create_auto_reply), [`create_bank_account`](#create_bank_account), [`create_catalog`](#create_catalog), [`create_product_catalog`](#create_product_catalog), [`delete_auto_reply`](#delete_auto_reply), [`delete_bank_account`](#delete_bank_account), [`delete_catalog`](#delete_catalog), [`delete_conversation_label`](#delete_conversation_label), [`delete_product_catalog`](#delete_product_catalog), [`delete_single_product`](#delete_single_product), [`get_auto_reply_list`](#get_auto_reply_list), [`get_biz_account`](#get_biz_account), [`get_catalog_list`](#get_catalog_list), [`get_list_bank`](#get_list_bank), [`get_list_bank_account`](#get_list_bank_account), [`get_o_a_profile`](#get_o_a_profile), [`get_product_catalog_list`](#get_product_catalog_list), [`get_product_detail`](#get_product_detail), [`register_catalog`](#register_catalog), [`reorder_conversation_labels`](#reorder_conversation_labels), [`unblock_o_a`](#unblock_o_a), [`update_auto_reply`](#update_auto_reply), [`update_bank_account`](#update_bank_account), [`update_catalog`](#update_catalog), [`update_conversation_label_item`](#update_conversation_label_item), [`update_product_catalog`](#update_product_catalog), [`upload_product_photo`](#upload_product_photo)
-- **Khác** (2): [`voice_to_text`](#voice_to_text), [`set_contact_tags`](#set_contact_tags)
+- **Khác** (4): [`voice_to_text`](#voice_to_text), [`set_contact_tags`](#set_contact_tags), [`login_qr`](#login_qr), [`logout`](#logout)
 
 ## Cuộc gọi, AI và cảnh báo
 
@@ -8396,5 +8396,43 @@ data:
 | `thread_id` | ThreadID (gõ tay) | có | ID Zalo của người hoặc nhóm. Lấy danh sách bằng dịch vụ list_contacts. |
 | `tags` | Thẻ | không | Các thẻ cách nhau bằng dấu phẩy, ví dụ gia đình, người lớn tuổi. Tối đa 10 thẻ, không phân biệt hoa thường. |
 | `note` | Ghi chú | không | Ghi chú ngắn về người này (tối đa 500 ký tự). |
+
+---
+
+<a id="login_qr"></a>
+#### Đăng nhập Zalo bằng mã QR — `zalo_call.login_qr`
+
+Bắt đầu đăng nhập Zalo bằng mã QR theo kiểu đã chọn. Mã hiện ở thực thể ảnh «Mã QR đăng nhập» của thiết bị Zalo Call; quét bằng ứng dụng Zalo trên điện thoại rồi xác nhận.
+
+**Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
+
+```yaml
+action: zalo_call.login_qr
+data:
+  type: "web"  # tuỳ chọn - Kiểu đăng nhập
+```
+
+| Ô | Tên hiển thị | Bắt buộc | Ý nghĩa |
+|---|---|---|---|
+| `type` | Kiểu đăng nhập | không | Web (Qua Web) hoặc PC (Zalo PC), mỗi kiểu có mã QR riêng. Bỏ trống thì giữ kiểu hiện tại của app. |
+
+**Các lựa chọn:**
+
+- **Kiểu đăng nhập** (`type`)
+  - `web`: Web (Qua Web)
+  - `pc`: PC (Zalo PC)
+
+---
+
+<a id="logout"></a>
+#### Đăng xuất Zalo — `zalo_call.logout`
+
+Đăng xuất Zalo (xóa phiên Zalo của app, quay về màn hình mã QR). Tài khoản và mật khẩu đăng nhập app vẫn giữ.
+
+**Mã dịch vụ** (đủ mọi ô; ô «tuỳ chọn» bỏ đi được):
+
+```yaml
+action: zalo_call.logout
+```
 
 ---

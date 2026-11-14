@@ -32,6 +32,7 @@ from .video_urls import local_to_public, sibling_thumb_candidates
 from .album import album_plan, is_album_photo
 from .call_voice import async_tts_audio
 from .compat import rename_aliases, unknown_keys
+from . import qr_login
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -692,6 +693,37 @@ async def async_register_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(str(err)) from err
         return {"result": res}
 
+    async def _refresh_qr_entity(rt_entry_id: str | None) -> None:
+        ents = hass.data.get(DOMAIN + "_qr_entities", {})
+        for eid, ent in ents.items():
+            if rt_entry_id is None or rt_entry_id == eid:
+                await ent.async_refresh_now()
+
+    async def login_qr(call: ServiceCall) -> dict:
+        """Đăng nhập Zalo bằng mã QR theo kiểu `type` (web | pc; bỏ trống = giữ kiểu hiện tại). Mã hiện ở thực thể ảnh «Mã QR đăng nhập»."""
+        rt, api = _api(hass, call)
+        try:
+            client = qr_login.normalize_client(call.data.get("type"))
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        try:
+            await api.qr_new(client)
+            await _refresh_qr_entity(call.data.get("entry_id"))
+            status = await api.qr_status()
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"ok": True, **qr_login.attributes(status)}
+
+    async def logout_zalo(call: ServiceCall) -> dict:
+        """Đăng xuất Zalo (xóa phiên Zalo của app, về màn hình QR); không đụng tài khoản/mật khẩu đăng nhập app."""
+        _, api = _api(hass, call)
+        try:
+            await api.zalo_logout()
+            await _refresh_qr_entity(call.data.get("entry_id"))
+        except ZaloCallError as err:
+            raise HomeAssistantError(str(err)) from err
+        return {"ok": True}
+
     async def _camera_url(rt, call: ServiceCall) -> str:
         """URL camera cua service: camera_url thang camera (thuc the) thang mac dinh."""
         if call.data.get("camera_url"):
@@ -925,6 +957,14 @@ async def async_register_services(hass: HomeAssistant) -> None:
                            vol.Optional("wait", default=25):
                                vol.All(vol.Coerce(float), vol.Range(min=0, max=60))}),
         supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(
+        DOMAIN, "login_qr", login_qr,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("type"): vol.In(list(qr_login.CLIENTS))}),
+        supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "logout", logout_zalo,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, "end_call", end_call,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string,

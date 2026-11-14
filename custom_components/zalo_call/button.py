@@ -23,7 +23,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
          CallButton(entry, rt, "stop_mic", "Tắt mic cuộc gọi",
                     "mdi:microphone-off"),
          CallButton(entry, rt, "take_over", "Người nhà nói trực tiếp (dừng AI)",
-                    "mdi:phone-in-talk")])
+                    "mdi:phone-in-talk"),
+         CallButton(entry, rt, "login_web", "Đăng nhập bằng QR (Web)", "mdi:qrcode-scan"),
+         CallButton(entry, rt, "login_pc", "Đăng nhập bằng QR (PC)", "mdi:qrcode-scan"),
+         CallButton(entry, rt, "logout", "Đăng xuất Zalo", "mdi:logout")])
 
 
 class CallButton(ZaloCallEntity, ButtonEntity):
@@ -45,9 +48,22 @@ class CallButton(ZaloCallEntity, ButtonEntity):
                 await api.upgrade_video(body)
             elif self._key == "take_over":
                 await async_take_over(self._rt)
+            elif self._key in ("login_web", "login_pc"):
+                await api.qr_new(self._key.split("_", 1)[1])        # kiểu đăng nhập theo nút: web / pc
+                await _refresh_qr(self.hass)
+            elif self._key == "logout":
+                await api.zalo_logout()
+                await _refresh_qr(self.hass)
             elif self._key == "stop_video":
                 await api.media_control({"action": "stop", "target": "video"})
             else:
                 await api.media_control({"action": "stop", "target": "mic"})
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
+
+
+async def _refresh_qr(hass: HomeAssistant) -> None:
+    """Cập nhật ngay thực thể ảnh QR (nếu có) sau khi bắt đầu đăng nhập/đăng xuất."""
+    ent = next((e for e in hass.data.get(DOMAIN + "_qr_entities", {}).values()), None)
+    if ent is not None:
+        await ent.async_refresh_now()
