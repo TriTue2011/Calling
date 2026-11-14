@@ -1,5 +1,7 @@
 """Luồng cuộc gọi ĐẾN (offer từ điện thoại → đổ chuông → nghe máy / từ chối khi bận → kết thúc). Tách từ server.py 14/11/2026."""
 import json
+import time
+import os
 import threading
 from .. import ctrl_poll as ctrl_poll_mod
 from .. import media_endpoints
@@ -86,6 +88,32 @@ def _answer_incoming(sess, body, source="api"):
     return incoming_call.answer_incoming(srv(), sess, body, source)
 
 
+def event_age_seconds(event, now=None):
+    """Tuổi (giây) của sự kiện cuộc gọi theo `ts` Zalo ghi trong gói (mili giây, ở data.ts hoặc data.params.ts); None nếu không có/không đọc được."""
+    try:
+        d = event.get("data")
+        d = json.loads(d) if isinstance(d, str) else (d or {})
+        pr = d.get("params")
+        pr = json.loads(pr) if isinstance(pr, str) else (pr or {})
+        for ts in (d.get("ts"), pr.get("ts"), event.get("ts")):
+            if ts in (None, ""):
+                continue
+            v = float(ts)
+            if v > 1e11:                      # mili giây
+                v /= 1000.0
+            if v > 1e9:                       # loại giá trị vô nghĩa (ví dụ ts=1 trong test)
+                return (time.time() if now is None else now) - v
+    except (TypeError, ValueError, AttributeError):
+        pass
+    return None
+
+
+# Zalo PHÁT LẠI các sự kiện cuộc gọi chưa được báo nhận (params.needACK=1; app chưa báo nhận) mỗi lần app khởi động lại: 14/11/2026 08:38 sau khi dựng lại,
+# 3 cuộc gọi cũ (08:25–08:28) hiện ra như cuộc gọi đến MỚI, tự nghe máy / báo ra loa / gọi webhook — «tự phát sinh cuộc gọi trong khi không gọi».
+# Sự kiện «request» cũ hơn ngưỡng này (giây) bị bỏ qua. ZALO_PC_INCOMING_MAX_AGE, 0 = tắt.
+INCOMING_MAX_AGE_SECONDS = float(os.environ.get("ZALO_PC_INCOMING_MAX_AGE", "120") or 0)
+
+
 class IncomingCalls:
     """Phương thức của AppState thuộc trục này (gộp vào AppState bằng kế thừa)."""
 
@@ -98,6 +126,10 @@ class IncomingCalls:
         call_id = int(event["call_id"])
         caller_id = str(event.get("caller_id") or "")
         peer = event.get("caller_name") or caller_id
+        _age = event_age_seconds(event)
+        if INCOMING_MAX_AGE_SECONDS > 0 and _age is not None and _age > INCOMING_MAX_AGE_SECONDS:
+            srv()._log_call("incoming call_id=%s bo qua (su kien cu %.0fs, Zalo phat lai sau khoi dong; nguong %.0fs)" % (call_id, _age, INCOMING_MAX_AGE_SECONDS))
+            return
         snap = srv().STATE.calls.snapshot()
         # Moi call_id chi xu ly MOT lan: Zalo co the gui lai `request`; neu khong, cuoc dang noi bi dat lai thanh "dang chuong"
         # (va tu nghe may se chay lan nua).

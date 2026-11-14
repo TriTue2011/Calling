@@ -77,6 +77,9 @@ import re
 import http.client
 import socket
 import sys
+
+if __name__ == "__main__":                      # chạy bằng `python -m zalo_pc_app.server`: cho `import zalo_pc_app.server` trỏ về CHÍNH mô-đun này (không nạp bản sao thứ hai: STATE/bộ đếm call_id riêng)
+    sys.modules.setdefault("zalo_pc_app.server", sys.modules["__main__"])
 import queue
 import shutil
 import subprocess
