@@ -23,7 +23,7 @@ import subprocess
 import threading
 import time
 
-from . import audio_gain, call_audio, ffmpeg_log
+from . import audio_dump, audio_gain, call_audio, ffmpeg_log
 
 RMS_THRESHOLD = 180.0       # duoi muc nay coi la im lang (nen cua luong Opus/DTX)
 HOLD_SECONDS = 0.25         # het tieng that van chan mic them chung nay (duoi vong phong). 0,5 -> 0,25 (13/11): chu may bao mic loa chuyen qua lai bi tre
@@ -117,6 +117,7 @@ class AudioSink:
         self._thread.start()
 
     def _write(self, frame):
+        audio_dump.far(frame)               # chẩn đoán vọng (mặc định tắt; ZALO_PC_AUDIO_DUMP_SECONDS)
         if self._guard is not None:
             self._guard.note_far(frame)
         silent = frame == call_audio.SILENCE

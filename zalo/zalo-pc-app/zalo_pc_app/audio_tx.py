@@ -21,7 +21,7 @@ import subprocess
 import threading
 import time
 
-from . import audio_gain, ffmpeg_log
+from . import audio_dump, audio_gain, ffmpeg_log
 
 FRAME_BYTES = 640           # 20 ms PCM16 mono 16 kHz
 FRAME_SECONDS = 0.02
@@ -164,6 +164,7 @@ class AudioSender:
                     _voiced = True
             except struct.error:
                 pass
+            audio_dump.near(frame)                  # chẩn đoán vọng (mặc định tắt): tiếng mic nhận về, trước khi chặn/chỉnh âm lượng
             gated = self._gate is not None and self._gate()
             if gated:
                 self.gated += 1                  # loa dang phat: KHONG gui tieng mic, nhung van gui khung im lang de luong RTP lien tuc
