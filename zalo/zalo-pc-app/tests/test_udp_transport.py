@@ -1565,6 +1565,46 @@ def test_hold_media_blocks_all_audio_until_released():
         tr.stop()
 
 
+def test_build_end_call_layout_from_zrtp_packet_request_end_call():
+    """Gói EndCall 25B (libzrtc `initZRTPPacketRequestEndCall`): [0..1]=01 01, [10..13]=ssrc LE, [14..17]=relay session, [18..19]=3 LE,
+    [20]=endMeeting 0, [21..24]=call session — các trường còn lại 0."""
+    pkt = ut.build_end_call(0x11223344, bytes.fromhex("a1b2c3d4"), bytes.fromhex("01020304"))
+    assert len(pkt) == 25 and pkt[:2] == b"\x01\x01" and pkt[2:10] == b"\x00" * 8
+    assert pkt[10:14] == bytes.fromhex("44332211") and pkt[14:18] == bytes.fromhex("a1b2c3d4")
+    assert struct.unpack_from("<H", pkt, 18)[0] == 3 and pkt[20] == 0 and pkt[21:25] == bytes.fromhex("01020304")
+    bye = ut.build_rtcp_bye_compound(0x11223344, 5, 6, 7, relay_session=bytes.fromhex("a1b2c3d4"))
+    assert bye[0] == 0x05 and bye[1:5] == bytes.fromhex("a1b2c3d4") and bye[-8:] == bytes.fromhex("81cb000111223344")
+
+
+def test_stop_says_goodbye_to_relay_once_like_real_client():
+    """Dừng transport: RTCP BYE tới relay đã chọn + EndCall (2 bản) tới mỗi relay có relay session; gọi stop() lần nữa không gửi thêm."""
+    tr, received, close = _connected(_Fabric(), keepalive_media_interval=3600.0)
+    try:
+        cfg = tr.config
+        tr.stop()
+        time.sleep(0.4)
+        ends = [d for d in list(received) if len(d) == 25 and d[0] == 1 and struct.unpack_from("<H", d, 18)[0] == 3]
+        assert len(ends) == 2 and ends[0] == ut.build_end_call(cfg.local_ssrc, RELAY_SESSION, cfg.call_session), ends
+        byes = [d for d in list(received) if d[:1] == b"\x05" and d[-8:-4] == b"\x81\xcb\x00\x01"]
+        assert len(byes) == 1 and byes[0][1:5] == RELAY_SESSION, byes
+        assert tr.counters["end_call_tx"] == 2 and tr.counters["rtcp_bye_tx"] == 1, tr.counters
+        tr.stop()
+        time.sleep(0.2)
+        assert tr.counters["end_call_tx"] == 2 and tr.counters["rtcp_bye_tx"] == 1
+    finally:
+        close()
+
+
+def test_stop_without_relay_session_sends_no_goodbye_and_never_raises():
+    fabric = _Fabric()
+    tr = ut.Udp4200Transport(make_config([ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4200)]), socket_factory=fabric.new_socket)
+    tr.stop()                                   # chưa start
+    tr2 = ut.Udp4200Transport(make_config([ut.RelayServer("127.0.0.1", 4200, "127.0.0.1", 4200)]), socket_factory=fabric.new_socket)
+    tr2.start()
+    tr2.stop()                                  # đã start nhưng relay chưa trả type-02
+    assert tr2.counters["end_call_tx"] == 0 and tr2.counters["rtcp_bye_tx"] == 0, tr2.counters
+
+
 def main():
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_")]

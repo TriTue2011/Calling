@@ -84,6 +84,8 @@ __all__ = [
     "parse_probe",
     "build_setup_init",
     "build_setup_refresh",
+    "build_end_call",
+    "build_rtcp_bye_compound",
     "parse_type02",
     "build_type02_keepalive",
     "parse_type02_keepalive",
@@ -699,6 +701,31 @@ def build_setup_refresh(local_ssrc, relay_session, token):
     pkt[22] = 0x00
     pkt[23:177] = token_ascii
     return bytes(pkt)
+
+
+def build_end_call(local_ssrc, relay_session, call_session):
+    """Yeu cau relay KET THUC cuoc goi — 25 byte (14/11/2026, tu `ZRTPPacket::initZRTPPacketRequestEndCall` + `_buildPacketInternal`
+    trong libzrtc cua APK 26.10.02 va Zalo PC; `ZRTPConnector::EndCall` gui cho MOI relay da co relay session).
+
+    [0]=0x01 [1]=0x01 [2..9]=00 [10..13]=local SSRC LE [14..17]=relay session (cua relay do, tu type-02)
+    [18..19]=03 00 (lenh EndCall) [20]=00 (endMeeting: 0 voi cuoc 1-1) [21..24]=call session 4B (cung 4 byte trong setup init).
+    Truoc day app chi dong socket: relay giu phien den khi het gio."""
+    relay_session = _session_to_bytes(relay_session, "relay_session")
+    call_session = _session_to_bytes(call_session, "call_session")
+    pkt = bytearray(25)
+    pkt[0] = 0x01
+    pkt[1] = 0x01
+    struct.pack_into("<I", pkt, 10, local_ssrc & 0xFFFFFFFF)
+    pkt[14:18] = relay_session
+    struct.pack_into("<H", pkt, 18, 3)
+    pkt[21:25] = call_session
+    return bytes(pkt)
+
+
+def build_rtcp_bye_compound(local_ssrc, rtp_ts, pkt_count, octet_count, relay_session=b"\x00\x00\x00\x00"):
+    """RTCP BYE (PT 203) ghep sau SR+SDES nhu RTCPSender cua libwebrtc («Failed to send RTCP BYE» trong libzrtc), boc type-05."""
+    bye = struct.pack(">BBHI", 0x81, 203, 1, local_ssrc & 0xFFFFFFFF)
+    return build_rtcp_compound(local_ssrc, rtp_ts, pkt_count, octet_count, relay_session=relay_session) + bye
 
 
 def parse_type02(data):
@@ -1649,6 +1676,7 @@ class Udp4200Transport:
         self._last_error = None
         self._jitter = JitterBuffer(config.jitter_buffer_size)
         self._relay_info = {}  # relay addr -> {arrived_at, session, ...}
+        self._goodbye_sent = False
         self._last_setup_refresh = 0.0
         self._last_ping = 0.0
         # Engine-relative clock for the probe tail (the tail is a
@@ -1682,7 +1710,7 @@ class Udp4200Transport:
         self._peer_log_at = 0.0
         self._peer_sr_blocks = None     # RC cua SR cuoi tu ben kia
         self.counters = {
-            "probe_tx": 0, "setup_init_tx": 0, "setup_refresh_tx": 0,
+            "probe_tx": 0, "setup_init_tx": 0, "setup_refresh_tx": 0, "end_call_tx": 0, "rtcp_bye_tx": 0,
             "ping_tx": 0, "rtcp_tx": 0, "rtcp_rx": 0, "hello_tx": 0, "ack_tx": 0,
             "confirm_tx": 0, "type02_rx": 0, "keepalive_rx": 0,
             "ping_reply_rx": 0, "rtp_tx": 0, "rtp_rx": 0,
@@ -1742,6 +1770,7 @@ class Udp4200Transport:
     def stop(self):
         """Stop loops, close the socket. Idempotent."""
         self._stop.set()
+        self._send_goodbye()
         sock, self._sock = self._sock, None
         if sock is not None:
             try:
@@ -1753,6 +1782,29 @@ class Udp4200Transport:
                 t.join(timeout=2.0)
         self.state = "stopped"
         return self
+
+    def _send_goodbye(self):
+        """Ket thuc cuoc dung cach client that (APK/PC): RTCP BYE toi relay da chon, roi yeu cau EndCall toi MOI relay da tra type-02
+        (moi cai 2 ban, UDP co the roi). Chi khi da co relay; loi bat ky bo qua — dong cuoc khong duoc hong vi no."""
+        if self._sock is None or self.state in ("idle", "stopped") or self._goodbye_sent:
+            return
+        self._goodbye_sent = True
+        try:
+            if self.selected_relay is not None and self.relay_session:
+                pkt = build_rtcp_bye_compound(self.config.local_ssrc, self._timestamp, self._tx_pkts, self._tx_octets,
+                                              relay_session=self.relay_session)
+                if self._send_to(pkt, self.selected_relay.rtcp_addr()):
+                    self.counters["rtcp_bye_tx"] += 1
+            for addr, info in list(self._relay_info.items()):
+                session = info.get("relay_session")
+                if not session:
+                    continue
+                pkt = build_end_call(self.config.local_ssrc, session, self.config.call_session)
+                for _ in range(2):
+                    if self._send_to(pkt, addr):
+                        self.counters["end_call_tx"] += 1
+        except Exception:  # noqa: BLE001
+            pass
 
     def set_pcm_callback(self, fn):
         """fn(pcm_bytes) is called for each in-order decoded frame."""
