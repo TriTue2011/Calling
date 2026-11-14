@@ -102,7 +102,9 @@ class MediaControl:
                                             "error": "chua_nghe_may"})
                 srv()._send_a2v_async(call_id, srv()._thread_of_call(call_id), 1)
                 src = str(body.get("camera_url") or body.get("source")
-                          or cfg["camera_url"] or "test")
+                          or cfg["camera_url"] or "")
+                if not src:
+                    raise ValueError("chua_co_camera")      # trước đây tự gửi «hình thử» (vạch màu) sang điện thoại; nay phải có camera thật (automation chọn) hoặc source="test" tường minh
                 srv()._start_video(call_id, src)
             else:
                 if target in ("mic", "both"):
@@ -125,11 +127,13 @@ class MediaControl:
                 if target in ("video", "both"):
                     src = str(body.get("camera_url") or body.get("source")
                               or cfg["camera_url"] or "")
-                    if src or target == "video":
+                    if target == "video" and not src:
+                        raise ValueError("chua_co_camera")
+                    if src:
                         params = {k: body[k] for k in
                                   ("width", "height", "fps", "bitrate_kbps")
                                   if k in body}
-                        srv()._start_video(call_id, src or "test", params)
+                        srv()._start_video(call_id, src, params)
         except (ValueError, RuntimeError) as exc:
             return self._send_json({"ok": False, "error": str(exc)[:120]})
         return self._send_json({"ok": True, "call_id": call_id,

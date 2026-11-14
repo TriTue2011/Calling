@@ -323,6 +323,11 @@ class CallAudioBridge:
             self.policy.pushed(False)
 
     # -- loa -----------------------------------------------------------------
+    def has_devices(self, call_id: Any) -> bool:
+        """HA đã tự nối thiết bị nhà cho cuộc gọi này chưa (dịch vụ make_call/answer_call với thiết bị, hoặc quy tắc nghe máy)."""
+        run = self._running.get(str(call_id))
+        return bool(run is not None and any(run.devices.values()))
+
     async def start(self, call_id: Any) -> dict[str, str]:
         key = str(call_id)
         if key in self._running:

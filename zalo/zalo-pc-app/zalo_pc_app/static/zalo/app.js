@@ -853,6 +853,9 @@ async function changeGain(target, step) {
     S.cm.gain = Object.assign({}, S.cm.gain, r.gain || {}); renderCallCard();
   } catch (e) { toast("Lỗi mạng khi chỉnh âm lượng", 4000); }
 }
+// Lỗi thiếu thiết bị của cuộc gọi: nói bằng lời thường (thiết bị do quy tắc/automation chọn, không còn mặc định).
+const MEDIA_ERR = { chua_co_camera: "chưa có camera — quy tắc (automation) của người này chưa chọn camera", chua_co_speaker_url: "chưa có loa — quy tắc (automation) của người này chưa chọn loa", no_live_transport: "cuộc gọi chưa sẵn sàng", no_live_call: "không có cuộc gọi đang diễn ra" };
+const mediaErr = (e) => MEDIA_ERR[e] || e || "lỗi";
 async function toggleMedia(target) {
   const a = S.calls.active; if (!a || S.cm.busy) return;
   const turnOn = !S.cm[target === "video" ? "video" : target];
@@ -861,7 +864,7 @@ async function toggleMedia(target) {
     // Cuộc gọi THOẠI mà bật camera = xin chuyển sang VIDEO (12056 tới điện thoại + phát hình nhà), không chỉ phát hình vào cuộc gọi thoại.
     const upgrade = target === "video" && turnOn && a.type !== "video";
     const r = await api(upgrade ? "/api/call/upgrade_video" : target === "video" ? "/api/call/video" : "/api/call/media", "POST", upgrade ? { call_id: a.call_id } : { call_id: a.call_id, action: turnOn ? "start" : "stop", target });
-    if (r.error || r.ok === false) toast((turnOn ? "Không bật được " : "Không tắt được ") + ({ mic: "mic", speaker: "loa", video: "camera" })[target] + ": " + (r.error || "lỗi"), 5000);
+    if (r.error || r.ok === false) toast((turnOn ? "Không bật được " : "Không tắt được ") + ({ mic: "mic", speaker: "loa", video: "camera" })[target] + ": " + mediaErr(r.error), 6000);
     S.cm.busy = ""; applyCm(a.call_id, r.error ? {} : r);
     if (r.error || r.ok === false) refreshCallMedia();
   } catch (e) { S.cm.busy = ""; toast("Lỗi mạng khi điều khiển cuộc gọi", 4000); renderCallCard(); }
@@ -879,17 +882,32 @@ function videoView(a, mc) {
     const wait = h("div", { class: "vv-wait" }, "Đang chờ hình từ điện thoại…");
     const el = h("img", { class: "vview", alt: "Hình từ điện thoại", src: streamUrl() });
     const box = h("div", { class: "vvbox" }, el, wait);
-    const vv = { id: String(a.call_id), el: box, mode: "stream", errors: 0, timer: null };
+    const vv = { id: String(a.call_id), el: box, mode: "stream", errors: 0, timer: null, ratio: 0 };
     const current = () => S.vv === vv;
+    // Khung theo ĐÚNG chiều của hình: điện thoại quay dọc (khung đứng), máy tính nằm ngang. Hình dọc: khung đứng cao tối đa 50% màn hình, căn giữa; hình ngang: rộng hết thẻ.
+    // Kiểm lại mỗi giây vì luồng liên tục không báo khi người kia xoay điện thoại.
+    const fit = () => {
+      const w = el.naturalWidth, h = el.naturalHeight;
+      if (!w || !h || !current()) return;
+      const r = Math.max(0.5, Math.min(2, w / h));
+      if (Math.abs(vv.ratio - r) < 0.01) return;
+      vv.ratio = r; box.dataset.ratio = r.toFixed(4);
+      box.style.aspectRatio = r.toFixed(4);
+      box.style.width = r >= 1 ? "100%" : "min(100%, calc(50vh * " + r.toFixed(4) + "))";
+      box.style.marginInline = "auto";
+    };
+    vv.fit = fit; vv.fitTimer = setInterval(() => { if (!current()) return clearInterval(vv.fitTimer); fit(); }, 1000);
+    box.title = "Bấm để chuyển giữa «vừa khung» và «phủ đầy khung»";
+    box.addEventListener("click", () => box.classList.toggle("fill"));
     const snapLoop = () => {
       if (!current() || vv.mode !== "snap") return;
       const img = new Image();
-      img.onload = () => { if (!current()) return; el.src = img.src; box.classList.add("on"); vv.timer = setTimeout(snapLoop, 250); };
+      img.onload = () => { if (!current()) return; el.src = img.src; box.classList.add("on"); fit(); vv.timer = setTimeout(snapLoop, 250); };
       img.onerror = () => { if (!current()) return; vv.timer = setTimeout(snapLoop, 700); };      // 204 = chưa có ảnh: thử lại
       img.src = snapUrl();
     };
     vv.fallback = () => { if (vv.mode === "snap" || !current()) return; vv.mode = "snap"; clearTimeout(vv.timer); box.dataset.mode = "snap"; snapLoop(); };
-    el.addEventListener("load", () => { if (vv.mode === "stream") { clearTimeout(vv.timer); box.classList.add("on"); } });
+    el.addEventListener("load", () => { fit(); if (vv.mode === "stream") { clearTimeout(vv.timer); box.classList.add("on"); } });
     el.addEventListener("error", () => {
       if (vv.mode !== "stream") return;
       box.classList.remove("on"); vv.errors++;

@@ -39,6 +39,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // 4) đổi sang cuộc gọi khác: bộ hỏi ảnh của cuộc cũ dừng
   S.vv = null; await sleep(60); const n = snapReq.length; await sleep(200);
   ok.push(["hết cuộc gọi (S.vv = null): ngừng hỏi ảnh", snapReq.length === n, n + " -> " + snapReq.length]);
+  // 5) khung theo chiều của hình: điện thoại dọc, máy tính ngang; xoay giữa chừng cũng đổi; bấm để phủ đầy
+  const dims = (el, w, h) => { Object.defineProperty(el, "naturalWidth", { value: w, configurable: true }); Object.defineProperty(el, "naturalHeight", { value: h, configurable: true }); };
+  S.vv = null; box = T.videoView({ call_id: 11, type: "video" }, {}); img = box.querySelector("img.vview"); const ref = S.vv;      // vòng làm mới của app có thể đặt S.vv = null khi không có cuộc gọi: giữ tham chiếu
+  dims(img, 720, 1280); img.dispatchEvent(new w.Event("load"));
+  ok.push(["hình dọc 720x1280: khung đứng (tỉ lệ 0,5625)", box.dataset.ratio === "0.5625", box.dataset.ratio]);
+  dims(img, 1280, 720); S.vv = ref; ref.fit();          // vòng kiểm mỗi giây gọi đúng hàm này (trong test, vòng làm mới không có cuộc gọi xóa S.vv nên gọi trực tiếp)
+  ok.push(["người kia xoay ngang giữa cuộc gọi: khung đổi theo (1,7778) và có vòng kiểm mỗi giây", box.dataset.ratio === "1.7778" && !!ref.fitTimer, box.dataset.ratio]);
+  S.vv = ref; dims(img, 4000, 500); img.dispatchEvent(new w.Event("load"));
+  ok.push(["hình quá dẹt bị kẹp ở tỉ lệ 2", box.dataset.ratio === "2.0000", box.dataset.ratio]);
+  S.vv = ref; dims(img, 0, 0); ref.ratio = 0; box.dataset.ratio = ""; img.dispatchEvent(new w.Event("load"));
+  ok.push(["chưa biết kích thước ảnh: không đổi khung", box.dataset.ratio === ""]);
+  ok.push(["bấm vào khung: chuyển sang phủ đầy khung rồi bấm lại: về vừa khung", (box.click(), box.classList.contains("fill")) && (box.click(), !box.classList.contains("fill"))]);
+  S.vv = null;
   let bad = 0; for (const [nm, v, x] of ok) { console.log(v ? "ĐẠT " : "HỎNG", nm, v ? "" : "(" + (x || "") + ")"); if (!v) bad++; }
   console.log("lỗi trình duyệt:", errors); process.exit(bad || errors.length ? 1 : 0);
 })();

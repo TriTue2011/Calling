@@ -719,6 +719,35 @@ def _devices_override(rule: dict[str, Any]) -> dict[str, Any]:
     return explicit_devices(connect) if connect else dict(HELD_DEVICES)
 
 
+def outgoing_devices(rule: dict[str, Any]) -> dict[str, Any]:
+    """Thiết bị nhà nối cho cuộc gọi ĐI do người dùng tự gọi (WebUI): người gọi chính là người nói nên không có AI giữ máy; lấy cả thứ «nối ngay»
+    lẫn thứ «khi chuyển máy» của quy tắc (như nhánh không-AI của cuộc gọi đến)."""
+    base = rule_devices({**rule, "connect": "voice"} if "ai" in parse_connect(rule.get("connect")) else rule)
+    return {**base, **rule_devices_now(rule)}
+
+
+def outgoing_should_apply(call_type: Any, call_id: str, incoming: set, already_started: bool) -> bool:
+    """Chỉ áp cho cuộc gọi 1-1 ĐI chưa có thiết bị nào: không phải cuộc gọi đến, không phải nhóm, và HA (dịch vụ make_call) chưa tự nối thiết bị."""
+    return str(call_type) != "group" and str(call_id) not in incoming and not already_started
+
+
+async def _connect_outgoing_by_rule(hass: HomeAssistant, rt: Any, call_id: str, payload: dict[str, Any]) -> None:
+    """Cuộc gọi đi được nghe máy mà HA không tự nối thiết bị (người dùng gọi từ WebUI): áp quy tắc của người đó (theo threadID) để
+    camera/mic/loa vào cuộc gọi theo automation, không phải bấm tay. Không có quy tắc hoặc quy tắc không cài thiết bị thì KHÔNG làm gì."""
+    rule = resolve_rule(get_rules(rt.defaults), payload.get("thread_id"), "user", payload.get("contact_status"))
+    if not rule:
+        return
+    connect = outgoing_devices(rule)
+    if not connect:
+        return
+    try:
+        await async_connect_devices(rt, call_id, connect, video=str(payload.get("call_type")) == "video", echo_mode=rule.get("echo_guard"))
+    except ZaloCallError as err:
+        _LOGGER.warning("Cuộc gọi đi %s: không nối được thiết bị theo quy tắc: %s", call_id, err)
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Cuộc gọi đi %s: nối thiết bị theo quy tắc lỗi", call_id)
+
+
 def _plan_from_rule(rule: dict[str, Any], video: bool = False) -> Plan | None:
     if not rule.get("ai"):
         return None
@@ -809,6 +838,8 @@ def on_call_state(hass: HomeAssistant, rt: Any, state: str, call_id: Any, termin
         plan = voice.plans.pop(cid, None)
         if plan is not None and cid not in voice.tasks:
             voice.tasks[cid] = hass.async_create_task(_run_plan(hass, rt, cid, plan))
+        elif plan is None and payload and outgoing_should_apply(payload.get("call_type"), cid, voice.incoming, rt.bridge.has_devices(cid)):
+            hass.async_create_task(_connect_outgoing_by_rule(hass, rt, cid, payload))
     elif state in terminal:
         _stop_announce(voice, cid)
         voice.answered_ids.discard(cid)

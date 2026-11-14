@@ -73,6 +73,39 @@ def test_services_and_bridge_know_the_new_fields():
     assert 'for key, field in (("mic_gain", "mic_url"), ("speaker_gain", "speaker_url"))' in br
 
 
+def test_outgoing_call_devices_come_from_the_rule_without_ai_and_only_when_ha_did_not_connect():
+    src = os.path.join(CC, "call_voice.py")
+    rules = load_rules()
+    if rules is None:
+        print("SKIP: rules.py cần gói Home Assistant")
+        return
+    rules_ns = {"parse_connect": rules.parse_connect}                                  # parse_connect THẬT (đổi «voice» thành mic + loa, «ai» thành tất cả)
+    ns = pick(src, {"_DEVICE_KEYS", "_PART_KEYS", "devices_for_mode", "rule_devices", "rule_devices_now", "outgoing_devices", "outgoing_should_apply"}, rules_ns)
+    od, ap = ns["outgoing_devices"], ns["outgoing_should_apply"]
+    house = {"speaker": "media_player.r1_loa", "mic": "assist_satellite.r1", "camera": "camera.go2rtc_phong_khach", "volume": 22, "mic_gain": 150}
+    # «nối ngay» + «khi chuyển máy» đều dùng được: người gọi chính là người nói
+    out = od(dict(house, connect=["mic"], connect_now=["camera", "speaker"]))
+    assert out["mic"] == "assist_satellite.r1" and out["camera"] == "camera.go2rtc_phong_khach" and out["speaker"] == "media_player.r1_loa", out
+    assert out["mic_gain"] == 150 and out["volume"] == 22, out                        # độ to đi cùng nhóm thiết bị
+    # quy tắc có AI: gọi đi vẫn nối mic + loa thật (không có AI giữ máy)
+    out = od(dict(house, ai=True, connect=["ai"], connect_now=[]))
+    assert out.get("mic") and out.get("speaker") and "camera" not in out, out
+    assert od(dict(house, connect=[], connect_now=[])) == {}                          # quy tắc không cài nối gì: không nối
+    assert od({}) == {}
+    # chỉ áp cho cuộc gọi 1-1 ĐI chưa có thiết bị
+    assert ap("video", "7", set(), False) is True and ap("user", "7", set(), False) is True
+    assert ap("group", "7", set(), False) is False                                    # nhóm: không
+    assert ap("video", "7", {"7"}, False) is False                                    # cuộc gọi ĐẾN đã có đường nghe máy riêng
+    assert ap("video", "7", set(), True) is False                                     # HA (make_call) đã nối thiết bị: không nối lần hai
+
+
+def test_bridge_has_devices_and_call_voice_wires_outgoing_by_rule():
+    cv = open(os.path.join(CC, "call_voice.py"), encoding="utf-8").read()
+    assert "rt.bridge.has_devices(cid)" in cv and "_connect_outgoing_by_rule(hass, rt, cid, payload)" in cv
+    br = open(os.path.join(CC, "bridge.py"), encoding="utf-8").read()
+    assert "def has_devices(self, call_id" in br
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

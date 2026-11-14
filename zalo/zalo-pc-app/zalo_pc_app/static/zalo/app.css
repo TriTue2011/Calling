@@ -352,6 +352,9 @@ pre.out { margin: 0.5rem 0 0; padding: 0.625rem; border-radius: 0.5rem; backgrou
 .callcard .acts { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
 .callcard .vvbox { position: relative; width: 100%; aspect-ratio: 16 / 9; margin-top: 0.75rem; border-radius: 0.625rem; background: #000; overflow: hidden; }
 .callcard .vview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.callcard .vvbox { cursor: zoom-in; }
+.callcard .vvbox.fill { cursor: zoom-out; }
+.callcard .vvbox.fill .vview { object-fit: cover; }          /* phủ đầy khung (cắt phần thừa) */
 .callcard .vv-wait { position: absolute; inset: 0; display: grid; place-items: center; padding: 0.5rem; text-align: center; color: #9aa4b2; font-size: 0.8125rem; }
 .callcard .vvbox.on .vv-wait { display: none; }
 .callcard .tgs { margin-top: 0.75rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
