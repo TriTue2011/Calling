@@ -101,9 +101,8 @@ def _calls_snapshot_with_media():
             media["audio_token"] = srv().STATE.audio_tokens.token_for(
                 entry["call_id"])
             _v = srv().VIDEO_SENDERS.get(str(entry["call_id"]))
-            _m = srv().AUDIO_SENDERS.get(str(entry["call_id"]))
             media["video"] = _v.status() if _v else None
-            media["mic"] = _m.status() if _m else None
+            media["mic"] = srv().mic_status(entry["call_id"])
             _s = srv().SPEAKER_SINKS.get(str(entry["call_id"]))
             media["speaker"] = _s.status() if _s else None
             media["gain"] = {t: srv()._gain_of(entry["call_id"], t) for t in ("mic", "speaker")}

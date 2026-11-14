@@ -142,6 +142,8 @@ _stop_speaker = voice_calls._stop_speaker
 _guard_for_call = voice_calls._guard_for_call
 _start_speaker = voice_calls._start_speaker
 _start_mic = voice_calls._start_mic
+_start_idle_audio = voice_calls._start_idle_audio
+mic_status = voice_calls.mic_status
 DEAD_MEDIA_SECONDS = voice_calls.DEAD_MEDIA_SECONDS
 _media_is_dead = voice_calls._media_is_dead
 _watch_dead_media = voice_calls._watch_dead_media
@@ -1050,6 +1052,7 @@ def _auto_media_async(call_id):
                 note("start_mic xong")
             else:
                 note("bo qua mic (auto_mic tat hoac khong co mic_url)")
+                _start_idle_audio(call_id)             # vẫn gửi tiếng im lặng: không có gói tiếng nào thì bên kia báo «kết nối không ổn định»
             if cfg.get("speaker_url"):
                 note("start_speaker")
                 _start_speaker(call_id, cfg["speaker_url"])

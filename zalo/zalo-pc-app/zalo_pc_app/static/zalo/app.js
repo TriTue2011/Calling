@@ -835,7 +835,7 @@ async function rejectCall(a) {
 // Nút bật/tắt mic, loa, camera của cuộc gọi: điều khiển THIẾT BỊ TRONG NHÀ (mic/loa R1, camera) qua /api/call/media và /api/call/video.
 S.cm = { id: "", mic: false, speaker: false, video: false, busy: "", gain: { mic: 100, speaker: 100 } };
 function applyCm(id, r) {
-  const on = (x) => !!x && x.alive !== false;
+  const on = (x) => !!x && x.alive !== false && !x.idle;      // bộ gửi im lặng chỉ giữ luồng, không phải mic đang bật
   S.cm = Object.assign(S.cm, { id: String(id), mic: on(r.mic), speaker: on(r.speaker), video: on(r.video) });
   if (r.gain && typeof r.gain === "object") S.cm.gain = { mic: Number(r.gain.mic) || 0, speaker: Number(r.gain.speaker) || 0 };
   renderCallCard();
@@ -1496,6 +1496,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
 });
 try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
-if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain, mergeMsgs, startCall, openThread, videoView, showVideoWin, renderCallCard });   // chỉ để kiểm thử giao diện (jsdom)
+if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles, mediaToggles, changeGain, mergeMsgs, startCall, openThread, videoView, showVideoWin, renderCallCard, applyCm });   // chỉ để kiểm thử giao diện (jsdom)
 applyScale(); setTab("chats"); updateSendButtons(); privacyInit(); boot();
 })();

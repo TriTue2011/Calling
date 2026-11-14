@@ -31,8 +31,7 @@ class MediaControl:
             return sd.status() if sd else None
 
         def mstat():
-            sd = srv().AUDIO_SENDERS.get(str(call_id))
-            return sd.status() if sd else None
+            return srv().mic_status(call_id)               # bộ gửi im lặng giữ luồng không tính là mic
 
         def sstat():
             sd = srv().SPEAKER_SINKS.get(str(call_id))
@@ -67,6 +66,7 @@ class MediaControl:
                         call_id, srv()._thread_of_call(call_id), False)
             if target in ("mic", "both"):
                 srv()._stop_mic(call_id)
+                srv()._start_idle_audio(call_id)        # tắt mic nhưng vẫn giữ luồng tiếng (im lặng), không thì bên kia báo kết nối không ổn định
             if target in ("speaker", "both"):
                 srv()._stop_speaker(call_id)
             return self._send_json({"ok": True, "call_id": call_id,

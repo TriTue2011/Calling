@@ -50,6 +50,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   S.cm.gain = { mic: 100, speaker: 100 };
   const a = S.calls.active; S.calls.active = null; const before = posts.length; await T.changeGain("mic", 10);
   ok.push(["không có cuộc gọi: không gửi yêu cầu", posts.length === before]); S.calls.active = a;
+  // bộ gửi im lặng giữ luồng (idle) KHÔNG phải mic đang bật
+  T.applyCm(5, { mic: { alive: true, idle: true }, speaker: { alive: true }, video: null });
+  ok.push(["mic chỉ là bộ gửi im lặng giữ luồng (idle): nút Mic vẫn «tắt»; loa thật vẫn «bật»", S.cm.mic === false && S.cm.speaker === true]);
+  T.applyCm(5, { mic: { alive: true, idle: false }, speaker: null, video: null });
+  ok.push(["mic thật đang chạy: nút Mic «bật»", S.cm.mic === true]);
   let bad = 0; for (const [n, v, x] of ok) { console.log(v ? "ĐẠT " : "HỎNG", n, v ? "" : "(" + (x || "") + ")"); if (!v) bad++; }
   console.log("lỗi trình duyệt:", errors); process.exit(bad || errors.length ? 1 : 0);
 })();

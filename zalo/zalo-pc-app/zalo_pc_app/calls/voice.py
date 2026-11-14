@@ -112,6 +112,28 @@ def _start_speaker(call_id, url):
     return sink
 
 
+def mic_status(call_id):
+    """Trạng thái MIC của cuộc gọi cho bên ngoài (API/WebUI/HA): bộ gửi im lặng giữ luồng KHÔNG tính là mic nên trả None."""
+    sender = AUDIO_SENDERS.get(str(call_id))
+    return None if sender is None or getattr(sender, "idle", False) else sender.status()
+
+
+def _start_idle_audio(call_id):
+    """Không có mic nào cho cuộc gọi: vẫn gửi tiếng IM LẶNG để luồng RTP không đứt. Số đo thật 14/11: cuộc gọi không mic có rtp_tx=0 (không gửi gói tiếng nào)
+    và máy tính báo «Kết nối của BenBap không ổn định». Đã có bộ gửi (mic thật hoặc im lặng) thì giữ nguyên; mic thật bật sau sẽ thay thế (xem _start_mic)."""
+    key = str(call_id)
+    if key in AUDIO_SENDERS:
+        return AUDIO_SENDERS[key]
+    transport = srv()._transport_for_call(call_id)
+    if transport is None:
+        return None
+    sender = audio_tx_mod.AudioSender(transport.send_pcm, source="silence", log=srv()._log_call, loop=True)
+    sender.start()
+    AUDIO_SENDERS[key] = sender
+    srv()._log_call("mic idle (tieng im lang giu luong) start call_id=%s" % call_id)
+    return sender
+
+
 def _start_mic(call_id, source, fmt="auto", loop=True, echo_gate=True):
     """Phat `source` len cuoc goi; thay bo gui cu. Nem ValueError/RuntimeError."""
     transport = srv()._transport_for_call(call_id)

@@ -39,7 +39,9 @@ LOW_LATENCY = ["-fflags", "nobuffer", "-flags", "low_delay"]
 def build_ffmpeg_args(source, fmt="auto", ffmpeg="ffmpeg", loop=True):
     src = str(source or "test")
     args = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin"]
-    if src == "test":
+    if src == "silence":                 # không có mic nào: vẫn gửi tiếng IM LẶNG để luồng RTP liên tục (rtp_tx=0 làm bên kia báo «kết nối không ổn định»)
+        args += ["-re", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono"]
+    elif src == "test":
         args += ["-re", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000"]
     elif src.startswith(("rtsp://", "rtsps://")):
         # Can do ~1 s de nhan ra luong tieng; RTSP khac 0 s se khong thay audio.
@@ -69,6 +71,7 @@ class AudioSender:
         self._send = send_pcm
         self._gate = gate               # gate() True = bo khung nay (chong vong)
         self.gain = audio_gain.DEFAULT_PERCENT   # % am luong mic (100 = giu nguyen), doi duoc giua cuoc goi
+        self.idle = str(source) == "silence"       # chỉ giữ luồng (tiếng im lặng), KHÔNG phải mic đang bật
         self._args = build_ffmpeg_args(source, fmt, loop=loop)
         self._max_backlog = MAX_BACKLOG if loop else ONCE_BACKLOG
         self._popen = popen or subprocess.Popen
@@ -192,7 +195,7 @@ class AudioSender:
         # trang thai (HA doi doc xong TTS) khong cat cau.
         return {"alive": self.alive or len(self._queue) > 0, "frames": self.frames,
                 "dropped": self.dropped, "gated": self.gated, "gated_voiced": self.gated_voiced, "in_voiced": self.in_voiced, "in_peak": self.in_peak,
-                "errors": self.errors, "gain": self.gain,
+                "errors": self.errors, "gain": self.gain, "idle": self.idle,
                 "last_error": self.last_error,
                 "ffmpeg_err": self.stderr_tail(),
                 "seconds": (round(time.time() - self.started_at, 1)
