@@ -1605,6 +1605,25 @@ def test_stop_without_relay_session_sends_no_goodbye_and_never_raises():
     assert tr2.counters["end_call_tx"] == 0 and tr2.counters["rtcp_bye_tx"] == 0, tr2.counters
 
 
+def test_pli_packet_layout_and_keyframe_request_is_rate_limited():
+    """PLI xin khung khoá: relay loại 0x0f + relay session + RR rỗng + PSFB PLI (PT 206 FMT 1); chỉ gửi khi đã biết SSRC của điện thoại; không gửi dồn dập."""
+    pkt = ut.build_rtcp_pli_video(0x11223344, 0x0C646DE5, bytes.fromhex("a1b2c3d4"))
+    assert pkt[0] == ut.VIDEO_RTCP_MSG_TYPE and pkt[1:5] == bytes.fromhex("a1b2c3d4")
+    assert pkt[5:13] == bytes.fromhex("80c9000111223344")                 # RR rỗng
+    assert pkt[13:] == bytes.fromhex("81ce000211223344") + bytes.fromhex("0c646de5")
+    tr, received, close = _connected(_Fabric(), keepalive_media_interval=3600.0)
+    try:
+        assert tr.request_keyframe() is False                           # chưa biết SSRC điện thoại
+        tr._video_peer_ssrc = 0x0C646DE5
+        assert tr.request_keyframe(min_gap=5.0) is True
+        assert tr.request_keyframe(min_gap=5.0) is False                # trong khoảng giãn cách
+        time.sleep(0.3)
+        plis = [d for d in list(received) if d[:1] == bytes([ut.VIDEO_RTCP_MSG_TYPE]) and d[13:15] == b"\x81\xce"]
+        assert len(plis) == 1 and tr.counters["video_pli_tx"] == 1, (len(plis), tr.counters)
+    finally:
+        close()
+
+
 def main():
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_")]

@@ -413,6 +413,41 @@ class FileInbox:
                   % (msg_id, type(e).__name__), flush=True)
 
     # -- tra cuu -----------------------------------------------------------
+    def save_local(self, thread_type, thread_id, msg_id, name, data, sender_id="me", source_url=""):
+        """Lưu BẢN SAO tệp/ảnh/video do CHÍNH TA gửi (WebUI, dịch vụ HA…) để WebUI hiện xem trước và có nút tải về như tin đến (14/11/2026: tin gửi từ HA chỉ hiện
+        «Tệp đính kèm» trống). Ghi vào registry như tệp đã tải (status downloaded). Quá cỡ/lỗi ghi -> FileDownloadError. Trả bản ghi registry."""
+        msg_id = str(msg_id or "")
+        if not msg_id:
+            raise FileDownloadError("tin thieu id — khong luu duoc ban sao")
+        data = bytes(data or b"")
+        if not data:
+            raise FileDownloadError("du lieu rong — khong luu ban sao")
+        if len(data) > self.max_bytes:
+            raise FileDownloadError("file qua lon (%s > %s) — khong luu ban sao" % (format_size(len(data)), format_size(self.max_bytes)))
+        fname = sanitize_filename(name or "") or "file-%s" % msg_id
+        with self._lock:
+            directory = self._thread_dir(thread_type, thread_id)
+            path = unique_path(directory, fname)
+            self._resolve_within(directory, os.path.basename(path))
+            tmp = path + ".part"
+            try:
+                with open(tmp, "wb") as fh:
+                    fh.write(data)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, path)
+            except OSError as e:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                raise FileDownloadError("khong ghi duoc ban sao \"%s\": %s" % (fname, e))
+        record = {"thread_type": str(thread_type), "thread_id": str(thread_id), "msg_id": msg_id, "sender_id": str(sender_id or ""), "sender_name": "",
+                  "file_name": fname, "file_url": str(source_url or ""), "local_path": path, "size_bytes": len(data), "expected_size": len(data),
+                  "checksum": hashlib.md5(data).hexdigest(), "status": "downloaded", "error": "", "downloaded_at": time.time()}
+        self.registry.record(record)
+        return dict(record)
+
     def find(self, thread_type, thread_id, msg_id):
         """Ban ghi cua mot tin + file local con ton tai khong.
         Tra None neu chua co ban ghi / file da mat (khi do UI

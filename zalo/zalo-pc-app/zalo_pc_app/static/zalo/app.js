@@ -354,19 +354,28 @@ function startPoll() {   // lưới an toàn: SSE lo việc tức thì, vòng n�
 }
 const downloadUrl = (m) => "/api/file/download?thread_type=" + typeParam() + "&thread_id=" + encodeURIComponent(S.cur.id) + "&msg_id=" + encodeURIComponent(m._id);
 function photoSrc(m) { const rec = S.files[m._id]; return m.localUrl || (rec && rec.status === "downloaded" ? downloadUrl(m) : ""); }
+const VIDEO_EXT = /\.(mp4|mov|m4v|webm|mkv|3gp)$/i, IMAGE_EXT = /\.(jpe?g|png|webp|gif)$/i;
+const isVideoMsg = (m) => m.kind === "video" || (m.kind === "file" && VIDEO_EXT.test(m.file_name || ""));
+const isImageMsg = (m) => m.kind === "photo" || (m.kind === "file" && IMAGE_EXT.test(m.file_name || ""));
 function bubbleBody(m) {
   const rec = S.files[m._id], dl = rec && rec.status === "downloaded";
-  if (m.kind === "photo" && !photoSrc(m) && m.thumb_url) { const cap = m.text && m.text !== m.file_name ? m.text : ""; const img = h("img", { class: "photo", src: m.thumb_url, alt: m.file_name || "Ảnh", loading: "lazy" }); const a = h("a", { href: m.file_url, target: "_blank", rel: "noopener" }, img); return cap ? h("div", {}, a, h("div", { class: "photo-cap" }, cap)) : a; }
-  if (m.kind === "photo") { const src = photoSrc(m); if (src) { const cap = m.text && m.text !== m.file_name ? m.text : ""; const img = h("img", { class: "photo", src, alt: m.file_name || "Ảnh" }); return cap ? h("div", {}, img, h("div", { class: "photo-cap" }, cap)) : img; } }
+  if (isImageMsg(m) && !photoSrc(m) && m.thumb_url) { const cap = m.text && m.text !== m.file_name ? m.text : ""; const img = h("img", { class: "photo", src: m.thumb_url, alt: m.file_name || "Ảnh", loading: "lazy" }); const a = h("a", { href: m.file_url, target: "_blank", rel: "noopener" }, img); return cap ? h("div", {}, a, h("div", { class: "photo-cap" }, cap)) : a; }
+  if (isImageMsg(m)) { const src = photoSrc(m); if (src) { const cap = m.text && m.text !== m.file_name ? m.text : ""; const img = h("img", { class: "photo", src, alt: m.file_name || "Ảnh" }); const el = h("a", { href: src, target: "_blank", rel: "noopener" }, img); return cap ? h("div", {}, el, h("div", { class: "photo-cap" }, cap)) : el; } }
   if (m.kind === "voice") return h("div", { class: "filecard" }, h("span", { class: "ficon" }, svg("mic")), h("div", {}, h("div", { class: "fname" }, "Tin nhắn thoại"), m.file_url ? h("audio", { controls: true, preload: "none", src: m.file_url, style: "height:2rem;margin-top:.25rem;max-width:100%" }) : h("div", { class: "fmeta" }, m.file_name || "")));
+  if (isVideoMsg(m)) {   // video: phát ngay trong bong bóng (bản đã tải về, hoặc địa chỉ Zalo nếu chưa tải), kèm tên/cỡ/nút tải như Zalo PC
+    const src = dl ? downloadUrl(m) : (m.file_url || "");
+    const card = h("div", { class: "filecard" }, h("span", { class: "ficon" }, svg("file")), h("div", {}, h("div", { class: "fname" }, (rec && rec.file_name) || m.file_name || m.text || "Video"), h("div", { class: "fmeta" }, fmtSize(m.file_size || (rec && rec.size_bytes))),
+      dl ? h("a", { class: "link", href: downloadUrl(m), download: (rec && rec.file_name) || m.file_name || "video.mp4" }, "Tải xuống") : (rec && rec.status === "failed" ? h("button", { class: "link", type: "button", onclick: () => redownload(m) }, "Tải lại") : (m.file_url ? h("a", { class: "link", href: m.file_url, target: "_blank", rel: "noopener" }, "Mở") : null))));
+    return src ? h("div", { class: "vidwrap" }, h("video", { class: "vid", controls: true, preload: "metadata", playsinline: true, src }), card) : card;
+  }
   if (m.kind === "file" || m.kind === "photo") {
     let act = null;
-    if (!m._out) {
-      if (dl) act = h("a", { class: "link", href: downloadUrl(m) }, "Tải xuống");
-      else if (rec && rec.status === "failed") act = h("button", { class: "link", type: "button", onclick: () => redownload(m) }, "Tải lại");
+    if (dl) act = h("a", { class: "link", href: downloadUrl(m), download: (rec && rec.file_name) || m.file_name || "tep" }, "Tải xuống");
+    else if (!m._out) {
+      if (rec && rec.status === "failed") act = h("button", { class: "link", type: "button", onclick: () => redownload(m) }, "Tải lại");
       else if (m.file_url) act = h("a", { class: "link", href: m.file_url, target: "_blank", rel: "noopener" }, "Mở");
     }
-    return h("div", { class: "filecard" }, h("span", { class: "ficon" }, svg("file")), h("div", {}, h("div", { class: "fname" }, m.file_name || m.text || "Tệp đính kèm"), h("div", { class: "fmeta" }, fmtSize(m.file_size)), act));
+    return h("div", { class: "filecard" }, h("span", { class: "ficon" }, svg("file")), h("div", {}, h("div", { class: "fname" }, (rec && rec.file_name) || m.file_name || m.text || "Tệp đính kèm"), h("div", { class: "fmeta" }, fmtSize(m.file_size || (rec && rec.size_bytes))), act));
   }
   return document.createTextNode(m.text || "");
 }
@@ -691,7 +700,9 @@ async function toggleMedia(target) {
   const turnOn = !S.cm[target === "video" ? "video" : target];
   S.cm.busy = target; renderCallCard();
   try {
-    const r = await api(target === "video" ? "/api/call/video" : "/api/call/media", "POST", { call_id: a.call_id, action: turnOn ? "start" : "stop", target });
+    // Cuộc gọi THOẠI mà bật camera = xin chuyển sang VIDEO (12056 tới điện thoại + phát hình nhà), không chỉ phát hình vào cuộc gọi thoại.
+    const upgrade = target === "video" && turnOn && a.type !== "video";
+    const r = await api(upgrade ? "/api/call/upgrade_video" : target === "video" ? "/api/call/video" : "/api/call/media", "POST", upgrade ? { call_id: a.call_id } : { call_id: a.call_id, action: turnOn ? "start" : "stop", target });
     if (r.error || r.ok === false) toast((turnOn ? "Không bật được " : "Không tắt được ") + ({ mic: "mic", speaker: "loa", video: "camera" })[target] + ": " + (r.error || "lỗi"), 5000);
     S.cm.busy = ""; applyCm(a.call_id, r.error ? {} : r);
     if (r.error || r.ok === false) refreshCallMedia();
@@ -703,9 +714,12 @@ function videoView(a, mc) {
   if (!(a.type === "video" || (mc && mc.video_rx > 0))) { S.vv = null; return null; }
   if (!S.vv || S.vv.id !== String(a.call_id)) {
     const url = () => "/api/call/video/view?call_id=" + encodeURIComponent(a.call_id) + "&t=" + Date.now();
+    const wait = h("div", { class: "vv-wait" }, "Đang chờ hình từ điện thoại…");
     const el = h("img", { class: "vview", alt: "Hình từ điện thoại", src: url() });
-    el.addEventListener("error", () => setTimeout(() => { if (S.vv && S.vv.el === el) el.src = url(); }, 3000));   // chưa có hình (409) / ffmpeg đang dậy: thử lại
-    S.vv = { id: String(a.call_id), el };
+    const box = h("div", { class: "vvbox" }, el, wait);
+    el.addEventListener("load", () => box.classList.add("on"));
+    el.addEventListener("error", () => { box.classList.remove("on"); setTimeout(() => { if (S.vv && S.vv.el === box) el.src = url(); }, 3000); });   // chưa có hình (409) / ffmpeg đang dậy: thử lại
+    S.vv = { id: String(a.call_id), el: box };
   }
   return S.vv.el;
 }
@@ -1272,5 +1286,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
 });
 try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
+if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody });   // chỉ để kiểm thử giao diện (jsdom)
 applyScale(); setTab("chats"); updateSendButtons(); privacyInit(); boot();
 })();

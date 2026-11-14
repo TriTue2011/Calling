@@ -1084,6 +1084,24 @@ def _normalize_call_id(value):
     return _next_call_id()
 
 
+def _save_sent_video_copy_async(thread_type, thread_id, msg_id, video_url):
+    """Tải video vừa gửi (địa chỉ HA đưa cho Zalo) về làm bản sao để WebUI phát lại; nền, lỗi chỉ ghi nhật ký."""
+    def run():
+        try:
+            status, data = STATE.file_inbox._http_get_bytes(video_url, timeout=60)
+            if status != 200 or not data:
+                raise ValueError("HTTP %s" % status)
+            name = os.path.basename(urllib.parse.urlsplit(video_url).path) or "video.mp4"
+            if "." not in name:
+                name += ".mp4"
+            STATE.file_inbox.save_local(thread_type, thread_id, msg_id, name, data, source_url="")
+            print("[file-out] da luu ban sao video %s (%d byte)" % (name, len(data)), flush=True)
+        except Exception as e:  # noqa: BLE001
+            print("[file-out] khong luu duoc ban sao video: %s" % str(e)[:120], flush=True)
+    if str(video_url or "").lower().startswith(("http://", "https://")) and getattr(STATE.file_inbox, "_http_get_bytes", None):
+        threading.Thread(target=run, daemon=True, name="video-copy").start()
+
+
 def _end_diag(raw_id, snap):
     """Chẩn đoán khi «Kết thúc» báo không có cuộc gọi sống (14/11/2026: cuộc gọi ĐI vẫn chạy mà nút Kết thúc không tác dụng): id UI gửi + 5 bản ghi mới nhất
     (id/trạng thái/hướng/loại) + các id còn transport. Không ghi gì nhạy cảm."""
@@ -3866,6 +3884,7 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
                                                        client_id=res["client_id"])
                 STATE.chat_store.record_sent(thread_type, thread_id, local)
                 STATE.message_store.record(thread_type, thread_id, local)
+                _save_sent_video_copy_async(thread_type, thread_id, local.get("id") or res["client_id"], video_url)      # WebUI xem lại được video đã gửi
                 return self._send_json({"ok": True, "data": res["data"], "message": local,
                                         "recall_at": _schedule_recall(thread_type, thread_id, res, recall_after),
                                         "video": {"width": width, "height": height, "duration_ms": duration}})
@@ -3966,6 +3985,10 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
                                              local)
                 STATE.message_store.record(thread_type, thread_id,
                                            local)
+                try:                      # bản sao để WebUI hiện xem trước + nút tải (tin gửi từ HA/WebUI)
+                    STATE.file_inbox.save_local(thread_type, thread_id, local.get("id") or res["client_id"], filename, data_bytes)
+                except Exception as e:  # noqa: BLE001 - không được làm hỏng việc gửi
+                    print("[file-out] khong luu duoc ban sao: %s" % str(e)[:100], flush=True)
                 return self._send_json({"ok": True, "data": res["data"],
                                         "message": local,
                                         "recall_at": _schedule_recall(thread_type, thread_id, res, recall_after)})

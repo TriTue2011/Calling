@@ -144,6 +144,54 @@ def test_rfc6184_fu_a_still_works_next_to_zalo_style():
     assert out is not None and out[1] is True
 
 
+# ---- Xếp lại gói lệch thứ tự + xin khung khoá (14/11/2026: cuộc video thật chỉ ghép được ~10% khung, bỏ 302) ----
+def test_reorder_buffer_in_order_swap_late_duplicate_and_wraparound():
+    r = H.ReorderBuffer()
+    got = []
+    for seq in (10, 11, 13, 12, 14):                       # 13 đến trước 12
+        got += [q for q, _ in r.push(seq, "p%d" % seq)]
+    assert got == [10, 11, 12, 13, 14], got
+    assert r.push(12, "trùng") == [] and r.late == 1       # muộn/trùng: bỏ
+    r2 = H.ReorderBuffer()
+    out = []
+    for seq in (65534, 65535, 1, 0, 2):                    # vòng seq 16 bit, 0 đến sau 1
+        out += [q for q, _ in r2.push(seq, seq)]
+    assert out == [65534, 65535, 0, 1, 2], out
+
+
+def test_reorder_buffer_gives_up_on_a_lost_packet_after_max_hold():
+    r = H.ReorderBuffer(max_hold=4)
+    out = [q for q, _ in r.push(100, 0)]
+    for seq in range(102, 108):                            # 101 mất hẳn
+        out += [q for q, _ in r.push(seq, 0)]
+    assert out[0] == 100 and out[1] == 102 and out[-1] == 107 and r.lost == 1, (out, r.lost)
+
+
+def test_depacketizer_recovers_all_frames_when_packets_arrive_swapped():
+    from zalo_pc_app.udp_transport import packetize_video_frame
+    big = bytes([0x65]) + bytes((i * 3) % 251 for i in range(1, 2600))
+    frames = [_zalo_annexb(SPS, PPS, big), _zalo_annexb(P), _zalo_annexb(P)]
+    pkts = []                                              # (seq, payload, marker)
+    seq = 7
+    for f in frames:
+        ch = packetize_video_frame(f, 1068)
+        for i, c in enumerate(ch):
+            pkts.append((seq, c, i == len(ch) - 1))
+            seq += 1
+    swapped = list(pkts)
+    swapped[1], swapped[2] = swapped[2], swapped[1]       # đảo hai gói giữa khung khoá
+    r, d, keys = H.ReorderBuffer(), H.H264Depacketizer(), 0
+    n = 0
+    for sq, pl, mk in swapped:
+        for q, (p2, m2) in r.push(sq, (pl, mk)):
+            o = d.push(p2, m2, q)
+            if o is not None:
+                n += 1
+                keys += 1 if o[1] else 0
+    assert n == 3 and keys == 1 and d.stats["dropped"] == 0, (n, keys, d.stats)
+    assert d.need_key is False
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

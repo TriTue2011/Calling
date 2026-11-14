@@ -43,6 +43,41 @@ def rtp_payload(rtp):
     return bytes(rtp[n:]) if len(rtp) > n else None
 
 
+class ReorderBuffer:
+    """Xếp lại gói RTP video đến lệch thứ tự (đi qua relay có thể đảo gói) TRƯỚC khi ghép khung: không có nó, mỗi lần đảo gói là mất cả khung và phải chờ khung khoá kế
+    (14/11/2026 cuộc video thật: chỉ 147 khung giải mã được trong 100 s, bỏ 302). `push(seq, item)` trả danh sách [(seq, item)] đã SẴN SÀNG theo đúng thứ tự;
+    gói đến muộn/trùng bị bỏ; thiếu gói quá `max_hold` gói thì chấp nhận mất và nhảy tiếp (bộ ghép sẽ tự bỏ khung hỏng)."""
+
+    def __init__(self, max_hold=24):
+        self.max_hold = max_hold
+        self.expected = None
+        self.pending = {}
+        self.late = 0
+        self.lost = 0
+
+    def push(self, seq, item):
+        seq &= 0xFFFF
+        if self.expected is None:
+            self.expected = seq
+        ahead = (seq - self.expected) & 0xFFFF
+        if ahead >= 0x8000:                     # cũ hơn thứ đang chờ: muộn hoặc trùng
+            self.late += 1
+            return []
+        self.pending[seq] = item
+        out = []
+        while True:
+            while self.expected in self.pending:
+                out.append((self.expected, self.pending.pop(self.expected)))
+                self.expected = (self.expected + 1) & 0xFFFF
+            if len(self.pending) > self.max_hold:       # đợi quá lâu: coi gói thiếu là mất
+                nxt = min(self.pending, key=lambda q: (q - self.expected) & 0xFFFF)
+                self.lost += (nxt - self.expected) & 0xFFFF
+                self.expected = nxt
+                continue
+            break
+        return out
+
+
 class H264Depacketizer:
     def __init__(self):
         self._nals = []            # các NAL của khung đang ghép
@@ -53,6 +88,11 @@ class H264Depacketizer:
         self._need_key = True      # đầu cuộc / sau mất gói: chỉ phát từ khung khoá
         self.sps = self.pps = None
         self.stats = {"frames": 0, "key": 0, "dropped": 0, "bad": 0}
+
+    @property
+    def need_key(self):
+        """Đang chờ khung khoá (đầu cuộc / sau khi mất gói): nên xin điện thoại gửi khung khoá."""
+        return self._need_key
 
     def _end_frame(self):
         nals, broken = self._nals, self._broken

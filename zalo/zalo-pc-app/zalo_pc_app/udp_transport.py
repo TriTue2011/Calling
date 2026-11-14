@@ -1286,6 +1286,14 @@ def build_rtcp_rr_video(local_ssrc, block, relay_session,
     return bytes([msg_type]) + relay_session + bytes(rr) + bytes(sdes)
 
 
+def build_rtcp_pli_video(local_ssrc, media_ssrc, relay_session, msg_type=VIDEO_RTCP_MSG_TYPE):
+    """Xin điện thoại gửi KHUNG KHOÁ video (RTCP PSFB PLI, RFC 4585) ghép sau một RR rỗng, bọc relay loại 0x0f như báo cáo video."""
+    relay_session = _session_to_bytes(relay_session, "relay_session")
+    rr = struct.pack(">BBHI", 0x80, 201, 1, local_ssrc & 0xFFFFFFFF)
+    pli = struct.pack(">BBHII", 0x81, 206, 2, local_ssrc & 0xFFFFFFFF, media_ssrc & 0xFFFFFFFF)
+    return bytes([msg_type]) + relay_session + rr + pli
+
+
 def rtcp_kinds(rtcp):
     """[(PT, RC/FMT, byte)] cua tung goi con trong RTCP ghep (chan doan)."""
     out, off = [], 0
@@ -1650,6 +1658,9 @@ class Udp4200Transport:
         self._rx_last_sec = 0
         self._sub8_due = None               # gui ReqForward sub 8 mot lan
         self._h264 = h264_rx.H264Depacketizer()      # ghép hình ĐẾN của điện thoại thành khung Annex-B
+        self._video_reorder = h264_rx.ReorderBuffer()  # xếp lại gói video đến lệch thứ tự trước khi ghép
+        self._video_peer_ssrc = None
+        self._last_pli = 0.0
         self._video_taps = []                         # hàng đợi của người xem (WebUI); mỗi khung ghép xong đẩy vào
         self._video_last_key = None                   # khung khoá gần nhất (người xem mới vào bắt đầu từ đây)
         self._video_dec_err = 0
@@ -2526,6 +2537,7 @@ class Udp4200Transport:
         seq, ts, ssrc = struct.unpack_from(">HII", rtp, 2)[0], \
             struct.unpack_from(">I", rtp, 4)[0], struct.unpack_from(">I", rtp, 8)[0]
         self._rx_video.on_packet(seq, ts, ssrc, now_ms)
+        self._video_peer_ssrc = ssrc
         self._decode_video(rtp, seq)
 
     def _decode_video(self, rtp, seq):
@@ -2541,15 +2553,26 @@ class Udp4200Transport:
             self._video_dec_seen = getattr(self, "_video_dec_seen", 0) + 1
             if self._video_dec_seen <= 4:       # chẩn đoán định dạng thật của điện thoại (kiểu Zalo «1c 80/00/40» hay FU-A RFC 6184)
                 print("[video-dec] payload #%d len=%d head=%s marker=%s" % (self._video_dec_seen, len(payload), bytes(payload[:8]).hex(), bool(plain[1] & 0x80)), flush=True)
-            out = self._h264.push(payload, bool(plain[1] & 0x80), seq)
+            out = None
+            for _seq, (_pl, _mk) in self._video_reorder.push(seq, (payload, bool(plain[1] & 0x80))):
+                _o = self._h264.push(_pl, _mk, _seq)
+                if _o is not None:
+                    out = _o if out is None or _o[1] or not out[1] else out
+                    self._emit_video_frame(_o)
+            self.counters["video_reorder_late"] = self._video_reorder.late
+            self.counters["video_reorder_lost"] = self._video_reorder.lost
+            if self._h264.need_key:
+                self.request_keyframe()
+            return
         except Exception as exc:  # noqa: BLE001 - nhận hình không được làm sập vòng nhận
             self._video_dec_err += 1
             self.counters["video_dec_err"] = self._video_dec_err
             if self._video_dec_err <= 3:
                 print("[video-dec] loi giai ma #%d: %s: %s" % (self._video_dec_err, type(exc).__name__, str(exc)[:80]), flush=True)
             return
-        if out is None:
-            return
+
+    def _emit_video_frame(self, out):
+        """Một khung Annex-B đã ghép xong: đếm, nhớ khung khoá gần nhất, đẩy cho người xem."""
         annexb, is_key = out
         st = self._h264.stats
         self.counters["video_dec_frames"] = st["frames"]
@@ -2564,6 +2587,18 @@ class Udp4200Transport:
             except Exception:  # noqa: BLE001 - hàng đợi đầy: người xem chậm, bỏ khung (không chặn luồng nhận)
                 pass
 
+    def request_keyframe(self, min_gap=1.5):
+        """Xin điện thoại gửi khung khoá (PLI) — khi đầu cuộc/mất gói mà đang chờ khung khoá, hoặc có người mở xem. Giới hạn nhịp; True nếu đã gửi."""
+        now = time.monotonic()
+        if self._video_peer_ssrc is None or self.selected_relay is None or not self.relay_session or now - self._last_pli < min_gap:
+            return False
+        self._last_pli = now
+        pkt = build_rtcp_pli_video(self.config.local_ssrc, self._video_peer_ssrc, self.relay_session)
+        ok = self._send_to(pkt, self.selected_relay.rtcp_addr())
+        if ok:
+            self.counters["video_pli_tx"] = self.counters.get("video_pli_tx", 0) + 1
+        return ok
+
     def add_video_tap(self, maxsize=90):
         """Hàng đợi khung Annex-B của hình điện thoại cho một người xem. Bắt đầu từ khung khoá gần nhất (nếu có)."""
         import queue
@@ -2571,6 +2606,7 @@ class Udp4200Transport:
         if self._video_last_key is not None:
             q.put_nowait((self._video_last_key, True))
         self._video_taps.append(q)
+        self.request_keyframe(min_gap=0.5)             # người xem mở giữa chừng: xin khung khoá mới để hình lên ngay
         return q
 
     def remove_video_tap(self, q):
