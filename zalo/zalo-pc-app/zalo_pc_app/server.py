@@ -3954,7 +3954,21 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
                         ttl_eff = max(0, int(float(fields.get("ttl") or 0))) or STATE.conv_ttl.get(thread_id)
                     except (TypeError, ValueError):
                         ttl_eff = STATE.conv_ttl.get(thread_id)
-                    if kind == "photo":
+                    if kind in ("video", "file") and video_probe_mod.is_video_name(filename):
+                        # Tệp VIDEO: gửi thành tin video (có chú thích, ảnh bìa, thời lượng) như Zalo PC; lỗi tải lên thì quay về gửi tệp thường.
+                        caption_text = str(fields.get("desc") or "").strip()[:4000]
+                        probe = video_probe_mod.probe_video_bytes(data_bytes, filename)
+                        try:
+                            res = chat.send_video_file(thread_type, thread_id, filename, data_bytes, caption=caption_text,
+                                                       width=probe.get("width", 0), height=probe.get("height", 0), duration_ms=probe.get("duration_ms", 0),
+                                                       ttl=ttl_eff, thumb_jpeg=probe.get("thumb"))
+                            local_kind = "video"
+                        except chat_mod.ZaloChatError as e:
+                            print("[sendfile] video->tin video loi (%s): quay ve gui tep thuong" % str(e)[:120], flush=True)
+                            res = chat.send_file(thread_type, thread_id, filename, data_bytes, mime, ttl=ttl_eff)
+                            caption_text = ""
+                            local_kind = "file"
+                    elif kind == "photo":
                         try:
                             width = int(fields.get("width") or 0)
                             height = int(fields.get("height") or 0)
@@ -4311,14 +4325,31 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
                 return self._send_json({"error": str(e)}, status=404)
             try:
                 chat = self._chat_client(sess)
-                res = chat.send_file(to_type, to_id,
-                                     rec["file_name"], data)
+                # Hội thoại đích bật «tin nhắn tự xóa»: PHẢI gửi kèm ttl của nó, thiếu thì Zalo từ chối («phiên bản chưa hỗ trợ tin nhắn tự xóa»; 14/11/2026).
+                ttl_to = STATE.conv_ttl.get(to_id)
+                _nm = str(rec["file_name"])
+                if _nm.lower().endswith((".jpg", ".jpeg", ".png", ".webp")) and chat_mod.detect_image_format(data) in chat_mod.PHOTO_EXTS:
+                    _w, _h = image_size_mod.image_size(data)
+                    res = chat.send_photo(to_type, to_id, _nm, data, "image/png" if _nm.lower().endswith(".png") else "image/webp" if _nm.lower().endswith(".webp") else "image/jpeg", _w, _h, ttl=ttl_to)
+                    _lk = "photo"
+                elif video_probe_mod.is_video_name(_nm):
+                    _pr = video_probe_mod.probe_video_bytes(data, _nm)
+                    try:
+                        res = chat.send_video_file(to_type, to_id, _nm, data, caption="", width=_pr.get("width", 0), height=_pr.get("height", 0),
+                                                   duration_ms=_pr.get("duration_ms", 0), ttl=ttl_to, thumb_jpeg=_pr.get("thumb"))
+                        _lk = "video"
+                    except chat_mod.ZaloChatError:
+                        res = chat.send_file(to_type, to_id, _nm, data, ttl=ttl_to)
+                        _lk = "file"
+                else:
+                    res = chat.send_file(to_type, to_id, _nm, data, ttl=ttl_to)
+                    _lk = "file"
             except Exception as e:  # noqa: BLE001 - loi Zalo -> 502
                 return self._send_json({"error": str(e)}, status=502)
             STATE.chat_store.record_sent(
                 to_type, to_id,
                 STATE.chat_store.local_message(
-                    to_type, to_id, "file",
+                    to_type, to_id, _lk,
                     text=rec["file_name"], file_name=rec["file_name"],
                     client_id=str(res.get("client_id") or "")))
             return self._send_json({

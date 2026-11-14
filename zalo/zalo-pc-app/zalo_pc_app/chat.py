@@ -1505,6 +1505,22 @@ class Chat:
             raise ZaloChatError("video: Zalo tra ve khong co ma tin — video chua duoc tao (data rong sau khi giai ma)")
         return {"data": data, "client_id": client_id, "video_url": video_url}
 
+    def send_video_file(self, thread_type, thread_id, filename, data, caption="", width=0, height=0, duration_ms=0, ttl=0, thumb_jpeg=None):
+        """Gui TỆP VIDEO nguoi dung chon (WebUI) thanh TIN VIDEO co chu thich nhu Zalo PC: tai video len Zalo (asyncfile/upload + file_done, nhu tep thuong) lay URL
+        cua Zalo, tai them anh bia JPEG (neu co) de lay URL anh, roi gui `send_video` (forward msgType 5, title = chu thich). URL do Zalo giu nen khong phu thuoc may nha.
+        Loi tai len -> ZaloChatError (de caller quay ve gui tep thuong)."""
+        up = self._upload_async(thread_type, thread_id, filename, data)
+        video_url = up["file_url"]
+        thumb_url = ""
+        if thumb_jpeg:
+            try:
+                thumb_url = self._upload_async(thread_type, thread_id, "thumb.jpg", bytes(thumb_jpeg))["file_url"]
+            except ZaloChatError:
+                thumb_url = ""             # khong co anh bia: van gui video (send_video dung chinh URL video lam bia)
+        res = self.send_video(thread_type, thread_id, video_url, thumb_url, duration_ms, width, height, caption, ttl)
+        res["video_url"] = video_url
+        return res
+
     def send_photo(self, thread_type, thread_id, filename, data,
                    mime="image/jpeg", width=0, height=0, visibility=0,
                    desc="", photo_bundle=None, ttl=0):

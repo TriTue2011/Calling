@@ -363,13 +363,21 @@ const isImageMsg = (m) => m.kind === "photo" || (m.kind === "file" && IMAGE_EXT.
 function bubbleBody(m) {
   const rec = S.files[m._id], dl = rec && rec.status === "downloaded";
   if (isImageMsg(m) && !photoSrc(m) && m.thumb_url) { const cap = m.text && m.text !== m.file_name ? m.text : ""; const img = h("img", { class: "photo", src: m.thumb_url, alt: m.file_name || "Ảnh", loading: "lazy" }); const a = h("a", { href: m.file_url, target: "_blank", rel: "noopener" }, img); return cap ? h("div", {}, a, h("div", { class: "photo-cap" }, cap)) : a; }
+  if (isImageMsg(m) && !photoSrc(m) && m.file_url && m.kind === "photo") {   // ảnh đến chưa có bản tải về: hiện thẳng từ địa chỉ Zalo (lỗi tải ảnh thì quay về thẻ tệp)
+    const cap = m.text && m.text !== m.file_name ? m.text : "";
+    const img = h("img", { class: "photo", src: m.file_url, alt: m.file_name || "Ảnh", loading: "lazy" });
+    const a = h("a", { href: m.file_url, target: "_blank", rel: "noopener" }, img), wrap = h("div", {}, a, cap ? h("div", { class: "photo-cap" }, cap) : null);
+    img.addEventListener("error", () => { wrap.replaceChildren(h("div", { class: "filecard" }, h("span", { class: "ficon" }, svg("file")), h("div", {}, h("div", { class: "fname" }, m.file_name || "Ảnh"), h("a", { class: "link", href: m.file_url, target: "_blank", rel: "noopener" }, "Mở")))); });
+    return wrap;
+  }
   if (isImageMsg(m)) { const src = photoSrc(m); if (src) { const cap = m.text && m.text !== m.file_name ? m.text : ""; const img = h("img", { class: "photo", src, alt: m.file_name || "Ảnh" }); const el = h("a", { href: src, target: "_blank", rel: "noopener" }, img); return cap ? h("div", {}, el, h("div", { class: "photo-cap" }, cap)) : el; } }
   if (m.kind === "voice") return h("div", { class: "filecard" }, h("span", { class: "ficon" }, svg("mic")), h("div", {}, h("div", { class: "fname" }, "Tin nhắn thoại"), m.file_url ? h("audio", { controls: true, preload: "none", src: m.file_url, style: "height:2rem;margin-top:.25rem;max-width:100%" }) : h("div", { class: "fmeta" }, m.file_name || "")));
   if (isVideoMsg(m)) {   // video: phát ngay trong bong bóng (bản đã tải về, hoặc địa chỉ Zalo nếu chưa tải), kèm tên/cỡ/nút tải như Zalo PC
     const src = dl ? downloadUrl(m) : (m.file_url || "");
     const card = h("div", { class: "filecard" }, h("span", { class: "ficon" }, svg("file")), h("div", {}, h("div", { class: "fname" }, (rec && rec.file_name) || m.file_name || m.text || "Video"), h("div", { class: "fmeta" }, fmtSize(m.file_size || (rec && rec.size_bytes))),
       dl ? h("a", { class: "link", href: downloadUrl(m), download: (rec && rec.file_name) || m.file_name || "video.mp4" }, "Tải xuống") : (rec && rec.status === "failed" ? h("button", { class: "link", type: "button", onclick: () => redownload(m) }, "Tải lại") : (m.file_url ? h("a", { class: "link", href: m.file_url, target: "_blank", rel: "noopener" }, "Mở") : null))));
-    return src ? h("div", { class: "vidwrap" }, h("video", { class: "vid", controls: true, preload: "metadata", playsinline: true, src }), card) : card;
+    const vcap = m.kind === "video" && m.text && m.text !== m.file_name && m.text !== "video" ? h("div", { class: "photo-cap" }, m.text) : null;
+    return src ? h("div", { class: "vidwrap" }, h("video", { class: "vid", controls: true, preload: "metadata", playsinline: true, src }), vcap, card) : h("div", { class: "vidwrap" }, vcap, card);
   }
   if (m.kind === "file" || m.kind === "photo") {
     let act = null;
@@ -647,20 +655,21 @@ async function sendFiles(files, caption) {
   const list = [...files]; let ok = 0;
   const photoIdx = list.map((f, i) => (PHOTO.test(f.type) ? i : -1)).filter((i) => i >= 0), nPhoto = photoIdx.length, layoutId = String(Date.now());
   const single = list.length === 1 && nPhoto === 1;
+  const isVideoFile = (f) => /^video\//.test(f.type || "") || /\.(mp4|mov|m4v|webm|mkv|3gp)$/i.test(f.name || ""), singleVideo = list.length === 1 && isVideoFile(list[0]);
   for (let i = 0; i < list.length; i++) {
     const f = list[i]; toast("Đang gửi " + (i + 1) + "/" + list.length + ": " + f.name, 30000);
     const form = new FormData(); form.append("type", typeParam());
     const photo = PHOTO.test(f.type); form.append("kind", photo ? "photo" : "file");
     if (photo) { const d = await imageDims(f); form.append("width", d.w); form.append("height", d.h); }
     if (photo && nPhoto > 1) { form.append("groupLayoutId", layoutId); form.append("totalItemInGroup", String(nPhoto)); form.append("isGroupLayout", "1"); form.append("idInGroup", String(photoIdx.indexOf(i))); }
-    if (photo && single && caption) form.append("desc", caption);
+    if ((photo && single && caption) || (singleVideo && caption)) form.append("desc", caption);      // ảnh đơn / video đơn: chú thích đi cùng tin
     form.append("file", f, f.name);
     const r = await apiForm("/api/thread/" + encodeURIComponent(S.cur.id) + "/sendfile", form);
     if (r.error) { setNotice("Không gửi được “" + f.name + "”: " + r.error, true); continue; }
     ok++;
     if (r.message) { if (photo) r.message.localUrl = URL.createObjectURL(f); mergeMsgs([r.message]); touchConv(S.cur.type, S.cur.id, r.message, { open: true }); S.stick = true; renderMsgs(); renderList(); }
   }
-  if (caption && !single && ok) await sendRaw(caption);
+  if (caption && !single && !singleVideo && ok) await sendRaw(caption);
   if (ok) { setNotice(""); toast("Đã gửi " + ok + " tệp."); } else $("toast").hidden = true;
 }
 async function toggleRecord() {
@@ -1390,6 +1399,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
 });
 try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
-if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg });   // chỉ để kiểm thử giao diện (jsdom)
+if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg, sendFiles });   // chỉ để kiểm thử giao diện (jsdom)
 applyScale(); setTab("chats"); updateSendButtons(); privacyInit(); boot();
 })();
