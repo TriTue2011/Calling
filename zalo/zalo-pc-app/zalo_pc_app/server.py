@@ -169,6 +169,7 @@ from . import retention as retention_mod
 from . import cursor_store as cursor_store_mod
 from . import engine_seam
 from . import file_inbox as file_inbox_mod
+from . import reaction_store as reaction_store_mod
 from . import media_endpoints
 from . import message_store as message_store_mod
 from . import events as events_mod
@@ -1274,6 +1275,8 @@ class AppState(events_calls.CallEvents, video_calls.VideoCalls, incoming_calls.I
         self.file_inbox = file_inbox_mod.FileInbox(
             os.path.join(data_dir, file_inbox_mod.DOWNLOADS_DIRNAME),
             http_get_bytes=self._file_http_get_bytes)
+        # Cảm xúc theo tin (reaction_store.py): nguồn là sự kiện ctrl + cảm xúc do chính ta thả.
+        self.reactions = reaction_store_mod.ReactionStore(os.path.join(data_dir, "reactions.json"))
         # Sync poller (long-poll 99100): chay nen khi co phien +
         # poll_msg_urls; None khi chua co endpoint (phien cu) hoac
         # chua dang nhap. Duoc bao ve boi _sync_lock (start/stop
@@ -2220,6 +2223,11 @@ class AppState(events_calls.CallEvents, video_calls.VideoCalls, incoming_calls.I
         reaction theo shape da co trong webhooks.py (event la
         dict {threadId, msgId, uidFrom, icon, type} — xem
         ctrl_poll.extract_reactions)."""
+        try:
+            ttype = "group" if event.get("type") in (1, "1", "group") else "user"
+            self.reactions.add(ttype, event.get("threadId"), event.get("msgId"), event.get("uidFrom"), event.get("icon"))
+        except Exception:  # noqa: BLE001 - lưu cảm xúc không được làm hỏng webhook
+            pass
         try:
             account_id = (self.session or {}).get("uid", "")
             webhooks_mod.dispatch_reaction(
@@ -3661,6 +3669,15 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
         # GET /api/file/list?thread_type=user|group&thread_id=<id>
         # — file da nhan/tai cua mot thread (de UI gan trang thai
         # tai xuong + nut chuyen tiep vao bong bong tin).
+        if path == "/api/reaction/list":
+            if self._require_login() is None:
+                return self._send_json({"error": "chua_dang_nhap"}, status=401)
+            import urllib.parse as _up
+            qs = dict(_up.parse_qsl(_up.urlparse(self.path).query))
+            tt, tid = qs.get("thread_type") or "user", qs.get("thread_id") or ""
+            if tt not in ("user", "group") or not tid:
+                return self._send_json({"error": "thieu thread_type/thread_id"}, status=400)
+            return self._send_json({"reactions": STATE.reactions.for_thread(tt, tid), "thread_id": tid, "type": tt})
         if path == "/api/file/list":
             sess = self._require_login()
             if sess is None:
@@ -4224,6 +4241,15 @@ class Handler(media_ctl_calls.MediaControl, voice_calls.VoiceHandler, video_call
                 body = fields
             status, obj = services_mod.handle_svc(
                 STATE, action, body, files=files)
+            if action == "add_reaction" and status == 200 and isinstance(obj, dict) and not obj.get("error") and isinstance(body, dict):
+                try:      # cảm xúc của CHÍNH ta: lưu để WebUI hiện ngay (Zalo không phát lại cho người thả)
+                    from .services import REACTION_ICONS as _RI
+                    _ic = str(body.get("icon") or "").strip()
+                    _code = _RI[_ic][1] if _ic in _RI else str(body.get("r_icon") or "")
+                    STATE.reactions.add("group" if body.get("type") == "group" else "user", str(body.get("thread_id") or ""),
+                                        body.get("msg_id"), str((STATE.session or {}).get("uid") or ""), _code)
+                except Exception:  # noqa: BLE001
+                    pass
             if action == "undo_message" and status == 200 and isinstance(obj, dict) and not obj.get("error") and isinstance(body, dict):
                 STATE._apply_recall("group" if body.get("type") == "group" else "user", str(body.get("thread_id") or ""),
                                     body.get("msg_id"), body.get("cli_msg_id"))

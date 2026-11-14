@@ -33,6 +33,9 @@ const ICONS = {
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
   panel: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M15 4.5v15"/>',
   more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
+  share: '<path d="M14 5l6 6-6 6M20 11H9a5 5 0 0 0-5 5v2"/>',
+  check: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.5l2.7 2.7L16 9.5"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2.2"/><path d="M15.5 8.5V6.7A2.2 2.2 0 0 0 13.3 4.5H6.7A2.2 2.2 0 0 0 4.5 6.7v6.6a2.2 2.2 0 0 0 2.2 2.2h1.8"/>',
   db: '<ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 12v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6"/>',
   globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.4 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.4-3.5-8.5s1-6 3.5-8.5z"/>',
@@ -113,7 +116,7 @@ const S = {
   filter: { chats: "all", contacts: "friends", calls: "all" }, kind: "all", cmenu: "friends", csort: "az", cfilter: "all",
   cur: null, msgs: [], files: {}, lastTime: 0, pollT: null, stick: true, info: false,
   calls: { active: null, calls: [] },
-  catalog: null, svcGroup: "all", svcQ: "", svcOpen: null, setSec: "account", pending: [], replyTo: null, mentions: [], recalled: new Set(), deleted: new Set(), ringId: "",
+  catalog: null, svcGroup: "all", svcQ: "", svcOpen: null, setSec: "account", pending: [], replyTo: null, mentions: [], recalled: new Set(), deleted: new Set(), reacts: {}, sel: null, ringId: "",
   watchOpen: null, watchMsgs: {}, rec: null, qrT: null, sound: true, me: { avatar: "" },
 };
 const rowKey = (r) => (r.type || r.thread_type) + "|" + (r.id || r.thread_id);
@@ -330,7 +333,7 @@ async function loadHistory() {
   if (S.cur !== cur) return;
   if (d.error) return setNotice("Lỗi tải lịch sử: " + d.error, true);
   setNotice(d.notice || "");
-  await loadFiles(); mergeMsgs(d.messages || []); renderMsgs();
+  await loadFiles(); await loadReactions(); mergeMsgs(d.messages || []); renderMsgs();
   const ids = (d.messages || []).map((m) => m.id).filter((x) => x && x !== "me");
   if (ids.length) api("/api/thread/" + encodeURIComponent(cur.id) + "/seen", "POST", { type: typeParam(), msg_ids: ids }).catch(() => {});
 }
@@ -404,12 +407,14 @@ function renderMsgs() {
     }
     const first = !(prev && prev._out === m._out && prev.sender_id === m.sender_id && m._t - prev._t < 120);
     const sender = { id: String(m.sender_id), name: m.sender_name || (S.cur.type === "user" && !m._out ? S.cur.name : ""), avatar: S.cur.type === "user" && !m._out ? S.cur.avatar : "" };
-    frag.append(h("div", { class: "msg " + (m._out ? "out" : "in") },
+    frag.append(h("div", { class: "msg " + (m._out ? "out" : "in") + (S.sel ? " selmode" + (S.sel.has(m._id) ? " picked" : "") : "") },
       m._out ? null : (first ? avatar(sender, "sm") : h("span", { class: "gap" })),
       h("div", { class: "mcol" },
         !m._out && S.cur.type === "group" && first && (m.sender_name || m.sender_id) ? h("div", { class: "who" }, m.sender_name || m.sender_id) : null,
-        h("div", { class: "bub", onclick: (e) => { if (window.matchMedia("(hover: none)").matches && !e.target.closest("a,button,audio")) e.currentTarget.closest(".msg").classList.toggle("acts"); } }, quoteBlock(m), bubbleBody(m), h("span", { class: "bt" }, fmtTime(m._t))),
-        msgActions(m))));
+        h("div", { class: "bub", oncontextmenu: (e) => { e.preventDefault(); openMsgMenu(m, e.clientX, e.clientY); }, onclick: (e) => { if (S.sel) { toggleSel(m); return; } if (window.matchMedia("(hover: none)").matches && !e.target.closest("a,button,audio")) e.currentTarget.closest(".msg").classList.toggle("acts"); } }, quoteBlock(m), bubbleBody(m), h("span", { class: "bt" }, fmtTime(m._t))),
+        reactChips(m),
+        S.sel ? null : msgActions(m)),
+      S.sel ? h("span", { class: "selbox" + (S.sel.has(m._id) ? " on" : ""), "aria-hidden": "true" }, S.sel.has(m._id) ? "✓" : "") : null));
     prev = m;
   }
   box.replaceChildren(frag);
@@ -451,7 +456,8 @@ async function sendText() {
 // ---- thao tác trên tin: trả lời, cảm xúc, thu hồi, sao chép (dùng dịch vụ có sẵn của app) ----
 const msgRaw = (m) => (m && m.raw && typeof m.raw === "object") ? m.raw : {};
 const QUICK_REACTIONS = [["like", "👍 Thích"], ["heart", "❤️ Yêu thích"], ["haha", "😆 Haha"], ["wow", "😮 Wow"], ["cry", "😢 Buồn"], ["angry", "😡 Phẫn nộ"]];
-const canReply = (m) => !!(m && m.id && (m.kind || "text") === "text" && msgRaw(m).cliMsgId && (msgRaw(m).uidFrom || m.sender_id));
+const canReply = (m) => !!(m && m.id && m.kind !== "system" && msgRaw(m).cliMsgId && (msgRaw(m).uidFrom || m.sender_id));
+const msgPreview = (m) => (m.kind || "text") === "text" ? String(m.text || "") : isVideoMsg(m) ? "[Video]" + (m.file_name ? " " + m.file_name : "") : isImageMsg(m) ? "[Ảnh]" + (m.file_name ? " " + m.file_name : "") : m.kind === "voice" ? "[Tin nhắn thoại]" : "[Tệp]" + (m.file_name ? " " + m.file_name : "");
 const canReact = (m) => !!(m && m.kind !== "system" && msgRaw(m).msgId && msgRaw(m).cliMsgId);
 const canUndo = (m) => !!(m && m._out && m.kind !== "system" && msgRaw(m).msgId && msgRaw(m).cliMsgId);
 const threadBody = () => ({ thread_id: String(S.cur.id), type: typeParam() });
@@ -459,13 +465,13 @@ function setReply(m) {
   S.replyTo = m || null; const bar = $("reply-bar"); if (!bar) return;
   if (!m) { bar.hidden = true; bar.replaceChildren(); return; }
   const who = m._out ? "chính mình" : (m.sender_name || (S.cur && S.cur.type === "user" ? S.cur.name : "") || "");
-  put(bar, h("div", { class: "rb-main" }, h("div", { class: "rb-t" }, "Trả lời" + (who ? " " + who : "")), h("div", { class: "rb-x" }, String(m.text || "").slice(0, 120))),
+  put(bar, h("div", { class: "rb-main" }, h("div", { class: "rb-t" }, "Trả lời" + (who ? " " + who : "")), h("div", { class: "rb-x" }, msgPreview(m).slice(0, 120))),
     h("button", { class: "icon-btn", type: "button", "aria-label": "Bỏ trả lời", onclick: () => setReply(null) }, "✕"));
   bar.hidden = false; $("msg-in").focus();
 }
 async function sendReply(text, m) {
   const raw = msgRaw(m);
-  const r = await api("/api/svc/quote_message", "POST", Object.assign(threadBody(), { text, msg_id: String(m.id), qmsg_owner: String(raw.uidFrom || m.sender_id), qmsg_cli_id: String(raw.cliMsgId), qmsg_type: 1, qmsg_ts: Number(raw.ts || 0) || 0, qmsg: String(m.text || "") }));
+  const r = await api("/api/svc/quote_message", "POST", Object.assign(threadBody(), { text, msg_id: String(m.id), qmsg_owner: String(raw.uidFrom || m.sender_id), qmsg_cli_id: String(raw.cliMsgId), qmsg_type: 1, qmsg_ts: Number(raw.ts || 0) || 0, qmsg: msgPreview(m) }));
   if (r.error) { setNotice("Lỗi trả lời: " + r.error, true); return false; }
   setReply(null); setNotice(""); await loadHistory(); return true;
 }
@@ -479,13 +485,111 @@ async function undoMsg(m) {
   if (r.error) return toast("Lỗi thu hồi: " + r.error, 5000);
   S.recalled.add(m._id); renderMsgs(); toast("Đã thu hồi tin nhắn");
 }
+// ---- cảm xúc hiện dưới tin, menu chuột phải / «⋯», chuyển tiếp, lưu về máy, chọn nhiều, xóa phía tôi (như Zalo PC) ----
+const REACT_EMOJI = { "/-heart": "❤️", "/-strong": "👍", ":>": "😆", ":o": "😮", ":-((": "😢", ":-h": "😡", ":-*": "😘", ":')": "😂", "/-weak": "👎", "/-rose": "🌹", "/-break": "💔", "/-shit": "💩", ";xx": "😍", ";-/": "😕", ";-)": "😉" };
+const reactKey = (m) => String(msgRaw(m).msgId || m.id || "");
+function reactChips(m) {
+  const r = S.reacts[reactKey(m)]; if (!r) return null;
+  const by = {}; for (const [uid, ic] of Object.entries(r)) { (by[ic] = by[ic] || []).push(uid); }
+  const chips = Object.entries(by).map(([ic, uids]) => h("span", { class: "rchip" + (uids.includes(S.uid) ? " mine" : ""), title: uids.length + " người" }, (REACT_EMOJI[ic] || ic), uids.length > 1 ? h("b", {}, String(uids.length)) : null));
+  return chips.length ? h("div", { class: "rchips" }, chips) : null;
+}
+async function loadReactions() {
+  if (!S.cur) return; const cur = S.cur;
+  try {
+    const d = await api("/api/reaction/list?thread_type=" + typeParam() + "&thread_id=" + encodeURIComponent(cur.id));
+    if (S.cur !== cur || d.error) return;
+    const now = JSON.stringify(d.reactions || {});
+    if (now !== S._reactsJson) { S._reactsJson = now; S.reacts = d.reactions || {}; renderMsgs(); }
+  } catch (e) { /* lần sau */ }
+}
+setInterval(() => { if (S.cur && !document.hidden) loadReactions(); }, 4000);
+const mediaSrc = (m) => { const rec = S.files[m._id]; return rec && rec.status === "downloaded" ? downloadUrl(m) : (m.localUrl || ""); };
+function saveToDevice(m) {
+  const src = mediaSrc(m) || (!m._out && m.file_url) || "";
+  if (!src) return toast("Tệp chưa có trên máy chủ để lưu.", 3000);
+  const a = h("a", { href: src, download: (S.files[m._id] && S.files[m._id].file_name) || m.file_name || "tep", target: "_blank", rel: "noopener" }); document.body.append(a); a.click(); a.remove();
+}
+async function deleteMine(list) {
+  const items = list.filter((m) => msgRaw(m).msgId && msgRaw(m).cliMsgId);
+  if (!items.length) return toast("Tin này chưa có mã để xóa phía mình.", 3500);
+  if (!confirm("Xóa " + items.length + " tin chỉ ở phía bạn? Người kia vẫn còn thấy.")) return;
+  let ok = 0, err = "";
+  for (const m of items) {
+    const raw = msgRaw(m), r = await api("/api/svc/delete_message", "POST", Object.assign(threadBody(), { msg_id: String(raw.msgId), cli_msg_id: String(raw.cliMsgId), owner_id: String(raw.uidFrom || m.sender_id || ""), only_me: true }));
+    if (r.error) err = r.error; else { ok++; S.deleted.add(m._id); }
+  }
+  renderMsgs(); toast(ok ? "Đã xóa " + ok + " tin ở phía bạn" + (err ? " (một số lỗi: " + err + ")" : "") : "Lỗi xóa: " + err, ok ? 2500 : 5000);
+}
+function msgMenuItems(m) {
+  const it = [];
+  if (canReply(m)) it.push({ label: "Trả lời", icon: "chat", run: () => setReply(m) });
+  it.push({ label: "Chuyển tiếp", icon: "share", run: () => openForward([m]) });
+  if ((m.kind || "text") !== "text" && (mediaSrc(m) || (!m._out && m.file_url))) it.push({ label: "Lưu về máy", icon: "file", run: () => saveToDevice(m) });
+  if ((m.kind || "text") === "text" && m.text) it.push({ label: "Sao chép", icon: "copy", run: () => copyText(m.text, "tin nhắn") });
+  it.push({ label: "Chọn nhiều tin", icon: "check", run: () => enterSelect(m) });
+  it.push("-");
+  if (msgRaw(m).msgId && msgRaw(m).cliMsgId) it.push({ label: "Xóa chỉ ở phía tôi", icon: "trash", red: true, run: () => deleteMine([m]) });
+  if (canUndo(m)) it.push({ label: "Thu hồi", icon: "trash", red: true, run: () => undoMsg(m) });
+  return it;
+}
+function openMsgMenu(m, x, y) {
+  closePop();
+  const bar = canReact(m) ? h("div", { class: "rbar" }, QUICK_REACTIONS.map(([icon, label]) => h("button", { type: "button", title: label, "aria-label": label, onclick: () => { closePop(); reactTo(m, icon); } }, label.split(" ")[0]))) : null;
+  const el = h("div", { class: "pop msgmenu", role: "menu" }, bar, msgMenuItems(m).map((it) => it === "-" ? h("hr") :
+    h("button", { type: "button", role: "menuitem", class: it.red ? "red" : "", onclick: () => { closePop(); it.run(); } }, it.icon ? svg(it.icon) : null, it.label)));
+  document.body.append(el); popEl = el;
+  const w = el.offsetWidth, hgt = el.offsetHeight;
+  el.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + "px"; el.style.top = Math.max(8, Math.min(y, window.innerHeight - hgt - 8)) + "px";
+  const first = el.querySelector("button"); if (first) first.focus();
+}
+function enterSelect(m) { S.sel = new Set(m ? [m._id] : []); renderSelBar(); renderMsgs(); }
+function exitSelect() { S.sel = null; renderSelBar(); renderMsgs(); }
+function toggleSel(m) { if (!S.sel) return; if (S.sel.has(m._id)) S.sel.delete(m._id); else S.sel.add(m._id); renderSelBar(); renderMsgs(); }
+const selectedMsgs = () => S.msgs.filter((m) => S.sel && S.sel.has(m._id));
+function renderSelBar() {
+  const bar = $("selbar"); if (!bar) return;
+  if (!S.sel) { bar.hidden = true; bar.replaceChildren(); return; }
+  const n = S.sel.size;
+  put(bar, h("span", { class: "sel-n" }, "Đã chọn " + n + " tin"),
+    h("button", { class: "link", type: "button", disabled: !n, onclick: () => openForward(selectedMsgs()) }, "Chuyển tiếp"),
+    h("button", { class: "link red", type: "button", disabled: !n, onclick: async () => { await deleteMine(selectedMsgs()); exitSelect(); } }, "Xóa phía tôi"),
+    h("button", { class: "link", type: "button", onclick: exitSelect }, "Hủy"));
+  bar.hidden = false;
+}
+function openForward(list) {
+  if (!list.length) return;
+  const old = document.getElementById("fwd-dlg"); if (old) old.remove();
+  const rows = Object.values(S.conv).filter((c) => c.thread_id && !(S.cur && c.thread_type === S.cur.type && String(c.thread_id) === String(S.cur.id))).sort((a, b) => (b.last_ts || 0) - (a.last_ts || 0));
+  const box = h("div", { class: "fwd-list" });
+  const q = h("input", { type: "search", placeholder: "Tìm hội thoại…", "aria-label": "Tìm hội thoại để chuyển tiếp" });
+  const draw = () => { const k = plain(q.value); put(box, rows.filter((c) => !k || plain(c.name || c.thread_id).includes(k)).slice(0, 60).map((c) =>
+    h("button", { type: "button", class: "fwd-row", onclick: () => doForward(list, c, dlg) }, avatar({ id: c.thread_id, name: c.name, avatar: c.avatar }, "sm"), h("span", {}, c.name || c.thread_id)))); };
+  q.addEventListener("input", draw);
+  const dlg = h("div", { class: "fwd-dlg", id: "fwd-dlg", role: "dialog", "aria-label": "Chuyển tiếp tin nhắn" },
+    h("div", { class: "fwd-box" }, h("div", { class: "fwd-t" }, "Chuyển tiếp " + list.length + " tin"), q, box, h("button", { class: "link", type: "button", onclick: () => dlg.remove() }, "Đóng")));
+  document.body.append(dlg); draw(); q.focus();
+}
+async function doForward(list, conv, dlg) {
+  let ok = 0, err = "";
+  for (const m of list) {
+    let r;
+    if ((m.kind || "text") === "text") r = await api("/api/thread/" + encodeURIComponent(conv.thread_id) + "/send", "POST", { type: conv.thread_type, message: m.text || "" });
+    else if (S.files[m._id] && S.files[m._id].status === "downloaded") r = await api("/api/file/forward", "POST", { thread_type: typeParam(), thread_id: String(S.cur.id), msg_id: m._id, to_thread_type: conv.thread_type, to_thread_id: String(conv.thread_id) });
+    else r = { error: "tệp chưa tải về máy chủ" };
+    if (r && r.error) err = r.error; else ok++;
+  }
+  dlg.remove(); if (S.sel) exitSelect();
+  toast(ok ? "Đã chuyển tiếp " + ok + " tin tới " + (conv.name || conv.thread_id) + (err ? " (một số lỗi: " + err + ")" : "") : "Lỗi chuyển tiếp: " + err, ok ? 2500 : 5000);
+}
 function msgActions(m) {
   const b = [];
   if (canReact(m)) b.push(h("button", { class: "mact", type: "button", "data-pop": "1", onclick: (e) => popup(e.currentTarget, QUICK_REACTIONS.map(([icon, label]) => ({ label, run: () => reactTo(m, icon) }))) }, "Cảm xúc"));
   if (canReply(m)) b.push(h("button", { class: "mact", type: "button", onclick: () => setReply(m) }, "Trả lời"));
   if ((m.kind || "text") === "text" && m.text) b.push(h("button", { class: "mact", type: "button", onclick: () => copyText(m.text, "tin nhắn") }, "Sao chép"));
   if (canUndo(m)) b.push(h("button", { class: "mact red", type: "button", onclick: () => undoMsg(m) }, "Thu hồi"));
-  return b.length ? h("div", { class: "macts" }, b) : null;
+  b.push(h("button", { class: "mact more", type: "button", "aria-label": "Thêm", title: "Thêm", "data-pop": "1", onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); openMsgMenu(m, r.left, r.bottom + 4); } }, "⋯"));
+  return h("div", { class: "macts" }, b);
 }
 const REPLY_KIND = { photo: "Ảnh", file: "Tệp", voice: "Tin nhắn thoại", video: "Video" };
 function quoteBlock(m) {
@@ -1286,6 +1390,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; S.q = ""; renderList(); $("q").blur(); }
 });
 try { applyTheme(localStorage.getItem("zalo-theme") || "auto"); S.sound = localStorage.getItem("zalo-sound") !== "0"; S.info = localStorage.getItem("zalo-info") !== "0"; } catch (e) { /* mặc định */ }
-if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody });   // chỉ để kiểm thử giao diện (jsdom)
+if (typeof window.__ZALO_TEST_HOOK__ === "function") window.__ZALO_TEST_HOOK__({ S, bubbleBody, renderMsgs, openMsgMenu, msgMenuItems, canReply, loadReactions, enterSelect, exitSelect, normMsg });   // chỉ để kiểm thử giao diện (jsdom)
 applyScale(); setTab("chats"); updateSendButtons(); privacyInit(); boot();
 })();

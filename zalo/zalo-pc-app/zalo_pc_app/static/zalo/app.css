@@ -431,3 +431,27 @@ html[data-dev="touch"] .pop button { padding: .875rem 1rem; }
 .stickers .snote { grid-column: 1 / -1; margin: 0; padding: 0.75rem 0.25rem; font-size: 0.8125rem; color: var(--muted); text-align: center; }
 .vidwrap { display: grid; gap: 0.375rem; max-width: min(26rem, 100%); }
 .bub video.vid { display: block; width: 100%; max-height: 22rem; border-radius: 0.5rem; background: #000; }
+/* cảm xúc dưới tin, menu tin, chọn nhiều, hộp chuyển tiếp (14/11/2026) */
+.rchips { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.1875rem; }
+.msg.out .rchips { justify-content: flex-end; }
+.rchip { display: inline-flex; align-items: center; gap: 0.1875rem; padding: 0.0625rem 0.4375rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: 0.8125rem; line-height: 1.4; }
+.rchip.mine { border-color: var(--accent); background: var(--accent-soft); }
+.rchip b { font-size: 0.6875rem; font-weight: 600; }
+.mact.more { font-weight: 700; letter-spacing: 0.1em; }
+.pop.msgmenu { min-width: 12.5rem; }
+.rbar { display: flex; justify-content: space-between; gap: 0.125rem; padding: 0.25rem 0.5rem 0.375rem; border-bottom: 1px solid var(--line); margin-bottom: 0.25rem; }
+.pop .rbar button { width: auto; padding: 0.1875rem 0.3125rem; font-size: 1.25rem; border-radius: 0.5rem; }
+.selbar { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 1rem; background: var(--surface); border-top: 1px solid var(--line); }
+.selbar[hidden] { display: none; }
+.selbar .sel-n { flex: 1; font-size: 0.875rem; }
+.msg.selmode { cursor: pointer; }
+.msg.selmode.picked .bub { outline: 2px solid var(--accent); }
+.selbox { align-self: center; width: 1.25rem; height: 1.25rem; margin: 0 0.5rem; border: 2px solid var(--line); border-radius: 50%; display: grid; place-items: center; font-size: 0.75rem; flex: none; }
+.selbox.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.fwd-dlg { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.45); display: grid; place-items: center; }
+.fwd-box { width: min(26rem, 92vw); max-height: 80vh; display: grid; grid-template-rows: auto auto 1fr auto; gap: 0.5rem; padding: 1rem; background: var(--surface); border-radius: 0.75rem; border: 1px solid var(--line); box-shadow: var(--shadow); }
+.fwd-t { font-weight: 600; }
+.fwd-box input { padding: 0.5rem 0.75rem; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.fwd-list { overflow: auto; display: grid; align-content: start; }
+.fwd-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.25rem; border: 0; background: none; text-align: left; border-radius: 0.5rem; }
+.fwd-row:hover { background: var(--hover); }
